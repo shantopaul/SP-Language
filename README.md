@@ -1,79 +1,55 @@
 <div align="center">
 
-# SP Programming Language
+<br>
 
-### Familiar Syntax. Modern Power. Native Performance.
+```
+   ███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ 
+   ██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ 
+   ███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗
+   ╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║
+   ███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝
+   ╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
+```
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-0.0.0--alpha-orange.svg)](#versioning)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-brightgreen.svg)](#target-platforms)
-[![Language](https://img.shields.io/badge/Built%20With-C%2B%2B%2017-red.svg)](#tech-stack)
-[![Backend](https://img.shields.io/badge/Backend-LLVM-purple.svg)](#compiler-architecture)
+### A modern, general-purpose programming language
 
----
+*Familiar Syntax · Modern Safety · Native Performance*
 
-**SP** is a modern, general-purpose programming language designed for developers who already know **C**, **C++**, **Java**, or **C#**. It combines the familiar syntax of these languages with modern safety features, powerful tooling, and native performance — all compiled to machine code via **LLVM**.
+<br>
 
-[Getting Started](#-getting-started) · [Language Tour](#-language-tour) · [Documentation](#-documentation) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+&nbsp;
+[![Version](https://img.shields.io/badge/version-0.0.0_alpha-orange?style=for-the-badge)](#-roadmap)
+&nbsp;
+[![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](#-tech-stack)
+&nbsp;
+[![LLVM](https://img.shields.io/badge/LLVM-17%2B-262D3A?style=for-the-badge&logo=llvm&logoColor=white)](#-compiler-architecture)
+
+[![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](#-platform-support)
+&nbsp;
+[![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](#-platform-support)
+&nbsp;
+[![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](#-platform-support)
+
+<br>
+
+[Why SP?](#-why-sp) · [Quick Start](#-quick-start) · [Language Guide](#-language-guide) · [Architecture](#-compiler-architecture) · [Roadmap](#-roadmap) · [Docs](#-documentation) · [Contributing](#-contributing)
+
+<br>
 
 </div>
 
 ---
 
-## 🎯 Why SP?
+## 💡 Why SP?
 
-Most modern languages force you to learn entirely new syntax and paradigms. **SP takes a different approach:**
+**SP** is a programming language for developers who value both **familiarity** and **power**. If you know C, C++, Java, or C# — you already know how to write SP.
 
-| Problem | SP's Solution |
-|---------|---------------|
-| New languages have unfamiliar syntax | SP uses syntax you already know from C/C++/Java/C# |
-| Scripting languages are too slow | SP compiles to native machine code via LLVM |
-| C/C++ lack modern safety features | SP has null safety, type inference, and managed memory |
-| Java/C# require heavy runtimes | SP produces standalone native executables |
-| Most languages lock you into one syntax style | SP accepts multiple familiar syntax styles |
+Unlike other modern languages that force entirely new syntax paradigms, SP meets developers where they are:
 
-> **If you know Java, C#, or C++ — you can write SP code on day one.**
-
----
-
-## ✨ Key Features
-
-<table>
-<tr>
-<td width="50%">
-
-### 🔒 Modern Type Safety
 ```sp
-int age = 20;
-string name = "Shanto";
-bool active = true;
+import std.io;
 
-// Type inference
-var score = 95.5;
-const PI = 3.14159;
-```
-
-</td>
-<td width="50%">
-
-### 🛡️ Null Safety
-```sp
-User? user = findUser(id);
-
-// Safe access
-println(user?.name);
-
-// Null fallback
-string name = user?.name ?? "Unknown";
-```
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### 🏗️ Classes & OOP
-```sp
 class User {
     private string name;
     private int age;
@@ -83,172 +59,119 @@ class User {
         this.age = age;
     }
 
-    public fn introduce() {
-        println("I'm ${name}, age ${age}");
-    }
-}
-```
-
-</td>
-<td width="50%">
-
-### 🧬 Generics
-```sp
-class Box<T> {
-    T value;
-
-    Box(T value) {
-        this.value = value;
-    }
-
-    T getValue() {
-        return value;
+    public fn greet() {
+        println("Hi, I'm ${name} and I'm ${age} years old.");
     }
 }
 
-Box<int> box = new Box<int>(42);
-```
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### ⚡ Functional Programming
-```sp
-let numbers = [1, 2, 3, 4, 5];
-
-let result = numbers
-    .map(x => x * 2)
-    .filter(x => x > 5);
-
-// Lambda functions
-var add = (int a, int b) => a + b;
-```
-
-</td>
-<td width="50%">
-
-### 🔄 Pattern Matching
-```sp
-match day {
-    1 => println("Monday"),
-    2 => println("Tuesday"),
-    3 => println("Wednesday"),
-    _ => println("Other day")
+fn main() {
+    User user = new User("Shanto", 21);
+    user.greet();
 }
 ```
 
-</td>
-</tr>
-<tr>
-<td width="50%">
+> **☝️ If you understood that code instantly — SP is for you.**
 
-### 🌐 Async Programming
-```sp
-async fn fetchData() {
-    let response = await http.get(url);
-    println(response.body);
-}
-```
+<br>
 
-</td>
-<td width="50%">
+### How SP Compares
 
-### 🛠️ Error Handling
-```sp
-// Traditional try/catch
-try {
-    riskyOperation();
-} catch (Exception e) {
-    println(e.message);
-}
+| Feature | C++ | Java | C# | Rust | Go | **SP** |
+|:--------|:---:|:----:|:--:|:----:|:--:|:------:|
+| Native binaries | ✅ | ❌ | ❌ | ✅ | ✅ | **✅** |
+| No runtime needed | ✅ | ❌ | ❌ | ✅ | ❌ | **✅** |
+| Null safety | ❌ | ❌ | ✅ | ✅ | ❌ | **✅** |
+| Type inference | Partial | Partial | ✅ | ✅ | ✅ | **✅** |
+| Generics | ✅ | ✅ | ✅ | ✅ | ✅ | **✅** |
+| Pattern matching | Limited | ✅ | ✅ | ✅ | ❌ | **✅** |
+| Familiar OOP syntax | ✅ | ✅ | ✅ | ❌ | ❌ | **✅** |
+| Built-in package manager | ❌ | ❌ | ✅ | ✅ | ✅ | **✅** |
+| Human-friendly errors | ❌ | ❌ | ❌ | ✅ | ✅ | **✅** |
+| Multiple syntax styles | ❌ | ❌ | ❌ | ❌ | ❌ | **✅** |
 
-// Modern Result type
-fn divide(int a, int b) -> Result<int, Error> {
-    if (b == 0) return Error("Division by zero");
-    return Ok(a / b);
-}
-```
+<br>
 
-</td>
-</tr>
-</table>
+### Core Design Principles
+
+| Principle | Description |
+|:----------|:------------|
+| **🔤 Familiar Syntax** | Recognizable constructs from C/C++/Java/C# — zero learning curve for experienced devs |
+| **🔒 Modern Safety** | Static typing, null safety (`?`, `?.`, `??`), Result types, and managed memory |
+| **⚡ Native Performance** | Compiles directly to machine code via LLVM — no VM, no interpreter |
+| **🧩 Multi-Style** | Write `fn add() -> int` or `int add()` — both compile to the same native code |
+| **🛠️ Batteries Included** | Compiler, package manager, formatter, test runner, language server, debugger |
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
-### Hello, SP!
+### Installation
 
-Create a file called `hello.sp`:
+> ⚠️ **SP is currently in early development (pre-alpha).** Build from source to try it out.
+
+```bash
+# Clone the repository
+git clone https://github.com/shantopaul/SP-Language.git
+cd SP-Language
+
+# Build (requires C++17 compiler, CMake 3.20+, LLVM 17+)
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build .
+```
+
+### Hello, World!
+
+Create `hello.sp`:
 
 ```sp
-import std.io;
-
 fn main() {
     println("Hello, SP!");
 }
 ```
 
-Compile and run:
-
 ```bash
-spc run hello.sp
-```
-
-Output:
-
-```
+$ spc run hello.sp
 Hello, SP!
 ```
 
-Build a native executable:
-
 ```bash
-spc build hello.sp
-./hello          # Linux/macOS
-.\hello.exe      # Windows
+$ spc build hello.sp        # Produces native executable
+$ ./hello                    # Run it directly
+Hello, SP!
 ```
 
----
-
-### Your First Project
+### Create a Project
 
 ```bash
-# Initialize a new SP project
-spm init my-project
-cd my-project
-
-# Project structure created:
-# my-project/
-# ├── sp.toml
-# ├── src/
-# │   └── main.sp
-# ├── tests/
-# └── README.md
-
-# Run your project
-spm run
-
-# Build for release
-spm build --release
+$ spm init my-app
+$ cd my-app
+$ spm run
 ```
 
-### Project Configuration (`sp.toml`)
+Generated project structure:
 
+```
+my-app/
+├── sp.toml              # Project configuration
+├── src/
+│   └── main.sp          # Entry point
+├── tests/
+│   └── main_test.sp     # Tests
+└── README.md
+```
+
+`sp.toml`:
 ```toml
 [package]
-name = "my-project"
-version = "1.0.0"
-authors = ["Your Name"]
+name = "my-app"
+version = "0.1.0"
+authors = ["Shanto Paul"]
 
 [language]
 version = "1.0"
 
 [dependencies]
-http = "1.2.0"
-json = "2.0.0"
 
 [build]
 entry = "src/main.sp"
@@ -256,495 +179,664 @@ entry = "src/main.sp"
 
 ---
 
-## 📖 Language Tour
+## 📖 Language Guide
 
-### Variables & Types
+<details>
+<summary><b>📦 Variables & Types</b></summary>
+
+<br>
 
 ```sp
-// Explicit types
+// Explicit typing
 int age = 21;
 double salary = 50000.50;
-float percentage = 95.5;
-bool isStudent = true;
+float rate = 95.5;
+bool active = true;
 char grade = 'A';
 string name = "Shanto";
 
 // Type inference
-var count = 42;           // inferred as int
-let message = "Hello";    // inferred as string
+var count = 42;            // int
+let message = "Hello";     // string (immutable)
 
 // Constants
-const int MAX_USERS = 100;
-const PI = 3.14159;
+const int MAX = 100;
+const PI = 3.14159;        // inferred const
 ```
 
-### Primitive Types
+**Primitive types:**
 
-```
-int       int8    int16    int32    int64
-uint      uint8   uint16   uint32   uint64
-float     double  bool     char     string    byte
-```
+| Category | Types |
+|----------|-------|
+| Integers | `int` `uint` `int8` `int16` `int32` `int64` `uint8` `uint16` `uint32` `uint64` |
+| Floating | `float` `double` |
+| Other | `bool` `char` `string` `byte` |
 
-### Functions
+</details>
 
-SP supports two syntax styles — choose what feels natural:
+<details>
+<summary><b>🔧 Functions</b></summary>
+
+<br>
+
+SP accepts **multiple function syntax styles** — all compile to identical machine code:
 
 ```sp
-// SP-native style
+// ✅ SP-native style
 fn add(int a, int b) -> int {
     return a + b;
 }
 
-// Java/C#/C++ style (also accepted!)
+// ✅ Java/C++/C# style (also valid!)
 int add(int a, int b) {
     return a + b;
 }
 
-// Short form (type-inferred)
+// ✅ Short form
 fn add(a, b) => a + b;
-
-// Calling
-int result = add(10, 20);   // 30
 ```
 
-### Control Flow
+**Higher-order functions & lambdas:**
+
+```sp
+var multiply = (int a, int b) => a * b;
+println(multiply(5, 4));   // 20
+
+let numbers = [1, 2, 3, 4, 5];
+let doubled = numbers.map(x => x * 2);         // [2, 4, 6, 8, 10]
+let evens = numbers.filter(x => x % 2 == 0);   // [2, 4]
+```
+
+</details>
+
+<details>
+<summary><b>🔀 Control Flow</b></summary>
+
+<br>
 
 ```sp
 // If / Else
 if (age >= 18) {
     println("Adult");
+} else if (age >= 13) {
+    println("Teenager");
 } else {
-    println("Minor");
+    println("Child");
 }
 
-// For loop
+// For loops
 for (int i = 0; i < 10; i++) {
     println(i);
 }
 
-// Range loop
+// Range loops
 for (i in 0..10) {
     println(i);
 }
 
-// While loop
-while (condition) {
-    // code
+// While / Do-While
+while (running) { update(); }
+do { retry(); } while (!success);
+
+// Pattern matching (modern)
+match status {
+    Status.Active    => println("Active"),
+    Status.Pending   => println("Waiting..."),
+    Status.Completed => println("Done!"),
+    _                => println("Unknown")
 }
 
 // Switch (classic)
 switch (day) {
-    case 1: println("Monday"); break;
-    case 2: println("Tuesday"); break;
-    default: println("Unknown");
-}
-
-// Match (modern)
-match day {
-    1 => println("Monday"),
-    2 => println("Tuesday"),
-    _ => println("Unknown")
+    case 1:  println("Monday"); break;
+    case 2:  println("Tuesday"); break;
+    default: println("Other");
 }
 ```
 
-### Strings
+</details>
+
+<details>
+<summary><b>🏗️ Classes & OOP</b></summary>
+
+<br>
 
 ```sp
-string name = "Shanto";
+// Classes with access modifiers
+class User {
+    private string name;
+    protected int age;
+    public string email;
 
-// Interpolation
-string greeting = "Hello ${name}!";
-
-// Concatenation
-string full = "Hello " + name;
-
-// Methods
-name.length();           // 6
-name.upper();            // "SHANTO"
-name.lower();            // "shanto"
-name.contains("an");     // true
-```
-
-### Collections
-
-```sp
-// Arrays
-int[] numbers = {1, 2, 3, 4, 5};
-let items = [10, 20, 30];
-
-// Lists
-List<int> list = new List<int>();
-list.add(10);
-list.add(20);
-
-// Maps
-Map<string, int> ages = new Map<string, int>();
-ages["Shanto"] = 21;
-
-// Modern map literal
-let ages = {
-    "Shanto": 21,
-    "Padmasree": 21
-};
-```
-
-### Classes & Inheritance
-
-```sp
-class Animal {
-    fn speak() {
-        println("Animal sound");
+    public User(string name, int age) {
+        this.name = name;
+        this.age = age;
     }
+
+    public fn getName() -> string { return this.name; }
+}
+
+// Inheritance
+class Animal {
+    fn speak() { println("..."); }
 }
 
 class Dog extends Animal {
-    override fn speak() {
-        println("Woof!");
-    }
+    override fn speak() { println("Woof!"); }
+}
+
+// Also valid with C# colon syntax:
+class Cat : Animal {
+    override fn speak() { println("Meow!"); }
 }
 
 // Interfaces
-interface Printable {
-    fn print();
+interface Serializable {
+    fn serialize() -> string;
 }
 
-class Document implements Printable {
-    fn print() {
-        println("Document content");
-    }
+class Config implements Serializable {
+    fn serialize() -> string { return "{}"; }
 }
 
 // Abstract classes
 abstract class Shape {
     abstract fn area() -> double;
 }
+
+// Static members
+class MathUtil {
+    static fn square(int x) -> int { return x * x; }
+}
+int result = MathUtil.square(5);  // 25
 ```
 
-### Access Modifiers
+</details>
+
+<details>
+<summary><b>🧬 Generics</b></summary>
+
+<br>
 
 ```sp
-class User {
-    public string name;       // Accessible everywhere
-    private string password;  // Class only
-    protected int id;         // Class + subclasses
-    internal string role;     // Module only
+class Box<T> {
+    T value;
+    Box(T value) { this.value = value; }
+    T get() { return value; }
 }
+
+Box<int> intBox = new Box<int>(42);
+Box<string> strBox = new Box<string>("hello");
+
+// Generic functions
+fn max<T>(T a, T b) -> T {
+    return a > b ? a : b;
+}
+
+// Generic collections
+List<int> numbers = new List<int>();
+Map<string, User> users = new Map<string, User>();
 ```
 
-### Structs & Enums
+</details>
+
+<details>
+<summary><b>🛡️ Null Safety</b></summary>
+
+<br>
 
 ```sp
-struct Point {
-    int x;
-    int y;
-}
+// Nullable types use ?
+User? user = findUser(id);      // might be null
 
-enum Status {
-    Pending,
-    Active,
-    Completed,
-    Failed
-}
+// Safe navigation
+println(user?.name);             // null if user is null
 
-Status status = Status.Active;
+// Null coalescing
+string name = user?.name ?? "Anonymous";
+
+// Non-nullable (default) — this won't compile:
+User user = null;  // ❌ Compile error!
 ```
 
-### Error Handling
+</details>
+
+<details>
+<summary><b>⚠️ Error Handling</b></summary>
+
+<br>
 
 ```sp
-// Exception-based
+// Exception-based (familiar)
 try {
-    riskyOperation();
+    let data = readFile("config.json");
+    process(data);
+} catch (FileNotFound e) {
+    println("File missing: ${e.message}");
 } catch (Exception e) {
-    println(e.message);
+    println("Error: ${e.message}");
 } finally {
     cleanup();
 }
 
 // Result-based (modern)
 fn divide(int a, int b) -> Result<int, Error> {
-    if (b == 0) {
-        return Error("Cannot divide by zero");
-    }
+    if (b == 0) return Error("Division by zero");
     return Ok(a / b);
 }
 ```
 
-### Modules & Imports
+</details>
+
+<details>
+<summary><b>📝 Strings</b></summary>
+
+<br>
 
 ```sp
-// Define a module
-module myapp.users;
+string name = "Shanto";
 
-// Import specific items
-import myapp.users.User;
+// Interpolation
+string msg = "Hello, ${name}! You are ${age} years old.";
 
-// Import all from module
-import myapp.users.*;
+// Concatenation
+string full = "Hello " + name;
+
+// Built-in methods
+name.length();           // 6
+name.upper();            // "SHANTO"
+name.lower();            // "shanto"
+name.contains("ant");    // true
+name.split("a");         // ["Sh", "nto"]
+name.trim();
+name.replace("S", "s");
+```
+
+</details>
+
+<details>
+<summary><b>📦 Collections</b></summary>
+
+<br>
+
+```sp
+// Arrays
+int[] nums = {1, 2, 3, 4, 5};
+let items = [10, 20, 30];
+
+// Lists (dynamic)
+List<string> names = new List<string>();
+names.add("Shanto");
+names.push("Paul");
+
+// Maps
+let config = {
+    "host": "localhost",
+    "port": 8080
+};
+
+Map<string, int> scores = new Map<string, int>();
+scores["math"] = 95;
+
+// Functional operations
+let result = [1, 2, 3, 4, 5]
+    .map(x => x * x)
+    .filter(x => x > 10)
+    .reduce((a, b) => a + b);
+```
+
+</details>
+
+<details>
+<summary><b>📦 Structs, Enums & Traits</b></summary>
+
+<br>
+
+```sp
+// Structs (value types)
+struct Point {
+    int x;
+    int y;
+}
+Point p;
+p.x = 10;
+p.y = 20;
+
+// Enums
+enum Color { Red, Green, Blue }
+Color c = Color.Red;
+
+// Operator overloading
+struct Vector2 {
+    float x; float y;
+
+    operator +(Vector2 a, Vector2 b) {
+        return Vector2(a.x + b.x, a.y + b.y);
+    }
+}
+
+// Traits
+trait Printable {
+    fn display();
+}
+
+class Log with Printable {
+    fn display() { println("Log entry"); }
+}
+
+// Extension methods
+extend string {
+    fn isEmail() -> bool { /* ... */ }
+}
+"test@email.com".isEmail();  // true
+```
+
+</details>
+
+<details>
+<summary><b>🌐 Async & Concurrency</b></summary>
+
+<br>
+
+```sp
+// Async/Await
+async fn fetchData(string url) {
+    let response = await http.get(url);
+    println(response.body);
+}
+
+// Threads
+thread {
+    println("Running in background");
+}
+
+// Future primitives
+async    await    spawn
+channel  mutex    atomic
+```
+
+</details>
+
+<details>
+<summary><b>📁 Modules & Imports</b></summary>
+
+<br>
+
+```sp
+// Declare module
+module myapp.services;
+
+// Import specific
+import myapp.models.User;
+
+// Import all
+import myapp.utils.*;
 
 // Standard library
 import std.io;
 import std.math;
 import std.collections;
+import std.json;
+import std.http;
+import std.fs;
 ```
 
-### Annotations
+</details>
+
+<details>
+<summary><b>🧪 Testing</b></summary>
+
+<br>
 
 ```sp
-@Serializable
-class User {
-    string name;
-    int age;
-}
-
-@Test
-fn testAddition() {
+test "addition is correct" {
     assert(add(2, 3) == 5);
 }
 
-@Deprecated
-fn oldMethod() { }
-
-@Route("/users")
-fn getUsers() { }
-```
-
-### Unsafe Mode (Systems Programming)
-
-```sp
-unsafe {
-    // Low-level pointer operations
-    pointer p = ...
-}
-```
-
-### Native Interop (C FFI)
-
-```sp
-extern "C" {
-    fn printf(string format);
-}
-```
-
----
-
-## 🏗️ Compiler Architecture
-
-SP compiles `.sp` source files to native machine code through an LLVM-based pipeline:
-
-```
-                ┌───────────────┐
-                │  source.sp    │
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │    Lexer      │  Tokenizes source code
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │    Parser     │  Builds Abstract Syntax Tree
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │     AST       │  Normalized syntax tree
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │ Semantic      │  Name resolution + Type checking
-                │ Analysis      │
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │   SP IR       │  High-level intermediate representation
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │  LLVM IR      │  Low-level intermediate representation
-                └───────┬───────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │ LLVM Backend  │  Optimization + Code generation
-                └───────┬───────┘
-                        │
-                        ▼
-               Native Executable
-              (.exe / ELF / Mach-O)
-```
-
-### Syntax Compatibility Layer
-
-SP's most unique feature — one AST, multiple familiar syntax styles:
-
-```
-            Source Code
-                │
-    ┌───────────┼───────────┐
-    │           │           │
-SP Style    Java Style   C#/C++ Style
-    │           │           │
-    └───────────┼───────────┘
-                │
-                ▼
-          Common AST
-                │
-                ▼
-        Semantic Analysis
-                │
-                ▼
-           LLVM Codegen
-```
-
-Both of these produce **identical** compiled output:
-
-```sp
-// SP-native syntax
-fn add(int a, int b) -> int {
-    return a + b;
-}
-
-// Java/C++ syntax (also valid SP!)
-int add(int a, int b) {
-    return a + b;
-}
-```
-
----
-
-## 🛠️ Toolchain
-
-### Compiler CLI (`spc`)
-
-```bash
-spc build [file]            # Compile to native executable
-spc run [file]              # Compile and run immediately
-spc check                   # Type-check without compiling
-spc test                    # Run test suite
-spc fmt                     # Format code
-spc doc                     # Generate documentation
-spc clean                   # Clean build artifacts
-spc init                    # Initialize new project
-spc --version               # Show compiler version
-
-# Build modes
-spc build --debug           # Debug build (with debug info)
-spc build --release         # Optimized release build
-
-# Cross-compilation
-spc build --target linux-x64
-spc build --target windows-x64
-spc build --target macos-arm64
-```
-
-### Package Manager (`spm`)
-
-```bash
-spm init                    # Create new project with sp.toml
-spm add <package>           # Add dependency
-spm remove <package>        # Remove dependency
-spm update                  # Update dependencies
-spm install                 # Install all dependencies
-spm build                   # Build project
-spm run                     # Build and run
-spm publish                 # Publish to registry
-spm search <query>          # Search packages
-```
-
-### Developer Tools
-
-| Tool | Command | Description |
-|------|---------|-------------|
-| **Compiler** | `spc` | LLVM-based native compiler |
-| **Package Manager** | `spm` | Dependency management |
-| **Formatter** | `spc fmt` | Automatic code formatting |
-| **Test Runner** | `spc test` | Built-in testing framework |
-| **Doc Generator** | `spc doc` | API documentation |
-| **Language Server** | `spls` | IDE support (LSP) |
-| **Debugger** | DAP-based | VS Code debugging |
-
----
-
-## 🧪 Testing
-
-SP has a built-in testing framework:
-
-```sp
-test "addition works" {
-    assert(add(2, 3) == 5);
-}
-
-test "user creation" {
+test "user has default name" {
     User user = new User("Shanto", 21);
     assert(user.getName() == "Shanto");
 }
+
+test "division by zero returns error" {
+    let result = divide(10, 0);
+    assert(result.isError());
+}
 ```
 
-Run tests:
-
 ```bash
-spc test
+$ spc test
+
+  ✅ addition is correct .............. passed (0.2ms)
+  ✅ user has default name ............ passed (0.1ms)
+  ✅ division by zero returns error ... passed (0.1ms)
+
+  3 tests passed | 0 failed | 0.4ms total
+```
+
+</details>
+
+<details>
+<summary><b>🔗 Native Interop & Unsafe</b></summary>
+
+<br>
+
+```sp
+// C FFI
+extern "C" {
+    fn printf(string format);
+}
+
+// Unsafe blocks for low-level operations
+unsafe {
+    pointer p = ...
+    // Direct memory manipulation
+}
+
+// Annotations
+@Serializable
+@Route("/api/users")
+@Deprecated("Use newMethod() instead")
+@inline
+```
+
+</details>
+
+---
+
+## 🏛️ Compiler Architecture
+
+SP uses a multi-stage compilation pipeline targeting LLVM for native code generation:
+
+```
+    ╔══════════════════════════════════════════════════════════════╗
+    ║                    SP COMPILER PIPELINE                     ║
+    ╠══════════════════════════════════════════════════════════════╣
+    ║                                                             ║
+    ║   source.sp                                                 ║
+    ║       │                                                     ║
+    ║       ▼                                                     ║
+    ║   ┌─────────┐    Characters → Tokens                        ║
+    ║   │  LEXER  │    Keywords, identifiers, literals, operators ║
+    ║   └────┬────┘                                               ║
+    ║        │                                                    ║
+    ║        ▼                                                    ║
+    ║   ┌─────────┐    Tokens → Abstract Syntax Tree              ║
+    ║   │ PARSER  │    Recursive descent + Pratt parsing          ║
+    ║   └────┬────┘                                               ║
+    ║        │                                                    ║
+    ║        ▼                                                    ║
+    ║   ┌─────────┐    Scoping, symbol resolution, type checking  ║
+    ║   │SEMANTIC │    Null safety, generics, overload resolution ║
+    ║   │ANALYSIS │                                               ║
+    ║   └────┬────┘                                               ║
+    ║        │                                                    ║
+    ║        ▼                                                    ║
+    ║   ┌─────────┐    High-level intermediate representation     ║
+    ║   │  SP IR  │    Platform-independent optimization          ║
+    ║   └────┬────┘                                               ║
+    ║        │                                                    ║
+    ║        ▼                                                    ║
+    ║   ┌─────────┐    Low-level IR + LLVM optimizations          ║
+    ║   │LLVM IR  │    Dead code elimination, inlining, etc.      ║
+    ║   └────┬────┘                                               ║
+    ║        │                                                    ║
+    ║        ▼                                                    ║
+    ║   ┌─────────┐                                               ║
+    ║   │ NATIVE  │    .exe (Windows) / ELF (Linux) / Mach-O (Mac)║
+    ║   │ BINARY  │                                               ║
+    ║   └─────────┘                                               ║
+    ║                                                             ║
+    ╚══════════════════════════════════════════════════════════════╝
+```
+
+### Syntax Compatibility — SP's Unique Superpower
+
+SP's parser accepts **multiple syntax styles** and normalizes them to a **single canonical AST**. This means Java, C#, and C++ developers can write natural code from day one:
+
+```sp
+// All three compile to IDENTICAL machine code:
+
+fn add(int a, int b) -> int { return a + b; }    // SP style
+int add(int a, int b) { return a + b; }           // Java/C++ style
+fn add(a, b) => a + b;                            // Short form
+```
+
+```
+   Java dev          C# dev          C++ dev         SP dev
+      │                │               │               │
+      ▼                ▼               ▼               ▼
+ ┌─────────────────────────────────────────────────────────┐
+ │              SP Parser (Compatibility Layer)            │
+ └────────────────────────┬────────────────────────────────┘
+                          │
+                          ▼
+                    Common SP AST
+                          │
+                          ▼
+                     LLVM Codegen
+                          │
+                          ▼
+                   Native Executable
 ```
 
 ---
 
 ## 💬 Error Messages
 
-SP provides **human-friendly** error messages inspired by Rust:
+SP produces **human-friendly diagnostics** inspired by Rust's error reporting:
 
 ```
 error[E1001]: type mismatch
-
   --> src/main.sp:8:14
-
- 8 | int age = "21";
-   |           ^^^^
-
- = expected: int
-   found:    string
-
- = help: convert the string to an integer using int.parse("21")
+   |
+ 8 |     int age = "twenty-one";
+   |               ^^^^^^^^^^^^
+   |
+   = expected: int
+     found:    string
+   = help: convert the string to an integer using int.parse("twenty-one")
 ```
+
+```
+error[E1002]: undefined variable
+  --> src/main.sp:12:5
+   |
+12 |     println(username);
+   |             ^^^^^^^^
+   |
+   = `username` is not defined in this scope
+   = help: did you mean `userName`?
+```
+
+```
+  Compiling my-app v0.1.0
+   Finished release build in 0.82s
+        Bin target/release/my-app (2.4 MB)
+```
+
+---
+
+## 🧰 Complete Toolchain
+
+| Tool | Binary | Description |
+|:-----|:-------|:------------|
+| **Compiler** | `spc` | LLVM-based native compiler |
+| **Package Manager** | `spm` | Dependency management & project scaffolding |
+| **Formatter** | `spc fmt` | Opinionated code formatter |
+| **Test Runner** | `spc test` | Built-in test framework |
+| **Doc Generator** | `spc doc` | API documentation from `///` comments |
+| **Type Checker** | `spc check` | Fast type-checking without full compilation |
+| **Language Server** | `spls` | LSP for IDE integration |
+| **Debugger** | DAP | Breakpoints, stepping, variable inspection |
+
+<details>
+<summary><b>Full CLI Reference</b></summary>
+
+<br>
+
+```bash
+# Compiler (spc)
+spc build [file]                # Compile to native executable
+spc build --release             # Optimized release build
+spc build --debug               # Debug build with symbols
+spc build --target linux-x64    # Cross-compile
+spc run [file]                  # Compile and execute
+spc check                       # Type-check only (fast)
+spc test                        # Run all tests
+spc fmt                         # Format all source files
+spc doc                         # Generate documentation
+spc clean                       # Remove build artifacts
+spc init [name]                 # Create new project
+spc --version                   # Show version info
+
+# Package Manager (spm)
+spm init [name]                 # Initialize project with sp.toml
+spm add <package>               # Add dependency
+spm remove <package>            # Remove dependency
+spm update                      # Update all dependencies
+spm install                     # Install from sp.lock
+spm build                       # Build project
+spm run                         # Build and run
+spm publish                     # Publish to registry
+spm search <query>              # Search package registry
+```
+
+</details>
 
 ---
 
 ## 📚 Standard Library
 
-| Module | Description |
-|--------|-------------|
-| `std.io` | Input/output, println, readLine |
-| `std.fs` | File system operations |
-| `std.math` | Mathematical functions |
-| `std.string` | String manipulation |
-| `std.collections` | List, Map, Set, Stack, Queue |
-| `std.time` | Date, time, duration |
-| `std.json` | JSON parsing and serialization |
-| `std.http` | HTTP client/server |
-| `std.net` | Networking |
-| `std.crypto` | Cryptographic functions |
-| `std.regex` | Regular expressions |
-| `std.concurrent` | Threading, async, channels |
-| `std.process` | Process management |
-| `std.os` | OS interaction, environment |
-| `std.testing` | Test assertions and utilities |
+| Module | Description | Example |
+|:-------|:------------|:--------|
+| `std.io` | Console I/O | `println("Hello")` |
+| `std.fs` | File system | `fs.readText("data.txt")` |
+| `std.math` | Mathematics | `math.sqrt(144)` |
+| `std.string` | String ops | `name.upper()` |
+| `std.collections` | Data structures | `List<T>`, `Map<K,V>`, `Set<T>` |
+| `std.time` | Date & time | `time.now()` |
+| `std.json` | JSON parse/serialize | `json.parse<Config>(str)` |
+| `std.http` | HTTP client/server | `http.get(url)` |
+| `std.net` | Networking | Sockets, TCP, UDP |
+| `std.crypto` | Cryptography | Hashing, encryption |
+| `std.regex` | Regular expressions | Pattern matching |
+| `std.concurrent` | Concurrency | Threads, channels, mutex |
+| `std.process` | Process management | `process.exec("cmd")` |
+| `std.os` | OS interaction | `os.env("PATH")` |
+| `std.testing` | Test utilities | `assert`, `expect` |
 
 ---
 
-## 🎯 Target Platforms
+## 🎯 Platform Support
 
-| Platform | Architecture | Status |
-|----------|-------------|--------|
-| Windows | x64 | 🟡 Planned |
-| Linux | x64 | 🟡 Planned |
-| Linux | ARM64 | 🟡 Planned |
-| macOS | ARM64 (Apple Silicon) | 🟡 Planned |
-| macOS | x64 | 🟡 Planned |
+| Platform | Arch | Status |
+|:---------|:-----|:------:|
+| Windows | x86-64 | 🟡 In Development |
+| Linux | x86-64 | 🟡 In Development |
+| Linux | ARM64 | 📋 Planned |
+| macOS | ARM64 (Apple Silicon) | 📋 Planned |
+| macOS | x86-64 | 📋 Planned |
 | WebAssembly | WASM | 🔮 Future |
 | Android | ARM64 | 🔮 Future |
 | iOS | ARM64 | 🔮 Future |
@@ -753,70 +845,81 @@ error[E1001]: type mismatch
 
 ## 🗺️ Roadmap
 
-| Version | Milestone | Status |
-|---------|-----------|--------|
-| **SP 0.1** | Lexer + Parser | 🟡 Next |
-| **SP 0.2** | AST + Semantic Analysis | ⬜ Planned |
-| **SP 0.3** | Basic LLVM Compiler | ⬜ Planned |
-| **SP 0.4** | Functions + Control Flow | ⬜ Planned |
-| **SP 0.5** | Classes + Generics + Collections | ⬜ Planned |
-| **SP 0.6** | Standard Library | ⬜ Planned |
-| **SP 0.7** | Package Manager (`spm`) | ⬜ Planned |
-| **SP 0.8** | Language Server + VS Code | ⬜ Planned |
-| **SP 0.9** | Production Candidate | ⬜ Planned |
-| **SP 1.0** | 🎉 Stable Release | ⬜ Planned |
+```
+ v0.1 ──── v0.2 ──── v0.3 ──── v0.4 ──── v0.5 ──── v0.6 ──── v0.7 ──── v0.8 ──── v0.9 ──── v1.0
+  │          │          │          │          │          │          │          │          │          │
+  ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼
+Lexer    Semantic    LLVM      Classes   Generics   StdLib   Package   Lang       RC      Stable
+Parser    + AST     Codegen    + OOP    Collections           Mgr     Server            Release
+```
 
-### Post 1.0 Vision
+| Version | Milestone | Key Deliverables | Status |
+|:--------|:----------|:-----------------|:------:|
+| `0.1` | **Lexer + Parser** | Tokenizer, AST, recursive descent parser | 🟡 Next |
+| `0.2` | **Semantic Analysis** | Symbol table, type checker, error codes | ⬜ |
+| `0.3` | **LLVM Compiler** | Native code generation, `spc build/run` | ⬜ |
+| `0.4` | **Object System** | Classes, inheritance, interfaces, constructors | ⬜ |
+| `0.5` | **Generics + Collections** | `Box<T>`, `List<T>`, `Map<K,V>`, lambdas | ⬜ |
+| `0.6` | **Standard Library** | io, fs, math, string, collections, time | ⬜ |
+| `0.7` | **Package Manager** | `spm` with dependency resolution, `sp.lock` | ⬜ |
+| `0.8` | **Language Server** | LSP, VS Code extension, `spc fmt` | ⬜ |
+| `0.9` | **Release Candidate** | Stability, benchmarks, documentation | ⬜ |
+| `1.0` | **🎉 Stable Release** | Production-ready, cross-platform, full docs | ⬜ |
 
-- **SP 1.x** — Async/Await, Concurrency, Traits, Extension Methods
-- **SP 2.0** — Advanced Memory Management (Ownership/Borrowing), Reflection, Annotations
-- **SP 3.0** — WebAssembly, Mobile Targets, GUI Framework
-
----
-
-## 🏛️ Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Implementation Language | C++17/20 |
-| Compiler Backend | LLVM 17+ |
-| Build System | CMake 3.20+ |
-| Test Framework | GoogleTest / Catch2 |
-| Parser Strategy | Hand-written Recursive Descent + Pratt |
-| Configuration | TOML (`sp.toml`) |
-| CI/CD | GitHub Actions |
-| Editor Support | VS Code (primary) |
-| Debug Protocol | DAP (Debug Adapter Protocol) |
-| Language Server | LSP 3.17+ |
+**Post 1.0:** Async/await · Ownership model · Traits · WebAssembly · FFI bridges · Reflection · GUI framework
 
 ---
 
-## 📁 Project Structure
+## 🏗️ Tech Stack
+
+| Component | Choice | Rationale |
+|:----------|:-------|:----------|
+| **Language** | C++17/20 | Best LLVM API integration, performance |
+| **Backend** | LLVM 17+ | Battle-tested codegen for all major platforms |
+| **Build System** | CMake 3.20+ | Industry standard for C++ |
+| **Testing** | GoogleTest / Catch2 | Mature C++ test frameworks |
+| **Parser** | Hand-written RD + Pratt | Superior error messages vs. generated parsers |
+| **Config** | TOML (`sp.toml`) | Human-readable project configuration |
+| **CI/CD** | GitHub Actions | Automated build, test, release |
+| **LSP** | LSP 3.17+ | Universal IDE support |
+| **Debug** | DAP | VS Code debugger integration |
+
+---
+
+## 📂 Project Structure
 
 ```
-sp-language/
+SP-Language/
 │
-├── compiler/                     # SP Compiler (spc)
+├── compiler/                          # 🔨 SP Compiler (spc)
 │   ├── include/sp/
-│   │   ├── lexer/                # Tokenizer
-│   │   ├── parser/               # Recursive descent parser
-│   │   ├── ast/                  # Abstract Syntax Tree nodes
-│   │   ├── semantic/             # Name resolution, symbol table
-│   │   ├── types/                # Type system & type checker
-│   │   ├── ir/                   # SP intermediate representation
-│   │   ├── codegen/              # LLVM code generation
-│   │   └── diagnostics/          # Error reporting engine
-│   └── src/                      # Implementation files
+│   │   ├── lexer/                     #    Tokenizer
+│   │   ├── parser/                    #    Recursive descent + Pratt
+│   │   ├── ast/                       #    AST node definitions
+│   │   ├── semantic/                  #    Name resolver, symbol table
+│   │   ├── types/                     #    Type system & checker
+│   │   ├── ir/                        #    SP intermediate representation
+│   │   ├── codegen/                   #    LLVM code generation
+│   │   └── diagnostics/              #    Error reporting engine
+│   └── src/                           #    Implementation (.cpp)
 │
-├── runtime/                      # SP Runtime (memory, GC, threading)
-├── stdlib/                       # Standard Library (io, fs, math, ...)
-├── tools/                        # spc CLI, spm, formatter
-├── language-server/              # LSP implementation
-├── vscode-extension/             # VS Code extension
-├── tests/                        # Compiler test suite
-├── examples/                     # Example SP programs
-├── docs/                         # Documentation
-└── benchmarks/                   # Performance benchmarks
+├── runtime/                           # ⚙️ SP Runtime (GC, memory, threading)
+├── stdlib/                            # 📚 Standard Library
+├── tools/                             # 🧰 spc CLI, spm, formatter
+├── language-server/                   # 🔌 LSP implementation
+├── vscode-extension/                  # 💻 VS Code extension
+├── tests/                             # ✅ Test suite
+├── examples/                          # 📝 Example programs
+├── docs/                              # 📖 Documentation
+├── benchmarks/                        # 📊 Performance benchmarks
+│
+├── PRD.md                             # Project requirements
+├── Architecture.md                    # System architecture
+├── Rules.md                           # Development rules
+├── Phases.md                          # Development phases
+├── Design.md                          # Visual design system
+├── Memory.md                          # Progress tracker
+└── SP Programming Language — Complete Language & Compiler Specification.md
 ```
 
 ---
@@ -824,67 +927,70 @@ sp-language/
 ## 📖 Documentation
 
 | Document | Description |
-|----------|-------------|
-| [Language Specification](SP%20Programming%20Language%20—%20Complete%20Language%20%26%20Compiler%20Specification.md) | Complete 135-section language specification |
-| [PRD](PRD.md) | Project Requirement Document |
-| [Architecture](Architecture.md) | Compiler architecture & folder structure |
-| [Rules](Rules.md) | Coding standards & development rules |
-| [Phases](Phases.md) | Development phases & milestones |
-| [Design](Design.md) | Visual design system & branding |
-| [Memory](Memory.md) | Progress tracker |
+|:---------|:------------|
+| **[Language Specification](SP%20Programming%20Language%20—%20Complete%20Language%20%26%20Compiler%20Specification.md)** | Complete 135-section language spec (4,000+ lines) |
+| **[PRD](PRD.md)** | Project requirements, target users, features |
+| **[Architecture](Architecture.md)** | Compiler pipeline, folder structure, tech decisions |
+| **[Rules](Rules.md)** | Coding standards, approved libraries, AI boundaries |
+| **[Phases](Phases.md)** | 11 development phases with task breakdowns |
+| **[Design](Design.md)** | Brand identity, colors, syntax themes, typography |
+| **[Memory](Memory.md)** | Progress tracker & development log |
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! SP is an ambitious project and there are many ways to help:
+SP is an open-source project and contributions are welcome! Whether it's code, documentation, bug reports, or feature suggestions — every contribution matters.
 
-- 🐛 **Report Bugs** — Open an issue with reproduction steps
-- 💡 **Suggest Features** — Propose language features or tooling improvements
-- 🔧 **Submit Pull Requests** — Implement features from the [Phases](Phases.md) document
-- 📝 **Improve Documentation** — Help write guides and tutorials
-- 🧪 **Write Tests** — Expand the test suite with edge cases
-
-### Development Setup
+### Getting Started
 
 ```bash
-# Clone the repository
-git clone https://github.com/shantopaul/SP-Language.git
-cd SP-Language
+# 1. Fork & clone
+git clone https://github.com/YOUR-USERNAME/SP-Language.git
 
-# Prerequisites
-# - C++17/20 compiler (GCC 10+, Clang 12+, MSVC 2019+)
-# - CMake 3.20+
-# - LLVM 17+ development libraries
-# - Git
+# 2. Install prerequisites
+#    - C++17/20 compiler (GCC 10+, Clang 12+, MSVC 2019+)
+#    - CMake 3.20+
+#    - LLVM 17+ development libraries
 
-# Build the compiler
+# 3. Build
 mkdir build && cd build
-cmake ..
-cmake --build .
+cmake .. && cmake --build .
 
-# Run tests
+# 4. Run tests
 ctest --output-on-failure
+
+# 5. Create a branch & submit PR
+git checkout -b feature/my-feature
 ```
+
+### Contribution Areas
+
+| Area | Good For | Difficulty |
+|:-----|:---------|:-----------|
+| 🐛 Bug reports | Everyone | Easy |
+| 📝 Documentation | Writers, new contributors | Easy |
+| 🧪 Test cases | Developers familiar with compilers | Medium |
+| 🔧 Compiler features | C++ developers | Hard |
+| 🎨 VS Code extension | TypeScript developers | Medium |
+| 📦 Standard library | SP developers | Medium |
 
 ### Commit Convention
 
-We use [Conventional Commits](https://www.conventionalcommits.org/):
-
 ```
-feat: add generic type parameter parsing
-fix: resolve operator precedence for ternary expressions
+feat:     add generic type parameter parsing
+fix:      resolve operator precedence for ternary
 refactor: simplify AST visitor pattern
-test: add golden tests for string interpolation
-docs: update language specification for match expressions
-chore: update LLVM dependency to 17.0.6
+test:     add golden tests for string interpolation
+docs:     update language spec for match expressions
+chore:    bump LLVM dependency to 17.0.6
 ```
+
+See **[Rules.md](Rules.md)** for complete coding standards and **[Phases.md](Phases.md)** for what to work on next.
 
 ---
 
-## 📊 Example Application
-
-A complete SP program demonstrating core features:
+## 📊 Example: Complete Application
 
 ```sp
 import std.io;
@@ -903,76 +1009,84 @@ class Task {
         this.completed = true;
     }
 
-    public fn getTitle() -> string {
-        return this.title;
-    }
-
-    public fn isCompleted() -> bool {
-        return this.completed;
+    public fn toString() -> string {
+        string icon = this.completed ? "✅" : "⬜";
+        return "${icon} ${this.title}";
     }
 }
 
 fn main() {
-    List<Task> tasks = new List<Task>();
-
-    tasks.add(new Task("Learn SP"));
-    tasks.add(new Task("Build compiler"));
-    tasks.add(new Task("Write tests"));
+    let tasks = [
+        new Task("Learn SP"),
+        new Task("Build compiler"),
+        new Task("Write standard library"),
+        new Task("Create VS Code extension")
+    ];
 
     tasks[0].complete();
+    tasks[1].complete();
+
+    println("=== SP TODO App ===\n");
 
     for (Task task in tasks) {
-        string status = task.isCompleted() ? "✅" : "⬜";
-        println("${status} ${task.getTitle()}");
+        println(task.toString());
     }
+
+    int done = tasks.filter(t => t.completed).length();
+    println("\n${done}/${tasks.length()} completed");
 }
 ```
 
 **Output:**
-
 ```
+=== SP TODO App ===
+
 ✅ Learn SP
-⬜ Build compiler
-⬜ Write tests
+✅ Build compiler
+⬜ Write standard library
+⬜ Create VS Code extension
+
+2/4 completed
 ```
-
----
-
-## 🔖 Versioning
-
-SP follows [Semantic Versioning](https://semver.org/):
-
-```
-MAJOR.MINOR.PATCH
-```
-
-- **MAJOR** — Breaking language changes (SP 2.0)
-- **MINOR** — New features, backward compatible (SP 1.1)
-- **PATCH** — Bug fixes (SP 1.0.1)
-
-Once SP reaches **1.0**, the language specification becomes stable. Breaking changes require a new major version.
 
 ---
 
 ## 📜 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
 
 ---
 
 ## 👤 Author
 
+<table>
+<tr>
+<td>
+
 **Shanto Paul**
 
-- GitHub: [@shantopaul](https://github.com/shantopaul)
-- Project: [SP-Language](https://github.com/shantopaul/SP-Language)
+[![GitHub](https://img.shields.io/badge/-shantopaul-181717?style=flat-square&logo=github)](https://github.com/shantopaul)
+
+Creator & Lead Developer of the SP Programming Language
+
+</td>
+</tr>
+</table>
 
 ---
 
 <div align="center">
 
-**SP Programming Language** — Built with ❤️ for developers who value familiarity and power.
+<br>
 
-*Familiar Syntax. Modern Power. Native Performance.*
+**SP Programming Language**
+
+*Familiar Syntax · Modern Safety · Native Performance*
+
+<br>
+
+If you find SP interesting, consider giving it a ⭐
+
+<br>
 
 </div>
