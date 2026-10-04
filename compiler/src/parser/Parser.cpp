@@ -171,6 +171,8 @@ Precedence Parser::getPrecedence(lexer::TokenType type) noexcept {
         case lexer::TokenType::OpenBracket:
         case lexer::TokenType::Dot:
         case lexer::TokenType::QuestionDot:
+        case lexer::TokenType::PlusPlus:
+        case lexer::TokenType::MinusMinus:
             return Precedence::Call;
 
         default:
@@ -213,7 +215,13 @@ ast::ExprPtr Parser::parsePrefix() {
         return std::make_unique<ast::LiteralExpr>(ast::LiteralKind::Null, "null", previous().location);
     }
 
-    // Identifiers
+    // Identifiers & Special Keywords
+    if (match(lexer::TokenType::KeywordThis)) {
+        return std::make_unique<ast::IdentifierExpr>("this", previous().location);
+    }
+    if (match(lexer::TokenType::KeywordSuper)) {
+        return std::make_unique<ast::IdentifierExpr>("super", previous().location);
+    }
     if (match(lexer::TokenType::Identifier)) {
         return std::make_unique<ast::IdentifierExpr>(previous().lexeme, previous().location);
     }
@@ -230,7 +238,6 @@ ast::ExprPtr Parser::parsePrefix() {
 
     // Map Literal: { key: value, ... }
     if (check(lexer::TokenType::OpenBrace)) {
-        // Look ahead to check if this is a map literal (key : value)
         return parseMapLiteral();
     }
 
@@ -257,6 +264,11 @@ ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
     const lexer::Token& opTok = advance();
     diagnostics::SourceLocation loc = opTok.location;
     Precedence prec = getPrecedence(opTok.type);
+
+    // Postfix ++ and --
+    if (opTok.is(lexer::TokenType::PlusPlus) || opTok.is(lexer::TokenType::MinusMinus)) {
+        return std::make_unique<ast::UnaryExpr>(opTok.type, std::move(left), false, loc);
+    }
 
     // Function Call: callee(arg1, arg2)
     if (opTok.is(lexer::TokenType::OpenParen)) {
@@ -303,8 +315,7 @@ ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
         return std::make_unique<ast::AssignExpr>(std::move(left), opTok.type, std::move(right), loc);
     }
 
-    // Standard binary operators
-    // Binary operators are left-associative -> parse right with prec + 1
+    // Standard binary operators (left-associative)
     ast::ExprPtr right = parseExpression(static_cast<Precedence>(static_cast<int>(prec) + 1));
     return std::make_unique<ast::BinaryExpr>(std::move(left), opTok.type, std::move(right), loc);
 }
@@ -333,7 +344,6 @@ ast::ExprPtr Parser::parseGroupedOrLambda() {
     bool isLambda = false;
     std::vector<ast::LambdaExpr::Param> params;
 
-    // Speculative lookahead for typed or untyped parameters
     if (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type)) {
         while (!isAtEnd() && !check(lexer::TokenType::CloseParen)) {
             std::string type;
@@ -476,8 +486,11 @@ ast::StmtPtr Parser::parseStatement() {
         return parseThrowStatement();
     }
 
-    // Check for variable declaration with explicit type: int x = 10;
-    if (isTypeKeyword(peek().type)) {
+    // Check for variable declaration with explicit or user-defined type: int x = 10; or Person p = ...;
+    bool couldBeTypeDecl = isTypeKeyword(peek().type) ||
+                           (check(lexer::TokenType::Identifier) &&
+                            (checkNext(lexer::TokenType::Identifier) || checkNext(lexer::TokenType::Less)));
+    if (couldBeTypeDecl) {
         size_t saved = m_current;
         std::string type = parseType();
         if (check(lexer::TokenType::Identifier) &&
@@ -491,7 +504,7 @@ ast::StmtPtr Parser::parseStatement() {
             consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
             return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc);
         }
-        m_current = saved; // Not a variable declaration, rewind
+        m_current = saved; // Rewind
     }
 
     return parseExprStatement();
@@ -501,7 +514,9 @@ ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar) {
     diagnostics::SourceLocation loc = previous().location;
     std::string type;
 
-    if (!isVar && !isConst) {
+    if (isTypeKeyword(peek().type)) {
+        type = parseType();
+    } else if (!isVar && !isConst) {
         type = parseType();
     }
 
@@ -561,7 +576,6 @@ ast::StmtPtr Parser::parseForStatement() {
 
     // Range or For-In loop: for (i in 0..10) or for (string name in names)
     if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier)) {
-        // e.g. for (string name in names)
         std::string type = advance().lexeme;
         std::string varName = advance().lexeme;
         if (match(lexer::TokenType::Identifier) && previous().lexeme == "in") {
@@ -583,6 +597,7 @@ ast::StmtPtr Parser::parseForStatement() {
     ast::StmtPtr init = nullptr;
     if (!match(lexer::TokenType::Semicolon)) {
         init = parseStatement();
+        // If init was a VarDeclStmt, it already consumed the ';'
     }
 
     ast::ExprPtr condition = nullptr;
@@ -665,7 +680,6 @@ ast::StmtPtr Parser::parseMatchStatement() {
 
         arms.emplace_back(std::move(pattern), std::move(body));
 
-        // Optional trailing comma between arms
         match(lexer::TokenType::Comma);
     }
 
@@ -773,22 +787,66 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility);
     if (match(lexer::TokenType::KeywordEnum)) return parseEnumDecl(visibility);
 
-    // Syntax Compatibility: Java/C++ style function declaration
-    // e.g. int add(int a, int b) { ... }
-    if (isTypeKeyword(peek().type)) {
-        size_t saved = m_current;
-        std::string returnType = parseType();
-        if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::OpenParen)) {
-            const lexer::Token& nameTok = advance(); // consume function name
-            diagnostics::SourceLocation loc = nameTok.location;
-            std::vector<ast::Parameter> params = parseParameters();
-            std::unique_ptr<ast::BlockStmt> body = parseBlock();
+    // Variable declarations with visibility or const/var
+    if (match(lexer::TokenType::KeywordConst)) return parseVarDecl(true, false);
+    if (match(lexer::TokenType::KeywordVar)) return parseVarDecl(false, true);
+    if (match(lexer::TokenType::KeywordLet)) return parseVarDecl(false, true);
 
-            return std::make_unique<ast::FunctionDecl>(
-                nameTok.lexeme, std::move(params), returnType,
-                std::move(body), nullptr, visibility, isStatic, isOverride, isAbstract, false, loc);
+    // Extern block: extern "C" { ... }
+    if (match(lexer::TokenType::KeywordExtern)) {
+        diagnostics::SourceLocation loc = previous().location;
+        if (check(lexer::TokenType::StringLiteral)) {
+            advance(); // Consume "C"
         }
-        m_current = saved; // Not a function, rewind
+        consume(lexer::TokenType::OpenBrace, "Expected '{' to start extern block");
+        std::vector<ast::StmtPtr> externDecls;
+        while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
+            ast::ASTNodePtr decl = parseDeclaration();
+            if (decl) {
+                // Cast ASTNodePtr to StmtPtr since all declarations inherit from StatementNode
+                externDecls.push_back(std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(decl.release())));
+            }
+        }
+        consume(lexer::TokenType::CloseBrace, "Expected '}' after extern block");
+        return std::make_unique<ast::BlockStmt>(std::move(externDecls), loc);
+    }
+
+    // Syntax Compatibility: Java/C++ style declarations (type identifier (...) or type identifier = ...;)
+    bool couldBeDecl = isTypeKeyword(peek().type) ||
+                       (check(lexer::TokenType::Identifier) &&
+                        (checkNext(lexer::TokenType::Identifier) || checkNext(lexer::TokenType::Less)));
+    if (couldBeDecl) {
+        size_t saved = m_current;
+        std::string type = parseType();
+        if (check(lexer::TokenType::Identifier)) {
+            if (checkNext(lexer::TokenType::OpenParen)) {
+                // Java/C++ style function: int add(int a, int b) { ... }
+                const lexer::Token& nameTok = advance();
+                diagnostics::SourceLocation loc = nameTok.location;
+                std::vector<ast::Parameter> params = parseParameters();
+                std::unique_ptr<ast::BlockStmt> body = nullptr;
+                if (check(lexer::TokenType::OpenBrace)) {
+                    body = parseBlock();
+                } else {
+                    consume(lexer::TokenType::Semicolon, "Expected ';' after function signature");
+                }
+
+                return std::make_unique<ast::FunctionDecl>(
+                    nameTok.lexeme, std::move(params), type,
+                    std::move(body), nullptr, visibility, isStatic, isOverride, isAbstract, false, loc);
+            } else if (checkNext(lexer::TokenType::Equal) || checkNext(lexer::TokenType::Semicolon) || checkNext(lexer::TokenType::Comma)) {
+                // Field or global variable: [public/protected] int count = 0;
+                const lexer::Token& nameTok = advance();
+                diagnostics::SourceLocation loc = nameTok.location;
+                ast::ExprPtr init = nullptr;
+                if (match(lexer::TokenType::Equal)) {
+                    init = parseExpression();
+                }
+                consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
+                return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc);
+            }
+        }
+        m_current = saved; // Not a declaration, rewind
     }
 
     return parseStatement();
@@ -855,7 +913,7 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
     } else if (check(lexer::TokenType::OpenBrace)) {
         body = parseBlock();
     } else if (match(lexer::TokenType::Semicolon)) {
-        // Abstract/interface function without body
+        // Function signature without body (extern or abstract)
     } else {
         errorAt(peek(), "Expected '{' or '=>' for function body");
     }
@@ -904,7 +962,7 @@ ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) 
     std::vector<ast::ASTNodePtr> members;
 
     while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
-        // Constructor compatibility: constructor(...) or ClassName(...)
+        // Constructor compatibility: ClassName(...)
         if (check(lexer::TokenType::Identifier) && peek().lexeme == name && checkNext(lexer::TokenType::OpenParen)) {
             const lexer::Token& ctorName = advance();
             diagnostics::SourceLocation ctorLoc = ctorName.location;
@@ -1099,7 +1157,7 @@ std::unique_ptr<ast::Program> Parser::parseProgram() {
     std::vector<ast::ASTNodePtr> declarations;
 
     while (!isAtEnd()) {
-        if (match(lexer::TokenType::Semicolon)) continue; // Skip redundant semicolons
+        if (match(lexer::TokenType::Semicolon)) continue;
         try {
             ast::ASTNodePtr decl = parseDeclaration();
             if (decl) {

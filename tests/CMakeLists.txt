@@ -29,6 +29,8 @@ add_executable(sp_tests
     lexer/TokenTypeTest.cpp
     lexer/LexerTest.cpp
     lexer/GoldenLexerTest.cpp
+    parser/ParserTest.cpp
+    parser/GoldenParserTest.cpp
 )
 
 target_link_libraries(sp_tests
