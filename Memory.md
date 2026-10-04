@@ -1,12 +1,12 @@
 # SP Programming Language — Memory & Progress Tracker
 
 > **Last Updated:** 2026-10-05
-> **Current Phase:** Phase 0 Completed / Ready for Phase 1 (Lexer)
+> **Current Phase:** Phase 1 Completed / Ready for Phase 2 (Parser & AST)
 > **Current Version:** v0.1.0-alpha
 
 ---
 
-## Project Status: 🟢 Phase 0 Complete (Ready for Phase 1: Lexer)
+## Project Status: 🟢 Phase 1 (Lexer) Complete (Ready for Phase 2: Parser & AST)
 
 ---
 
@@ -34,19 +34,19 @@
 - [x] Local build and 100% tests passing verified
 
 ### Phase 1: Lexer
-- [ ] TokenType enum defined
-- [ ] Token struct defined
-- [ ] Lexer class implemented
-- [ ] Comments handling (single-line, multi-line, doc comments)
-- [ ] String literals with escape sequences
-- [ ] String interpolation
-- [ ] Character literals
-- [ ] Numeric literals (int, float, hex, binary)
-- [ ] All operators tokenized
-- [ ] Source location tracking
-- [ ] DiagnosticEngine implemented
-- [ ] Lexer unit tests written
-- [ ] Lexer golden tests written
+- [x] TokenType enum defined (keywords, operators, literals, punctuation, annotations)
+- [x] Token struct defined with SourceLocation and matching helpers
+- [x] Lexer class implemented with character-by-character scanner
+- [x] Comments handling (single-line, multi-line nested, doc comments)
+- [x] String literals with escape sequences
+- [x] Character literals
+- [x] Numeric literals (decimal, float, scientific notation, hex 0x, binary 0b, octal 0o)
+- [x] All operators tokenized (single, double, and triple-char operators)
+- [x] Source location tracking (line, column, filename)
+- [x] DiagnosticEngine integrated for lexical errors
+- [x] Lexer unit tests written (100% passing)
+- [x] Lexer golden tests written (100% passing across examples & stdlib)
+- [x] Integrated into spc CLI (`tokens` and `check` commands)
 
 ### Phase 2: Parser & AST
 - [ ] AST node types defined
@@ -100,9 +100,9 @@
 
 ## Currently Working On
 
-**File:** None (Phase 0 complete)
-**Task:** Ready to begin Phase 1: Lexer (Tokenization & Scanning)
-**Details:** CMake build system, C++20 standard, Clang 19 / LLVM, GoogleTest suite, CLI binary `spc`, and core docs all functional and tested.
+**File:** None (Phase 1 complete)
+**Task:** Ready to begin Phase 2: Parser & AST
+**Details:** Lexer engine, Token definitions, TokenType enum, DiagnosticEngine integration, spc CLI `tokens` and `check` commands, and 19 unit & golden tests 100% passing.
 
 ---
 
@@ -127,8 +127,14 @@
 | docs/SYNTAX_SPEC.md | ✅ Complete | Syntax & Grammar Specification |
 | docs/TYPE_SYSTEM.md | ✅ Complete | Type System Specification |
 | docs/COMPILER_ARCHITECTURE.md | ✅ Complete | Compiler Architecture Specification |
-| tools/spc/main.cpp | ✅ Complete | `spc` CLI entry point |
+| compiler/include/sp/lexer/TokenType.h | ✅ Complete | Full token type enumerations |
+| compiler/include/sp/lexer/Token.h | ✅ Complete | Token struct with location tracking |
+| compiler/include/sp/lexer/Lexer.h | ✅ Complete | Lexer scanner engine header |
+| compiler/src/lexer/Lexer.cpp | ✅ Complete | Lexer implementation with character scanner |
+| tools/spc/main.cpp | ✅ Complete | `spc` CLI with `tokens` and `check` |
 | tests/lexer/TokenTypeTest.cpp | ✅ Complete | 100% tests passing |
+| tests/lexer/LexerTest.cpp | ✅ Complete | 100% tests passing (all token categories) |
+| tests/lexer/GoldenLexerTest.cpp | ✅ Complete | 100% tests passing (examples & stdlib) |
 | tests/diagnostics/DiagnosticEngineTest.cpp | ✅ Complete | 100% tests passing |
 
 ---
@@ -151,7 +157,7 @@
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| None | — | — | Phase 0 verified and complete |
+| None | — | — | Phase 1 verified and complete |
 
 ---
 
@@ -175,4 +181,5 @@
 | 2026-09-30 | Initial Memory.md created | AI |
 | 2026-09-30 | All planning documents created | AI |
 | 2026-10-05 | Phase 0 completed: CMake, C++20, GTest, CI/CD, docs, spc CLI | AI |
+| 2026-10-05 | Phase 1 completed: Lexer, TokenType, Token, golden tests, CLI tokens/check commands | AI |
 
