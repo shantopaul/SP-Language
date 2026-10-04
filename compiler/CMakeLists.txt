@@ -11,6 +11,8 @@ add_library(sp_compiler
     src/sema/Type.cpp
     src/sema/SymbolTable.cpp
     src/sema/NameResolver.cpp
+    src/sema/TypeChecker.cpp
+    src/sema/SemanticAnalyzer.cpp
 )
 
 target_include_directories(sp_compiler
