@@ -15,6 +15,7 @@ add_library(sp_compiler
     src/sema/SemanticAnalyzer.cpp
     src/ir/IR.cpp
     src/ir/IRPrinter.cpp
+    src/ir/IRBuilder.cpp
 )
 
 target_include_directories(sp_compiler

@@ -36,6 +36,7 @@ add_executable(sp_tests
     sema/TypeCheckerTest.cpp
     sema/GoldenSemanticTest.cpp
     ir/IRTest.cpp
+    ir/IRBuilderTest.cpp
 )
 
 target_link_libraries(sp_tests

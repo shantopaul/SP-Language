@@ -1115,23 +1115,33 @@ std::vector<ast::Parameter> Parser::parseParameters() {
     if (!check(lexer::TokenType::CloseParen)) {
         do {
             std::string type;
-            bool couldBeType = isTypeKeyword(peek().type) ||
-                               (check(lexer::TokenType::Identifier) &&
-                                (checkNext(lexer::TokenType::Identifier) ||
-                                 checkNext(lexer::TokenType::Question) ||
-                                 checkNext(lexer::TokenType::OpenBracket) ||
-                                 checkNext(lexer::TokenType::Less)));
-            if (couldBeType) {
+            std::string paramName;
+
+            if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Colon)) {
+                paramName = advance().lexeme;
+                advance(); // consume ':'
                 type = parseType();
+            } else {
+                bool couldBeType = isTypeKeyword(peek().type) ||
+                                   (check(lexer::TokenType::Identifier) &&
+                                    (checkNext(lexer::TokenType::Identifier) ||
+                                     checkNext(lexer::TokenType::Question) ||
+                                     checkNext(lexer::TokenType::OpenBracket) ||
+                                     checkNext(lexer::TokenType::Less)));
+                if (couldBeType) {
+                    type = parseType();
+                }
+                const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected parameter name");
+                paramName = nameTok.lexeme;
             }
-            const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected parameter name");
+
             ast::ExprPtr defaultVal = nullptr;
 
             if (match(lexer::TokenType::Equal)) {
                 defaultVal = parseExpression();
             }
 
-            params.emplace_back(std::move(type), nameTok.lexeme, std::move(defaultVal));
+            params.emplace_back(std::move(type), std::move(paramName), std::move(defaultVal));
         } while (match(lexer::TokenType::Comma));
     }
 
