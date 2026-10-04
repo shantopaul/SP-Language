@@ -5,6 +5,7 @@
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
 #include "sp/ast/ASTPrinter.h"
+#include "sp/sema/SemanticAnalyzer.h"
 #include "sp/runtime/Runtime.h"
 #include <iostream>
 #include <fstream>
@@ -16,7 +17,7 @@
 namespace {
 
 void printVersion() {
-    std::cout << "spc (SP Programming Language Compiler) version 0.2.0-alpha\n"
+    std::cout << "spc (SP Programming Language Compiler) version 0.3.0-alpha\n"
               << "Copyright (c) 2026 Shanto Paul\n"
               << "Target: native machine code (LLVM backend)\n";
 }
@@ -26,7 +27,8 @@ void printHelp() {
               << "Commands:\n"
               << "  tokens <file>   Scan source file and dump all tokens with source positions\n"
               << "  ast <file>      Parse source file and print the formatted Abstract Syntax Tree\n"
-              << "  check <file>    Lex and parse source code for complete syntax validation\n"
+              << "  sema <file>     Perform semantic analysis and dump resolved symbols and types\n"
+              << "  check <file>    Perform lexical, syntactic, and semantic type analysis\n"
               << "  build <file>    Compile an SP source file to a native executable\n"
               << "  run <file>      Compile and immediately execute an SP program\n"
               << "  fmt <file>      Format SP source files according to style rules\n"
@@ -72,7 +74,7 @@ int main(int argc, char* argv[]) {
 
     sp::diagnostics::DiagnosticEngine diagEngine(std::cerr);
 
-    if (command == "tokens" || command == "ast" || command == "check" || command == "build" || command == "run") {
+    if (command == "tokens" || command == "ast" || command == "sema" || command == "check" || command == "build" || command == "run") {
         if (argc < 3) {
             diagEngine.reportError("E1000", "Missing input source file", sp::diagnostics::SourceLocation("cli", 1, 1), "Specify an input file: spc " + std::string(command) + " main.sp");
             return 1;
@@ -127,6 +129,39 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
+        if (command == "sema") {
+            std::vector<sp::lexer::Token> tokens = lexer.tokenizeAll();
+            if (diagEngine.hasErrors()) {
+                std::cerr << "Lexing failed with " << diagEngine.errorCount() << " error(s).\n";
+                return 1;
+            }
+
+            sp::parser::Parser parser(tokens, filename, &diagEngine);
+            auto program = parser.parseProgram();
+
+            if (diagEngine.hasErrors() || !program) {
+                std::cerr << "Parsing failed with " << diagEngine.errorCount() << " error(s).\n";
+                return 1;
+            }
+
+            sp::sema::SemanticAnalyzer sema(diagEngine);
+            bool success = sema.analyze(*program);
+
+            if (!success || diagEngine.hasErrors()) {
+                std::cerr << "Semantic analysis failed with " << diagEngine.errorCount() << " error(s).\n";
+                return 1;
+            }
+
+            std::cout << "Semantic analysis passed for " << filename << ".\n";
+            std::cout << "Global symbols:\n";
+            std::cout << std::string(60, '-') << "\n";
+            for (const auto& [name, sym] : sema.getSymbolTable().getGlobalScope()->getSymbols()) {
+                std::cout << "  " << std::left << std::setw(20) << name
+                          << ": " << (sym->getType() ? sym->getType()->toString() : "unknown") << "\n";
+            }
+            return 0;
+        }
+
         if (command == "check") {
             std::vector<sp::lexer::Token> tokens = lexer.tokenizeAll();
             if (diagEngine.hasErrors()) {
@@ -137,13 +172,21 @@ int main(int argc, char* argv[]) {
             sp::parser::Parser parser(tokens, filename, &diagEngine);
             auto program = parser.parseProgram();
 
-            if (diagEngine.hasErrors()) {
+            if (diagEngine.hasErrors() || !program) {
                 std::cerr << "Check failed: " << diagEngine.errorCount() << " syntax error(s).\n";
                 return 1;
             }
 
+            sp::sema::SemanticAnalyzer sema(diagEngine);
+            bool semaSuccess = sema.analyze(*program);
+
+            if (!semaSuccess || diagEngine.hasErrors()) {
+                std::cerr << "Check failed: " << diagEngine.errorCount() << " semantic error(s).\n";
+                return 1;
+            }
+
             size_t declCount = program ? program->getDeclarations().size() : 0;
-            std::cout << "Check passed: Syntax valid (" << tokens.size() << " tokens, " 
+            std::cout << "Check passed: Syntax & Semantics valid (" << tokens.size() << " tokens, " 
                       << declCount << " declarations) in " << filename << ".\n";
             return 0;
         }

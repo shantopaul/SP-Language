@@ -43,6 +43,15 @@ void NameResolver::pass1_collectTopLevel(const ast::Program& program) {
                 resolveFunctionDeclPass1(fnDecl);
                 break;
             }
+            case ast::ASTNodeKind::BlockStmt: {
+                const auto& block = static_cast<const ast::BlockStmt&>(*declPtr);
+                for (const auto& inner : block.getStatements()) {
+                    if (inner && inner->getKind() == ast::ASTNodeKind::FunctionDecl) {
+                        resolveFunctionDeclPass1(static_cast<const ast::FunctionDecl&>(*inner));
+                    }
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -260,10 +269,9 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
             auto fnType = m_typeCtx.getFunctionType(std::move(paramTypes), std::move(returnType));
 
             // Check duplicate method in current class
-            auto existingMethods = clsType->findMethods(methodName);
             bool duplicate = false;
-            for (const auto& em : existingMethods) {
-                if (em.functionType->equals(*fnType)) {
+            for (const auto& em : clsType->getMethods()) {
+                if (em.name == methodName && em.functionType->equals(*fnType)) {
                     duplicate = true;
                     break;
                 }

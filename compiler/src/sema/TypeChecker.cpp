@@ -74,6 +74,15 @@ void TypeChecker::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    // Check if it's a field in enclosing class or inherited from superclass
+    if (m_currentEnclosingClass) {
+        auto fieldOpt = m_currentEnclosingClass->findField(name);
+        if (fieldOpt.has_value()) {
+            m_currentExprType = fieldOpt->type;
+            return;
+        }
+    }
+
     // Check if it's a registered user type (class, enum, etc.)
     auto userType = m_typeCtx.findUserType(name);
     if (userType) {
@@ -317,6 +326,35 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = m_typeCtx.getError();
             }
             return;
+        }
+
+        // Check super constructor call: super(...)
+        if (fnName == "super") {
+            if (!m_currentEnclosingClass || !m_currentEnclosingClass->getSuperclass()) {
+                m_diagnostics.reportError("E1001", "Cannot call 'super' constructor outside of a subclass", node.getLocation());
+                m_currentExprType = m_typeCtx.getError();
+            } else {
+                m_currentExprType = m_typeCtx.getVoid();
+            }
+            return;
+        }
+
+        // Check method on enclosing class: method(...)
+        if (m_currentEnclosingClass) {
+            auto methods = m_currentEnclosingClass->findMethods(fnName);
+            if (!methods.empty()) {
+                std::vector<std::shared_ptr<FunctionSymbol>> methodCandidates;
+                for (const auto& mm : methods) {
+                    methodCandidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                }
+                auto resolved = resolveOverload(methodCandidates, argTypes, node.getLocation(), fnName);
+                if (resolved) {
+                    m_currentExprType = resolved->getFunctionType()->getReturnType();
+                } else {
+                    m_currentExprType = m_typeCtx.getError();
+                }
+                return;
+            }
         }
 
         // Check constructor call: ClassName(...)
@@ -1042,6 +1080,15 @@ void TypeChecker::visit(const ast::Program& node) {
                 case ast::ASTNodeKind::EnumDecl:
                     visit(static_cast<const ast::EnumDecl&>(*decl));
                     break;
+                case ast::ASTNodeKind::BlockStmt: {
+                    const auto& block = static_cast<const ast::BlockStmt&>(*decl);
+                    for (const auto& inner : block.getStatements()) {
+                        if (inner && inner->getKind() == ast::ASTNodeKind::FunctionDecl) {
+                            visit(static_cast<const ast::FunctionDecl&>(*inner));
+                        }
+                    }
+                    break;
+                }
                 default:
                     break;
             }

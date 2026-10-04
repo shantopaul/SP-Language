@@ -25,11 +25,19 @@ bool Scope::define(SymbolPtr symbol) {
             };
 
             if (checkSameParams(*existingFn, *newFn)) {
+                if (existingFn->getLocation().filename == "<built-in>") {
+                    // Concrete implementation overriding built-in stub
+                    return true;
+                }
                 return false; // Duplicate function signature
             }
 
             for (const auto& overload : existingFn->getOverloads()) {
                 if (checkSameParams(*overload, *newFn)) {
+                    if (overload->getLocation().filename == "<built-in>") {
+                        // Concrete implementation overriding built-in stub
+                        return true;
+                    }
                     return false; // Duplicate overload signature
                 }
             }
