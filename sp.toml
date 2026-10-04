@@ -1,0 +1,21 @@
+[package]
+name = "sp-app"
+version = "0.1.0"
+authors = ["Shanto Paul"]
+description = "An application built with the SP Programming Language"
+license = "MIT"
+
+[language]
+version = "1.0"
+
+[dependencies]
+# Future packages managed by spm (SP Package Manager)
+# std = "1.0.0"
+# http = "1.2.0"
+# json = "2.0.0"
+
+[build]
+entry = "src/main.sp"
+target = "native"
+output = "bin/sp-app"
+opt-level = "debug" # debug | release

@@ -1,0 +1,51 @@
+include(FetchContent)
+
+# Option to use FetchContent for GoogleTest
+FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+)
+
+# For Windows / MinGW
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+if(WIN32)
+    set(gtest_disable_pthreads ON CACHE BOOL "" FORCE)
+    add_compile_definitions(GTEST_HAS_PTHREAD=0)
+endif()
+
+FetchContent_MakeAvailable(googletest)
+
+if(TARGET gtest)
+    if(WIN32)
+        target_compile_definitions(gtest PUBLIC GTEST_HAS_PTHREAD=0)
+        target_compile_definitions(gtest_main PUBLIC GTEST_HAS_PTHREAD=0)
+    endif()
+endif()
+
+find_package(Threads)
+
+add_executable(sp_tests
+    diagnostics/DiagnosticEngineTest.cpp
+    lexer/TokenTypeTest.cpp
+)
+
+target_link_libraries(sp_tests
+    PRIVATE
+        sp_compiler
+        sp_runtime
+        GTest::gtest_main
+)
+
+if(TARGET Threads::Threads)
+    target_link_libraries(sp_tests PRIVATE Threads::Threads)
+endif()
+
+if(WIN32 AND MINGW)
+    target_link_libraries(sp_tests PRIVATE -lpthread)
+endif()
+
+target_include_directories(sp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features(sp_tests PRIVATE cxx_std_20)
+
+include(GoogleTest)
+gtest_discover_tests(sp_tests)

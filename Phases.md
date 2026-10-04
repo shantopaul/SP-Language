@@ -9,16 +9,16 @@ This document outlines the detailed development phases for the SP Programming La
 **Goal:** Set up the development environment, establish the project structure, and finalize core design decisions.
 
 ### Tasks
-- [ ] 1. Initialize Git repository and set up the GitHub project.
-- [ ] 2. Set up the CMake build system with C++17/20 support.
-- [ ] 3. Configure LLVM 17+ development libraries as the core backend.
-- [ ] 4. Set up GoogleTest/Catch2 for C++ testing.
-- [ ] 5. Create the initial folder structure (`compiler/`, `runtime/`, `stdlib/`, `tools/`, `tests/`, `docs/`, `examples/`).
-- [ ] 6. Write core project documents: `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE`.
-- [ ] 7. Create an `sp.toml` example project configuration.
-- [ ] 8. Set up a GitHub Actions CI pipeline for automated building and testing.
-- [ ] 9. Finalize core language specification documents: `LANGUAGE_SPEC.md`, `SYNTAX_SPEC.md`, `TYPE_SYSTEM.md`, `COMPILER_ARCHITECTURE.md`.
-- [ ] 10. Study reference compilers (Clang, Rustc, Go compiler, Swift compiler) for architectural insights.
+- [x] 1. Initialize Git repository and set up the GitHub project.
+- [x] 2. Set up the CMake build system with C++17/20 support.
+- [x] 3. Configure LLVM 17+ development libraries as the core backend.
+- [x] 4. Set up GoogleTest/Catch2 for C++ testing.
+- [x] 5. Create the initial folder structure (`compiler/`, `runtime/`, `stdlib/`, `tools/`, `tests/`, `docs/`, `examples/`).
+- [x] 6. Write core project documents: `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE`.
+- [x] 7. Create an `sp.toml` example project configuration.
+- [x] 8. Set up a GitHub Actions CI pipeline for automated building and testing.
+- [x] 9. Finalize core language specification documents: `LANGUAGE_SPEC.md`, `SYNTAX_SPEC.md`, `TYPE_SYSTEM.md`, `COMPILER_ARCHITECTURE.md`.
+- [x] 10. Study reference compilers (Clang, Rustc, Go compiler, Swift compiler) for architectural insights.
 
 ### Deliverables
 - Working CMake build system.
