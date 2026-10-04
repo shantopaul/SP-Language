@@ -5,6 +5,8 @@ add_library(sp_compiler
     src/lexer/TokenType.cpp
     src/lexer/Token.cpp
     src/lexer/Lexer.cpp
+    src/ast/AST.cpp
+    src/ast/ASTPrinter.cpp
 )
 
 target_include_directories(sp_compiler
