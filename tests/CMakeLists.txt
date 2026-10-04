@@ -48,6 +48,7 @@ endif()
 
 target_include_directories(sp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(sp_tests PRIVATE cxx_std_20)
+target_compile_definitions(sp_tests PRIVATE SP_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 
 include(GoogleTest)
 gtest_discover_tests(sp_tests)
