@@ -58,6 +58,10 @@ std::string_view tokenTypeToString(TokenType type) noexcept {
 
         case TokenType::KeywordAsync: return "async";
         case TokenType::KeywordAwait: return "await";
+        case TokenType::KeywordThread: return "thread";
+        case TokenType::KeywordSpawn: return "spawn";
+        case TokenType::KeywordChannel: return "channel";
+        case TokenType::KeywordMutex: return "mutex";
         case TokenType::KeywordTry: return "try";
         case TokenType::KeywordCatch: return "catch";
         case TokenType::KeywordFinally: return "finally";
@@ -67,6 +71,10 @@ std::string_view tokenTypeToString(TokenType type) noexcept {
 
         case TokenType::KeywordTest: return "test";
         case TokenType::KeywordAssert: return "assert";
+
+        case TokenType::Comment: return "Comment";
+        case TokenType::DocComment: return "DocComment";
+        case TokenType::At: return "@";
 
         case TokenType::KeywordVoid: return "void";
         case TokenType::KeywordInt: return "int";

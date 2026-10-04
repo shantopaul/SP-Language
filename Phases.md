@@ -45,21 +45,21 @@ This document outlines the detailed development phases for the SP Programming La
 **Goal:** Convert SP source code into a reliable stream of typed tokens.
 
 ### Tasks
-- [ ] 1. Define `TokenType` enum including all keywords, operators, literals, and punctuation.
+- [x] 1. Define `TokenType` enum including all keywords, operators, literals, and punctuation.
   - *Keywords:* fn, class, interface, struct, enum, if, else, for, while, do, switch, match, case, default, break, continue, return, import, module, new, this, null, true, false, var, let, const, public, private, protected, internal, static, abstract, override, extends, implements, async, await, try, catch, finally, throw, unsafe, extern, void, and all type keywords.
   - *Operators:* +, -, *, /, %, ==, !=, >, <, >=, <=, &&, ||, !, &, |, ^, ~, <<, >>, =, +=, -=, *=, /=, %=, ++, --, ->, =>, ?., ??
   - *Literals:* INTEGER, FLOAT, STRING, CHAR, BOOLEAN
   - *Punctuation:* (, ), {, }, [, ], ;, :, ,, ., ..., ..
-- [ ] 2. Define `Token` struct to hold type, value, line, column, and file information.
-- [ ] 3. Implement the `Lexer` class with character-by-character scanning logic.
-- [ ] 4. Handle single-line (`//`) and multi-line (`/* */`) comments.
-- [ ] 5. Handle documentation comments (`///`).
-- [ ] 6. Handle string literals with escape sequences and interpolation (`"Hello ${name}"`).
-- [ ] 7. Handle character literals (`'A'`).
-- [ ] 8. Handle numeric literals (integers, floats, hex, binary).
-- [ ] 9. Handle all operators, ensuring correct parsing of multi-character operators (e.g., `==`, `->`, `??`).
-- [ ] 10. Track precise source location (file, line, column) for every token to enable accurate error reporting.
-- [ ] 11. Implement `DiagnosticEngine` for generating human-friendly error messages.
+- [x] 2. Define `Token` struct to hold type, value, line, column, and file information.
+- [x] 3. Implement the `Lexer` class with character-by-character scanning logic.
+- [x] 4. Handle single-line (`//`) and multi-line (`/* */`) comments.
+- [x] 5. Handle documentation comments (`///`).
+- [x] 6. Handle string literals with escape sequences and interpolation (`"Hello ${name}"`).
+- [x] 7. Handle character literals (`'A'`).
+- [x] 8. Handle numeric literals (integers, floats, hex, binary).
+- [x] 9. Handle all operators, ensuring correct parsing of multi-character operators (e.g., `==`, `->`, `??`).
+- [x] 10. Track precise source location (file, line, column) for every token to enable accurate error reporting.
+- [x] 11. Implement `DiagnosticEngine` for generating human-friendly error messages.
 
 ### Deliverables
 - Complete Lexer capable of tokenizing any valid SP source file.

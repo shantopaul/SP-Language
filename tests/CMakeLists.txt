@@ -27,6 +27,8 @@ find_package(Threads)
 add_executable(sp_tests
     diagnostics/DiagnosticEngineTest.cpp
     lexer/TokenTypeTest.cpp
+    lexer/LexerTest.cpp
+    lexer/GoldenLexerTest.cpp
 )
 
 target_link_libraries(sp_tests

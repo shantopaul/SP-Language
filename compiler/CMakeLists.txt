@@ -4,6 +4,7 @@ add_library(sp_compiler
     src/diagnostics/DiagnosticEngine.cpp
     src/lexer/TokenType.cpp
     src/lexer/Token.cpp
+    src/lexer/Lexer.cpp
 )
 
 target_include_directories(sp_compiler
