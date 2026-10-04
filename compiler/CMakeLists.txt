@@ -5,6 +5,14 @@ add_library(sp_compiler
     src/lexer/TokenType.cpp
     src/lexer/Token.cpp
     src/lexer/Lexer.cpp
+    src/ast/AST.cpp
+    src/ast/ASTPrinter.cpp
+    src/parser/Parser.cpp
+    src/sema/Type.cpp
+    src/sema/SymbolTable.cpp
+    src/sema/NameResolver.cpp
+    src/sema/TypeChecker.cpp
+    src/sema/SemanticAnalyzer.cpp
 )
 
 target_include_directories(sp_compiler
