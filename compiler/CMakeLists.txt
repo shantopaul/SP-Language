@@ -7,6 +7,7 @@ add_library(sp_compiler
     src/lexer/Lexer.cpp
     src/ast/AST.cpp
     src/ast/ASTPrinter.cpp
+    src/parser/Parser.cpp
 )
 
 target_include_directories(sp_compiler
