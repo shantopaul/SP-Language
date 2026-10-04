@@ -76,7 +76,7 @@ const lexer::Token& Parser::consume(lexer::TokenType type, std::string_view mess
 
 void Parser::errorAt(const lexer::Token& token, std::string_view message, std::string_view hint) {
     if (m_diagnostics) {
-        m_diagnostics->reportError("E1002", message, token.location, hint);
+        m_diagnostics->reportError("E1000", message, token.location, hint);
     }
 }
 

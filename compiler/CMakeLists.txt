@@ -8,6 +8,7 @@ add_library(sp_compiler
     src/ast/AST.cpp
     src/ast/ASTPrinter.cpp
     src/parser/Parser.cpp
+    src/sema/Type.cpp
 )
 
 target_include_directories(sp_compiler
