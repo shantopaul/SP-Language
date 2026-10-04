@@ -67,6 +67,10 @@ enum class TokenType {
     // Keywords - Concurrency & Systems
     KeywordAsync,
     KeywordAwait,
+    KeywordThread,
+    KeywordSpawn,
+    KeywordChannel,
+    KeywordMutex,
     KeywordTry,
     KeywordCatch,
     KeywordFinally,
@@ -77,6 +81,11 @@ enum class TokenType {
     // Keywords - Testing
     KeywordTest,
     KeywordAssert,
+
+    // Comments & Annotations
+    Comment,
+    DocComment,
+    At,             // @
 
     // Primitive Type Keywords
     KeywordVoid,
