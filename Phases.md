@@ -88,22 +88,22 @@ This document outlines the detailed development phases for the SP Programming La
 **Goal:** Parse token streams into a well-structured Abstract Syntax Tree (AST).
 
 ### Tasks
-- [ ] 1. Define all AST node types (~30 types) including Program, Declarations (Class, Function, Variable), Statements (If, For, Return), and Expressions (Binary, Unary, Call).
-- [ ] 2. Implement the AST visitor pattern (`ASTVisitor` interface) for tree traversal.
-- [ ] 3. Implement an AST printer for debugging and visual verification.
-- [ ] 4. Build a hand-written recursive descent parser for declarations and statements.
-- [ ] 5. Implement a Pratt parser for handling complex expression precedence.
-- [ ] 6. Parse variable and function declarations.
-- [ ] 7. Parse control flow constructs (if/else, for, while, do-while, switch, match).
-- [ ] 8. Parse object-oriented constructs (classes, interfaces, structs, enums).
-- [ ] 9. Parse module and import declarations.
-- [ ] 10. Parse array and map literals.
-- [ ] 11. Implement the Syntax Compatibility Layer:
+- [x] 1. Define all AST node types (~30 types) including Program, Declarations (Class, Function, Variable), Statements (If, For, Return), and Expressions (Binary, Unary, Call).
+- [x] 2. Implement the AST visitor pattern (`ASTVisitor` interface) for tree traversal.
+- [x] 3. Implement an AST printer for debugging and visual verification.
+- [x] 4. Build a hand-written recursive descent parser for declarations and statements.
+- [x] 5. Implement a Pratt parser for handling complex expression precedence.
+- [x] 6. Parse variable and function declarations.
+- [x] 7. Parse control flow constructs (if/else, for, while, do-while, switch, match).
+- [x] 8. Parse object-oriented constructs (classes, interfaces, structs, enums).
+- [x] 9. Parse module and import declarations.
+- [x] 10. Parse array and map literals.
+- [x] 11. Implement the Syntax Compatibility Layer:
   - Normalize both `fn add(int a, int b) -> int` and `int add(int a, int b)`.
   - Normalize `extends` and `:` for inheritance.
   - Support both `switch/case` and `match` structures.
-- [ ] 12. Implement comprehensive error recovery so the parser continues scanning after encountering errors.
-- [ ] 13. Generate detailed syntax error messages with precise source locations.
+- [x] 12. Implement comprehensive error recovery so the parser continues scanning after encountering errors.
+- [x] 13. Generate detailed syntax error messages with precise source locations.
 
 ### Deliverables
 - Complete Parser handling all SP syntax.

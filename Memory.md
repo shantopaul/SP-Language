@@ -1,12 +1,12 @@
 # SP Programming Language — Memory & Progress Tracker
 
 > **Last Updated:** 2026-10-05
-> **Current Phase:** Phase 1 Completed / Ready for Phase 2 (Parser & AST)
-> **Current Version:** v0.1.0-alpha
+> **Current Phase:** Phase 2 Completed / Ready for Phase 3 (Semantic Analysis & Type System)
+> **Current Version:** v0.2.0-alpha
 
 ---
 
-## Project Status: 🟢 Phase 1 (Lexer) Complete (Ready for Phase 2: Parser & AST)
+## Project Status: 🟢 Phase 2 (Parser & AST) Complete (Ready for Phase 3: Semantic Analysis)
 
 ---
 
@@ -49,22 +49,23 @@
 - [x] Integrated into spc CLI (`tokens` and `check` commands)
 
 ### Phase 2: Parser & AST
-- [ ] AST node types defined
-- [ ] ASTVisitor pattern implemented
-- [ ] AST printer implemented
-- [ ] Recursive descent parser built
-- [ ] Pratt parser for expressions
-- [ ] Variable declaration parsing
-- [ ] Function declaration parsing
-- [ ] Control flow parsing
-- [ ] Class declaration parsing
-- [ ] Interface/struct/enum parsing
-- [ ] Import/module parsing
-- [ ] Expression parsing with precedence
-- [ ] Syntax compatibility layer
-- [ ] Error recovery
-- [ ] Parser unit tests
-- [ ] Parser golden tests
+- [x] AST node types defined (Program, Declarations, Statements, Expressions)
+- [x] ASTVisitor pattern implemented (const-correct tree traversal)
+- [x] AST printer implemented (tree formatting for inspection and debugging)
+- [x] Recursive descent parser built (statements, blocks, declarations, modules, classes)
+- [x] Pratt parser for expressions (precedence, associativity, unary, binary, postfix)
+- [x] Variable declaration parsing (primitives, user-defined types, var, let, const)
+- [x] Function declaration parsing (parameters, return types, short form '=>', bodies)
+- [x] Control flow parsing (if/else, while, do-while, for, for-in, switch, match)
+- [x] Class declaration parsing (fields, constructors, methods, abstract)
+- [x] Interface/struct/enum parsing (methods, fields, variants with values)
+- [x] Import/module parsing (dot-qualified names, wildcard imports)
+- [x] Expression parsing with precedence (calls, indices, ternary, null coalescing, safe nav)
+- [x] Syntax compatibility layer (Java/C++ function syntax, extends/: inheritance)
+- [x] Error recovery (statement boundary synchronization, graceful error emission)
+- [x] Parser unit tests (16 unit tests, 100% passing)
+- [x] Parser golden tests (5 golden tests across examples and stdlib, 100% passing)
+- [x] Integrated into spc CLI ('ast' dump and enhanced syntax 'check' commands)
 
 ### Phase 3: Semantic Analysis & Type System
 - [ ] SymbolTable implemented
@@ -100,9 +101,9 @@
 
 ## Currently Working On
 
-**File:** None (Phase 1 complete)
-**Task:** Ready to begin Phase 2: Parser & AST
-**Details:** Lexer engine, Token definitions, TokenType enum, DiagnosticEngine integration, spc CLI `tokens` and `check` commands, and 19 unit & golden tests 100% passing.
+**File:** None (Phase 2 complete)
+**Task:** Ready to begin Phase 3: Semantic Analysis & Type System
+**Details:** AST node hierarchy, Visitor pattern, ASTPrinter, Pratt expression parser, recursive descent statement/declaration parser, syntax compatibility layer, error recovery, `spc ast` command, and 40 unit & golden tests 100% passing.
 
 ---
 
@@ -131,11 +132,24 @@
 | compiler/include/sp/lexer/Token.h | ✅ Complete | Token struct with location tracking |
 | compiler/include/sp/lexer/Lexer.h | ✅ Complete | Lexer scanner engine header |
 | compiler/src/lexer/Lexer.cpp | ✅ Complete | Lexer implementation with character scanner |
-| tools/spc/main.cpp | ✅ Complete | `spc` CLI with `tokens` and `check` |
+| compiler/include/sp/ast/ASTNode.h | ✅ Complete | Base ASTNode, NodeKind, and SourceLocation |
+| compiler/include/sp/ast/Expression.h | ✅ Complete | Binary, Unary, Call, Index, Literal, Array, Map, New expressions |
+| compiler/include/sp/ast/Statement.h | ✅ Complete | If, While, For, ForIn, Switch, Match, TryCatch statements |
+| compiler/include/sp/ast/Declaration.h | ✅ Complete | Var, Func, Class, Struct, Interface, Enum, Module, Import declarations |
+| compiler/include/sp/ast/ASTVisitor.h | ✅ Complete | Const-correct ASTVisitor interface |
+| compiler/include/sp/ast/ASTPrinter.h | ✅ Complete | Structured AST pretty printer header |
+| compiler/src/ast/AST.cpp | ✅ Complete | AST node accept implementations |
+| compiler/src/ast/ASTPrinter.cpp | ✅ Complete | AST printer visitor implementation |
+| compiler/include/sp/parser/Precedence.h | ✅ Complete | Pratt operator precedence definitions |
+| compiler/include/sp/parser/Parser.h | ✅ Complete | Recursive descent and Pratt parser interface |
+| compiler/src/parser/Parser.cpp | ✅ Complete | Complete parser implementation with compatibility layer & recovery |
+| tools/spc/main.cpp | ✅ Complete | `spc` CLI with `tokens`, `ast`, and `check` commands |
 | tests/lexer/TokenTypeTest.cpp | ✅ Complete | 100% tests passing |
 | tests/lexer/LexerTest.cpp | ✅ Complete | 100% tests passing (all token categories) |
 | tests/lexer/GoldenLexerTest.cpp | ✅ Complete | 100% tests passing (examples & stdlib) |
 | tests/diagnostics/DiagnosticEngineTest.cpp | ✅ Complete | 100% tests passing |
+| tests/parser/ParserTest.cpp | ✅ Complete | 16 unit tests, 100% tests passing |
+| tests/parser/GoldenParserTest.cpp | ✅ Complete | 5 golden tests, 100% tests passing |
 
 ---
 
@@ -157,7 +171,7 @@
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| None | — | — | Phase 1 verified and complete |
+| None | — | — | Phase 2 verified and complete (40/40 tests passing) |
 
 ---
 
@@ -182,4 +196,6 @@
 | 2026-09-30 | All planning documents created | AI |
 | 2026-10-05 | Phase 0 completed: CMake, C++20, GTest, CI/CD, docs, spc CLI | AI |
 | 2026-10-05 | Phase 1 completed: Lexer, TokenType, Token, golden tests, CLI tokens/check commands | AI |
+| 2026-10-05 | Phase 2 completed: AST hierarchy, Visitor, ASTPrinter, Pratt & Recursive Descent Parser, Syntax Compatibility Layer, spc ast/check CLI, 40/40 tests passing | AI |
+
 
