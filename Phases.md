@@ -131,19 +131,19 @@ This document outlines the detailed development phases for the SP Programming La
 **Goal:** Validate program semantics and ensure type correctness.
 
 ### Tasks
-- [ ] 1. Implement `SymbolTable` supporting nested scopes.
-- [ ] 2. Implement `NameResolver` to check variable existence, prevent duplicate declarations, and resolve imports.
-- [ ] 3. Implement the `TypeSystem`: defining primitive types, user-defined types (classes/interfaces), and compatibility rules.
-- [ ] 4. Support implicit type conversions (widening) and require casts for explicit conversions (narrowing).
-- [ ] 5. Implement the `TypeChecker`:
+- [x] 1. Implement `SymbolTable` supporting nested scopes.
+- [x] 2. Implement `NameResolver` to check variable existence, prevent duplicate declarations, and resolve imports.
+- [x] 3. Implement the `TypeSystem`: defining primitive types, user-defined types (classes/interfaces), and compatibility rules.
+- [x] 4. Support implicit type conversions (widening) and require casts for explicit conversions (narrowing).
+- [x] 5. Implement the `TypeChecker`:
   - Validate declarations, function returns, binary expressions, and function calls.
   - Implement method overload resolution.
   - Implement type inference for `var`/`let`.
-- [ ] 6. Enforce access modifiers (`public`, `private`, `protected`, `internal`).
-- [ ] 7. Validate inheritance hierarchies and interface implementations.
-- [ ] 8. Enforce null safety rules (`?` types, `?.` access, `??` operator).
-- [ ] 9. Implement return path analysis to guarantee all code paths return a value.
-- [ ] 10. Establish a comprehensive error code system (e.g., E1000-E1009).
+- [x] 6. Enforce access modifiers (`public`, `private`, `protected`, `internal`).
+- [x] 7. Validate inheritance hierarchies and interface implementations.
+- [x] 8. Enforce null safety rules (`?` types, `?.` access, `??` operator).
+- [x] 9. Implement return path analysis to guarantee all code paths return a value.
+- [x] 10. Establish a comprehensive error code system (e.g., E1000-E1009).
 
 ### Deliverables
 - Complete semantic analyzer and symbol table.
