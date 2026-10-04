@@ -10,6 +10,7 @@ add_library(sp_compiler
     src/parser/Parser.cpp
     src/sema/Type.cpp
     src/sema/SymbolTable.cpp
+    src/sema/NameResolver.cpp
 )
 
 target_include_directories(sp_compiler
