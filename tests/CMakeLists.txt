@@ -31,6 +31,10 @@ add_executable(sp_tests
     lexer/GoldenLexerTest.cpp
     parser/ParserTest.cpp
     parser/GoldenParserTest.cpp
+    sema/TypeTest.cpp
+    sema/SymbolTableTest.cpp
+    sema/TypeCheckerTest.cpp
+    sema/GoldenSemanticTest.cpp
 )
 
 target_link_libraries(sp_tests

@@ -47,10 +47,10 @@ private:
 
 class VarDeclStmt : public StatementNode {
 public:
-    VarDeclStmt(std::string type, std::string name, ExprPtr init, bool isConst, bool isVar, diagnostics::SourceLocation loc)
+    VarDeclStmt(std::string type, std::string name, ExprPtr init, bool isConst, bool isVar, diagnostics::SourceLocation loc, std::string visibility = "public", bool isStatic = false)
         : StatementNode(ASTNodeKind::VarDeclStmt, std::move(loc)),
           m_type(std::move(type)), m_name(std::move(name)), m_init(std::move(init)),
-          m_isConst(isConst), m_isVar(isVar) {}
+          m_isConst(isConst), m_isVar(isVar), m_visibility(std::move(visibility)), m_isStatic(isStatic) {}
 
     [[nodiscard]] const std::string& getType() const noexcept { return m_type; }
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
@@ -59,6 +59,8 @@ public:
     [[nodiscard]] ExprPtr& getInitializerPtr() noexcept { return m_init; }
     [[nodiscard]] bool isConst() const noexcept { return m_isConst; }
     [[nodiscard]] bool isVar() const noexcept { return m_isVar; }
+    [[nodiscard]] const std::string& getVisibility() const noexcept { return m_visibility; }
+    [[nodiscard]] bool isStatic() const noexcept { return m_isStatic; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -68,6 +70,8 @@ private:
     ExprPtr m_init;
     bool m_isConst;
     bool m_isVar;
+    std::string m_visibility;
+    bool m_isStatic{false};
 };
 
 class IfStmt : public StatementNode {

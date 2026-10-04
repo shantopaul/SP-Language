@@ -489,7 +489,10 @@ ast::StmtPtr Parser::parseStatement() {
     // Check for variable declaration with explicit or user-defined type: int x = 10; or Person p = ...;
     bool couldBeTypeDecl = isTypeKeyword(peek().type) ||
                            (check(lexer::TokenType::Identifier) &&
-                            (checkNext(lexer::TokenType::Identifier) || checkNext(lexer::TokenType::Less)));
+                            (checkNext(lexer::TokenType::Identifier) ||
+                             checkNext(lexer::TokenType::Less) ||
+                             checkNext(lexer::TokenType::Question) ||
+                             checkNext(lexer::TokenType::OpenBracket)));
     if (couldBeTypeDecl) {
         size_t saved = m_current;
         std::string type = parseType();
@@ -814,7 +817,10 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     // Syntax Compatibility: Java/C++ style declarations (type identifier (...) or type identifier = ...;)
     bool couldBeDecl = isTypeKeyword(peek().type) ||
                        (check(lexer::TokenType::Identifier) &&
-                        (checkNext(lexer::TokenType::Identifier) || checkNext(lexer::TokenType::Less)));
+                        (checkNext(lexer::TokenType::Identifier) ||
+                         checkNext(lexer::TokenType::Less) ||
+                         checkNext(lexer::TokenType::Question) ||
+                         checkNext(lexer::TokenType::OpenBracket)));
     if (couldBeDecl) {
         size_t saved = m_current;
         std::string type = parseType();
@@ -843,7 +849,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                     init = parseExpression();
                 }
                 consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
-                return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc);
+                return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc, visibility, isStatic);
             }
         }
         m_current = saved; // Not a declaration, rewind
@@ -1109,7 +1115,13 @@ std::vector<ast::Parameter> Parser::parseParameters() {
     if (!check(lexer::TokenType::CloseParen)) {
         do {
             std::string type;
-            if (isTypeKeyword(peek().type) || checkNext(lexer::TokenType::Identifier)) {
+            bool couldBeType = isTypeKeyword(peek().type) ||
+                               (check(lexer::TokenType::Identifier) &&
+                                (checkNext(lexer::TokenType::Identifier) ||
+                                 checkNext(lexer::TokenType::Question) ||
+                                 checkNext(lexer::TokenType::OpenBracket) ||
+                                 checkNext(lexer::TokenType::Less)));
+            if (couldBeType) {
                 type = parseType();
             }
             const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected parameter name");

@@ -204,9 +204,11 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
         const std::string& baseName = decl.getBaseClass();
         auto baseSym = m_symbolTable.lookup(baseName);
         if (!baseSym) {
-            m_diagnostics.reportError("E1002", "Undefined base class '" + baseName + "'", decl.getLocation());
+            m_diagnostics.reportError("E1002", "Undefined base class or interface '" + baseName + "'", decl.getLocation());
+        } else if (baseSym->getType() && baseSym->getType()->isInterface()) {
+            clsType->addInterface(std::static_pointer_cast<InterfaceType>(baseSym->getType()));
         } else if (!baseSym->getType() || !baseSym->getType()->isClass()) {
-            m_diagnostics.reportError("E1001", "Base type '" + baseName + "' is not a class", decl.getLocation());
+            m_diagnostics.reportError("E1001", "Base type '" + baseName + "' is not a class or interface", decl.getLocation());
         } else {
             if (!checkCircularInheritance(clsType, baseName, decl.getLocation())) {
                 clsType->setSuperclass(std::static_pointer_cast<ClassType>(baseSym->getType()));
@@ -245,8 +247,8 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
             MemberField field{
                 .name = fieldName,
                 .type = fieldType,
-                .visibility = "public",
-                .isStatic = false,
+                .visibility = varDecl.getVisibility().empty() ? "public" : varDecl.getVisibility(),
+                .isStatic = varDecl.isStatic(),
                 .isConst = varDecl.isConst()
             };
             clsType->addField(std::move(field));
