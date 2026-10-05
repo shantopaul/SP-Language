@@ -1,12 +1,12 @@
 # SP Programming Language — Memory & Progress Tracker
 
 > **Last Updated:** 2026-10-05
-> **Current Phase:** Phase 3 Completed / Ready for Phase 4 (SP IR & LLVM Code Generation)
-> **Current Version:** v0.3.0-alpha
+> **Current Phase:** Phase 4 Completed / Ready for Phase 5 (Object System)
+> **Current Version:** v0.4.0-alpha
 
 ---
 
-## Project Status: 🟢 Phase 3 (Semantic Analysis & Type System) Complete (Ready for Phase 4: Code Generation)
+## Project Status: 🟢 Phase 4 (SP IR & LLVM Code Generation) Complete (Ready for Phase 5: Object System)
 
 ---
 
@@ -83,18 +83,19 @@
 - [x] Integrated into spc CLI (`sema` dump and enhanced `check` commands)
 
 ### Phase 4: SP IR & LLVM Code Generation
-- [ ] SP IR designed
-- [ ] IR Builder implemented
-- [ ] LLVM Code Generator implemented
-- [ ] Integer/Float/Bool/String codegen
-- [ ] Variable codegen
-- [ ] Function codegen
-- [ ] Control flow codegen
-- [ ] println support
-- [ ] spc build command
-- [ ] spc run command
-- [ ] MILESTONE: Hello, SP! compiles and runs
-- [ ] Debug/Release build modes
+- [x] High-level SP Intermediate Representation (SP IR) designed (Type, Value, Instruction, BasicBlock, Function, Module)
+- [x] IR Builder implemented translating Typed AST to SP IR
+- [x] LLVM Code Generator implemented translating SP IR to standards-compliant LLVM IR
+- [x] Arithmetic, relational, logical, and floating point code generation
+- [x] Local variable allocation, load, and store code generation
+- [x] Function calls, signature mapping, and parameter stack allocations
+- [x] Control flow branching (if/else, while, for loops, return)
+- [x] Runtime library integration with built-in printing, assertions, and panic handlers
+- [x] Standalone native executable compiler (`spc build` -> .exe / ELF)
+- [x] Live program execution runner (`spc run`)
+- [x] Intermediate representation inspection tools (`spc ir`, `spc llvm`)
+- [x] MILESTONE: `fn main() { println("Hello, SP!"); }` compiles and executes natively!
+- [x] Full test suite (92 tests passing, 100%)
 
 ### Phase 5-10:
 (Not started — see Phases.md for details)
@@ -103,9 +104,9 @@
 
 ## Currently Working On
 
-**File:** None (Phase 3 complete)
-**Task:** Ready to begin Phase 4: SP IR & LLVM Code Generation
-**Details:** Complete Type System hierarchy, Scope/SymbolTable with function overloading, multi-pass NameResolver, TypeChecker visitor with expression type inference, access modifiers, inheritance validation, null safety, return path analysis, spc `sema` and enhanced `check` commands, and 71 unit & golden tests 100% passing.
+**File:** None (Phase 4 complete)
+**Task:** Ready to begin Phase 5: Object System
+**Details:** Complete high-level SP IR, AST-to-IR Builder, LLVM IR Code Generator, Runtime library integration, spc CLI `build`, `run`, `ir`, `llvm`, and `check` commands, and 92 unit and end-to-end execution tests 100% passing.
 
 ---
 
@@ -156,7 +157,22 @@
 | compiler/src/sema/TypeChecker.cpp | ✅ Complete | Complete type checker, null safety, access modifiers, return path analysis |
 | compiler/include/sp/sema/SemanticAnalyzer.h | ✅ Complete | Facade orchestrating semantic analysis passes |
 | compiler/src/sema/SemanticAnalyzer.cpp | ✅ Complete | Analysis coordination and error reporting |
-| tools/spc/main.cpp | ✅ Complete | `spc` CLI with `tokens`, `ast`, `sema`, and enhanced `check` commands |
+| tools/spc/main.cpp | ✅ Complete | `spc` CLI with `tokens`, `ast`, `sema`, `check`, `ir`, `llvm`, `build`, and `run` commands |
+| compiler/include/sp/ir/IRType.h | ✅ Complete | High-level SP IR Type system and factory methods |
+| compiler/include/sp/ir/IRValue.h | ✅ Complete | SP IR Value classes and constants |
+| compiler/include/sp/ir/IRInstruction.h | ✅ Complete | SP IR Instructions and Opcodes |
+| compiler/include/sp/ir/IRBasicBlock.h | ✅ Complete | SP IR BasicBlock structure |
+| compiler/include/sp/ir/IRFunction.h | ✅ Complete | SP IR Function structure |
+| compiler/include/sp/ir/IRModule.h | ✅ Complete | SP IR Module with runtime declarations and string constants |
+| compiler/include/sp/ir/IRPrinter.h | ✅ Complete | Structured SP IR pretty printer |
+| compiler/src/ir/IR.cpp | ✅ Complete | SP IR implementation |
+| compiler/src/ir/IRPrinter.cpp | ✅ Complete | SP IR printer implementation |
+| compiler/include/sp/ir/IRBuilder.h | ✅ Complete | AST-to-IR Builder translating Typed AST to SP IR |
+| compiler/src/ir/IRBuilder.cpp | ✅ Complete | Expression, statement, and function IR lowering implementation |
+| compiler/include/sp/codegen/LLVMGenerator.h | ✅ Complete | LLVM IR text generator and native compiler backend header |
+| compiler/src/codegen/LLVMGenerator.cpp | ✅ Complete | LLVM IR emission and native standalone binary compilation driver |
+| runtime/include/sp/runtime/Runtime.h | ✅ Complete | SP Runtime API: init, shutdown, println, print, assert, panic |
+| runtime/src/Runtime.cpp | ✅ Complete | Native runtime library implementation |
 | tests/lexer/TokenTypeTest.cpp | ✅ Complete | 100% tests passing |
 | tests/lexer/LexerTest.cpp | ✅ Complete | 100% tests passing (all token categories) |
 | tests/lexer/GoldenLexerTest.cpp | ✅ Complete | 100% tests passing (examples & stdlib) |
@@ -167,6 +183,10 @@
 | tests/sema/SymbolTableTest.cpp | ✅ Complete | 4 unit tests, 100% tests passing |
 | tests/sema/TypeCheckerTest.cpp | ✅ Complete | 14 unit tests, 100% tests passing |
 | tests/sema/GoldenSemanticTest.cpp | ✅ Complete | 5 golden tests across all examples & stdlib, 100% passing |
+| tests/ir/IRTest.cpp | ✅ Complete | 4 unit tests covering IR types, values, instructions, printer |
+| tests/ir/IRBuilderTest.cpp | ✅ Complete | 5 unit tests covering AST-to-IR translation |
+| tests/codegen/LLVMGeneratorTest.cpp | ✅ Complete | 4 tests covering LLVM text IR emission and native binary build |
+| tests/codegen/ExecutionTest.cpp | ✅ Complete | 8 end-to-end execution tests compiling and running native executables |
 
 ---
 
