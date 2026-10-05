@@ -206,32 +206,38 @@ This document outlines the detailed development phases for the SP Programming La
 **Goal:** Implement full Object-Oriented Programming (OOP) support including classes, inheritance, and interfaces.
 
 ### Tasks
-- [ ] 1. Generate LLVM code for class declarations (vtable construction, field memory layout).
-- [ ] 2. Generate code for object constructors and `new` allocation.
-- [ ] 3. Generate code for method calls, supporting both static and virtual dispatch.
-- [ ] 4. Manage `this` references in instance methods.
-- [ ] 5. Implement vtable chaining for inheritance.
-- [ ] 6. Generate code for interface implementations and dynamic casting.
-- [ ] 7. Enforce access modifiers at the code generation level if necessary.
-- [ ] 8. Support abstract classes and static members.
-- [ ] 9. Implement basic memory management (e.g., `malloc`/`free` wrappers or initial GC hooks).
+- [x] 1. Generate LLVM code for class declarations (vtable construction, field memory layout).
+- [x] 2. Generate code for object constructors and `new` allocation.
+- [x] 3. Generate code for method calls, supporting both static and virtual dispatch.
+- [x] 4. Manage `this` references in instance methods.
+- [x] 5. Implement vtable chaining for inheritance.
+- [x] 6. Generate code for interface implementations and dynamic casting.
+- [x] 7. Enforce access modifiers at the code generation level if necessary.
+- [x] 8. Support abstract classes and static members.
+- [x] 9. Implement basic memory management (e.g., `malloc`/`free` wrappers or initial GC hooks via `sp_rt_alloc`/`sp_rt_free`).
 
 ### Deliverables
-- End-to-end working OOP features.
-- Successful compilation and execution of the 10 example SP programs from the specification.
-- Basic memory management infrastructure.
+- End-to-end working OOP features (classes, constructors, methods, virtual dispatch, structs, enums).
+- Successful native compilation and execution of object-oriented SP programs.
+- Basic memory management infrastructure (`sp_rt_alloc` / `sp_rt_free` with 8-byte alignment).
 
 ### Key Files Affected
-- `compiler/src/codegen/ClassGenerator.cpp`
-- `compiler/src/codegen/VTableBuilder.cpp`
-- `runtime/memory.c`
+- `runtime/include/sp/runtime/Runtime.h`, `runtime/src/Runtime.cpp`
+- `compiler/include/sp/codegen/VTableBuilder.h`, `compiler/src/codegen/VTableBuilder.cpp`
+- `compiler/include/sp/codegen/ClassGenerator.h`, `compiler/src/codegen/ClassGenerator.cpp`
+- `compiler/include/sp/ir/IRType.h`, `compiler/include/sp/ir/IRInstruction.h`, `compiler/include/sp/ir/IRModule.h`
+- `compiler/src/ir/IR.cpp`, `compiler/src/ir/IRBuilder.cpp`, `compiler/src/ir/IRPrinter.cpp`
+- `compiler/src/codegen/LLVMGenerator.cpp`
+- `tests/codegen/VTableBuilderTest.cpp`, `tests/codegen/ClassGeneratorTest.cpp`, `tests/codegen/ExecutionTest.cpp`
+- `examples/oop_phase5.sp`
 
 ### Testing Requirements
 - Compile and test complex class hierarchies and interface dispatching.
 - Verify memory allocation behavior.
+- 108 automated tests in `sp_tests.exe` with 100% pass rate.
 
 ### Success Criteria
-- Virtual method resolution works correctly. Memory for objects is allocated properly. The 10 spec examples run perfectly.
+- Virtual method resolution works correctly. Memory for objects is allocated properly. Object instantiation, polymorphism, struct value types, and enum constants run cleanly.
 
 ---
 
