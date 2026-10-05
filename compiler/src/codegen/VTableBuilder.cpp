@@ -26,6 +26,21 @@ ir::IRTypePtr VTableBuilder::mapType(const std::string& typeName) const {
     return ir::IRType::getPointer();
 }
 
+std::string VTableBuilder::mangleGenericName(const std::string& name) {
+    std::string result;
+    for (char c : name) {
+        if (c == '<' || c == '>' || c == ',' || c == ' ') {
+            if (c != '>' && c != ' ') result += '_';
+        } else {
+            result += c;
+        }
+    }
+    while (!result.empty() && result.back() == '_') {
+        result.pop_back();
+    }
+    return result;
+}
+
 void VTableBuilder::buildProgramLayouts(const ast::Program& program, ir::IRModule& irModule) {
     // 1. Index all class and struct declarations
     for (const auto& decl : program.getDeclarations()) {
@@ -36,9 +51,19 @@ void VTableBuilder::buildProgramLayouts(const ast::Program& program, ir::IRModul
         }
     }
 
-    // 2. Build layouts for all classes
+    // 2. Build layouts for all non-generic classes
     for (const auto& [name, classDecl] : m_classDecls) {
         buildClassLayout(*classDecl, irModule);
+    }
+
+    // 2b. Build layouts for all specialized generic classes
+    for (const auto& [typeName, userType] : m_sema.getTypeContext().getUserTypes()) {
+        if (userType && userType->isClass()) {
+            auto clsType = std::static_pointer_cast<sema::ClassType>(userType);
+            if (clsType->getName().find('<') != std::string::npos) {
+                buildSpecializedClassLayout(clsType, irModule);
+            }
+        }
     }
 
     // 3. Build layouts for all structs
@@ -52,6 +77,9 @@ void VTableBuilder::buildProgramLayouts(const ast::Program& program, ir::IRModul
 }
 
 void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModule& irModule) {
+    if (classDecl.isGeneric()) {
+        return; // Generic templates are monomorphized into concrete layouts
+    }
     const std::string& className = classDecl.getName();
     if (m_layouts.find(className) != m_layouts.end()) {
         return; // Already built
@@ -210,10 +238,107 @@ void VTableBuilder::buildStructLayout(const ast::StructDecl& structDecl, ir::IRM
     m_layouts[structName] = std::move(layout);
 }
 
+void VTableBuilder::buildSpecializedClassLayout(const std::shared_ptr<sema::ClassType>& clsType, ir::IRModule& irModule) {
+    std::string className = mangleGenericName(clsType->getName());
+    if (m_layouts.find(className) != m_layouts.end()) {
+        return;
+    }
+
+    ClassLayout layout;
+    layout.name = className;
+    layout.baseClass = clsType->getSuperclass() ? clsType->getSuperclass()->getName() : "";
+    layout.hasVTable = true;
+    layout.vtableName = "@_vtable_" + className;
+
+    std::vector<ir::IRTypePtr> elementTypes;
+    // Slot 0: vtable pointer
+    elementTypes.push_back(ir::IRType::getPointer());
+    uint32_t currentFieldIndex = 1;
+    uint32_t totalBytes = 8;
+
+    // Fields
+    for (const auto& [fname, field] : clsType->getFields()) {
+        ir::IRTypePtr fIrType = mapType(field.type->toString());
+        FieldLayoutInfo fInfo{
+            .name = fname,
+            .typeName = field.type->toString(),
+            .irType = fIrType,
+            .index = currentFieldIndex++,
+            .className = className
+        };
+        layout.fields.push_back(fInfo);
+        layout.fieldIndexMap[fname] = fInfo.index;
+        elementTypes.push_back(fIrType);
+        totalBytes += 8;
+    }
+
+    std::string baseTemplateName = clsType->getName();
+    size_t ltPos = baseTemplateName.find('<');
+    if (ltPos != std::string::npos) {
+        baseTemplateName = baseTemplateName.substr(0, ltPos);
+    }
+
+    // Methods / VTable slots
+    uint32_t currentSlot = 0;
+    std::vector<ir::IRValuePtr> vtableFnConstants;
+    for (const auto& method : clsType->getMethods()) {
+        if (method.name == baseTemplateName || method.name == "init" || method.name == className) {
+            continue;
+        }
+        std::string mangledName = className + "_" + method.name;
+        ir::IRTypePtr fnType = nullptr;
+        if (method.functionType) {
+            auto fnT = std::static_pointer_cast<sema::FunctionType>(method.functionType);
+            std::vector<ir::IRTypePtr> paramTypes;
+            paramTypes.push_back(ir::IRType::getPointer()); // %this
+            for (const auto& pt : fnT->getParamTypes()) {
+                paramTypes.push_back(mapType(pt->toString()));
+            }
+            fnType = ir::IRType::getFunction(mapType(fnT->getReturnType()->toString()), paramTypes);
+        }
+
+        VTableSlotInfo slot{
+            .methodName = method.name,
+            .mangledName = mangledName,
+            .slotIndex = currentSlot,
+            .functionType = fnType,
+            .originatingClass = className
+        };
+        layout.vtableSlots.push_back(slot);
+        layout.methodSlotMap[method.name] = currentSlot++;
+    }
+
+    layout.objectSize = totalBytes;
+    layout.structType = ir::IRType::getStruct("class." + className, elementTypes);
+    irModule.addStructType("class." + className, elementTypes);
+
+    std::string vtableRawVal = "[";
+    if (layout.vtableSlots.empty()) {
+        vtableRawVal += "ptr null";
+    } else {
+        for (size_t i = 0; i < layout.vtableSlots.size(); ++i) {
+            if (i > 0) vtableRawVal += ", ";
+            vtableRawVal += "ptr @" + layout.vtableSlots[i].mangledName;
+        }
+    }
+    vtableRawVal += "]";
+
+    auto vtableArrayType = ir::IRType::getPointer();
+    irModule.addGlobalVariable(layout.vtableName, vtableArrayType, true, vtableRawVal);
+
+    m_layouts[className] = layout;
+    m_layouts[clsType->getName()] = layout;
+}
+
 const ClassLayout* VTableBuilder::getClassLayout(const std::string& className) const {
     auto it = m_layouts.find(className);
     if (it != m_layouts.end()) {
         return &it->second;
+    }
+    std::string mangled = mangleGenericName(className);
+    auto it2 = m_layouts.find(mangled);
+    if (it2 != m_layouts.end()) {
+        return &it2->second;
     }
     return nullptr;
 }

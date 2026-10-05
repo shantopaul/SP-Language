@@ -108,6 +108,7 @@ public:
     [[nodiscard]] const ExpressionNode& getCallee() const noexcept { return *m_callee; }
     [[nodiscard]] const std::vector<std::string>& getTypeArgs() const noexcept { return m_typeArgs; }
     [[nodiscard]] bool isGeneric() const noexcept { return !m_typeArgs.empty(); }
+    void setTypeArgs(std::vector<std::string> typeArgs) { m_typeArgs = std::move(typeArgs); }
     [[nodiscard]] const std::vector<ExprPtr>& getArgs() const noexcept { return m_args; }
 
     [[nodiscard]] ExprPtr& getCalleePtr() noexcept { return m_callee; }

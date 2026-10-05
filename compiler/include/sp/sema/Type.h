@@ -376,6 +376,7 @@ public:
 
     void registerUserType(const std::string& name, TypePtr type);
     [[nodiscard]] TypePtr findUserType(const std::string& name) const;
+    [[nodiscard]] const std::unordered_map<std::string, TypePtr>& getUserTypes() const noexcept { return m_userTypes; }
 
     // Generic specialization
     std::shared_ptr<ClassType> specializeClassType(const std::shared_ptr<ClassType>& baseCls, const std::vector<std::string>& typeArgs);

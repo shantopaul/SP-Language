@@ -329,6 +329,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                             typeArgs.push_back(argT->toString());
                         }
                     }
+                    const_cast<ast::CallExpr&>(node).setTypeArgs(typeArgs);
                     std::string specRetStr = TypeContext::substituteType(astDecl->getReturnType(), astDecl->getTypeParams(), typeArgs);
                     auto retT = m_typeCtx.resolveType(specRetStr);
                     m_currentExprType = retT ? retT : resolved->getFunctionType()->getReturnType();

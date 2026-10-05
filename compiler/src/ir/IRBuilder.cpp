@@ -205,10 +205,65 @@ void IRBuilder::visit(const ast::Program& node) {
         }
     }
 
+    // Index generic classes and functions for monomorphization
+    for (const auto& decl : node.getDeclarations()) {
+        if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(decl.get())) {
+            if (cls->isGeneric()) {
+                m_genericClasses[cls->getName()] = cls;
+            }
+        } else if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(decl.get())) {
+            if (fn->isGeneric()) {
+                m_genericFunctions[fn->getName()] = fn;
+            }
+        }
+    }
+
     // First visit class declarations (generates constructors & methods)
     for (const auto& decl : node.getDeclarations()) {
-        if (dynamic_cast<const ast::ClassDecl*>(decl.get())) {
-            decl->accept(*this);
+        if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(decl.get())) {
+            if (cls->isGeneric()) {
+                // Compile all specializations of this generic class registered in sema
+                for (const auto& [typeName, userType] : m_sema.getTypeContext().getUserTypes()) {
+                    if (userType && userType->isClass()) {
+                        auto clsType = std::static_pointer_cast<sema::ClassType>(userType);
+                        if (clsType->getName().rfind(cls->getName() + "<", 0) == 0) {
+                            std::string monoName = codegen::VTableBuilder::mangleGenericName(clsType->getName());
+                            const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(monoName) : nullptr;
+                            if (layout) {
+                                size_t lt = clsType->getName().find('<');
+                                size_t gt = clsType->getName().rfind('>');
+                                std::vector<std::string> typeArgs = sema::TypeContext::splitTypeArgs(clsType->getName().substr(lt + 1, gt - lt - 1));
+
+                                const ast::FunctionDecl* explicitCtor = nullptr;
+                                for (const auto& member : cls->getMembers()) {
+                                    if (const auto* mFn = dynamic_cast<const ast::FunctionDecl*>(member.get())) {
+                                        if (mFn->getName() == cls->getName()) {
+                                            explicitCtor = mFn;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (explicitCtor) {
+                                    compileSpecializedConstructor(explicitCtor, cls->getTypeParams(), typeArgs, *layout);
+                                } else {
+                                    compileDefaultConstructor(*cls, *layout);
+                                }
+
+                                for (const auto& member : cls->getMembers()) {
+                                    if (const auto* mFn = dynamic_cast<const ast::FunctionDecl*>(member.get())) {
+                                        if (mFn->getName() != cls->getName()) {
+                                            compileSpecializedMethod(*mFn, cls->getTypeParams(), typeArgs, *layout);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                decl->accept(*this);
+            }
         }
     }
 
@@ -241,6 +296,10 @@ void IRBuilder::visit(const ast::Program& node) {
 }
 
 void IRBuilder::visit(const ast::FunctionDecl& node) {
+    if (node.isGeneric()) {
+        return; // Generic function templates are monomorphized on demand when called
+    }
+
     IRTypePtr returnType = (node.getName() == "main") ? IRType::getInt32() : mapType(node.getReturnType());
 
     std::vector<std::shared_ptr<ParameterValue>> params;
@@ -722,6 +781,220 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
     m_currentClass = nullptr;
     m_currentFunction = nullptr;
     m_currentBlock = nullptr;
+}
+
+void IRBuilder::compileSpecializedConstructor(
+    const ast::FunctionDecl* ctorDecl,
+    const std::vector<std::string>& typeParams,
+    const std::vector<std::string>& typeArgs,
+    const codegen::ClassLayout& layout) {
+
+    std::string mangledName = layout.name + "_" + layout.name;
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
+
+    if (ctorDecl) {
+        for (size_t i = 0; i < ctorDecl->getParams().size(); ++i) {
+            const auto& p = ctorDecl->getParams()[i];
+            std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+            params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i + 1));
+        }
+    }
+
+    auto func = m_module->createFunction(mangledName, IRType::getVoid(), params);
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    m_currentClass = &layout;
+
+    auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
+    entryBB->addInstruction(allocaThis);
+    entryBB->addInstruction(std::make_shared<StoreInst>(params[0], allocaThis));
+    declareVariable("this", allocaThis, IRType::getPointer());
+
+    if (ctorDecl) {
+        for (size_t i = 0; i < ctorDecl->getParams().size(); ++i) {
+            const auto& p = ctorDecl->getParams()[i];
+            const auto& paramVal = params[i + 1];
+            auto allocaParam = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.getName());
+            entryBB->addInstruction(allocaParam);
+            entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaParam));
+            declareVariable(p.getName(), allocaParam, paramVal->getType());
+        }
+    }
+
+    if (layout.hasVTable) {
+        auto vtableGlobal = std::make_shared<GlobalVariable>(IRType::getInt8(), layout.vtableName);
+        auto gep = std::make_shared<GetElementPtrInst>(
+            layout.structType,
+            params[0],
+            std::vector<IRValuePtr>{
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+            },
+            func->nextTempName("vptr")
+        );
+        entryBB->addInstruction(gep);
+        entryBB->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
+    }
+
+    if (ctorDecl && ctorDecl->hasBody()) {
+        for (const auto& stmt : ctorDecl->getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+    }
+
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    }
+
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+}
+
+void IRBuilder::compileSpecializedMethod(
+    const ast::FunctionDecl& methodDecl,
+    const std::vector<std::string>& typeParams,
+    const std::vector<std::string>& typeArgs,
+    const codegen::ClassLayout& layout) {
+
+    std::string mangledName = layout.name + "_" + methodDecl.getName();
+    std::string subRet = sema::TypeContext::substituteType(methodDecl.getReturnType(), typeParams, typeArgs);
+    IRTypePtr returnType = mapType(subRet);
+
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    size_t paramOffset = 0;
+    if (!methodDecl.isStatic()) {
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
+        paramOffset = 1;
+    }
+
+    for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
+        const auto& p = methodDecl.getParams()[i];
+        std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+        params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i + paramOffset));
+    }
+
+    auto func = m_module->createFunction(mangledName, returnType, params);
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    m_currentClass = &layout;
+
+    if (!methodDecl.isStatic()) {
+        auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
+        entryBB->addInstruction(allocaThis);
+        entryBB->addInstruction(std::make_shared<StoreInst>(params[0], allocaThis));
+        declareVariable("this", allocaThis, IRType::getPointer());
+    }
+
+    for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
+        const auto& p = methodDecl.getParams()[i];
+        const auto& paramVal = params[i + paramOffset];
+        auto allocaParam = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.getName());
+        entryBB->addInstruction(allocaParam);
+        entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaParam));
+        declareVariable(p.getName(), allocaParam, paramVal->getType());
+    }
+
+    if (methodDecl.hasBody()) {
+        for (const auto& stmt : methodDecl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+    } else if (methodDecl.isShortForm()) {
+        methodDecl.getShortBody()->accept(*this);
+        IRValuePtr retVal = m_lastExprValue;
+        retVal = emitCastIfNeeded(retVal, returnType);
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
+    }
+
+    if (!m_currentBlock->hasTerminator()) {
+        if (returnType->isVoid()) {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+        } else {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
+                std::make_shared<ConstantInt>(returnType, 0)));
+        }
+    }
+
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+}
+
+void IRBuilder::compileSpecializedFunction(
+    const ast::FunctionDecl& fnDecl,
+    const std::vector<std::string>& typeArgs) {
+
+    std::string mangledName = fnDecl.getName();
+    for (const auto& arg : typeArgs) {
+        mangledName += "_" + arg;
+    }
+
+    if (m_module->getFunction(mangledName)) {
+        return; // Already compiled
+    }
+
+    const auto& typeParams = fnDecl.getTypeParams();
+    std::string subRet = sema::TypeContext::substituteType(fnDecl.getReturnType(), typeParams, typeArgs);
+    IRTypePtr returnType = mapType(subRet);
+
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    for (size_t i = 0; i < fnDecl.getParams().size(); ++i) {
+        const auto& p = fnDecl.getParams()[i];
+        std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+        params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i));
+    }
+
+    auto func = m_module->createFunction(mangledName, returnType, params);
+    auto* prevFunc = m_currentFunction;
+    auto* prevBlock = m_currentBlock;
+
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+
+    for (size_t i = 0; i < fnDecl.getParams().size(); ++i) {
+        const auto& p = fnDecl.getParams()[i];
+        const auto& paramVal = params[i];
+        auto allocaParam = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.getName());
+        entryBB->addInstruction(allocaParam);
+        entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaParam));
+        declareVariable(p.getName(), allocaParam, paramVal->getType());
+    }
+
+    if (fnDecl.hasBody()) {
+        for (const auto& stmt : fnDecl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+    } else if (fnDecl.isShortForm()) {
+        fnDecl.getShortBody()->accept(*this);
+        IRValuePtr retVal = m_lastExprValue;
+        retVal = emitCastIfNeeded(retVal, returnType);
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
+    }
+
+    if (!m_currentBlock->hasTerminator()) {
+        if (returnType->isVoid()) {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+        } else {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
+                std::make_shared<ConstantInt>(returnType, 0)));
+        }
+    }
+
+    popScope();
+    m_currentFunction = prevFunc;
+    m_currentBlock = prevBlock;
 }
 void IRBuilder::visit(const ast::InterfaceDecl& node) { (void)node; }
 void IRBuilder::visit(const ast::StructDecl& node) { (void)node; }
@@ -1353,7 +1626,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         if (className.empty()) {
             auto semaType = m_sema.getNodeType(&mem->getObject());
             if (semaType && semaType->isClass()) {
-                className = semaType->toString();
+                className = codegen::VTableBuilder::mangleGenericName(semaType->toString());
             }
         }
         if (className.empty() && m_currentClass) {
@@ -1451,6 +1724,16 @@ void IRBuilder::visit(const ast::CallExpr& node) {
 
     const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getCallee());
     std::string calleeName = ident ? ident->getName() : "";
+    if (node.isGeneric() && !calleeName.empty()) {
+        std::string monoName = calleeName;
+        for (const auto& arg : node.getTypeArgs()) {
+            monoName += "_" + arg;
+        }
+        if (!m_module->getFunction(monoName) && m_genericFunctions.count(calleeName)) {
+            compileSpecializedFunction(*m_genericFunctions.at(calleeName), node.getTypeArgs());
+        }
+        calleeName = monoName;
+    }
 
     // Super constructor delegation
     if (calleeName == "super") {
@@ -1948,6 +2231,43 @@ void IRBuilder::visit(const ast::MapExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::LambdaExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::NewExpr& node) {
     std::string typeName = node.getTypeName();
+    if (typeName == "List") {
+        auto elemSizeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 8);
+        auto initCapVal = std::make_shared<ConstantInt>(IRType::getInt64(), 16);
+        std::string listReg = m_currentFunction->nextTempName("list");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_list_alloc",
+            std::vector<IRValuePtr>{elemSizeVal, initCapVal},
+            listReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Map") {
+        std::string mapReg = m_currentFunction->nextTempName("map");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_map_alloc",
+            std::vector<IRValuePtr>{},
+            mapReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (node.isGeneric()) {
+        typeName = node.getTypeName();
+        for (const auto& arg : node.getTypeArgs()) {
+            typeName += "_" + arg;
+        }
+    }
+
     const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(typeName) : nullptr;
     if (!layout) {
         m_lastExprValue = std::make_shared<ConstantNull>();
@@ -1984,7 +2304,8 @@ void IRBuilder::visit(const ast::NewExpr& node) {
     }
 
     // 3. Call constructor @ClassName_ClassName(ptr %raw, args...)
-    std::string ctorName = typeName + "_" + typeName;
+    std::string effectiveName = layout ? layout->name : typeName;
+    std::string ctorName = effectiveName + "_" + effectiveName;
     auto* ctorFunc = m_module->getFunction(ctorName);
 
     std::vector<IRValuePtr> loweredArgs;

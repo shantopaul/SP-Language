@@ -336,6 +336,50 @@ TEST(ExecutionTest, NativeArrayAllocationIndexingAndLengthExecution) {
     EXPECT_NE(output.find("99"), std::string::npos);
 }
 
+TEST(ExecutionTest, GenericClassMonomorphizationExecution) {
+    const std::string source = R"(
+        class Box<T> {
+            var val: T;
 
+            Box(T initial) {
+                this.val = initial;
+            }
 
+            fn get() -> T {
+                return this.val;
+            }
+
+            fn set(T newVal) {
+                this.val = newVal;
+            }
+        }
+
+        fn main() {
+            var intBox = new Box<int>(42);
+            println(intBox.get());
+            intBox.set(100);
+            println(intBox.get());
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_box_mono");
+    EXPECT_NE(output.find("42"), std::string::npos);
+    EXPECT_NE(output.find("100"), std::string::npos);
+}
+
+TEST(ExecutionTest, GenericFunctionMonomorphizationExecution) {
+    const std::string source = R"(
+        fn chooseFirst<T>(T a, T b) -> T {
+            return a;
+        }
+
+        fn main() {
+            var x = chooseFirst<int>(77, 99);
+            println(x);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_fn_mono");
+    EXPECT_NE(output.find("77"), std::string::npos);
+}
 
