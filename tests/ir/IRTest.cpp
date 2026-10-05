@@ -132,7 +132,7 @@ TEST(IRModuleTest, StructTypeAndGetElementPtrAndVTable) {
     auto idx1 = std::make_shared<ConstantInt>(IRType::getInt32(), 1);
     auto gep = std::make_shared<GetElementPtrInst>(pointStruct, basePtr, std::vector<IRValuePtr>{idx0, idx1}, "%field_ptr");
 
-    EXPECT_EQ(gep->format(), "getelementptr inbounds %class.Point, ptr %this, i32 0, i32 1");
+    EXPECT_EQ(gep->format(), "%field_ptr = getelementptr inbounds %class.Point, ptr %this, i32 0, i32 1");
 
     auto funcPtr = std::make_shared<ParameterValue>(IRType::getPointer(), "%fn_ptr", 1);
     auto indCall = std::make_shared<CallInst>(IRType::getVoid(), funcPtr, std::vector<IRValuePtr>{basePtr});

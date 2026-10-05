@@ -16,6 +16,7 @@ add_library(sp_compiler
     src/ir/IR.cpp
     src/ir/IRPrinter.cpp
     src/ir/IRBuilder.cpp
+    src/codegen/VTableBuilder.cpp
     src/codegen/LLVMGenerator.cpp
 )
 
