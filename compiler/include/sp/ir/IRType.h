@@ -16,8 +16,11 @@ enum class IRTypeKind {
     Float,
     Double,
     Pointer,
-    Function
+    Function,
+    Struct
 };
+
+class IRStructType;
 
 class IRType {
 public:
@@ -37,6 +40,7 @@ public:
     [[nodiscard]] bool isDouble() const noexcept { return m_kind == IRTypeKind::Double; }
     [[nodiscard]] bool isPointer() const noexcept { return m_kind == IRTypeKind::Pointer; }
     [[nodiscard]] bool isFunction() const noexcept { return m_kind == IRTypeKind::Function; }
+    [[nodiscard]] bool isStruct() const noexcept { return m_kind == IRTypeKind::Struct; }
 
     [[nodiscard]] bool isInteger() const noexcept {
         return m_kind == IRTypeKind::Int1 || m_kind == IRTypeKind::Int8 ||
@@ -60,6 +64,8 @@ public:
     static std::shared_ptr<IRType> getPointer(std::shared_ptr<IRType> pointeeType = nullptr);
     static std::shared_ptr<IRType> getFunction(std::shared_ptr<IRType> returnType,
                                                std::vector<std::shared_ptr<IRType>> paramTypes);
+    static std::shared_ptr<IRStructType> getStruct(std::string name,
+                                                   std::vector<std::shared_ptr<IRType>> elementTypes = {});
 
 private:
     IRTypeKind m_kind;
@@ -93,6 +99,22 @@ private:
     std::vector<std::shared_ptr<IRType>> m_paramTypes;
 };
 
+class IRStructType : public IRType {
+public:
+    IRStructType(std::string name, std::vector<std::shared_ptr<IRType>> elementTypes = {})
+        : IRType(IRTypeKind::Struct), m_name(std::move(name)), m_elementTypes(std::move(elementTypes)) {}
+
+    [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
+    [[nodiscard]] const std::vector<std::shared_ptr<IRType>>& getElementTypes() const noexcept { return m_elementTypes; }
+    void setElementTypes(std::vector<std::shared_ptr<IRType>> types) { m_elementTypes = std::move(types); }
+    [[nodiscard]] std::string toString() const override;
+
+private:
+    std::string m_name;
+    std::vector<std::shared_ptr<IRType>> m_elementTypes;
+};
+
 using IRTypePtr = std::shared_ptr<IRType>;
+using IRStructTypePtr = std::shared_ptr<IRStructType>;
 
 } // namespace sp::ir

@@ -112,3 +112,36 @@ TEST(IRModuleTest, BuildAndPrintModule) {
     EXPECT_NE(output.find("call void @sp_rt_println_string(ptr @.str.0)"), std::string::npos);
     EXPECT_NE(output.find("ret i32 0"), std::string::npos);
 }
+
+TEST(IRModuleTest, StructTypeAndGetElementPtrAndVTable) {
+    IRModule module("oop_mod");
+
+    auto i32 = IRType::getInt32();
+    auto pointStruct = IRType::getStruct("class.Point", {i32, i32});
+    EXPECT_TRUE(pointStruct->isStruct());
+    EXPECT_EQ(pointStruct->toString(), "%class.Point");
+
+    module.addStructType("class.Point", {i32, i32});
+    EXPECT_EQ(module.getStructTypes().size(), 1);
+
+    module.addGlobalVariable("@_vtable_Point", IRType::getPointer(), true, "[ptr @Point_show]");
+    EXPECT_EQ(module.getGlobalVariables().size(), 1);
+
+    auto basePtr = std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0);
+    auto idx0 = std::make_shared<ConstantInt>(IRType::getInt32(), 0);
+    auto idx1 = std::make_shared<ConstantInt>(IRType::getInt32(), 1);
+    auto gep = std::make_shared<GetElementPtrInst>(pointStruct, basePtr, std::vector<IRValuePtr>{idx0, idx1}, "%field_ptr");
+
+    EXPECT_EQ(gep->format(), "getelementptr inbounds %class.Point, ptr %this, i32 0, i32 1");
+
+    auto funcPtr = std::make_shared<ParameterValue>(IRType::getPointer(), "%fn_ptr", 1);
+    auto indCall = std::make_shared<CallInst>(IRType::getVoid(), funcPtr, std::vector<IRValuePtr>{basePtr});
+    EXPECT_TRUE(indCall->isIndirect());
+    EXPECT_EQ(indCall->format(), "call void %fn_ptr(ptr %this)");
+
+    IRPrinter printer;
+    std::string output = printer.print(module);
+    EXPECT_NE(output.find("%class.Point = type { i32, i32 }"), std::string::npos);
+    EXPECT_NE(output.find("@_vtable_Point = constant ptr [ptr @Point_show], align 8"), std::string::npos);
+}
+

@@ -13,6 +13,18 @@ struct StringLiteralInfo {
     std::string content;  // e.g. "Hello, SP!"
 };
 
+struct StructTypeDef {
+    std::string name;
+    std::vector<IRTypePtr> elementTypes;
+};
+
+struct GlobalVariableInfo {
+    std::string name;
+    IRTypePtr type;
+    bool isConstant;
+    std::string rawValue;
+};
+
 class IRModule {
 public:
     explicit IRModule(std::string name) : m_name(std::move(name)) {
@@ -24,6 +36,16 @@ public:
     [[nodiscard]] std::vector<IRFunctionPtr>& getFunctions() noexcept { return m_functions; }
 
     [[nodiscard]] const std::vector<StringLiteralInfo>& getStringLiterals() const noexcept { return m_stringLiterals; }
+    [[nodiscard]] const std::vector<StructTypeDef>& getStructTypes() const noexcept { return m_structTypes; }
+    [[nodiscard]] const std::vector<GlobalVariableInfo>& getGlobalVariables() const noexcept { return m_globals; }
+
+    void addStructType(std::string name, std::vector<IRTypePtr> elementTypes) {
+        m_structTypes.push_back({std::move(name), std::move(elementTypes)});
+    }
+
+    void addGlobalVariable(std::string name, IRTypePtr type, bool isConstant, std::string rawValue) {
+        m_globals.push_back({std::move(name), std::move(type), isConstant, std::move(rawValue)});
+    }
 
     IRFunction* createFunction(const std::string& name,
                                IRTypePtr returnType,
@@ -65,6 +87,8 @@ private:
     std::unordered_map<std::string, IRFunction*> m_functionMap;
     std::vector<StringLiteralInfo> m_stringLiterals;
     std::unordered_map<std::string, std::string> m_stringLiteralMap;
+    std::vector<StructTypeDef> m_structTypes;
+    std::vector<GlobalVariableInfo> m_globals;
 };
 
 using IRModulePtr = std::unique_ptr<IRModule>;

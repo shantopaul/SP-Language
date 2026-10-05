@@ -60,6 +60,11 @@ std::shared_ptr<IRType> IRType::getFunction(std::shared_ptr<IRType> returnType,
     return std::make_shared<IRFunctionType>(std::move(returnType), std::move(paramTypes));
 }
 
+std::shared_ptr<IRStructType> IRType::getStruct(std::string name,
+                                               std::vector<std::shared_ptr<IRType>> elementTypes) {
+    return std::make_shared<IRStructType>(std::move(name), std::move(elementTypes));
+}
+
 std::string IRType::toString() const {
     switch (m_kind) {
         case IRTypeKind::Void: return "void";
@@ -72,6 +77,7 @@ std::string IRType::toString() const {
         case IRTypeKind::Double: return "double";
         case IRTypeKind::Pointer: return "ptr";
         case IRTypeKind::Function: return "function";
+        case IRTypeKind::Struct: return "struct";
     }
     return "unknown";
 }
@@ -88,6 +94,19 @@ std::string IRFunctionType::toString() const {
         s += m_paramTypes[i] ? m_paramTypes[i]->toString() : "void";
     }
     s += ")";
+    return s;
+}
+
+std::string IRStructType::toString() const {
+    if (!m_name.empty()) {
+        return "%" + m_name;
+    }
+    std::string s = "{ ";
+    for (size_t i = 0; i < m_elementTypes.size(); ++i) {
+        if (i > 0) s += ", ";
+        s += m_elementTypes[i] ? m_elementTypes[i]->toString() : "void";
+    }
+    s += " }";
     return s;
 }
 
@@ -277,9 +296,25 @@ std::string IRInstruction::format() const {
         case IROpcode::SIToFP:
             ss << "sitofp " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
             break;
+        case IROpcode::FPTrunc:
+            ss << "fptrunc " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
+            break;
+        case IROpcode::FPExt:
+            ss << "fpext " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
+            break;
         case IROpcode::BitCast:
             ss << "bitcast " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
             break;
+        case IROpcode::GetElementPtr: {
+            const auto* gep = dynamic_cast<const GetElementPtrInst*>(this);
+            if (gep) {
+                ss << "getelementptr inbounds " << gep->getSourceType()->toString() << ", ptr " << gep->getBasePointer()->toString();
+                for (const auto& idx : gep->getIndices()) {
+                    ss << ", " << idx->getType()->toString() << " " << idx->toString();
+                }
+            }
+            break;
+        }
         case IROpcode::Br: {
             const auto* br = dynamic_cast<const BranchInst*>(this);
             ss << "br label %" << (br ? br->getTargetLabel() : "unknown");
@@ -303,12 +338,21 @@ std::string IRInstruction::format() const {
         }
         case IROpcode::Call: {
             const auto* call = dynamic_cast<const CallInst*>(this);
-            ss << "call " << getType()->toString() << " @" << (call ? call->getCalleeName() : "fn") << "(";
-            for (size_t i = 0; i < getOperandCount(); ++i) {
-                if (i > 0) ss << ", ";
-                ss << getOperand(i)->getType()->toString() << " " << getOperand(i)->toString();
+            if (call && call->isIndirect()) {
+                ss << "call " << getType()->toString() << " " << call->getCalleeValue()->toString() << "(";
+                for (size_t i = 1; i < getOperandCount(); ++i) {
+                    if (i > 1) ss << ", ";
+                    ss << getOperand(i)->getType()->toString() << " " << getOperand(i)->toString();
+                }
+                ss << ")";
+            } else {
+                ss << "call " << getType()->toString() << " @" << (call ? call->getCalleeName() : "fn") << "(";
+                for (size_t i = 0; i < getOperandCount(); ++i) {
+                    if (i > 0) ss << ", ";
+                    ss << getOperand(i)->getType()->toString() << " " << getOperand(i)->toString();
+                }
+                ss << ")";
             }
-            ss << ")";
             break;
         }
         default:
