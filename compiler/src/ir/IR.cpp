@@ -548,6 +548,39 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
                     std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)},
                    true);
+
+    // Higher-order collection functions
+    createFunction("sp_rt_array_map", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1)},
+                   true);
+
+    createFunction("sp_rt_array_filter", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1)},
+                   true);
+
+    createFunction("sp_rt_array_reduce", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "init", 2)},
+                   true);
+
+    createFunction("sp_rt_list_map", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1)},
+                   true);
+
+    createFunction("sp_rt_list_filter", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1)},
+                   true);
+
+    createFunction("sp_rt_list_reduce", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "init", 2)},
+                   true);
 }
 
 } // namespace sp::ir

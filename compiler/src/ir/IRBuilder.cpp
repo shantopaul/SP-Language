@@ -600,7 +600,7 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
 
     // 3. Determine loop element variable IR type and allocate stack slot
     IRTypePtr itemIRType = IRType::getInt32();
-    if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let") {
+    if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let" && node.getType() != "auto") {
         itemIRType = mapType(node.getType());
     } else if (semaIterType && semaIterType->isArray()) {
         const auto& arr = static_cast<const sema::ArrayType&>(*semaIterType);
@@ -609,7 +609,9 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
         std::string s = semaIterType->toString();
         size_t lt = s.find('<');
         size_t gt = s.rfind('>');
-        itemIRType = mapType(s.substr(lt + 1, gt - lt - 1));
+        if (lt != std::string::npos && gt != std::string::npos && gt > lt) {
+            itemIRType = mapType(s.substr(lt + 1, gt - lt - 1));
+        }
     }
     if (!itemIRType) itemIRType = IRType::getInt32();
 
@@ -1775,6 +1777,71 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 m_lastExprValue = cmpInst;
                 m_lastExprType = IRType::getInt1();
                 return;
+            } else if (methodName == "map") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto fnVal = m_lastExprValue;
+                    std::string mapReg = m_currentFunction->nextTempName("map_res");
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getPointer(),
+                        semaObjType->isArray() ? "sp_rt_array_map" : "sp_rt_list_map",
+                        std::vector<IRValuePtr>{objVal, fnVal},
+                        mapReg
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer();
+                    return;
+                }
+            } else if (methodName == "filter") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto fnVal = m_lastExprValue;
+                    std::string fltReg = m_currentFunction->nextTempName("flt_res");
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getPointer(),
+                        semaObjType->isArray() ? "sp_rt_array_filter" : "sp_rt_list_filter",
+                        std::vector<IRValuePtr>{objVal, fnVal},
+                        fltReg
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer();
+                    return;
+                }
+            } else if (methodName == "reduce") {
+                if (node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto fnVal = m_lastExprValue;
+                    node.getArgs()[1]->accept(*this);
+                    auto initVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string redReg = m_currentFunction->nextTempName("red_res");
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getInt64(),
+                        semaObjType->isArray() ? "sp_rt_array_reduce" : "sp_rt_list_reduce",
+                        std::vector<IRValuePtr>{objVal, fnVal, initVal},
+                        redReg
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                } else if (node.getArgs().size() == 1) {
+                    node.getArgs()[0]->accept(*this);
+                    auto fnVal = m_lastExprValue;
+                    auto initVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+                    std::string redReg = m_currentFunction->nextTempName("red_res");
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getInt64(),
+                        semaObjType->isArray() ? "sp_rt_array_reduce" : "sp_rt_list_reduce",
+                        std::vector<IRValuePtr>{objVal, fnVal, initVal},
+                        redReg
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
             }
         }
 
@@ -2080,6 +2147,56 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             m_lastExprType = returnType;
             return;
         }
+    }
+
+    // Check if callee is a local variable holding a function pointer
+    if (!calleeName.empty()) {
+        auto [localAlloca, localType] = lookupVariable(calleeName);
+        if (localAlloca != nullptr) {
+            std::vector<IRValuePtr> loweredArgs;
+            for (const auto& arg : node.getArgs()) {
+                arg->accept(*this);
+                loweredArgs.push_back(m_lastExprValue);
+            }
+            auto loadFn = std::make_shared<LoadInst>(
+                IRType::getPointer(),
+                localAlloca,
+                m_currentFunction->nextTempName("fn_ptr")
+            );
+            m_currentBlock->addInstruction(loadFn);
+
+            auto semaType = m_sema.getNodeType(&node);
+            IRTypePtr returnType = semaType ? mapType(semaType.get()) : IRType::getInt64();
+            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("icall");
+
+            auto callInst = std::make_shared<CallInst>(returnType, loadFn, loweredArgs, callReg);
+            m_currentBlock->addInstruction(callInst);
+
+            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+            m_lastExprType = returnType;
+            return;
+        }
+    }
+
+    if (calleeName.empty()) {
+        std::vector<IRValuePtr> loweredArgs;
+        for (const auto& arg : node.getArgs()) {
+            arg->accept(*this);
+            loweredArgs.push_back(m_lastExprValue);
+        }
+        node.getCallee().accept(*this);
+        IRValuePtr calleeVal = m_lastExprValue;
+
+        auto semaType = m_sema.getNodeType(&node);
+        IRTypePtr returnType = semaType ? mapType(semaType.get()) : IRType::getInt64();
+        std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("icall");
+
+        auto callInst = std::make_shared<CallInst>(returnType, calleeVal, loweredArgs, callReg);
+        m_currentBlock->addInstruction(callInst);
+
+        m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+        m_lastExprType = returnType;
+        return;
     }
 
     // General user function call
@@ -2425,7 +2542,93 @@ void IRBuilder::visit(const ast::ArrayExpr& node) {
     m_lastExprType = IRType::getPointer();
 }
 void IRBuilder::visit(const ast::MapExpr& node) { (void)node; }
-void IRBuilder::visit(const ast::LambdaExpr& node) { (void)node; }
+void IRBuilder::visit(const ast::LambdaExpr& node) {
+    std::string lambdaName = "__sp_lambda_" + std::to_string(m_lambdaCounter++);
+
+    // Determine return type
+    auto semaType = m_sema.getNodeType(&node);
+    IRTypePtr retIRType = IRType::getInt64();
+    if (semaType && semaType->isFunction()) {
+        auto fnType = std::dynamic_pointer_cast<sema::FunctionType>(semaType);
+        if (fnType && fnType->getReturnType()) {
+            retIRType = mapType(fnType->getReturnType().get());
+        }
+    } else if (!node.getReturnType().empty()) {
+        retIRType = mapType(node.getReturnType());
+    }
+
+    // Determine parameter types
+    std::vector<std::shared_ptr<ParameterValue>> lambdaParams;
+    for (size_t i = 0; i < node.getParams().size(); ++i) {
+        const auto& p = node.getParams()[i];
+        IRTypePtr pType = IRType::getInt64();
+        if (!p.type.empty()) {
+            pType = mapType(p.type);
+        } else if (semaType && semaType->isFunction()) {
+            auto fnType = std::dynamic_pointer_cast<sema::FunctionType>(semaType);
+            if (fnType && i < fnType->getParamTypes().size() && fnType->getParamTypes()[i]) {
+                pType = mapType(fnType->getParamTypes()[i].get());
+            }
+        }
+        lambdaParams.push_back(std::make_shared<ParameterValue>(pType, "%" + p.name, i));
+    }
+
+    // Save previous function context and scope stack
+    auto prevFunc = m_currentFunction;
+    auto prevBlock = m_currentBlock;
+    auto prevScopes = std::move(m_scopes);
+    m_scopes.clear();
+
+    auto lambdaFunc = m_module->createFunction(lambdaName, retIRType, lambdaParams);
+    m_currentFunction = lambdaFunc;
+    auto entryBB = lambdaFunc->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+
+    // Stack allocas for parameters
+    for (size_t i = 0; i < node.getParams().size(); ++i) {
+        const auto& p = node.getParams()[i];
+        const auto& paramVal = lambdaParams[i];
+        auto allocaInst = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.name);
+        entryBB->addInstruction(allocaInst);
+        entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaInst));
+        declareVariable(p.name, allocaInst, paramVal->getType());
+    }
+
+    // Lower body
+    if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
+        exprBody->accept(*this);
+        IRValuePtr retVal = m_lastExprValue;
+        if (retVal && !retIRType->isVoid()) {
+            retVal = emitCastIfNeeded(retVal, retIRType);
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
+        } else {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+        }
+    } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
+        for (const auto& stmt : blockBody->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+        if (!m_currentBlock->hasTerminator()) {
+            if (retIRType->isVoid()) {
+                m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+            } else {
+                m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
+                    std::make_shared<ConstantInt>(retIRType, 0)));
+            }
+        }
+    }
+
+    popScope();
+    m_scopes = std::move(prevScopes);
+    m_currentFunction = prevFunc;
+    m_currentBlock = prevBlock;
+
+    auto fnPtr = std::make_shared<GlobalVariable>(IRType::getInt8(), "@" + lambdaName);
+    m_lastExprValue = fnPtr;
+    m_lastExprType = IRType::getPointer();
+}
 void IRBuilder::visit(const ast::NewExpr& node) {
     std::string typeName = node.getTypeName();
     if (typeName == "List") {

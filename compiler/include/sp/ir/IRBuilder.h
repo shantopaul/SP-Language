@@ -115,6 +115,7 @@ private:
 
     size_t m_blockCounter{0};
     size_t m_varCounter{0};
+    size_t m_lambdaCounter{0};
 
     std::unique_ptr<codegen::VTableBuilder> m_vtableBuilder;
     const codegen::ClassLayout* m_currentClass{nullptr};

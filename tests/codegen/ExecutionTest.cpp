@@ -4,6 +4,7 @@
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
+#include "sp/ir/IRPrinter.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -55,7 +56,6 @@ std::string runSPProgram(const std::string& source, const std::string& testName)
     int code = std::system(cmd.c_str());
 #endif
     (void)code;
-
     std::ifstream in(outPath);
     std::ostringstream ss;
     ss << in.rdbuf();
@@ -457,3 +457,68 @@ TEST(ExecutionTest, ForInLoopArrayAndListNativeExecution) {
     EXPECT_NE(output.find("List Sum:"), std::string::npos);
     EXPECT_NE(output.find("45"), std::string::npos);
 }
+
+TEST(ExecutionTest, LambdaFunctionsAndClosuresNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var add = (int a, int b) => a + b;
+            var square = (int x) => x * x;
+            var factorial = (int n) => {
+                var r = 1;
+                for (var i = 2; i <= n; i = i + 1) {
+                    r = r * i;
+                }
+                return r;
+            };
+
+            println(add(12, 18));
+            println(square(9));
+            println(factorial(5));
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_lambda");
+    EXPECT_NE(output.find("30"), std::string::npos);
+    EXPECT_NE(output.find("81"), std::string::npos);
+    EXPECT_NE(output.find("120"), std::string::npos);
+}
+
+TEST(ExecutionTest, HigherOrderFunctionsNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var nums = [1, 2, 3, 4, 5];
+            var doubled = nums.map((int x) => x * 2);
+            for (x in doubled) {
+                println(x);
+            }
+
+            var evens = nums.filter((int x) => x % 2 == 0);
+            for (x in evens) {
+                println(x);
+            }
+
+            var sum = nums.reduce((int acc, int x) => acc + x, 0);
+            println(sum);
+
+            var list = new List<int>();
+            list.push(10);
+            list.push(20);
+            list.push(30);
+            var mappedList = list.map((int x) => x / 10);
+            for (item in mappedList) {
+                println(item);
+            }
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_hof");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("4"), std::string::npos);
+    EXPECT_NE(output.find("6"), std::string::npos);
+    EXPECT_NE(output.find("8"), std::string::npos);
+    EXPECT_NE(output.find("10"), std::string::npos);
+    EXPECT_NE(output.find("15"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+    EXPECT_NE(output.find("3"), std::string::npos);
+}
+

@@ -706,15 +706,48 @@ void TypeChecker::visit(const ast::MapExpr& node) {
 }
 
 void TypeChecker::visit(const ast::LambdaExpr& node) {
+    m_symbolTable.enterScope(ScopeKind::Function);
+
     std::vector<TypePtr> paramTypes;
     for (const auto& param : node.getParams()) {
         auto pType = m_typeCtx.resolveType(param.type);
-        paramTypes.push_back(pType ? pType : m_typeCtx.getAny());
+        if (!pType) pType = m_typeCtx.getInt();
+        paramTypes.push_back(pType);
+
+        if (!param.name.empty()) {
+            auto paramSym = std::make_shared<VariableSymbol>(param.name, pType, node.getLocation(), false, true);
+            m_symbolTable.define(paramSym);
+        }
     }
 
     TypePtr returnType = m_typeCtx.resolveType(node.getReturnType());
-    if (!returnType) returnType = m_typeCtx.getVoid();
+    TypePtr prevReturnType = m_currentFunctionReturnType;
 
+    if (!returnType) {
+        if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
+            returnType = checkExpr(*exprBody);
+        } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
+            m_currentFunctionReturnType = m_typeCtx.getUnknown();
+            checkStmt(*blockBody);
+            returnType = (m_currentFunctionReturnType && !m_currentFunctionReturnType->isUnknown() && !m_currentFunctionReturnType->isAny())
+                             ? m_currentFunctionReturnType
+                             : m_typeCtx.getInt();
+        } else {
+            returnType = m_typeCtx.getInt();
+        }
+    } else {
+        m_currentFunctionReturnType = returnType;
+        if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
+            checkExpr(*exprBody);
+        } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
+            checkStmt(*blockBody);
+        }
+    }
+
+    m_currentFunctionReturnType = prevReturnType;
+    m_symbolTable.exitScope();
+
+    if (!returnType || returnType->isError()) returnType = m_typeCtx.getInt();
     m_currentExprType = m_typeCtx.getFunctionType(std::move(paramTypes), std::move(returnType));
 }
 
@@ -1052,7 +1085,9 @@ void TypeChecker::visit(const ast::ReturnStmt& node) {
     }
 
     auto valType = checkExpr(*node.getValue());
-    if (!valType->isAssignableTo(*m_currentFunctionReturnType)) {
+    if (m_currentFunctionReturnType->isUnknown() || m_currentFunctionReturnType->isAny()) {
+        m_currentFunctionReturnType = valType;
+    } else if (!valType->isAssignableTo(*m_currentFunctionReturnType)) {
         m_diagnostics.reportError("E1005", "Return type mismatch: expected '" + m_currentFunctionReturnType->toString() +
                                   "', got '" + valType->toString() + "'", node.getLocation());
     }

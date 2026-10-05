@@ -237,5 +237,87 @@ int64_t sp_rt_map_get_i64(void* map, int64_t key) {
     return it != m.end() ? it->second : 0;
 }
 
+// Higher-order collection functions
+void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t)) {
+    if (!arr) return nullptr;
+    int64_t len = sp_rt_array_length(arr);
+    void* result = sp_rt_array_alloc(len, sizeof(int64_t));
+    if (!fn) return result;
+    for (int64_t i = 0; i < len; ++i) {
+        int64_t val = sp_rt_array_get_i64(arr, i);
+        int64_t transformed = fn(val);
+        sp_rt_array_set_i64(result, i, transformed);
+    }
+    return result;
+}
+
+void* sp_rt_array_filter(void* arr, int64_t (*predicate)(int64_t)) {
+    if (!arr) return nullptr;
+    int64_t len = sp_rt_array_length(arr);
+    int64_t match_count = 0;
+    for (int64_t i = 0; i < len; ++i) {
+        int64_t val = sp_rt_array_get_i64(arr, i);
+        if (predicate && predicate(val)) {
+            match_count++;
+        }
+    }
+    void* result = sp_rt_array_alloc(match_count, sizeof(int64_t));
+    int64_t out_idx = 0;
+    for (int64_t i = 0; i < len; ++i) {
+        int64_t val = sp_rt_array_get_i64(arr, i);
+        if (predicate && predicate(val)) {
+            sp_rt_array_set_i64(result, out_idx++, val);
+        }
+    }
+    return result;
+}
+
+int64_t sp_rt_array_reduce(void* arr, int64_t (*fn)(int64_t, int64_t), int64_t initial) {
+    if (!arr) return initial;
+    int64_t len = sp_rt_array_length(arr);
+    int64_t acc = initial;
+    for (int64_t i = 0; i < len; ++i) {
+        int64_t val = sp_rt_array_get_i64(arr, i);
+        acc = fn ? fn(acc, val) : acc + val;
+    }
+    return acc;
+}
+
+void* sp_rt_list_map(void* list, int64_t (*fn)(int64_t)) {
+    if (!list) return nullptr;
+    int64_t sz = sp_rt_list_size(list);
+    void* result = sp_rt_list_alloc(sizeof(int64_t), sz);
+    if (!fn) return result;
+    for (int64_t i = 0; i < sz; ++i) {
+        int64_t val = sp_rt_list_get_i64(list, i);
+        sp_rt_list_push_i64(result, fn(val));
+    }
+    return result;
+}
+
+void* sp_rt_list_filter(void* list, int64_t (*predicate)(int64_t)) {
+    if (!list) return nullptr;
+    int64_t sz = sp_rt_list_size(list);
+    void* result = sp_rt_list_alloc(sizeof(int64_t), sz);
+    for (int64_t i = 0; i < sz; ++i) {
+        int64_t val = sp_rt_list_get_i64(list, i);
+        if (predicate && predicate(val)) {
+            sp_rt_list_push_i64(result, val);
+        }
+    }
+    return result;
+}
+
+int64_t sp_rt_list_reduce(void* list, int64_t (*fn)(int64_t, int64_t), int64_t initial) {
+    if (!list) return initial;
+    int64_t sz = sp_rt_list_size(list);
+    int64_t acc = initial;
+    for (int64_t i = 0; i < sz; ++i) {
+        int64_t val = sp_rt_list_get_i64(list, i);
+        acc = fn ? fn(acc, val) : acc + val;
+    }
+    return acc;
+}
+
 }
 

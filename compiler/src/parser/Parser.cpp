@@ -260,6 +260,19 @@ ast::ExprPtr Parser::parsePrefix() {
     if (match(lexer::TokenType::KeywordAssert)) {
         return std::make_unique<ast::IdentifierExpr>("assert", previous().location);
     }
+    if (check(lexer::TokenType::Identifier) && m_current + 1 < m_tokens.size() && m_tokens[m_current + 1].is(lexer::TokenType::FatArrow)) {
+        diagnostics::SourceLocation loc = peek().location;
+        std::string paramName = advance().lexeme;
+        advance(); // consume '=>'
+        ast::ASTNodePtr body;
+        if (check(lexer::TokenType::OpenBrace)) {
+            body = parseBlock();
+        } else {
+            body = parseExpression();
+        }
+        std::vector<ast::LambdaExpr::Param> params = {{paramName, ""}};
+        return std::make_unique<ast::LambdaExpr>(std::move(params), "", std::move(body), loc);
+    }
     if (match(lexer::TokenType::Identifier)) {
         return std::make_unique<ast::IdentifierExpr>(previous().lexeme, previous().location);
     }

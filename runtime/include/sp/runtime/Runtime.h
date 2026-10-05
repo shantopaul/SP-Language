@@ -51,5 +51,14 @@ extern "C" {
     bool sp_rt_map_contains_str(void* map, const char* key);
     void sp_rt_map_set_i64(void* map, int64_t key, int64_t val);
     int64_t sp_rt_map_get_i64(void* map, int64_t key);
+
+    // Higher-order collection functions
+    void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t));
+    void* sp_rt_array_filter(void* arr, int64_t (*predicate)(int64_t));
+    int64_t sp_rt_array_reduce(void* arr, int64_t (*fn)(int64_t, int64_t), int64_t initial);
+
+    void* sp_rt_list_map(void* list, int64_t (*fn)(int64_t));
+    void* sp_rt_list_filter(void* list, int64_t (*predicate)(int64_t));
+    int64_t sp_rt_list_reduce(void* list, int64_t (*fn)(int64_t, int64_t), int64_t initial);
 }
 
