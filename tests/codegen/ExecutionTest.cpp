@@ -427,4 +427,33 @@ TEST(ExecutionTest, StandardMapCollectionNativeExecution) {
     EXPECT_NE(output.find("250"), std::string::npos);
 }
 
+TEST(ExecutionTest, ForInLoopArrayAndListNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var nums = [10, 20, 30];
+            var sum = 0;
+            for (x in nums) {
+                sum = sum + x;
+            }
+            println("Array Sum:");
+            println(sum);
 
+            var list = new List<int>();
+            list.push(5);
+            list.push(15);
+            list.push(25);
+            var listSum = 0;
+            for (item in list) {
+                listSum = listSum + item;
+            }
+            println("List Sum:");
+            println(listSum);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_for_in");
+    EXPECT_NE(output.find("Array Sum:"), std::string::npos);
+    EXPECT_NE(output.find("60"), std::string::npos);
+    EXPECT_NE(output.find("List Sum:"), std::string::npos);
+    EXPECT_NE(output.find("45"), std::string::npos);
+}

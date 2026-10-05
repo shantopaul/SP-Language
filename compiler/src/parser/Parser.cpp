@@ -641,23 +641,41 @@ ast::StmtPtr Parser::parseForStatement() {
     diagnostics::SourceLocation loc = previous().location;
     consume(lexer::TokenType::OpenParen, "Expected '(' after 'for'");
 
-    // Range or For-In loop: for (i in 0..10) or for (string name in names)
-    if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier)) {
-        std::string type = advance().lexeme;
+    // For-In loop:
+    // Case 1: for (var x in iterable) or for (let x in iterable)
+    if ((check(lexer::TokenType::KeywordVar) || check(lexer::TokenType::KeywordLet)) &&
+        checkNext(lexer::TokenType::Identifier) &&
+        m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].lexeme == "in") {
+        advance(); // var / let
         std::string varName = advance().lexeme;
-        if (match(lexer::TokenType::Identifier) && previous().lexeme == "in") {
-            ast::ExprPtr iterable = parseExpression();
-            consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
-            ast::StmtPtr body = parseStatement();
-            return std::make_unique<ast::ForInStmt>(varName, type, std::move(iterable), std::move(body), loc);
-        }
-    } else if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier) && peekNext().lexeme == "in") {
-        std::string varName = advance().lexeme;
-        advance(); // consume 'in'
+        advance(); // in
         ast::ExprPtr iterable = parseExpression();
         consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
         ast::StmtPtr body = parseStatement();
         return std::make_unique<ast::ForInStmt>(varName, "auto", std::move(iterable), std::move(body), loc);
+    }
+
+    // Case 2: for (x in iterable)
+    if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier) &&
+        m_tokens[m_current + 1].lexeme == "in") {
+        std::string varName = advance().lexeme;
+        advance(); // in
+        ast::ExprPtr iterable = parseExpression();
+        consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
+        ast::StmtPtr body = parseStatement();
+        return std::make_unique<ast::ForInStmt>(varName, "auto", std::move(iterable), std::move(body), loc);
+    }
+
+    // Case 3: for (Type x in iterable) e.g. for (int x in nums) or for (string s in list)
+    if (checkNext(lexer::TokenType::Identifier) &&
+        m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].lexeme == "in") {
+        std::string type = parseType();
+        std::string varName = advance().lexeme;
+        advance(); // in
+        ast::ExprPtr iterable = parseExpression();
+        consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
+        ast::StmtPtr body = parseStatement();
+        return std::make_unique<ast::ForInStmt>(varName, type, std::move(iterable), std::move(body), loc);
     }
 
     // Classic for loop: for (init; condition; increment)

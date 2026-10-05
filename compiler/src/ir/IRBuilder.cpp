@@ -573,7 +573,139 @@ void IRBuilder::visit(const ast::ForStmt& node) {
     setInsertPoint(endBB);
 }
 
-void IRBuilder::visit(const ast::ForInStmt& node) { (void)node; }
+void IRBuilder::visit(const ast::ForInStmt& node) {
+    node.getIterable().accept(*this);
+    IRValuePtr collVal = m_lastExprValue;
+    if (!collVal) return;
+
+    auto semaIterType = m_sema.getNodeType(&node.getIterable());
+    bool isList = semaIterType && semaIterType->isClass() && semaIterType->toString().rfind("List", 0) == 0;
+
+    // 1. Query collection length/size
+    std::string lenReg = m_currentFunction->nextTempName("for_len");
+    auto lenCall = std::make_shared<CallInst>(
+        IRType::getInt64(),
+        (isList ? "sp_rt_list_size" : "sp_rt_array_length"),
+        std::vector<IRValuePtr>{collVal},
+        lenReg
+    );
+    m_currentBlock->addInstruction(lenCall);
+
+    // 2. Allocate induction variable idx = 0 on stack
+    std::string idxAllocaReg = "%for_idx_" + std::to_string(m_varCounter++);
+    auto idxAlloca = std::make_shared<AllocaInst>(IRType::getInt64(), idxAllocaReg);
+    m_currentFunction->getEntryBlock()->addInstruction(idxAlloca);
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+        std::make_shared<ConstantInt>(IRType::getInt64(), 0), idxAlloca));
+
+    // 3. Determine loop element variable IR type and allocate stack slot
+    IRTypePtr itemIRType = IRType::getInt32();
+    if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let") {
+        itemIRType = mapType(node.getType());
+    } else if (semaIterType && semaIterType->isArray()) {
+        const auto& arr = static_cast<const sema::ArrayType&>(*semaIterType);
+        itemIRType = mapType(arr.getElementType().get());
+    } else if (isList) {
+        std::string s = semaIterType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        itemIRType = mapType(s.substr(lt + 1, gt - lt - 1));
+    }
+    if (!itemIRType) itemIRType = IRType::getInt32();
+
+    std::string varReg = "%" + node.getVarName() + "_" + std::to_string(m_varCounter++);
+    auto varAlloca = std::make_shared<AllocaInst>(itemIRType, varReg);
+    m_currentFunction->getEntryBlock()->addInstruction(varAlloca);
+
+    // 4. Create blocks
+    auto condBB = createBlock("for_in_cond");
+    auto bodyBB = createBlock("for_in_body");
+    auto stepBB = createBlock("for_in_step");
+    auto endBB = createBlock("for_in_end");
+
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(condBB->getName()));
+
+    // 5. Condition block: check idx < len
+    setInsertPoint(condBB);
+    std::string curIdxReg = m_currentFunction->nextTempName("cur_idx");
+    auto curIdx = std::make_shared<LoadInst>(IRType::getInt64(), idxAlloca, curIdxReg);
+    condBB->addInstruction(curIdx);
+    std::string cmpReg = m_currentFunction->nextTempName("for_cmp");
+    auto cmpInst = std::make_shared<CompareInst>(IROpcode::ICmpSlt, curIdx, lenCall, cmpReg);
+    condBB->addInstruction(cmpInst);
+    condBB->addInstruction(std::make_shared<CondBranchInst>(cmpInst, bodyBB->getName(), endBB->getName()));
+
+    // 6. Body block
+    setInsertPoint(bodyBB);
+    pushScope();
+    declareVariable(node.getVarName(), varAlloca, itemIRType);
+
+    // Fetch element at curIdx and store into varAlloca
+    if (isList) {
+        if (itemIRType->isFloatingPoint()) {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getDouble(), "sp_rt_list_get_f64",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("elem"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        } else {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getInt64(), "sp_rt_list_get_i64",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("elem"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        }
+    } else {
+        if (itemIRType->isFloatingPoint()) {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getDouble(), "sp_rt_array_get_f64",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("elem"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        } else {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getInt64(), "sp_rt_array_get_i64",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("elem"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        }
+    }
+
+    m_breakStack.push_back(endBB->getName());
+    m_continueStack.push_back(stepBB->getName());
+
+    node.getBody().accept(*this);
+
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(stepBB->getName()));
+    }
+
+    m_breakStack.pop_back();
+    m_continueStack.pop_back();
+    popScope();
+
+    // 7. Step block: idx++
+    setInsertPoint(stepBB);
+    auto stepIdx = std::make_shared<LoadInst>(IRType::getInt64(), idxAlloca, m_currentFunction->nextTempName("step_idx"));
+    stepBB->addInstruction(stepIdx);
+    auto nextIdx = std::make_shared<BinaryInst>(
+        IROpcode::Add, stepIdx, std::make_shared<ConstantInt>(IRType::getInt64(), 1),
+        m_currentFunction->nextTempName("next_idx"));
+    stepBB->addInstruction(nextIdx);
+    stepBB->addInstruction(std::make_shared<StoreInst>(nextIdx, idxAlloca));
+    stepBB->addInstruction(std::make_shared<BranchInst>(condBB->getName()));
+
+    // 8. End block
+    setInsertPoint(endBB);
+}
 void IRBuilder::visit(const ast::SwitchStmt& node) { (void)node; }
 void IRBuilder::visit(const ast::MatchStmt& node) { (void)node; }
 

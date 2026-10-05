@@ -963,11 +963,24 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
     if (iterType->isArray()) {
         const auto& arr = static_cast<const ArrayType&>(*iterType);
         itemType = arr.getElementType();
+    } else if (iterType->isClass() && iterType->toString().rfind("List<", 0) == 0) {
+        std::string s = iterType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        itemType = m_typeCtx.resolveType(s.substr(lt + 1, gt - lt - 1));
+        if (!itemType) itemType = m_typeCtx.getAny();
     } else if (iterType->isMap()) {
         const auto& map = static_cast<const MapType&>(*iterType);
         itemType = map.getKeyType();
     } else {
         m_diagnostics.reportError("E1001", "For-in loop requires an iterable collection or array, got '" + iterType->toString() + "'", node.getLocation());
+    }
+
+    if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let") {
+        auto annotType = m_typeCtx.resolveType(node.getType());
+        if (annotType) {
+            itemType = annotType;
+        }
     }
 
     m_symbolTable.enterScope(ScopeKind::Block);
