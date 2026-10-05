@@ -266,4 +266,57 @@ TEST(ExecutionTest, PolymorphicVirtualDispatchNativeExecution) {
     EXPECT_NE(output.find("202"), std::string::npos);
 }
 
+TEST(ExecutionTest, StructInstantiationAndFunctionPassing) {
+    const std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn manhattan(Point a, Point b) -> int {
+            return (b.x - a.x) + (b.y - a.y);
+        }
+
+        fn main() {
+            Point p1;
+            p1.x = 10;
+            p1.y = 20;
+
+            Point p2;
+            p2.x = 40;
+            p2.y = 60;
+
+            println(manhattan(p1, p2));
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_struct");
+    EXPECT_NE(output.find("70"), std::string::npos);
+}
+
+TEST(ExecutionTest, EnumConstantsAndBranchExecution) {
+    const std::string source = R"(
+        enum HttpStatus {
+            OK = 200,
+            NotFound = 404,
+            ServerError = 500
+        }
+
+        fn main() {
+            var status = HttpStatus.NotFound;
+            if (status == HttpStatus.OK) {
+                println("Success");
+            } else if (status == HttpStatus.NotFound) {
+                println("Resource Not Found: 404");
+            } else {
+                println("Other");
+            }
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_enum");
+    EXPECT_NE(output.find("Resource Not Found: 404"), std::string::npos);
+}
+
+
 

@@ -131,6 +131,7 @@ IRTypePtr IRBuilder::mapType(const sema::Type* type) const {
         case sema::TypeKind::Float: return IRType::getFloat();
         case sema::TypeKind::Double: return IRType::getDouble();
         case sema::TypeKind::String: return IRType::getPointer(IRType::getInt8());
+        case sema::TypeKind::Enum: return IRType::getInt32();
         case sema::TypeKind::Array:
         case sema::TypeKind::Map:
         case sema::TypeKind::Class:
@@ -151,6 +152,12 @@ IRTypePtr IRBuilder::mapType(const std::string& typeName) const {
     if (typeName == "float") return IRType::getFloat();
     if (typeName == "double") return IRType::getDouble();
     if (typeName == "string") return IRType::getPointer(IRType::getInt8());
+
+    auto userType = m_sema.getTypeContext().findUserType(typeName);
+    if (userType && userType->isEnum()) {
+        return IRType::getInt32();
+    }
+
     // Object/class/struct/interface reference
     return IRType::getPointer();
 }
@@ -291,7 +298,18 @@ void IRBuilder::visit(const ast::ExprStmt& node) {
 
 void IRBuilder::visit(const ast::VarDeclStmt& node) {
     IRTypePtr valType = nullptr;
-    if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let" && node.getType() != "const") {
+
+    const codegen::ClassLayout* structLayout = nullptr;
+    if (m_vtableBuilder && !node.getType().empty()) {
+        structLayout = m_vtableBuilder->getClassLayout(node.getType());
+        if (structLayout && structLayout->hasVTable) {
+            structLayout = nullptr;
+        }
+    }
+
+    if (structLayout) {
+        valType = structLayout->structType;
+    } else if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let" && node.getType() != "const") {
         valType = mapType(node.getType());
     }
 
@@ -754,6 +772,11 @@ void IRBuilder::visit(const ast::LiteralExpr& node) {
 void IRBuilder::visit(const ast::IdentifierExpr& node) {
     auto [allocaPtr, valType] = lookupVariable(node.getName());
     if (allocaPtr && valType) {
+        if (valType->isStruct()) {
+            m_lastExprValue = allocaPtr;
+            m_lastExprType = IRType::getPointer();
+            return;
+        }
         std::string reg = m_currentFunction->nextTempName("v");
         auto loadInst = std::make_shared<LoadInst>(valType, allocaPtr, reg);
         m_currentBlock->addInstruction(loadInst);
@@ -1461,17 +1484,28 @@ IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& 
     IRValuePtr objPtr = m_lastExprValue;
     if (!objPtr) return nullptr;
 
-    // 2. Identify the class of the object
+    // 2. Identify the class or struct of the object
     std::string className;
     if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getObject())) {
         if (ident->getName() == "this" && m_currentClass) {
             className = m_currentClass->name;
+        } else {
+            auto [varAlloca, varType] = lookupVariable(ident->getName());
+            if (varType && varType->isStruct()) {
+                auto st = std::dynamic_pointer_cast<IRStructType>(varType);
+                if (st) {
+                    className = st->getName();
+                    if (className.rfind("struct.", 0) == 0) {
+                        className = className.substr(7);
+                    }
+                }
+            }
         }
     }
 
     if (className.empty()) {
         auto semaType = m_sema.getNodeType(&node.getObject());
-        if (semaType && semaType->isClass()) {
+        if (semaType && (semaType->isClass() || semaType->isStruct())) {
             className = semaType->toString();
         }
     }
@@ -1509,6 +1543,31 @@ IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& 
 }
 
 void IRBuilder::visit(const ast::MemberExpr& node) {
+    // 1. Check for Enum variant access (e.g. Direction.North, HttpStatus.OK)
+    std::string objIdentName;
+    if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getObject())) {
+        objIdentName = ident->getName();
+    }
+    if (!objIdentName.empty()) {
+        auto enumUserType = m_sema.getTypeContext().findUserType(objIdentName);
+        if (enumUserType && enumUserType->isEnum()) {
+            auto enumType = std::static_pointer_cast<sema::EnumType>(enumUserType);
+            int64_t val = enumType->getVariantValue(node.getMember());
+            m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), val);
+            m_lastExprType = IRType::getInt32();
+            return;
+        }
+    }
+    auto semaType = m_sema.getNodeType(&node.getObject());
+    if (semaType && semaType->isEnum()) {
+        auto enumType = std::static_pointer_cast<sema::EnumType>(semaType);
+        int64_t val = enumType->getVariantValue(node.getMember());
+        m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), val);
+        m_lastExprType = IRType::getInt32();
+        return;
+    }
+
+    // 2. Class/Struct member field access
     IRTypePtr fieldType = nullptr;
     auto fieldPtr = emitMemberPointer(node, fieldType);
     if (fieldPtr && fieldType) {

@@ -17,6 +17,11 @@ ir::IRTypePtr VTableBuilder::mapType(const std::string& typeName) const {
     if (typeName == "double") return ir::IRType::getDouble();
     if (typeName == "string") return ir::IRType::getPointer(ir::IRType::getInt8());
 
+    auto userType = m_sema.getTypeContext().findUserType(typeName);
+    if (userType && userType->isEnum()) {
+        return ir::IRType::getInt32();
+    }
+
     // Objects, classes, interfaces, structs are pointers
     return ir::IRType::getPointer();
 }

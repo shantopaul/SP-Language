@@ -296,9 +296,21 @@ public:
         return false;
     }
 
+    [[nodiscard]] int64_t getVariantValue(const std::string& name) const {
+        auto it = m_values.find(name);
+        if (it != m_values.end()) {
+            return it->second;
+        }
+        for (size_t i = 0; i < m_variants.size(); ++i) {
+            if (m_variants[i] == name) return static_cast<int64_t>(i);
+        }
+        return 0;
+    }
+
     [[nodiscard]] const std::vector<std::string>& getVariants() const noexcept { return m_variants; }
 
     [[nodiscard]] bool equals(const Type& other) const override;
+    [[nodiscard]] bool isAssignableTo(const Type& target) const override;
 
 private:
     std::string m_name;

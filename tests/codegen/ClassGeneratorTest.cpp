@@ -206,3 +206,56 @@ TEST(ClassGeneratorTest, VirtualDispatchPolymorphism) {
     EXPECT_NE(irCode.find("call i32 %fn_ptr"), std::string::npos);
 }
 
+TEST(ClassGeneratorTest, StructValueTypeAndFieldAccess) {
+    std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn main() -> int {
+            Point p;
+            p.x = 10;
+            p.y = 20;
+            return p.x + p.y;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irCode = printer.print(*module);
+
+    // Declares struct type
+    EXPECT_NE(irCode.find("%struct.Point = type { i32, i32 }"), std::string::npos);
+    // Stack allocation of struct
+    EXPECT_NE(irCode.find("alloca %struct.Point"), std::string::npos);
+    // GEP access to fields
+    EXPECT_NE(irCode.find("getelementptr inbounds %struct.Point, ptr"), std::string::npos);
+}
+
+TEST(ClassGeneratorTest, EnumConstantsCodegen) {
+    std::string source = R"(
+        enum HttpStatus {
+            OK = 200,
+            NotFound = 404
+        }
+
+        fn main() -> int {
+            var code: int = HttpStatus.OK;
+            return code;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irCode = printer.print(*module);
+
+    // Uses 200 constant
+    EXPECT_NE(irCode.find("store i32 200, ptr"), std::string::npos);
+}
+
+
