@@ -350,4 +350,70 @@ TEST(ParserTest, ASTPrinterOutputsStructuredTree) {
     EXPECT_NE(printed.find("LiteralExpr(Hello, SP!)"), std::string::npos);
 }
 
+TEST(ParserTest, GenericClassAndFunctionDeclarations) {
+    std::string_view src = R"(
+        class Box<T> {
+            T value;
+            Box(T val) {
+                this.value = val;
+            }
+        }
+
+        class Pair<A, B> {
+            A first;
+            B second;
+        }
+
+        fn max<T>(T a, T b) -> T {
+            return a > b ? a : b;
+        }
+
+        fn runTest() {
+            let m = max<int>(10, 20);
+        }
+    )";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 4);
+
+    // Box<T>
+    auto* boxClass = dynamic_cast<ast::ClassDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(boxClass, nullptr);
+    EXPECT_EQ(boxClass->getName(), "Box");
+    EXPECT_TRUE(boxClass->isGeneric());
+    ASSERT_EQ(boxClass->getTypeParams().size(), 1);
+    EXPECT_EQ(boxClass->getTypeParams()[0], "T");
+
+    // Pair<A, B>
+    auto* pairClass = dynamic_cast<ast::ClassDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(pairClass, nullptr);
+    EXPECT_EQ(pairClass->getName(), "Pair");
+    EXPECT_TRUE(pairClass->isGeneric());
+    ASSERT_EQ(pairClass->getTypeParams().size(), 2);
+    EXPECT_EQ(pairClass->getTypeParams()[0], "A");
+    EXPECT_EQ(pairClass->getTypeParams()[1], "B");
+
+    // fn max<T>
+    auto* maxFn = dynamic_cast<ast::FunctionDecl*>(program->getDeclarations()[2].get());
+    ASSERT_NE(maxFn, nullptr);
+    EXPECT_EQ(maxFn->getName(), "max");
+    EXPECT_TRUE(maxFn->isGeneric());
+    ASSERT_EQ(maxFn->getTypeParams().size(), 1);
+    EXPECT_EQ(maxFn->getTypeParams()[0], "T");
+
+    // max<int>(10, 20) call
+    auto* testFn = dynamic_cast<ast::FunctionDecl*>(program->getDeclarations()[3].get());
+    ASSERT_NE(testFn, nullptr);
+    ASSERT_NE(testFn->getBody(), nullptr);
+    ASSERT_EQ(testFn->getBody()->getStatements().size(), 1);
+    auto* varDecl = dynamic_cast<ast::VarDeclStmt*>(testFn->getBody()->getStatements()[0].get());
+    ASSERT_NE(varDecl, nullptr);
+    auto* callExpr = dynamic_cast<const ast::CallExpr*>(varDecl->getInitializer());
+    ASSERT_NE(callExpr, nullptr);
+    EXPECT_TRUE(callExpr->isGeneric());
+    ASSERT_EQ(callExpr->getTypeArgs().size(), 1);
+    EXPECT_EQ(callExpr->getTypeArgs()[0], "int");
+}
+
 } // namespace sp::parser::test

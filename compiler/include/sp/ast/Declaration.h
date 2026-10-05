@@ -26,7 +26,9 @@ private:
 
 class FunctionDecl : public StatementNode {
 public:
+
     FunctionDecl(std::string name,
+                 std::vector<std::string> typeParams,
                  std::vector<Parameter> params,
                  std::string returnType,
                  std::unique_ptr<BlockStmt> body,
@@ -39,6 +41,7 @@ public:
                  diagnostics::SourceLocation loc)
         : StatementNode(ASTNodeKind::FunctionDecl, std::move(loc)),
           m_name(std::move(name)),
+          m_typeParams(std::move(typeParams)),
           m_params(std::move(params)),
           m_returnType(std::move(returnType)),
           m_body(std::move(body)),
@@ -49,7 +52,24 @@ public:
           m_isAbstract(isAbstract),
           m_isAsync(isAsync) {}
 
+    FunctionDecl(std::string name,
+                 std::vector<Parameter> params,
+                 std::string returnType,
+                 std::unique_ptr<BlockStmt> body,
+                 ExprPtr shortBody,
+                 std::string visibility,
+                 bool isStatic,
+                 bool isOverride,
+                 bool isAbstract,
+                 bool isAsync,
+                 diagnostics::SourceLocation loc)
+        : FunctionDecl(std::move(name), {}, std::move(params), std::move(returnType),
+                       std::move(body), std::move(shortBody), std::move(visibility),
+                       isStatic, isOverride, isAbstract, isAsync, std::move(loc)) {}
+
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
+    [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
     [[nodiscard]] const std::vector<Parameter>& getParams() const noexcept { return m_params; }
     [[nodiscard]] const std::string& getReturnType() const noexcept { return m_returnType; }
     [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
@@ -69,6 +89,7 @@ public:
 
 private:
     std::string m_name;
+    std::vector<std::string> m_typeParams;
     std::vector<Parameter> m_params;
     std::string m_returnType;
     std::unique_ptr<BlockStmt> m_body;
@@ -83,6 +104,7 @@ private:
 class ClassDecl : public StatementNode {
 public:
     ClassDecl(std::string name,
+              std::vector<std::string> typeParams,
               std::string baseClass,
               std::vector<std::string> interfaces,
               std::vector<ASTNodePtr> members,
@@ -91,13 +113,26 @@ public:
               diagnostics::SourceLocation loc)
         : StatementNode(ASTNodeKind::ClassDecl, std::move(loc)),
           m_name(std::move(name)),
+          m_typeParams(std::move(typeParams)),
           m_baseClass(std::move(baseClass)),
           m_interfaces(std::move(interfaces)),
           m_members(std::move(members)),
           m_visibility(std::move(visibility)),
           m_isAbstract(isAbstract) {}
 
+    ClassDecl(std::string name,
+              std::string baseClass,
+              std::vector<std::string> interfaces,
+              std::vector<ASTNodePtr> members,
+              std::string visibility,
+              bool isAbstract,
+              diagnostics::SourceLocation loc)
+        : ClassDecl(std::move(name), {}, std::move(baseClass), std::move(interfaces),
+                    std::move(members), std::move(visibility), isAbstract, std::move(loc)) {}
+
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
+    [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
     [[nodiscard]] const std::string& getBaseClass() const noexcept { return m_baseClass; }
     [[nodiscard]] bool hasBaseClass() const noexcept { return !m_baseClass.empty(); }
     [[nodiscard]] const std::vector<std::string>& getInterfaces() const noexcept { return m_interfaces; }
@@ -110,6 +145,7 @@ public:
 
 private:
     std::string m_name;
+    std::vector<std::string> m_typeParams;
     std::string m_baseClass;
     std::vector<std::string> m_interfaces;
     std::vector<ASTNodePtr> m_members;
