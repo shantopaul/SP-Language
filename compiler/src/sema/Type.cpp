@@ -616,12 +616,34 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         return getArrayType(elem);
     }
 
-    // Check List<T> or Array<T>
-    if ((s.rfind("List<", 0) == 0 || s.rfind("Array<", 0) == 0) && s.back() == '>') {
+    // Check Array<T>
+    if (s.rfind("Array<", 0) == 0 && s.back() == '>') {
         size_t openBracket = s.find('<');
         std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
         auto elem = resolveType(inner);
         return getArrayType(elem);
+    }
+
+    // Check List<T>
+    if (s.rfind("List<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "List<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto listCls = createClassType(specName);
+        listCls->addMethod({"push", getFunctionType({elem}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"add", getFunctionType({elem}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"pop", getFunctionType({}, elem), "public", false, false, false});
+        listCls->addMethod({"get", getFunctionType({m_int64Type}, elem), "public", false, false, false});
+        listCls->addMethod({"set", getFunctionType({m_int64Type, elem}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
+        listCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
+        listCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        return listCls;
     }
 
     // Check Map<K, V>

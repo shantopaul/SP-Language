@@ -644,6 +644,19 @@ void TypeChecker::visit(const ast::IndexExpr& node) {
         return;
     }
 
+    if (objType->isClass() && objType->toString().rfind("List<", 0) == 0) {
+        if (!indexType->isInteger()) {
+            m_diagnostics.reportError("E1001", "List index must be an integer, got '" + indexType->toString() + "'", node.getLocation());
+        }
+        std::string s = objType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        std::string elemStr = s.substr(lt + 1, gt - lt - 1);
+        auto elemType = m_typeCtx.resolveType(elemStr);
+        m_currentExprType = elemType ? elemType : m_typeCtx.getAny();
+        return;
+    }
+
     if (objType->isMap()) {
         const auto& mapType = static_cast<const MapType&>(*objType);
         if (!indexType->isAssignableTo(*mapType.getKeyType())) {
@@ -744,13 +757,22 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     const std::string& typeName = node.getTypeName();
 
     // Check built-in collections instantiation: new List<T>() or new Map<K, V>()
-    if (typeName == "List" || typeName == "Array") {
+    if (typeName == "Array") {
         TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
         for (const auto& argPtr : node.getArgs()) {
             checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.getArrayType(elem);
+        return;
+    }
+    if (typeName == "List") {
+        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        if (!elem) elem = m_typeCtx.getAny();
+        for (const auto& argPtr : node.getArgs()) {
+            checkExpr(*argPtr);
+        }
+        m_currentExprType = m_typeCtx.resolveType("List<" + elem->toString() + ">");
         return;
     }
     if (typeName == "Map") {

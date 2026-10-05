@@ -383,3 +383,48 @@ TEST(ExecutionTest, GenericFunctionMonomorphizationExecution) {
     EXPECT_NE(output.find("77"), std::string::npos);
 }
 
+TEST(ExecutionTest, StandardListCollectionNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var list = new List<int>();
+            list.push(10);
+            list.push(20);
+            list.push(30);
+            println(list.size());
+            println(list[0]);
+            println(list[1]);
+            list[1] = 55;
+            println(list[1]);
+            var lastVal = list.pop();
+            println(lastVal);
+            println(list.size());
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_list");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("10"), std::string::npos);
+    EXPECT_NE(output.find("55"), std::string::npos);
+    EXPECT_NE(output.find("30"), std::string::npos);
+    EXPECT_NE(output.find("2"), std::string::npos);
+}
+
+TEST(ExecutionTest, StandardMapCollectionNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var map = new Map<string, int>();
+            map["apple"] = 100;
+            map["banana"] = 250;
+            println(map.size());
+            println(map["apple"]);
+            println(map["banana"]);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_map");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("100"), std::string::npos);
+    EXPECT_NE(output.find("250"), std::string::npos);
+}
+
+
