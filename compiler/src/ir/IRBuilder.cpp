@@ -1,4 +1,6 @@
 #include "sp/ir/IRBuilder.h"
+#include "sp/codegen/VTableBuilder.h"
+#include "sp/codegen/ClassGenerator.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -7,6 +9,8 @@ namespace sp::ir {
 IRBuilder::IRBuilder(const sema::SemanticAnalyzer& sema)
     : m_sema(sema) {}
 
+IRBuilder::~IRBuilder() = default;
+
 std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const std::string& moduleName) {
     m_module = std::make_unique<IRModule>(moduleName);
     m_blockCounter = 0;
@@ -14,6 +18,11 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
     m_scopes.clear();
     m_breakStack.clear();
     m_continueStack.clear();
+    m_currentClass = nullptr;
+
+    // Build VTables and Class layouts
+    m_vtableBuilder = std::make_unique<codegen::VTableBuilder>(m_sema);
+    m_vtableBuilder->buildProgramLayouts(program, *m_module);
 
     visit(program);
     return std::move(m_module);
@@ -133,7 +142,7 @@ IRTypePtr IRBuilder::mapType(const sema::Type* type) const {
 }
 
 IRTypePtr IRBuilder::mapType(const std::string& typeName) const {
-    if (typeName == "void") return IRType::getVoid();
+    if (typeName.empty() || typeName == "void") return IRType::getVoid();
     if (typeName == "bool") return IRType::getInt1();
     if (typeName == "byte" || typeName == "char" || typeName == "int8" || typeName == "uint8") return IRType::getInt8();
     if (typeName == "short" || typeName == "int16" || typeName == "uint16") return IRType::getInt16();
@@ -142,7 +151,8 @@ IRTypePtr IRBuilder::mapType(const std::string& typeName) const {
     if (typeName == "float") return IRType::getFloat();
     if (typeName == "double") return IRType::getDouble();
     if (typeName == "string") return IRType::getPointer(IRType::getInt8());
-    return IRType::getInt32();
+    // Object/class/struct/interface reference
+    return IRType::getPointer();
 }
 
 // --- AST Visitors ---
@@ -176,7 +186,14 @@ void IRBuilder::visit(const ast::Program& node) {
         }
     }
 
-    // First visit declarations (functions, etc.)
+    // First visit class declarations (generates constructors & methods)
+    for (const auto& decl : node.getDeclarations()) {
+        if (dynamic_cast<const ast::ClassDecl*>(decl.get())) {
+            decl->accept(*this);
+        }
+    }
+
+    // Next visit standalone functions
     for (const auto& decl : node.getDeclarations()) {
         if (dynamic_cast<const ast::FunctionDecl*>(decl.get())) {
             decl->accept(*this);
@@ -497,7 +514,185 @@ void IRBuilder::visit(const ast::ContinueStmt& node) {
 void IRBuilder::visit(const ast::TryCatchStmt& node) { (void)node; }
 void IRBuilder::visit(const ast::ThrowStmt& node) { (void)node; }
 
-void IRBuilder::visit(const ast::ClassDecl& node) { (void)node; }
+void IRBuilder::visit(const ast::ClassDecl& node) {
+    if (!m_vtableBuilder) return;
+    codegen::ClassGenerator classGen(*this, *m_module, *m_vtableBuilder);
+    classGen.generateClass(node);
+}
+
+void IRBuilder::compileDefaultConstructor(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout) {
+    (void)classDecl;
+    std::string mangledName = layout.name + "_" + layout.name;
+    auto thisParam = std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0);
+    auto func = m_module->createFunction(mangledName, IRType::getVoid(), {thisParam});
+
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    m_currentClass = &layout;
+
+    auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
+    entryBB->addInstruction(allocaThis);
+    entryBB->addInstruction(std::make_shared<StoreInst>(thisParam, allocaThis));
+    declareVariable("this", allocaThis, IRType::getPointer());
+
+    if (layout.hasVTable) {
+        auto vtableGlobal = std::make_shared<GlobalVariable>(IRType::getInt8(), layout.vtableName);
+        auto gep = std::make_shared<GetElementPtrInst>(
+            layout.structType,
+            thisParam,
+            std::vector<IRValuePtr>{
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+            },
+            func->nextTempName("vptr")
+        );
+        entryBB->addInstruction(gep);
+        entryBB->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
+    }
+
+    entryBB->addInstruction(std::make_shared<ReturnInst>());
+
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+}
+
+void IRBuilder::compileConstructor(const ast::ClassDecl& classDecl, const ast::FunctionDecl* ctorDecl, const codegen::ClassLayout& layout) {
+    (void)classDecl;
+    std::string mangledName = layout.name + "_" + layout.name;
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
+
+    if (ctorDecl) {
+        for (size_t i = 0; i < ctorDecl->getParams().size(); ++i) {
+            const auto& p = ctorDecl->getParams()[i];
+            params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i + 1));
+        }
+    }
+
+    auto func = m_module->createFunction(mangledName, IRType::getVoid(), params);
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    m_currentClass = &layout;
+
+    auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
+    entryBB->addInstruction(allocaThis);
+    entryBB->addInstruction(std::make_shared<StoreInst>(params[0], allocaThis));
+    declareVariable("this", allocaThis, IRType::getPointer());
+
+    if (ctorDecl) {
+        for (size_t i = 0; i < ctorDecl->getParams().size(); ++i) {
+            const auto& p = ctorDecl->getParams()[i];
+            const auto& paramVal = params[i + 1];
+            auto allocaParam = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.getName());
+            entryBB->addInstruction(allocaParam);
+            entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaParam));
+            declareVariable(p.getName(), allocaParam, paramVal->getType());
+        }
+    }
+
+    if (layout.hasVTable) {
+        auto vtableGlobal = std::make_shared<GlobalVariable>(IRType::getInt8(), layout.vtableName);
+        auto gep = std::make_shared<GetElementPtrInst>(
+            layout.structType,
+            params[0],
+            std::vector<IRValuePtr>{
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+            },
+            func->nextTempName("vptr")
+        );
+        entryBB->addInstruction(gep);
+        entryBB->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
+    }
+
+    if (ctorDecl && ctorDecl->hasBody()) {
+        for (const auto& stmt : ctorDecl->getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+    }
+
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    }
+
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+}
+
+void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::FunctionDecl& methodDecl, const codegen::ClassLayout& layout) {
+    (void)classDecl;
+    std::string mangledName = layout.name + "_" + methodDecl.getName();
+    IRTypePtr returnType = mapType(methodDecl.getReturnType());
+
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    size_t paramOffset = 0;
+    if (!methodDecl.isStatic()) {
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
+        paramOffset = 1;
+    }
+
+    for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
+        const auto& p = methodDecl.getParams()[i];
+        params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i + paramOffset));
+    }
+
+    auto func = m_module->createFunction(mangledName, returnType, params);
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    m_currentClass = &layout;
+
+    if (!methodDecl.isStatic()) {
+        auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
+        entryBB->addInstruction(allocaThis);
+        entryBB->addInstruction(std::make_shared<StoreInst>(params[0], allocaThis));
+        declareVariable("this", allocaThis, IRType::getPointer());
+    }
+
+    for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
+        const auto& p = methodDecl.getParams()[i];
+        const auto& paramVal = params[i + paramOffset];
+        auto allocaParam = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.getName());
+        entryBB->addInstruction(allocaParam);
+        entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaParam));
+        declareVariable(p.getName(), allocaParam, paramVal->getType());
+    }
+
+    if (methodDecl.hasBody()) {
+        for (const auto& stmt : methodDecl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+    } else if (methodDecl.isShortForm()) {
+        methodDecl.getShortBody()->accept(*this);
+        IRValuePtr retVal = m_lastExprValue;
+        retVal = emitCastIfNeeded(retVal, returnType);
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
+    }
+
+    if (!m_currentBlock->hasTerminator()) {
+        if (returnType->isVoid()) {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+        } else {
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(std::make_shared<ConstantInt>(returnType, 0)));
+        }
+    }
+
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+}
 void IRBuilder::visit(const ast::InterfaceDecl& node) { (void)node; }
 void IRBuilder::visit(const ast::StructDecl& node) { (void)node; }
 void IRBuilder::visit(const ast::EnumDecl& node) { (void)node; }
@@ -564,21 +759,83 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
         m_currentBlock->addInstruction(loadInst);
         m_lastExprValue = loadInst;
         m_lastExprType = valType;
-    } else {
-        // Fallback for unresolved or global variables
-        m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), 0);
-        m_lastExprType = IRType::getInt32();
-    }
-}
-
-void IRBuilder::visit(const ast::AssignExpr& node) {
-    const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getTarget());
-    if (!ident) {
         return;
     }
 
-    auto [allocaPtr, valType] = lookupVariable(ident->getName());
-    if (!allocaPtr || !valType) {
+    if (m_currentClass && m_currentClass->fieldIndexMap.count(node.getName())) {
+        auto [thisAlloca, thisType] = lookupVariable("this");
+        if (thisAlloca) {
+            auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+            m_currentBlock->addInstruction(thisVal);
+
+            uint32_t fieldIndex = m_currentClass->fieldIndexMap.at(node.getName());
+            size_t fVecIdx = m_currentClass->hasVTable ? (fieldIndex - 1) : fieldIndex;
+            if (fVecIdx < m_currentClass->fields.size()) {
+                valType = m_currentClass->fields[fVecIdx].irType;
+
+                auto gep = std::make_shared<GetElementPtrInst>(
+                    m_currentClass->structType,
+                    thisVal,
+                    std::vector<IRValuePtr>{
+                        std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                        std::make_shared<ConstantInt>(IRType::getInt32(), fieldIndex)
+                    },
+                    m_currentFunction->nextTempName("fld_ptr")
+                );
+                m_currentBlock->addInstruction(gep);
+
+                auto loadInst = std::make_shared<LoadInst>(valType, gep, m_currentFunction->nextTempName("val"));
+                m_currentBlock->addInstruction(loadInst);
+                m_lastExprValue = loadInst;
+                m_lastExprType = valType;
+                return;
+            }
+        }
+    }
+
+    // Fallback for unresolved or global variables
+    m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), 0);
+    m_lastExprType = IRType::getInt32();
+}
+
+void IRBuilder::visit(const ast::AssignExpr& node) {
+    IRValuePtr targetPtr = nullptr;
+    IRTypePtr valType = nullptr;
+
+    if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&node.getTarget())) {
+        targetPtr = emitMemberPointer(*mem, valType);
+    } else if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getTarget())) {
+        auto [allocaPtr, type] = lookupVariable(ident->getName());
+        if (allocaPtr && type) {
+            targetPtr = allocaPtr;
+            valType = type;
+        } else if (m_currentClass && m_currentClass->fieldIndexMap.count(ident->getName())) {
+            auto [thisAlloca, thisType] = lookupVariable("this");
+            if (thisAlloca) {
+                auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+                m_currentBlock->addInstruction(thisVal);
+
+                uint32_t fieldIndex = m_currentClass->fieldIndexMap.at(ident->getName());
+                size_t fVecIdx = m_currentClass->hasVTable ? (fieldIndex - 1) : fieldIndex;
+                if (fVecIdx < m_currentClass->fields.size()) {
+                    valType = m_currentClass->fields[fVecIdx].irType;
+                    auto gep = std::make_shared<GetElementPtrInst>(
+                        m_currentClass->structType,
+                        thisVal,
+                        std::vector<IRValuePtr>{
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                            std::make_shared<ConstantInt>(IRType::getInt32(), fieldIndex)
+                        },
+                        m_currentFunction->nextTempName("fld_ptr")
+                    );
+                    m_currentBlock->addInstruction(gep);
+                    targetPtr = gep;
+                }
+            }
+        }
+    }
+
+    if (!targetPtr || !valType) {
         return;
     }
 
@@ -588,7 +845,7 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
     // Handle compound assignment (+=, -=, etc.)
     if (node.getOp() != lexer::TokenType::Equal) {
         std::string currentValReg = m_currentFunction->nextTempName("cur");
-        auto loadInst = std::make_shared<LoadInst>(valType, allocaPtr, currentValReg);
+        auto loadInst = std::make_shared<LoadInst>(valType, targetPtr, currentValReg);
         m_currentBlock->addInstruction(loadInst);
 
         IROpcode op = IROpcode::Add;
@@ -620,7 +877,7 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
     }
 
     rhsVal = emitCastIfNeeded(rhsVal, valType);
-    m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, allocaPtr));
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, targetPtr));
     m_lastExprValue = rhsVal;
     m_lastExprType = valType;
 }
@@ -801,6 +1058,47 @@ void IRBuilder::visit(const ast::CallExpr& node) {
     const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getCallee());
     std::string calleeName = ident ? ident->getName() : "";
 
+    // Super constructor delegation
+    if (calleeName == "super") {
+        if (m_currentClass && !m_currentClass->baseClass.empty()) {
+            std::string baseCtor = m_currentClass->baseClass + "_" + m_currentClass->baseClass;
+            auto [thisAlloca, thisType] = lookupVariable("this");
+            if (thisAlloca) {
+                auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+                m_currentBlock->addInstruction(thisVal);
+
+                std::vector<IRValuePtr> loweredArgs;
+                loweredArgs.push_back(thisVal);
+                for (const auto& arg : node.getArgs()) {
+                    arg->accept(*this);
+                    loweredArgs.push_back(m_lastExprValue);
+                }
+
+                auto callInst = std::make_shared<CallInst>(IRType::getVoid(), baseCtor, loweredArgs);
+                m_currentBlock->addInstruction(callInst);
+
+                // Restore derived class vtable pointer into slot 0
+                if (m_currentClass->hasVTable) {
+                    auto vtableGlobal = std::make_shared<GlobalVariable>(IRType::getInt8(), m_currentClass->vtableName);
+                    auto gep = std::make_shared<GetElementPtrInst>(
+                        m_currentClass->structType,
+                        thisVal,
+                        std::vector<IRValuePtr>{
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+                        },
+                        m_currentFunction->nextTempName("vptr_restore")
+                    );
+                    m_currentBlock->addInstruction(gep);
+                    m_currentBlock->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
+                }
+            }
+        }
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
+        return;
+    }
+
     // Built-in standard functions: println, print, assert, panic
     if (calleeName == "println") {
         if (node.getArgs().empty()) {
@@ -943,7 +1241,76 @@ void IRBuilder::visit(const ast::TernaryExpr& node) {
     m_lastExprType = resType;
 }
 
-void IRBuilder::visit(const ast::MemberExpr& node) { (void)node; }
+IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType) {
+    // 1. Evaluate the base object
+    node.getObject().accept(*this);
+    IRValuePtr objPtr = m_lastExprValue;
+    if (!objPtr) return nullptr;
+
+    // 2. Identify the class of the object
+    std::string className;
+    if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getObject())) {
+        if (ident->getName() == "this" && m_currentClass) {
+            className = m_currentClass->name;
+        }
+    }
+
+    if (className.empty()) {
+        auto semaType = m_sema.getNodeType(&node.getObject());
+        if (semaType && semaType->isClass()) {
+            className = semaType->toString();
+        }
+    }
+
+    if (className.empty() && m_currentClass) {
+        className = m_currentClass->name;
+    }
+
+    if (className.empty() || !m_vtableBuilder) return nullptr;
+    const auto* layout = m_vtableBuilder->getClassLayout(className);
+    if (!layout) return nullptr;
+
+    // 3. Find field index in class layout
+    auto it = layout->fieldIndexMap.find(node.getMember());
+    if (it == layout->fieldIndexMap.end()) return nullptr;
+
+    uint32_t fieldIndex = it->second;
+    size_t fVecIdx = layout->hasVTable ? (fieldIndex - 1) : fieldIndex;
+    if (fVecIdx >= layout->fields.size()) return nullptr;
+
+    outFieldType = layout->fields[fVecIdx].irType;
+
+    // 4. Emit GEP
+    auto gep = std::make_shared<GetElementPtrInst>(
+        layout->structType,
+        objPtr,
+        std::vector<IRValuePtr>{
+            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+            std::make_shared<ConstantInt>(IRType::getInt32(), fieldIndex)
+        },
+        m_currentFunction->nextTempName("fld_ptr")
+    );
+    m_currentBlock->addInstruction(gep);
+    return gep;
+}
+
+void IRBuilder::visit(const ast::MemberExpr& node) {
+    IRTypePtr fieldType = nullptr;
+    auto fieldPtr = emitMemberPointer(node, fieldType);
+    if (fieldPtr && fieldType) {
+        auto loadVal = std::make_shared<LoadInst>(
+            fieldType,
+            fieldPtr,
+            m_currentFunction->nextTempName("mem_val")
+        );
+        m_currentBlock->addInstruction(loadVal);
+        m_lastExprValue = loadVal;
+        m_lastExprType = fieldType;
+    } else {
+        m_lastExprValue = nullptr;
+        m_lastExprType = nullptr;
+    }
+}
 void IRBuilder::visit(const ast::IndexExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::ArrayExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::MapExpr& node) { (void)node; }

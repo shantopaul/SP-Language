@@ -40,6 +40,7 @@ add_executable(sp_tests
     codegen/LLVMGeneratorTest.cpp
     codegen/ExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
+    codegen/ClassGeneratorTest.cpp
 )
 
 target_link_libraries(sp_tests
