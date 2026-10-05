@@ -196,3 +196,20 @@ TEST(ExecutionTest, RuntimeAssertSuccess) {
     std::string output = runSPProgram(source, "exec_assert");
     EXPECT_NE(output.find("Assert passed"), std::string::npos);
 }
+
+TEST(ExecutionTest, TypedVariableDeclarations) {
+    const std::string source = R"(
+        fn main() {
+            let a: int = 10;
+            let b: int = 25;
+            let sum: int = a + b;
+            println("Calculation: 10 + 25 =");
+            println(sum);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_typed_vars");
+    EXPECT_NE(output.find("Calculation: 10 + 25 ="), std::string::npos);
+    EXPECT_NE(output.find("35"), std::string::npos);
+}
+

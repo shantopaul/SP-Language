@@ -150,6 +150,28 @@ TEST(ParserTest, VariableDeclarations) {
     EXPECT_EQ(v3->getName(), "PI");
 }
 
+TEST(ParserTest, ColonTypeAnnotations) {
+    std::string_view src = "let a: int = 10; var b: string = \"hello\"; const c: float = 3.14;";
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 3);
+
+    auto* v1 = dynamic_cast<ast::VarDeclStmt*>(program->getDeclarations()[0].get());
+    ASSERT_NE(v1, nullptr);
+    EXPECT_EQ(v1->getType(), "int");
+    EXPECT_EQ(v1->getName(), "a");
+
+    auto* v2 = dynamic_cast<ast::VarDeclStmt*>(program->getDeclarations()[1].get());
+    ASSERT_NE(v2, nullptr);
+    EXPECT_EQ(v2->getType(), "string");
+    EXPECT_EQ(v2->getName(), "b");
+
+    auto* v3 = dynamic_cast<ast::VarDeclStmt*>(program->getDeclarations()[2].get());
+    ASSERT_NE(v3, nullptr);
+    EXPECT_EQ(v3->getType(), "float");
+    EXPECT_EQ(v3->getName(), "c");
+}
+
 TEST(ParserTest, ControlFlowStatements) {
     std::string_view src = R"(
         if (x > 0) {
