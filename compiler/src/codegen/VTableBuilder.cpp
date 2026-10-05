@@ -240,7 +240,7 @@ void VTableBuilder::buildStructLayout(const ast::StructDecl& structDecl, ir::IRM
 
 void VTableBuilder::buildSpecializedClassLayout(const std::shared_ptr<sema::ClassType>& clsType, ir::IRModule& irModule) {
     std::string className = mangleGenericName(clsType->getName());
-    if (className.rfind("List", 0) == 0 || className.rfind("Map", 0) == 0) {
+    if (className.rfind("List", 0) == 0 || className.rfind("Map", 0) == 0 || className.rfind("Set", 0) == 0) {
         return;
     }
     if (m_layouts.find(className) != m_layouts.end()) {

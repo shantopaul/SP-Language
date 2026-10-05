@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 extern "C" {
 
@@ -91,6 +92,11 @@ struct SPListImpl {
 struct SPMapImpl {
     std::unordered_map<std::string, int64_t> str_map;
     std::unordered_map<int64_t, int64_t> int_map;
+};
+
+struct SPSetImpl {
+    std::unordered_set<std::string> str_set;
+    std::unordered_set<int64_t> int_set;
 };
 
 // Native Array primitives
@@ -235,6 +241,50 @@ int64_t sp_rt_map_get_i64(void* map, int64_t key) {
     auto& m = static_cast<SPMapImpl*>(map)->int_map;
     auto it = m.find(key);
     return it != m.end() ? it->second : 0;
+}
+
+// Native Set<T> primitives
+void* sp_rt_set_alloc() {
+    return new SPSetImpl();
+}
+
+int64_t sp_rt_set_size(void* set) {
+    if (!set) return 0;
+    auto* impl = static_cast<SPSetImpl*>(set);
+    return static_cast<int64_t>(impl->str_set.size() + impl->int_set.size());
+}
+
+void sp_rt_set_add_i64(void* set, int64_t val) {
+    if (!set) sp_rt_panic("NullPointerException: set is null");
+    static_cast<SPSetImpl*>(set)->int_set.insert(val);
+}
+
+void sp_rt_set_add_str(void* set, const char* val) {
+    if (!set) sp_rt_panic("NullPointerException: set is null");
+    if (!val) return;
+    static_cast<SPSetImpl*>(set)->str_set.insert(val);
+}
+
+bool sp_rt_set_contains_i64(void* set, int64_t val) {
+    if (!set) return false;
+    auto& s = static_cast<SPSetImpl*>(set)->int_set;
+    return s.find(val) != s.end();
+}
+
+bool sp_rt_set_contains_str(void* set, const char* val) {
+    if (!set || !val) return false;
+    auto& s = static_cast<SPSetImpl*>(set)->str_set;
+    return s.find(val) != s.end();
+}
+
+void sp_rt_set_remove_i64(void* set, int64_t val) {
+    if (!set) return;
+    static_cast<SPSetImpl*>(set)->int_set.erase(val);
+}
+
+void sp_rt_set_remove_str(void* set, const char* val) {
+    if (!set || !val) return;
+    static_cast<SPSetImpl*>(set)->str_set.erase(val);
 }
 
 // Higher-order collection functions

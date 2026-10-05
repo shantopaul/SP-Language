@@ -549,6 +549,43 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)},
                    true);
 
+    // Native Set<T> declarations
+    createFunction("sp_rt_set_alloc", IRType::getPointer(), {}, true);
+
+    createFunction("sp_rt_set_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)},
+                   true);
+
+    createFunction("sp_rt_set_add_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)},
+                   true);
+
+    createFunction("sp_rt_set_add_str", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "val", 1)},
+                   true);
+
+    createFunction("sp_rt_set_contains_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)},
+                   true);
+
+    createFunction("sp_rt_set_contains_str", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "val", 1)},
+                   true);
+
+    createFunction("sp_rt_set_remove_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)},
+                   true);
+
+    createFunction("sp_rt_set_remove_str", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "val", 1)},
+                   true);
+
     // Higher-order collection functions
     createFunction("sp_rt_array_map", IRType::getPointer(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),

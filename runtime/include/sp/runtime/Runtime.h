@@ -52,6 +52,16 @@ extern "C" {
     void sp_rt_map_set_i64(void* map, int64_t key, int64_t val);
     int64_t sp_rt_map_get_i64(void* map, int64_t key);
 
+    // Native Set<T> primitives
+    void* sp_rt_set_alloc();
+    int64_t sp_rt_set_size(void* set);
+    void sp_rt_set_add_i64(void* set, int64_t val);
+    void sp_rt_set_add_str(void* set, const char* val);
+    bool sp_rt_set_contains_i64(void* set, int64_t val);
+    bool sp_rt_set_contains_str(void* set, const char* val);
+    void sp_rt_set_remove_i64(void* set, int64_t val);
+    void sp_rt_set_remove_str(void* set, const char* val);
+
     // Higher-order collection functions
     void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t));
     void* sp_rt_array_filter(void* arr, int64_t (*predicate)(int64_t));

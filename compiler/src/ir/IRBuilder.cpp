@@ -1632,9 +1632,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
 
         auto semaObjType = m_sema.getNodeType(&mem->getObject());
         if (semaObjType && (semaObjType->isArray() || semaObjType->isMap() ||
-                            (semaObjType->isClass() && (semaObjType->toString().rfind("List", 0) == 0 || semaObjType->toString().rfind("Map", 0) == 0)))) {
+                            (semaObjType->isClass() && (semaObjType->toString().rfind("List", 0) == 0 || semaObjType->toString().rfind("Map", 0) == 0 || semaObjType->toString().rfind("Set", 0) == 0)))) {
+            bool isSet = semaObjType->toString().rfind("Set", 0) == 0;
             if (methodName == "length" || methodName == "size") {
-                std::string fnName = semaObjType->isArray() ? "sp_rt_array_length"
+                std::string fnName = isSet ? "sp_rt_set_size"
+                                     : semaObjType->isArray() ? "sp_rt_array_length"
                                      : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_size"
                                      : "sp_rt_list_size";
                 std::string lenReg = m_currentFunction->nextTempName("len");
@@ -1651,13 +1653,93 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             } else if (methodName == "push" || methodName == "add") {
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
-                    auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
-                    auto callInst = std::make_shared<CallInst>(
-                        IRType::getVoid(),
-                        "sp_rt_list_push_i64",
-                        std::vector<IRValuePtr>{objVal, elemVal}
-                    );
-                    m_currentBlock->addInstruction(callInst);
+                    if (isSet) {
+                        if (m_lastExprType && m_lastExprType->isPointer()) {
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getVoid(),
+                                "sp_rt_set_add_str",
+                                std::vector<IRValuePtr>{objVal, m_lastExprValue}
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        } else {
+                            auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getVoid(),
+                                "sp_rt_set_add_i64",
+                                std::vector<IRValuePtr>{objVal, elemVal}
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        }
+                    } else {
+                        auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getVoid(),
+                            "sp_rt_list_push_i64",
+                            std::vector<IRValuePtr>{objVal, elemVal}
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            } else if (methodName == "contains") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    std::string hasReg = m_currentFunction->nextTempName("has_item");
+                    if (isSet) {
+                        if (m_lastExprType && m_lastExprType->isPointer()) {
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getInt1(),
+                                "sp_rt_set_contains_str",
+                                std::vector<IRValuePtr>{objVal, m_lastExprValue},
+                                hasReg
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        } else {
+                            auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getInt1(),
+                                "sp_rt_set_contains_i64",
+                                std::vector<IRValuePtr>{objVal, elemVal},
+                                hasReg
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        }
+                    } else {
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt1(),
+                            "sp_rt_map_contains_str",
+                            std::vector<IRValuePtr>{objVal, m_lastExprValue},
+                            hasReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = m_currentBlock->getInstructions().back();
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+            } else if (methodName == "remove") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    if (isSet) {
+                        if (m_lastExprType && m_lastExprType->isPointer()) {
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getVoid(),
+                                "sp_rt_set_remove_str",
+                                std::vector<IRValuePtr>{objVal, m_lastExprValue}
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        } else {
+                            auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getVoid(),
+                                "sp_rt_set_remove_i64",
+                                std::vector<IRValuePtr>{objVal, elemVal}
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        }
+                    }
                     m_lastExprValue = nullptr;
                     m_lastExprType = IRType::getVoid();
                     return;
@@ -1755,7 +1837,8 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     return;
                 }
             } else if (methodName == "isEmpty") {
-                std::string fnName = semaObjType->isArray() ? "sp_rt_array_length"
+                std::string fnName = isSet ? "sp_rt_set_size"
+                                     : semaObjType->isArray() ? "sp_rt_array_length"
                                      : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_size"
                                      : "sp_rt_list_size";
                 std::string lenReg = m_currentFunction->nextTempName("len");
@@ -2654,6 +2737,20 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             "sp_rt_map_alloc",
             std::vector<IRValuePtr>{},
             mapReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Set") {
+        std::string setReg = m_currentFunction->nextTempName("set");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_set_alloc",
+            std::vector<IRValuePtr>{},
+            setReg
         );
         m_currentBlock->addInstruction(allocCall);
         m_lastExprValue = allocCall;

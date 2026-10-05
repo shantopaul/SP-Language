@@ -819,6 +819,15 @@ void TypeChecker::visit(const ast::NewExpr& node) {
         m_currentExprType = m_typeCtx.getMapType(k, v);
         return;
     }
+    if (typeName == "Set") {
+        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        if (!elem) elem = m_typeCtx.getAny();
+        for (const auto& argPtr : node.getArgs()) {
+            checkExpr(*argPtr);
+        }
+        m_currentExprType = m_typeCtx.resolveType("Set<" + elem->toString() + ">");
+        return;
+    }
 
     std::string resolvedName = typeName;
     if (node.isGeneric()) {

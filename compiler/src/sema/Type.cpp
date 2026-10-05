@@ -659,6 +659,26 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         }
     }
 
+    // Check Set<T>
+    if (s.rfind("Set<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "Set<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto setCls = createClassType(specName);
+        setCls->addMethod({"add", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        setCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
+        setCls->addMethod({"remove", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        setCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
+        setCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
+        setCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        return setCls;
+    }
+
     // Check primitive types
     if (s == "void") return m_voidType;
     if (s == "null") return m_nullType;

@@ -522,3 +522,33 @@ TEST(ExecutionTest, HigherOrderFunctionsNativeExecution) {
     EXPECT_NE(output.find("3"), std::string::npos);
 }
 
+TEST(ExecutionTest, StandardSetCollectionNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var s = new Set<int>();
+            s.add(10);
+            s.add(20);
+            s.add(10);
+            println(s.size());
+            println(s.contains(10));
+            println(s.contains(30));
+            s.remove(10);
+            println(s.size());
+            println(s.contains(10));
+
+            var strSet = new Set<string>();
+            strSet.add("apple");
+            strSet.add("banana");
+            println(strSet.size());
+            println(strSet.contains("apple"));
+            println(strSet.contains("orange"));
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_set");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("false"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+}
+
