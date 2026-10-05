@@ -35,6 +35,10 @@ add_executable(sp_tests
     sema/SymbolTableTest.cpp
     sema/TypeCheckerTest.cpp
     sema/GoldenSemanticTest.cpp
+    ir/IRTest.cpp
+    ir/IRBuilderTest.cpp
+    codegen/LLVMGeneratorTest.cpp
+    codegen/ExecutionTest.cpp
 )
 
 target_link_libraries(sp_tests

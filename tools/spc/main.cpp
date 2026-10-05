@@ -6,6 +6,9 @@
 #include "sp/parser/Parser.h"
 #include "sp/ast/ASTPrinter.h"
 #include "sp/sema/SemanticAnalyzer.h"
+#include "sp/ir/IRBuilder.h"
+#include "sp/ir/IRPrinter.h"
+#include "sp/codegen/LLVMGenerator.h"
 #include "sp/runtime/Runtime.h"
 #include <iostream>
 #include <fstream>
@@ -13,11 +16,15 @@
 #include <string_view>
 #include <vector>
 #include <iomanip>
+#include <filesystem>
+#include <cstdlib>
+
+namespace fs = std::filesystem;
 
 namespace {
 
 void printVersion() {
-    std::cout << "spc (SP Programming Language Compiler) version 0.3.0-alpha\n"
+    std::cout << "spc (SP Programming Language Compiler) version 0.4.0-alpha\n"
               << "Copyright (c) 2026 Shanto Paul\n"
               << "Target: native machine code (LLVM backend)\n";
 }
@@ -29,17 +36,20 @@ void printHelp() {
               << "  ast <file>      Parse source file and print the formatted Abstract Syntax Tree\n"
               << "  sema <file>     Perform semantic analysis and dump resolved symbols and types\n"
               << "  check <file>    Perform lexical, syntactic, and semantic type analysis\n"
-              << "  build <file>    Compile an SP source file to a native executable\n"
+              << "  ir <file>       Compile to SP Intermediate Representation (SP IR)\n"
+              << "  llvm <file>     Translate SP IR to LLVM IR (.ll) representation\n"
+              << "  build <file>    Compile an SP source file to a native standalone executable\n"
               << "  run <file>      Compile and immediately execute an SP program\n"
               << "  fmt <file>      Format SP source files according to style rules\n"
               << "  test [path]     Execute SP unit and integration tests\n"
               << "  init [name]     Initialize a new SP project with sp.toml\n\n"
               << "Options:\n"
+              << "  -o <path>       Specify output binary path (for build command)\n"
+              << "  --release       Build with -O3 optimizations enabled\n"
+              << "  --debug         Build with debug symbols (-g) enabled\n"
+              << "  --target <arch> Cross-compile for target architecture\n"
               << "  -h, --help      Display this help message\n"
-              << "  -v, --version   Display compiler version information\n"
-              << "  --debug         Build with debug symbols enabled\n"
-              << "  --release       Build with optimizations enabled\n"
-              << "  --target <arch> Cross-compile for target architecture\n";
+              << "  -v, --version   Display compiler version information\n";
 }
 
 std::string readFile(const std::string& path) {
@@ -74,19 +84,50 @@ int main(int argc, char* argv[]) {
 
     sp::diagnostics::DiagnosticEngine diagEngine(std::cerr);
 
-    if (command == "tokens" || command == "ast" || command == "sema" || command == "check" || command == "build" || command == "run") {
-        if (argc < 3) {
-            diagEngine.reportError("E1000", "Missing input source file", sp::diagnostics::SourceLocation("cli", 1, 1), "Specify an input file: spc " + std::string(command) + " main.sp");
+    if (command == "tokens" || command == "ast" || command == "sema" ||
+        command == "check" || command == "ir" || command == "llvm" ||
+        command == "build" || command == "run") {
+
+        // Parse options and identify input source file
+        std::string filename;
+        std::string outputPath;
+        bool releaseMode = false;
+        bool debugMode = false;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if (arg == "-o" && i + 1 < argc) {
+                outputPath = argv[++i];
+            } else if (arg == "--release") {
+                releaseMode = true;
+            } else if (arg == "--debug") {
+                debugMode = true;
+            } else if (arg == "-h" || arg == "--help") {
+                printHelp();
+                return 0;
+            } else if (!arg.starts_with("-")) {
+                if (filename.empty()) {
+                    filename = arg;
+                }
+            }
+        }
+
+        if (filename.empty()) {
+            diagEngine.reportError("E1000", "Missing input source file",
+                                   sp::diagnostics::SourceLocation("cli", 1, 1),
+                                   "Specify an input file: spc " + std::string(command) + " main.sp");
             return 1;
         }
 
-        std::string filename = argv[2];
         std::string source = readFile(filename);
         if (source.empty()) {
-            diagEngine.reportError("E1009", "Could not open or read source file: " + filename, sp::diagnostics::SourceLocation(filename, 1, 1), "Check that the file exists and is accessible");
+            diagEngine.reportError("E1009", "Could not open or read source file: " + filename,
+                                   sp::diagnostics::SourceLocation(filename, 1, 1),
+                                   "Check that the file exists and is accessible");
             return 1;
         }
 
+        // 1. Lexical Analysis
         sp::lexer::Lexer lexer(source, filename, &diagEngine);
 
         if (command == "tokens") {
@@ -109,49 +150,37 @@ int main(int argc, char* argv[]) {
             return diagEngine.hasErrors() ? 1 : 0;
         }
 
+        std::vector<sp::lexer::Token> tokens = lexer.tokenizeAll();
+        if (diagEngine.hasErrors()) {
+            std::cerr << "Lexing failed with " << diagEngine.errorCount() << " error(s).\n";
+            return 1;
+        }
+
+        // 2. Syntactic Analysis (Parser)
+        sp::parser::Parser parser(tokens, filename, &diagEngine);
+        auto program = parser.parseProgram();
+
+        if (diagEngine.hasErrors() || !program) {
+            std::cerr << "Parsing failed with " << diagEngine.errorCount() << " error(s).\n";
+            return 1;
+        }
+
         if (command == "ast") {
-            std::vector<sp::lexer::Token> tokens = lexer.tokenizeAll();
-            if (diagEngine.hasErrors()) {
-                std::cerr << "Lexing failed with " << diagEngine.errorCount() << " error(s).\n";
-                return 1;
-            }
-
-            sp::parser::Parser parser(tokens, filename, &diagEngine);
-            auto program = parser.parseProgram();
-
-            if (diagEngine.hasErrors()) {
-                std::cerr << "Parsing failed with " << diagEngine.errorCount() << " error(s).\n";
-                return 1;
-            }
-
             sp::ast::ASTPrinter printer;
             std::cout << printer.print(*program);
             return 0;
         }
 
+        // 3. Semantic Analysis
+        sp::sema::SemanticAnalyzer sema(diagEngine);
+        bool semaSuccess = sema.analyze(*program);
+
+        if (!semaSuccess || diagEngine.hasErrors()) {
+            std::cerr << "Semantic analysis failed with " << diagEngine.errorCount() << " error(s).\n";
+            return 1;
+        }
+
         if (command == "sema") {
-            std::vector<sp::lexer::Token> tokens = lexer.tokenizeAll();
-            if (diagEngine.hasErrors()) {
-                std::cerr << "Lexing failed with " << diagEngine.errorCount() << " error(s).\n";
-                return 1;
-            }
-
-            sp::parser::Parser parser(tokens, filename, &diagEngine);
-            auto program = parser.parseProgram();
-
-            if (diagEngine.hasErrors() || !program) {
-                std::cerr << "Parsing failed with " << diagEngine.errorCount() << " error(s).\n";
-                return 1;
-            }
-
-            sp::sema::SemanticAnalyzer sema(diagEngine);
-            bool success = sema.analyze(*program);
-
-            if (!success || diagEngine.hasErrors()) {
-                std::cerr << "Semantic analysis failed with " << diagEngine.errorCount() << " error(s).\n";
-                return 1;
-            }
-
             std::cout << "Semantic analysis passed for " << filename << ".\n";
             std::cout << "Global symbols:\n";
             std::cout << std::string(60, '-') << "\n";
@@ -163,38 +192,75 @@ int main(int argc, char* argv[]) {
         }
 
         if (command == "check") {
-            std::vector<sp::lexer::Token> tokens = lexer.tokenizeAll();
-            if (diagEngine.hasErrors()) {
-                std::cerr << "Check failed: " << diagEngine.errorCount() << " lexer error(s).\n";
-                return 1;
-            }
-
-            sp::parser::Parser parser(tokens, filename, &diagEngine);
-            auto program = parser.parseProgram();
-
-            if (diagEngine.hasErrors() || !program) {
-                std::cerr << "Check failed: " << diagEngine.errorCount() << " syntax error(s).\n";
-                return 1;
-            }
-
-            sp::sema::SemanticAnalyzer sema(diagEngine);
-            bool semaSuccess = sema.analyze(*program);
-
-            if (!semaSuccess || diagEngine.hasErrors()) {
-                std::cerr << "Check failed: " << diagEngine.errorCount() << " semantic error(s).\n";
-                return 1;
-            }
-
             size_t declCount = program ? program->getDeclarations().size() : 0;
             std::cout << "Check passed: Syntax & Semantics valid (" << tokens.size() << " tokens, " 
                       << declCount << " declarations) in " << filename << ".\n";
             return 0;
         }
 
-        std::cout << "SP Compiler: Processing '" << filename << "' with command '" << command << "'...\n";
+        // 4. Intermediate Representation (SP IR)
+        std::string modName = fs::path(filename).stem().string();
+        sp::ir::IRBuilder irBuilder(sema);
+        auto irModule = irBuilder.build(*program, modName);
+
+        if (!irModule) {
+            std::cerr << "IR generation failed for " << filename << ".\n";
+            return 1;
+        }
+
+        if (command == "ir") {
+            sp::ir::IRPrinter irPrinter;
+            std::cout << irPrinter.print(*irModule);
+            return 0;
+        }
+
+        // 5. LLVM IR Code Generation
+        sp::codegen::CodegenOptions codegenOpts;
+        codegenOpts.releaseMode = releaseMode;
+        codegenOpts.debugSymbols = debugMode;
+        sp::codegen::LLVMGenerator llvmGen(codegenOpts);
+
+        if (command == "llvm") {
+            std::cout << llvmGen.generateLLVMIR(*irModule);
+            return 0;
+        }
+
+        // 6. Native Binary Compilation (build / run)
+        if (outputPath.empty()) {
+            fs::path p = fs::path(filename).stem();
+#if defined(_WIN32)
+            p.replace_extension(".exe");
+#endif
+            outputPath = p.string();
+        }
+
+        bool buildSuccess = llvmGen.compileToExecutable(*irModule, outputPath);
+        if (!buildSuccess) {
+            std::cerr << "Compilation failed: " << llvmGen.getLastError() << "\n";
+            return 1;
+        }
+
+        if (command == "build") {
+            std::cout << "Successfully built native binary: " << outputPath << "\n";
+            return 0;
+        }
+
+        if (command == "run") {
+            std::string runCmd = "\"" + fs::absolute(outputPath).string() + "\"";
+#if defined(_WIN32)
+            std::string fullCmd = "\"" + runCmd + "\"";
+            int exitCode = std::system(fullCmd.c_str());
+#else
+            int exitCode = std::system(runCmd.c_str());
+#endif
+            return exitCode;
+        }
+
         return 0;
     }
 
-    diagEngine.reportError("E1000", "Unknown command: " + std::string(command), sp::diagnostics::SourceLocation("cli", 1, 1), "Run 'spc --help' to see valid compiler commands");
+    diagEngine.reportError("E1000", "Unknown command: " + std::string(command),
+                           sp::diagnostics::SourceLocation("cli", 1, 1),
+                           "Run 'spc --help' to see valid compiler commands");
     return 1;
 }

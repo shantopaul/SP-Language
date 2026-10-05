@@ -171,15 +171,15 @@ This document outlines the detailed development phases for the SP Programming La
 **Goal:** Generate native executables from typed SP source code via LLVM.
 
 ### Tasks
-- [ ] 1. Design the high-level SP Intermediate Representation (SP IR).
-- [ ] 2. Implement the IR Builder translating `TypedAST` to SP IR.
-- [ ] 3. Implement the LLVM Code Generator translating SP IR to LLVM IR.
-- [ ] 4. Generate code for arithmetic, boolean, and string operations.
-- [ ] 5. Generate code for variable assignments, function calls, and control flow.
-- [ ] 6. Link generated code with the SP runtime library.
-- [ ] 7. Configure backend to produce native executables (.exe, ELF, Mach-O).
-- [ ] 8. Implement `spc build`, `spc run`, and `spc check` commands in the CLI.
-- [ ] 9. Support debug (with debugging symbols) and release (with LLVM optimizations) build modes.
+- [x] 1. Design the high-level SP Intermediate Representation (SP IR).
+- [x] 2. Implement the IR Builder translating `TypedAST` to SP IR.
+- [x] 3. Implement the LLVM Code Generator translating SP IR to LLVM IR.
+- [x] 4. Generate code for arithmetic, boolean, and string operations.
+- [x] 5. Generate code for variable assignments, function calls, and control flow.
+- [x] 6. Link generated code with the SP runtime library.
+- [x] 7. Configure backend to produce native executables (.exe, ELF, Mach-O).
+- [x] 8. Implement `spc build`, `spc run`, and `spc check` commands in the CLI.
+- [x] 9. Support debug (with debugging symbols) and release (with LLVM optimizations) build modes.
 
 ### Deliverables
 - Working native compiler backend.
