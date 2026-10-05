@@ -94,6 +94,14 @@ std::string LLVMGenerator::findRuntimeSourcePath() {
     }
 #endif
 
+    const char* envHome = std::getenv("SP_HOME");
+    if (envHome && fs::exists(envHome)) {
+        fs::path p1 = fs::path(envHome) / "share" / "sp" / "runtime" / "Runtime.cpp";
+        if (fs::exists(p1)) return fs::absolute(p1).string();
+        fs::path p2 = fs::path(envHome) / "runtime" / "src" / "Runtime.cpp";
+        if (fs::exists(p2)) return fs::absolute(p2).string();
+    }
+
     const std::vector<std::string> candidates = {
         "runtime/src/Runtime.cpp",
         "../runtime/src/Runtime.cpp",
@@ -121,6 +129,14 @@ std::string LLVMGenerator::findRuntimeIncludePath() {
         return fs::absolute(projInc).string();
     }
 #endif
+
+    const char* envHome = std::getenv("SP_HOME");
+    if (envHome && fs::exists(envHome)) {
+        fs::path p1 = fs::path(envHome) / "include";
+        if (fs::exists(p1)) return fs::absolute(p1).string();
+        fs::path p2 = fs::path(envHome) / "runtime" / "include";
+        if (fs::exists(p2)) return fs::absolute(p2).string();
+    }
 
     const std::vector<std::string> candidates = {
         "runtime/include",

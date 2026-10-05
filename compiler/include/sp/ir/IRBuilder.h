@@ -11,14 +11,30 @@
 #include <vector>
 #include <unordered_map>
 
+namespace sp::codegen {
+class VTableBuilder;
+struct ClassLayout;
+}
+
 namespace sp::ir {
 
 class IRBuilder : public ast::ASTVisitor {
 public:
     explicit IRBuilder(const sema::SemanticAnalyzer& sema);
-    ~IRBuilder() override = default;
+    ~IRBuilder() override;
 
     std::unique_ptr<IRModule> build(const ast::Program& program, const std::string& moduleName = "main");
+
+    // Class and method compilation helpers
+    void compileConstructor(const ast::ClassDecl& classDecl, const ast::FunctionDecl* ctorDecl, const codegen::ClassLayout& layout);
+    void compileDefaultConstructor(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout);
+    void compileMethod(const ast::ClassDecl& classDecl, const ast::FunctionDecl& methodDecl, const codegen::ClassLayout& layout);
+
+    IRValuePtr emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType);
+    void setCurrentClass(const codegen::ClassLayout* layout) noexcept { m_currentClass = layout; }
+    [[nodiscard]] const codegen::ClassLayout* getCurrentClass() const noexcept { return m_currentClass; }
+    [[nodiscard]] codegen::VTableBuilder* getVTableBuilder() noexcept { return m_vtableBuilder.get(); }
+    [[nodiscard]] const codegen::VTableBuilder* getVTableBuilder() const noexcept { return m_vtableBuilder.get(); }
 
     // AST Visitor overrides
     // Expressions
@@ -96,6 +112,9 @@ private:
 
     size_t m_blockCounter{0};
     size_t m_varCounter{0};
+
+    std::unique_ptr<codegen::VTableBuilder> m_vtableBuilder;
+    const codegen::ClassLayout* m_currentClass{nullptr};
 };
 
 } // namespace sp::ir

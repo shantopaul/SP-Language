@@ -69,6 +69,8 @@ enum class IROpcode {
     SExt,
     FPToSI,
     SIToFP,
+    FPTrunc,
+    FPExt,
     BitCast,
 
     // Control Flow / Terminators
@@ -187,20 +189,57 @@ public:
     [[nodiscard]] IRValuePtr getValue() const { return getOperand(0); }
 };
 
+class GetElementPtrInst : public IRInstruction {
+public:
+    GetElementPtrInst(IRTypePtr sourceType, IRValuePtr basePtr, std::vector<IRValuePtr> indices, std::string name = "")
+        : IRInstruction(IROpcode::GetElementPtr, IRType::getPointer(), std::move(name)),
+          m_sourceType(std::move(sourceType)),
+          m_indices(std::move(indices)) {
+        addOperand(std::move(basePtr));
+        for (const auto& idx : m_indices) {
+            addOperand(idx);
+        }
+    }
+
+    [[nodiscard]] const IRTypePtr& getSourceType() const noexcept { return m_sourceType; }
+    [[nodiscard]] IRValuePtr getBasePointer() const { return getOperand(0); }
+    [[nodiscard]] const std::vector<IRValuePtr>& getIndices() const noexcept { return m_indices; }
+
+private:
+    IRTypePtr m_sourceType;
+    std::vector<IRValuePtr> m_indices;
+};
+
 class CallInst : public IRInstruction {
 public:
+    // Direct call by function name
     CallInst(IRTypePtr returnType, std::string calleeName, std::vector<IRValuePtr> args, std::string name = "")
         : IRInstruction(IROpcode::Call, std::move(returnType), std::move(name)),
-          m_calleeName(std::move(calleeName)) {
+          m_calleeName(std::move(calleeName)),
+          m_calleeValue(nullptr) {
         for (auto& arg : args) {
             addOperand(std::move(arg));
         }
     }
 
+    // Indirect call by function pointer
+    CallInst(IRTypePtr returnType, IRValuePtr calleeValue, std::vector<IRValuePtr> args, std::string name = "")
+        : IRInstruction(IROpcode::Call, std::move(returnType), std::move(name)),
+          m_calleeName(""),
+          m_calleeValue(std::move(calleeValue)) {
+        addOperand(m_calleeValue);
+        for (auto& arg : args) {
+            addOperand(std::move(arg));
+        }
+    }
+
+    [[nodiscard]] bool isIndirect() const noexcept { return m_calleeValue != nullptr; }
     [[nodiscard]] const std::string& getCalleeName() const noexcept { return m_calleeName; }
+    [[nodiscard]] const IRValuePtr& getCalleeValue() const noexcept { return m_calleeValue; }
 
 private:
     std::string m_calleeName;
+    IRValuePtr m_calleeValue;
 };
 
 class BranchInst : public IRInstruction {

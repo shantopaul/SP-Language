@@ -196,3 +196,127 @@ TEST(ExecutionTest, RuntimeAssertSuccess) {
     std::string output = runSPProgram(source, "exec_assert");
     EXPECT_NE(output.find("Assert passed"), std::string::npos);
 }
+
+TEST(ExecutionTest, TypedVariableDeclarations) {
+    const std::string source = R"(
+        fn main() {
+            let a: int = 10;
+            let b: int = 25;
+            let sum: int = a + b;
+            println("Calculation: 10 + 25 =");
+            println(sum);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_typed_vars");
+    EXPECT_NE(output.find("Calculation: 10 + 25 ="), std::string::npos);
+    EXPECT_NE(output.find("35"), std::string::npos);
+}
+
+TEST(ExecutionTest, ObjectInstantiationAndMethodCalls) {
+    const std::string source = R"(
+        class Counter {
+            var value: int;
+
+            Counter(int initial) {
+                this.value = initial;
+            }
+
+            fn increment(int delta) {
+                this.value = this.value + delta;
+            }
+
+            fn getValue() -> int {
+                return this.value;
+            }
+        }
+
+        fn main() {
+            var c: Counter = new Counter(100);
+            c.increment(25);
+            println(c.getValue());
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_counter");
+    EXPECT_NE(output.find("125"), std::string::npos);
+}
+
+TEST(ExecutionTest, PolymorphicVirtualDispatchNativeExecution) {
+    const std::string source = R"(
+        class Animal {
+            fn getSoundCode() -> int {
+                return 101;
+            }
+        }
+
+        class Dog extends Animal {
+            override fn getSoundCode() -> int {
+                return 202;
+            }
+        }
+
+        fn main() {
+            var pet: Animal = new Dog();
+            println(pet.getSoundCode());
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_poly");
+    EXPECT_NE(output.find("202"), std::string::npos);
+}
+
+TEST(ExecutionTest, StructInstantiationAndFunctionPassing) {
+    const std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn manhattan(Point a, Point b) -> int {
+            return (b.x - a.x) + (b.y - a.y);
+        }
+
+        fn main() {
+            Point p1;
+            p1.x = 10;
+            p1.y = 20;
+
+            Point p2;
+            p2.x = 40;
+            p2.y = 60;
+
+            println(manhattan(p1, p2));
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_struct");
+    EXPECT_NE(output.find("70"), std::string::npos);
+}
+
+TEST(ExecutionTest, EnumConstantsAndBranchExecution) {
+    const std::string source = R"(
+        enum HttpStatus {
+            OK = 200,
+            NotFound = 404,
+            ServerError = 500
+        }
+
+        fn main() {
+            var status = HttpStatus.NotFound;
+            if (status == HttpStatus.OK) {
+                println("Success");
+            } else if (status == HttpStatus.NotFound) {
+                println("Resource Not Found: 404");
+            } else {
+                println("Other");
+            }
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_enum");
+    EXPECT_NE(output.find("Resource Not Found: 404"), std::string::npos);
+}
+
+
+

@@ -342,6 +342,12 @@ bool EnumType::equals(const Type& other) const {
     return m_name == en.m_name;
 }
 
+bool EnumType::isAssignableTo(const Type& target) const {
+    if (equals(target)) return true;
+    if (target.isInteger()) return true;
+    return Type::isAssignableTo(target);
+}
+
 // TypeContext implementation
 TypeContext::TypeContext() {
     m_voidType = std::make_shared<PrimitiveType>(TypeKind::Void, "void");

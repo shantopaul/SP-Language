@@ -58,4 +58,20 @@ void sp_rt_panic(const char* msg) {
     std::abort();
 }
 
+void* sp_rt_alloc(uint64_t size) {
+    if (size == 0) size = 1;
+    void* ptr = std::calloc(1, static_cast<size_t>(size));
+    if (!ptr) {
+        std::cerr << "Out of memory in sp_rt_alloc\n";
+        std::abort();
+    }
+    return ptr;
+}
+
+void sp_rt_free(void* ptr) {
+    if (ptr) {
+        std::free(ptr);
+    }
+}
+
 }

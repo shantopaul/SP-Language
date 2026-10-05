@@ -686,7 +686,27 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
     const std::string& name = node.getName();
     TypePtr varType = nullptr;
 
-    if (node.isVar()) {
+    if (!node.getType().empty()) {
+        varType = m_typeCtx.resolveType(node.getType());
+        if (!varType) {
+            m_diagnostics.reportError("E1002", "Undefined type '" + node.getType() + "' in declaration of variable '" + name + "'", node.getLocation());
+            varType = m_typeCtx.getError();
+        }
+
+        if (node.hasInitializer()) {
+            auto initType = checkExpr(*node.getInitializer());
+
+            // Null safety check (E1008)
+            if (!varType->isNullable() && initType->isNull()) {
+                m_diagnostics.reportError("E1008", "Null safety violation: cannot assign null to non-nullable variable '" +
+                                          name + "' of type '" + varType->toString() + "'", node.getLocation(),
+                                          "Use '" + varType->toString() + "?' to declare a nullable variable");
+            } else if (!initType->isAssignableTo(*varType)) {
+                m_diagnostics.reportError("E1001", "Type mismatch: cannot initialize variable of type '" +
+                                          varType->toString() + "' with value of type '" + initType->toString() + "'", node.getLocation());
+            }
+        }
+    } else if (node.isVar() || node.isConst()) {
         // Type inference: var x = ... or let x = ...
         if (!node.hasInitializer()) {
             m_diagnostics.reportError("E1001", "Variable '" + name + "' declared with 'var' or 'let' must have an initializer for type inference", node.getLocation());

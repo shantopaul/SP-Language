@@ -20,4 +20,8 @@ extern "C" {
     // Diagnostics and assertions
     void sp_rt_assert(bool cond, const char* msg);
     void sp_rt_panic(const char* msg);
+
+    // Object and dynamic memory management
+    void* sp_rt_alloc(uint64_t size);
+    void sp_rt_free(void* ptr);
 }

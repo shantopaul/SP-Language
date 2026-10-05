@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(SP_Language
-    VERSION 0.1.0
+    VERSION 0.5.0
     DESCRIPTION "SP Programming Language Compiler and Toolchain"
     HOMEPAGE_URL "https://github.com/shantopaul/SP-Language"
     LANGUAGES C CXX
@@ -59,3 +59,28 @@ if(SP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# Installation rules (Distribution package like Java JDK / C++ GCC)
+include(GNUInstallDirs)
+
+install(TARGETS spc
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(TARGETS sp_compiler sp_runtime
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY runtime/include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY compiler/include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY runtime/src/
+    DESTINATION share/sp/runtime
+)

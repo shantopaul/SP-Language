@@ -1,4 +1,5 @@
 #include "sp/sema/NameResolver.h"
+#include "sp/ast/Expression.h"
 #include <iostream>
 
 namespace sp::sema {
@@ -383,12 +384,25 @@ void NameResolver::resolveEnumMembers(const ast::EnumDecl& decl) {
     if (!userType || !userType->isEnum()) return;
     auto enumType = std::static_pointer_cast<EnumType>(userType);
 
+    int64_t nextVal = 0;
     for (const auto& variant : decl.getVariants()) {
         if (enumType->hasVariant(variant.getName())) {
             m_diagnostics.reportError("E1004", "Duplicate enum variant '" + variant.getName() + "' in enum '" + decl.getName() + "'", decl.getLocation());
             continue;
         }
-        enumType->addVariant(variant.getName());
+
+        if (variant.hasValue()) {
+            if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(variant.getValue())) {
+                if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                    try {
+                        nextVal = std::stoll(lit->getValue(), nullptr, 0);
+                    } catch (...) {}
+                }
+            }
+        }
+
+        enumType->addVariant(variant.getName(), nextVal);
+        nextVal++;
     }
 }
 

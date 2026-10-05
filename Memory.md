@@ -1,12 +1,12 @@
 # SP Programming Language — Memory & Progress Tracker
 
 > **Last Updated:** 2026-10-05
-> **Current Phase:** Phase 4 Completed / Ready for Phase 5 (Object System)
-> **Current Version:** v0.4.0-alpha
+> **Current Phase:** Phase 5 Completed (Object System - SP 0.5)
+> **Current Version:** v0.5.0-alpha
 
 ---
 
-## Project Status: 🟢 Phase 4 (SP IR & LLVM Code Generation) Complete (Ready for Phase 5: Object System)
+## Project Status: 🟢 Phase 5 (Object System - SP 0.5) Complete (108/108 Tests Passing)
 
 ---
 
@@ -183,10 +183,12 @@
 | tests/sema/SymbolTableTest.cpp | ✅ Complete | 4 unit tests, 100% tests passing |
 | tests/sema/TypeCheckerTest.cpp | ✅ Complete | 14 unit tests, 100% tests passing |
 | tests/sema/GoldenSemanticTest.cpp | ✅ Complete | 5 golden tests across all examples & stdlib, 100% passing |
-| tests/ir/IRTest.cpp | ✅ Complete | 4 unit tests covering IR types, values, instructions, printer |
+| tests/ir/IRTest.cpp | ✅ Complete | 4 unit tests covering IR types, values, instructions, struct types, printer |
 | tests/ir/IRBuilderTest.cpp | ✅ Complete | 5 unit tests covering AST-to-IR translation |
+| tests/codegen/VTableBuilderTest.cpp | ✅ Complete | 5 unit tests covering class & struct layout, vtable slot assignment |
+| tests/codegen/ClassGeneratorTest.cpp | ✅ Complete | 7 unit tests covering constructors, methods, virtual dispatch, structs, enums |
 | tests/codegen/LLVMGeneratorTest.cpp | ✅ Complete | 4 tests covering LLVM text IR emission and native binary build |
-| tests/codegen/ExecutionTest.cpp | ✅ Complete | 8 end-to-end execution tests compiling and running native executables |
+| tests/codegen/ExecutionTest.cpp | ✅ Complete | 12 end-to-end execution tests compiling and running native executables |
 
 ---
 
@@ -200,7 +202,10 @@
 | Type System Strategy | Multi-pass NameResolver + TypeChecker visitor | Forward references without forward declarations |
 | Build System | CMake 3.20+ with Ninja | Industry standard for C++ projects |
 | Test Framework | GoogleTest | Automated CTest discovery via FetchContent |
-| Memory Model | Managed (GC) initially, ownership later | Developer usability first |
+| Memory Model | Managed (GC) runtime heap (`sp_rt_alloc`/`sp_rt_free`) | Heap objects for classes, stack allocations for structs |
+| Object Model | C++ / Java style vtable layout (slot 0 = vptr) | Constant-time O(1) polymorphic virtual method dispatch |
+| Value Types | Stack-allocated structs without vtables | Direct GEP member access and value semantics |
+| Enum System | Tagged integer constants with custom or sequential indices | High performance, zero runtime overhead |
 | Config Format | TOML (sp.toml) | Human-readable, well-suited for config |
 
 ---
@@ -209,7 +214,7 @@
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| None | — | — | Phase 3 verified and complete (71/71 tests passing) |
+| None | — | — | Phase 5 verified and complete (108/108 tests passing) |
 
 ---
 
@@ -236,6 +241,9 @@
 | 2026-10-05 | Phase 1 completed: Lexer, TokenType, Token, golden tests, CLI tokens/check commands | AI |
 | 2026-10-05 | Phase 2 completed: AST hierarchy, Visitor, ASTPrinter, Pratt & Recursive Descent Parser, Syntax Compatibility Layer, spc ast/check CLI, 40/40 tests passing | AI |
 | 2026-10-05 | Phase 3 completed: Type system, SymbolTable with overloads, multi-pass NameResolver, TypeChecker visitor, null safety, return path analysis, spc sema/check CLI, 71/71 tests passing | AI |
+| 2026-10-05 | Phase 4 completed: SP IR, IRBuilder, LLVMGenerator, Runtime library, standalone executable compilation, 100/100 tests passing | AI |
+| 2026-10-05 | Phase 5 completed: Object System (SP 0.5): Runtime heap allocator, struct & class layouts, VTableBuilder, ClassGenerator, 'new' instantiation, polymorphic virtual dispatch, struct stack values, enum constants, 108/108 tests passing | AI |
+
 
 
 

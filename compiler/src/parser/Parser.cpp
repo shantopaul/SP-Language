@@ -527,6 +527,12 @@ ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar) {
     }
 
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected variable name in declaration");
+
+    // Support type annotation after colon: let x: int = 10; or const PI: float = 3.14;
+    if (match(lexer::TokenType::Colon)) {
+        type = parseType();
+    }
+
     ast::ExprPtr init = nullptr;
 
     if (match(lexer::TokenType::Equal)) {

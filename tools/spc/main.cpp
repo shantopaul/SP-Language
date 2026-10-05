@@ -24,7 +24,7 @@ namespace fs = std::filesystem;
 namespace {
 
 void printVersion() {
-    std::cout << "spc (SP Programming Language Compiler) version 0.4.0-alpha\n"
+    std::cout << "spc (SP Programming Language Compiler) version 0.5.0-alpha\n"
               << "Copyright (c) 2026 Shanto Paul\n"
               << "Target: native machine code (LLVM backend)\n";
 }
