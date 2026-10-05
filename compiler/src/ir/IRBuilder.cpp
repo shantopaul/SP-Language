@@ -122,7 +122,59 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
         return cast;
     }
 
+    if (srcType->isFloatingPoint() && targetType->isFloatingPoint()) {
+        if (srcType->isDouble() && targetType->isFloat()) {
+            auto cast = std::make_shared<CastInst>(IROpcode::FPTrunc, val, targetType, tempName);
+            if (m_currentBlock) m_currentBlock->addInstruction(cast);
+            return cast;
+        } else if (srcType->isFloat() && targetType->isDouble()) {
+            auto cast = std::make_shared<CastInst>(IROpcode::FPExt, val, targetType, tempName);
+            if (m_currentBlock) m_currentBlock->addInstruction(cast);
+            return cast;
+        }
+    }
+
     return val;
+}
+
+IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType) {
+    if (!val || !valType) return m_module->getOrCreateStringLiteral("");
+    if (valType->isPointer()) {
+        return val;
+    }
+    std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str") : "%str";
+    if (valType->isInt1()) {
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_from_bool",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
+    if (valType->isInt8()) {
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_from_char",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
+    if (valType->isFloatingPoint()) {
+        val = emitCastIfNeeded(val, IRType::getDouble());
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_from_double",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
+    val = emitCastIfNeeded(val, IRType::getInt64());
+    auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                           "sp_rt_str_from_int",
+                                           std::vector<IRValuePtr>{val},
+                                           callReg);
+    if (m_currentBlock) m_currentBlock->addInstruction(call);
+    return call;
 }
 
 IRTypePtr IRBuilder::mapType(const sema::Type* type) const {
@@ -1424,6 +1476,22 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
     if (!lhs || !rhs) {
         m_lastExprValue = nullptr;
         m_lastExprType = nullptr;
+        return;
+    }
+
+    // String concatenation if either operand is string/pointer
+    if (node.getOp() == lexer::TokenType::Plus &&
+        ((lhsType && lhsType->isPointer()) || (rhsType && rhsType->isPointer()))) {
+        auto lhsStr = convertToStringValue(lhs, lhsType);
+        auto rhsStr = convertToStringValue(rhs, rhsType);
+        std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str_cat") : "%str_cat";
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_concat",
+                                               std::vector<IRValuePtr>{lhsStr, rhsStr},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        m_lastExprValue = call;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
         return;
     }
 

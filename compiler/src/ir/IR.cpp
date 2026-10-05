@@ -422,6 +422,32 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
                    true);
 
+    // ptr sp_rt_str_concat(ptr, ptr)
+    createFunction("sp_rt_str_concat", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s1", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s2", 1)},
+                   true);
+
+    // ptr sp_rt_str_from_int(i64)
+    createFunction("sp_rt_str_from_int", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_double(double)
+    createFunction("sp_rt_str_from_double", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_bool(i1)
+    createFunction("sp_rt_str_from_bool", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt1(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_char(i8)
+    createFunction("sp_rt_str_from_char", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
+                   true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

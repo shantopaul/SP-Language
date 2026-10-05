@@ -17,6 +17,13 @@ extern "C" {
     void sp_rt_print_string(const char* str);
     void sp_rt_print_int(int64_t val);
 
+    // String operations
+    const char* sp_rt_str_concat(const char* s1, const char* s2);
+    const char* sp_rt_str_from_int(int64_t val);
+    const char* sp_rt_str_from_double(double val);
+    const char* sp_rt_str_from_bool(bool val);
+    const char* sp_rt_str_from_char(char val);
+
     // Diagnostics and assertions
     void sp_rt_assert(bool cond, const char* msg);
     void sp_rt_panic(const char* msg);

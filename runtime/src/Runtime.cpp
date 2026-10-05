@@ -1,6 +1,8 @@
 #include "sp/runtime/Runtime.h"
 #include <iostream>
 #include <cstdlib>
+#include <cstring>
+#include <sstream>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -48,6 +50,58 @@ void sp_rt_print_string(const char* str) {
 
 void sp_rt_print_int(int64_t val) {
     std::cout << val;
+}
+
+const char* sp_rt_str_concat(const char* s1, const char* s2) {
+    if (!s1) s1 = "";
+    if (!s2) s2 = "";
+    size_t l1 = std::strlen(s1);
+    size_t l2 = std::strlen(s2);
+    char* res = static_cast<char*>(malloc(l1 + l2 + 1));
+    if (res) {
+        std::memcpy(res, s1, l1);
+        std::memcpy(res + l1, s2, l2 + 1);
+    }
+    return res;
+}
+
+const char* sp_rt_str_from_int(int64_t val) {
+    std::string s = std::to_string(val);
+    char* res = static_cast<char*>(malloc(s.size() + 1));
+    if (res) {
+        std::memcpy(res, s.c_str(), s.size() + 1);
+    }
+    return res;
+}
+
+const char* sp_rt_str_from_double(double val) {
+    std::ostringstream ss;
+    ss << val;
+    std::string s = ss.str();
+    char* res = static_cast<char*>(malloc(s.size() + 1));
+    if (res) {
+        std::memcpy(res, s.c_str(), s.size() + 1);
+    }
+    return res;
+}
+
+const char* sp_rt_str_from_bool(bool val) {
+    const char* s = val ? "true" : "false";
+    size_t len = val ? 4 : 5;
+    char* res = static_cast<char*>(malloc(len + 1));
+    if (res) {
+        std::memcpy(res, s, len + 1);
+    }
+    return res;
+}
+
+const char* sp_rt_str_from_char(char val) {
+    char* res = static_cast<char*>(malloc(2));
+    if (res) {
+        res[0] = val;
+        res[1] = '\0';
+    }
+    return res;
 }
 
 void sp_rt_assert(bool cond, const char* msg) {

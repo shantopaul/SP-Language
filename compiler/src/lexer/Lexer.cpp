@@ -285,6 +285,9 @@ Token Lexer::scanNumber() {
                 advance();
             }
         }
+        if (peek() == 'f' || peek() == 'F') {
+            advance();
+        }
         return makeToken(TokenType::FloatLiteral);
     }
 
@@ -298,6 +301,9 @@ Token Lexer::scanNumber() {
             return errorToken("E1000", "Floating-point exponent requires digits", "Example: 1e6");
         }
         while (!isAtEnd() && std::isdigit(static_cast<unsigned char>(peek()))) {
+            advance();
+        }
+        if (peek() == 'f' || peek() == 'F') {
             advance();
         }
         return makeToken(TokenType::FloatLiteral);

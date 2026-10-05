@@ -24,9 +24,15 @@ void TypeChecker::visit(const ast::LiteralExpr& node) {
         case ast::LiteralKind::Integer:
             m_currentExprType = m_typeCtx.getInt();
             break;
-        case ast::LiteralKind::Float:
-            m_currentExprType = m_typeCtx.getDouble();
+        case ast::LiteralKind::Float: {
+            const std::string& val = node.getValue();
+            if (!val.empty() && (val.back() == 'f' || val.back() == 'F')) {
+                m_currentExprType = m_typeCtx.getFloat();
+            } else {
+                m_currentExprType = m_typeCtx.getDouble();
+            }
             break;
+        }
         case ast::LiteralKind::Boolean:
             m_currentExprType = m_typeCtx.getBool();
             break;
@@ -767,6 +773,12 @@ void TypeChecker::visit(const ast::AssignExpr& node) {
     auto targetType = checkExpr(node.getTarget());
     auto valueType = checkExpr(node.getValue());
 
+    if (targetType->getKind() == TypeKind::Float && valueType->getKind() == TypeKind::Double) {
+        if (dynamic_cast<const ast::LiteralExpr*>(&node.getValue())) {
+            valueType = m_typeCtx.getFloat();
+        }
+    }
+
     // Check null safety (E1008)
     if (!targetType->isNullable() && valueType->isNull()) {
         m_diagnostics.reportError("E1008", "Null safety violation: cannot assign null to non-nullable type '" +
@@ -897,6 +909,12 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
         if (node.hasInitializer()) {
             auto initType = checkExpr(*node.getInitializer());
 
+            if (varType->getKind() == TypeKind::Float && initType->getKind() == TypeKind::Double) {
+                if (dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
+                    initType = m_typeCtx.getFloat();
+                }
+            }
+
             // Null safety check (E1008)
             if (!varType->isNullable() && initType->isNull()) {
                 m_diagnostics.reportError("E1008", "Null safety violation: cannot assign null to non-nullable variable '" +
@@ -928,6 +946,12 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
 
         if (node.hasInitializer()) {
             auto initType = checkExpr(*node.getInitializer());
+
+            if (varType->getKind() == TypeKind::Float && initType->getKind() == TypeKind::Double) {
+                if (dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
+                    initType = m_typeCtx.getFloat();
+                }
+            }
 
             // Null safety check (E1008)
             if (!varType->isNullable() && initType->isNull()) {
