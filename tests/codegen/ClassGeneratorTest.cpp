@@ -131,3 +131,78 @@ TEST(ClassGeneratorTest, InheritanceSuperConstructorDelegation) {
     // Derived constructor calls Base_Base
     EXPECT_NE(irCode.find("call void @Base_Base(ptr"), std::string::npos);
 }
+
+TEST(ClassGeneratorTest, NewObjectInstantiationAndFieldAccessAndMethodCall) {
+    std::string source = R"(
+        class Counter {
+            var count: int;
+
+            Counter(int initial) {
+                this.count = initial;
+            }
+
+            fn increment() {
+                this.count = this.count + 1;
+            }
+
+            fn getCount() -> int {
+                return this.count;
+            }
+        }
+
+        fn main() -> int {
+            var c: Counter = new Counter(42);
+            c.increment();
+            return c.getCount();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irCode = printer.print(*module);
+
+    // Allocates object with sp_rt_alloc
+    EXPECT_NE(irCode.find("call ptr @sp_rt_alloc(i64"), std::string::npos);
+    // Calls Counter_Counter
+    EXPECT_NE(irCode.find("call void @Counter_Counter(ptr"), std::string::npos);
+    // Method call on object via virtual or direct call
+    EXPECT_NE(irCode.find("Counter_increment"), std::string::npos);
+}
+
+TEST(ClassGeneratorTest, VirtualDispatchPolymorphism) {
+    std::string source = R"(
+        class Animal {
+            fn speak() -> int {
+                return 10;
+            }
+        }
+
+        class Dog extends Animal {
+            override fn speak() -> int {
+                return 20;
+            }
+        }
+
+        fn main() -> int {
+            var a: Animal = new Dog();
+            return a.speak();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irCode = printer.print(*module);
+
+    // Dog vtable contains Dog_speak at slot 0
+    EXPECT_NE(irCode.find("@_vtable_Dog = constant [1 x ptr] [ptr @Dog_speak]"), std::string::npos);
+
+    // Virtual call indexes into vtable
+    EXPECT_NE(irCode.find("getelementptr inbounds %class.Animal, ptr"), std::string::npos);
+    EXPECT_NE(irCode.find("getelementptr inbounds ptr, ptr"), std::string::npos);
+    EXPECT_NE(irCode.find("call i32 %fn_ptr"), std::string::npos);
+}
+

@@ -45,8 +45,16 @@ std::string IRPrinter::print(const IRModule& module) {
     if (!module.getGlobalVariables().empty()) {
         ss << "; Global Constants and VTables\n";
         for (const auto& g : module.getGlobalVariables()) {
+            std::string typeStr = g.type->toString();
+            if (!g.rawValue.empty() && g.rawValue.front() == '[') {
+                size_t count = 1;
+                for (char ch : g.rawValue) {
+                    if (ch == ',') count++;
+                }
+                typeStr = "[" + std::to_string(count) + " x ptr]";
+            }
             ss << g.name << " = " << (g.isConstant ? "constant " : "global ")
-               << g.type->toString() << " " << g.rawValue << ", align 8\n";
+               << typeStr << " " << g.rawValue << ", align 8\n";
         }
         ss << "\n";
     }

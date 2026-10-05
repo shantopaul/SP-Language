@@ -1055,6 +1055,156 @@ void IRBuilder::visit(const ast::UnaryExpr& node) {
 }
 
 void IRBuilder::visit(const ast::CallExpr& node) {
+    // 1. Check if callee is MemberExpr: obj.method(...) or super.method(...)
+    if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&node.getCallee())) {
+        std::string methodName = mem->getMember();
+
+        // 1a. super.method(...)
+        if (const auto* idObj = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject())) {
+            if (idObj->getName() == "super") {
+                if (m_currentClass && !m_currentClass->baseClass.empty()) {
+                    std::string mangledName = m_currentClass->baseClass + "_" + methodName;
+                    auto [thisAlloca, thisType] = lookupVariable("this");
+                    if (thisAlloca) {
+                        auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+                        m_currentBlock->addInstruction(thisVal);
+
+                        std::vector<IRValuePtr> loweredArgs;
+                        loweredArgs.push_back(thisVal);
+                        for (const auto& arg : node.getArgs()) {
+                            arg->accept(*this);
+                            loweredArgs.push_back(m_lastExprValue);
+                        }
+
+                        auto* targetFunc = m_module->getFunction(mangledName);
+                        IRTypePtr returnType = targetFunc ? targetFunc->getReturnType() : IRType::getVoid();
+                        std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("scall");
+
+                        auto callInst = std::make_shared<CallInst>(returnType, mangledName, loweredArgs, callReg);
+                        m_currentBlock->addInstruction(callInst);
+
+                        m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+                        m_lastExprType = returnType;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 1b. obj.method(...)
+        mem->getObject().accept(*this);
+        IRValuePtr objVal = m_lastExprValue;
+        if (!objVal) {
+            m_lastExprValue = nullptr;
+            m_lastExprType = IRType::getVoid();
+            return;
+        }
+
+        std::string className;
+        if (const auto* identObj = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject())) {
+            if (identObj->getName() == "this" && m_currentClass) {
+                className = m_currentClass->name;
+            }
+        }
+        if (className.empty()) {
+            auto semaType = m_sema.getNodeType(&mem->getObject());
+            if (semaType && semaType->isClass()) {
+                className = semaType->toString();
+            }
+        }
+        if (className.empty() && m_currentClass) {
+            className = m_currentClass->name;
+        }
+
+        const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(className) : nullptr;
+        int slotIdx = (m_vtableBuilder && !className.empty()) ? m_vtableBuilder->getMethodVTableSlot(className, methodName) : -1;
+
+        if (layout && slotIdx >= 0) {
+            // Polymorphic virtual dispatch via vtable!
+            auto gepVTable = std::make_shared<GetElementPtrInst>(
+                layout->structType,
+                objVal,
+                std::vector<IRValuePtr>{
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+                },
+                m_currentFunction->nextTempName("vt_slot")
+            );
+            m_currentBlock->addInstruction(gepVTable);
+
+            auto loadVTable = std::make_shared<LoadInst>(
+                IRType::getPointer(),
+                gepVTable,
+                m_currentFunction->nextTempName("vtable")
+            );
+            m_currentBlock->addInstruction(loadVTable);
+
+            auto gepSlot = std::make_shared<GetElementPtrInst>(
+                IRType::getPointer(),
+                loadVTable,
+                std::vector<IRValuePtr>{
+                    std::make_shared<ConstantInt>(IRType::getInt32(), slotIdx)
+                },
+                m_currentFunction->nextTempName("slot_ptr")
+            );
+            m_currentBlock->addInstruction(gepSlot);
+
+            auto loadFnPtr = std::make_shared<LoadInst>(
+                IRType::getPointer(),
+                gepSlot,
+                m_currentFunction->nextTempName("fn_ptr")
+            );
+            m_currentBlock->addInstruction(loadFnPtr);
+
+            IRTypePtr returnType = IRType::getVoid();
+            const auto& slotInfo = layout->vtableSlots[slotIdx];
+            if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                if (fnType) returnType = fnType->getReturnType();
+            } else {
+                auto* existing = m_module->getFunction(slotInfo.mangledName);
+                if (existing) returnType = existing->getReturnType();
+            }
+
+            std::vector<IRValuePtr> loweredArgs;
+            loweredArgs.push_back(objVal);
+            for (const auto& arg : node.getArgs()) {
+                arg->accept(*this);
+                loweredArgs.push_back(m_lastExprValue);
+            }
+
+            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
+            auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
+            m_currentBlock->addInstruction(callInst);
+
+            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+            m_lastExprType = returnType;
+            return;
+        } else {
+            // Direct/static call
+            std::string mangledName = (className.empty() ? "" : className + "_") + methodName;
+            auto* targetFunc = m_module->getFunction(mangledName);
+            IRTypePtr returnType = targetFunc ? targetFunc->getReturnType() : IRType::getInt32();
+
+            std::vector<IRValuePtr> loweredArgs;
+            if (targetFunc && !targetFunc->getParams().empty() && targetFunc->getParams()[0]->getName() == "%this") {
+                loweredArgs.push_back(objVal);
+            }
+            for (const auto& arg : node.getArgs()) {
+                arg->accept(*this);
+                loweredArgs.push_back(m_lastExprValue);
+            }
+
+            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("c");
+            auto callInst = std::make_shared<CallInst>(returnType, mangledName, loweredArgs, callReg);
+            m_currentBlock->addInstruction(callInst);
+
+            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+            m_lastExprType = returnType;
+            return;
+        }
+    }
+
     const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getCallee());
     std::string calleeName = ident ? ident->getName() : "";
 
@@ -1178,6 +1328,70 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         m_lastExprValue = nullptr;
         m_lastExprType = IRType::getVoid();
         return;
+    }
+
+    // Check if callee is a method on 'this'
+    if (m_currentClass && m_currentClass->methodSlotMap.count(calleeName)) {
+        int slotIdx = m_currentClass->methodSlotMap.at(calleeName);
+        auto [thisAlloca, thisType] = lookupVariable("this");
+        if (thisAlloca) {
+            auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+            m_currentBlock->addInstruction(thisVal);
+
+            auto gepVTable = std::make_shared<GetElementPtrInst>(
+                m_currentClass->structType,
+                thisVal,
+                std::vector<IRValuePtr>{
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+                },
+                m_currentFunction->nextTempName("vt_slot")
+            );
+            m_currentBlock->addInstruction(gepVTable);
+
+            auto loadVTable = std::make_shared<LoadInst>(
+                IRType::getPointer(),
+                gepVTable,
+                m_currentFunction->nextTempName("vtable")
+            );
+            m_currentBlock->addInstruction(loadVTable);
+
+            auto gepSlot = std::make_shared<GetElementPtrInst>(
+                IRType::getPointer(),
+                loadVTable,
+                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt32(), slotIdx)},
+                m_currentFunction->nextTempName("slot_ptr")
+            );
+            m_currentBlock->addInstruction(gepSlot);
+
+            auto loadFnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gepSlot, m_currentFunction->nextTempName("fn_ptr"));
+            m_currentBlock->addInstruction(loadFnPtr);
+
+            IRTypePtr returnType = IRType::getVoid();
+            const auto& slotInfo = m_currentClass->vtableSlots[slotIdx];
+            if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                if (fnType) returnType = fnType->getReturnType();
+            } else {
+                auto* existing = m_module->getFunction(slotInfo.mangledName);
+                if (existing) returnType = existing->getReturnType();
+            }
+
+            std::vector<IRValuePtr> loweredArgs;
+            loweredArgs.push_back(thisVal);
+            for (const auto& arg : node.getArgs()) {
+                arg->accept(*this);
+                loweredArgs.push_back(m_lastExprValue);
+            }
+
+            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
+            auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
+            m_currentBlock->addInstruction(callInst);
+
+            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+            m_lastExprType = returnType;
+            return;
+        }
     }
 
     // General user function call
@@ -1315,6 +1529,63 @@ void IRBuilder::visit(const ast::IndexExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::ArrayExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::MapExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::LambdaExpr& node) { (void)node; }
-void IRBuilder::visit(const ast::NewExpr& node) { (void)node; }
+void IRBuilder::visit(const ast::NewExpr& node) {
+    std::string typeName = node.getTypeName();
+    const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(typeName) : nullptr;
+    if (!layout) {
+        m_lastExprValue = std::make_shared<ConstantNull>();
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    // 1. Allocate object on heap via sp_rt_alloc
+    uint64_t size = layout->objectSize > 0 ? layout->objectSize : 8;
+    auto sizeVal = std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(size));
+    std::string rawPtrReg = m_currentFunction->nextTempName("obj_raw");
+    auto allocCall = std::make_shared<CallInst>(
+        IRType::getPointer(),
+        "sp_rt_alloc",
+        std::vector<IRValuePtr>{sizeVal},
+        rawPtrReg
+    );
+    m_currentBlock->addInstruction(allocCall);
+
+    // 2. Set vtable pointer in slot 0
+    if (layout->hasVTable) {
+        auto vtableGlobal = std::make_shared<GlobalVariable>(IRType::getInt8(), layout->vtableName);
+        auto gep = std::make_shared<GetElementPtrInst>(
+            layout->structType,
+            allocCall,
+            std::vector<IRValuePtr>{
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+            },
+            m_currentFunction->nextTempName("vptr")
+        );
+        m_currentBlock->addInstruction(gep);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
+    }
+
+    // 3. Call constructor @ClassName_ClassName(ptr %raw, args...)
+    std::string ctorName = typeName + "_" + typeName;
+    auto* ctorFunc = m_module->getFunction(ctorName);
+
+    std::vector<IRValuePtr> loweredArgs;
+    loweredArgs.push_back(allocCall);
+    for (size_t i = 0; i < node.getArgs().size(); ++i) {
+        node.getArgs()[i]->accept(*this);
+        IRValuePtr argVal = m_lastExprValue;
+        if (ctorFunc && i + 1 < ctorFunc->getParams().size()) {
+            argVal = emitCastIfNeeded(argVal, ctorFunc->getParams()[i + 1]->getType());
+        }
+        loweredArgs.push_back(argVal);
+    }
+
+    auto ctorCall = std::make_shared<CallInst>(IRType::getVoid(), ctorName, loweredArgs);
+    m_currentBlock->addInstruction(ctorCall);
+
+    m_lastExprValue = allocCall;
+    m_lastExprType = IRType::getPointer();
+}
 
 } // namespace sp::ir

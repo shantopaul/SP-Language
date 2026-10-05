@@ -142,6 +142,6 @@ TEST(IRModuleTest, StructTypeAndGetElementPtrAndVTable) {
     IRPrinter printer;
     std::string output = printer.print(module);
     EXPECT_NE(output.find("%class.Point = type { i32, i32 }"), std::string::npos);
-    EXPECT_NE(output.find("@_vtable_Point = constant ptr [ptr @Point_show], align 8"), std::string::npos);
+    EXPECT_NE(output.find("@_vtable_Point = constant [1 x ptr] [ptr @Point_show], align 8"), std::string::npos);
 }
 
