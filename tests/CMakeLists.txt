@@ -38,6 +38,7 @@ add_executable(sp_tests
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
     codegen/LLVMGeneratorTest.cpp
+    codegen/ExecutionTest.cpp
 )
 
 target_link_libraries(sp_tests

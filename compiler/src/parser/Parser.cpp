@@ -222,6 +222,9 @@ ast::ExprPtr Parser::parsePrefix() {
     if (match(lexer::TokenType::KeywordSuper)) {
         return std::make_unique<ast::IdentifierExpr>("super", previous().location);
     }
+    if (match(lexer::TokenType::KeywordAssert)) {
+        return std::make_unique<ast::IdentifierExpr>("assert", previous().location);
+    }
     if (match(lexer::TokenType::Identifier)) {
         return std::make_unique<ast::IdentifierExpr>(previous().lexeme, previous().location);
     }

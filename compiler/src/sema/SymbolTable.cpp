@@ -196,6 +196,14 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     );
     define(fnAssert);
 
+    // assert(bool, string) -> void
+    auto fnAssertMsg = std::make_shared<FunctionSymbol>(
+        "assert",
+        typeCtx.getFunctionType({typeCtx.getBool(), typeCtx.getString()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnAssertMsg);
+
     // panic(string) -> void
     auto fnPanic = std::make_shared<FunctionSymbol>(
         "panic",
