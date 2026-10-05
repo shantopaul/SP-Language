@@ -6,6 +6,10 @@
 #include <unordered_map>
 #include <optional>
 
+namespace sp::ast {
+class ClassDecl;
+}
+
 namespace sp::sema {
 
 enum class TypeKind {
@@ -214,12 +218,21 @@ public:
     [[nodiscard]] const std::unordered_map<std::string, MemberField>& getFields() const noexcept { return m_fields; }
     [[nodiscard]] const std::vector<MemberMethod>& getMethods() const noexcept { return m_methods; }
 
+    void setTypeParams(std::vector<std::string> params) { m_typeParams = std::move(params); }
+    [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
+
+    void setASTDecl(const ast::ClassDecl* decl) noexcept { m_astDecl = decl; }
+    [[nodiscard]] const ast::ClassDecl* getASTDecl() const noexcept { return m_astDecl; }
+
     [[nodiscard]] bool equals(const Type& other) const override;
     [[nodiscard]] bool isSubtypeOf(const Type& target) const override;
     [[nodiscard]] bool isAssignableTo(const Type& target) const override;
 
 private:
     std::string m_name;
+    std::vector<std::string> m_typeParams;
+    const ast::ClassDecl* m_astDecl{nullptr};
     std::shared_ptr<ClassType> m_superClass{nullptr};
     std::vector<std::shared_ptr<InterfaceType>> m_interfaces;
     std::unordered_map<std::string, MemberField> m_fields;
@@ -363,6 +376,11 @@ public:
 
     void registerUserType(const std::string& name, TypePtr type);
     [[nodiscard]] TypePtr findUserType(const std::string& name) const;
+
+    // Generic specialization
+    std::shared_ptr<ClassType> specializeClassType(const std::shared_ptr<ClassType>& baseCls, const std::vector<std::string>& typeArgs);
+    static std::vector<std::string> splitTypeArgs(const std::string& inner);
+    static std::string substituteType(const std::string& typeStr, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs);
 
     // Type string resolution (e.g. "int", "string?", "int[]", "Person")
     TypePtr resolveType(const std::string& typeStr);

@@ -242,3 +242,58 @@ TEST(TypeCheckerTest, InterfaceImplementationCompleteness) {
     EXPECT_TRUE(diag.hasErrors());
     EXPECT_GE(diag.errorCount(), 1);
 }
+
+TEST(TypeCheckerTest, GenericClassInstantiationAndFieldMethodChecking) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        class Box<T> {
+            T value;
+
+            Box(T val) {
+                this.value = val;
+            }
+
+            fn get() -> T {
+                return this.value;
+            }
+
+            fn set(T newVal) {
+                this.value = newVal;
+            }
+        }
+
+        fn main() {
+            Box<int> intBox = new Box<int>(42);
+            int v = intBox.get();
+            intBox.set(100);
+
+            Box<string> strBox = new Box<string>("SP");
+            string s = strBox.get();
+        }
+    )";
+    EXPECT_TRUE(analyzeSource(source, diag));
+    EXPECT_FALSE(diag.hasErrors());
+}
+
+TEST(TypeCheckerTest, GenericFunctionsAndCollectionIndexingChecking) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        fn max<T>(T a, T b) -> T {
+            return a;
+        }
+
+        fn main() {
+            int m = max<int>(10, 20);
+
+            int[] arr = [10, 20, 30];
+            int first = arr[0];
+            int len = arr.length;
+
+            Map<string, int> ages = new Map<string, int>();
+            int? age = ages["Shanto"];
+            int sz = ages.size();
+        }
+    )";
+    EXPECT_TRUE(analyzeSource(source, diag));
+    EXPECT_FALSE(diag.hasErrors());
+}

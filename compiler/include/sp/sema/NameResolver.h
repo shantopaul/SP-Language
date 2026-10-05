@@ -40,6 +40,7 @@ private:
     SymbolTable& m_symbolTable;
     diagnostics::DiagnosticEngine& m_diagnostics;
     std::unordered_set<std::string> m_importedModules;
+    std::vector<std::string> m_activeTypeParams;
 };
 
 } // namespace sp::sema

@@ -257,6 +257,7 @@ public:
 
     [[nodiscard]] const std::string& getTypeName() const noexcept { return m_typeName; }
     [[nodiscard]] const std::vector<std::string>& getTypeArgs() const noexcept { return m_typeArgs; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeArgs.empty(); }
     [[nodiscard]] const std::vector<ExprPtr>& getArgs() const noexcept { return m_args; }
 
     void accept(ASTVisitor& visitor) const override;
