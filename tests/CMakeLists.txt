@@ -37,6 +37,7 @@ add_executable(sp_tests
     sema/GoldenSemanticTest.cpp
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
+    codegen/LLVMGeneratorTest.cpp
 )
 
 target_link_libraries(sp_tests

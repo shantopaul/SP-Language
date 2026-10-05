@@ -58,14 +58,14 @@ TEST(IRValueTest, ConstantsAndParameters) {
 TEST(IRInstructionTest, MemoryArithmeticAndBranchInstructions) {
     auto i32 = IRType::getInt32();
     auto allocaInst = std::make_shared<AllocaInst>(i32, "%x");
-    EXPECT_EQ(allocaInst->format(), "%x = alloca ptr");
+    EXPECT_EQ(allocaInst->format(), "%x = alloca i32");
 
     auto c10 = std::make_shared<ConstantInt>(i32, 10);
     auto storeInst = std::make_shared<StoreInst>(c10, allocaInst);
-    EXPECT_EQ(storeInst->format(), "store i32 10, %x");
+    EXPECT_EQ(storeInst->format(), "store i32 10, ptr %x");
 
     auto loadInst = std::make_shared<LoadInst>(i32, allocaInst, "%val");
-    EXPECT_EQ(loadInst->format(), "%val = load i32, %x");
+    EXPECT_EQ(loadInst->format(), "%val = load i32, ptr %x");
 
     auto addInst = std::make_shared<BinaryInst>(IROpcode::Add, loadInst, c10, "%sum");
     EXPECT_EQ(addInst->format(), "%sum = add i32 %val, 10");

@@ -16,6 +16,7 @@ add_library(sp_compiler
     src/ir/IR.cpp
     src/ir/IRPrinter.cpp
     src/ir/IRBuilder.cpp
+    src/codegen/LLVMGenerator.cpp
 )
 
 target_include_directories(sp_compiler
@@ -25,6 +26,7 @@ target_include_directories(sp_compiler
 )
 
 target_compile_features(sp_compiler PUBLIC cxx_std_20)
+target_compile_definitions(sp_compiler PUBLIC SP_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 
 if(LLVM_FOUND)
     llvm_map_components_to_libnames(llvm_libs core support native codegen)

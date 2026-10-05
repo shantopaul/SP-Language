@@ -139,15 +139,17 @@ std::string IRInstruction::format() const {
     }
 
     switch (m_opcode) {
-        case IROpcode::Alloca:
-            ss << "alloca " << (getType()->isPointer() ? "ptr" : getType()->toString());
+        case IROpcode::Alloca: {
+            const auto* ai = dynamic_cast<const AllocaInst*>(this);
+            ss << "alloca " << (ai && ai->getAllocatedType() ? ai->getAllocatedType()->toString() : "i32");
             break;
+        }
         case IROpcode::Load:
-            ss << "load " << getType()->toString() << ", " << getOperand(0)->toString();
+            ss << "load " << getType()->toString() << ", ptr " << getOperand(0)->toString();
             break;
         case IROpcode::Store:
             ss << "store " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString()
-               << ", " << getOperand(1)->toString();
+               << ", ptr " << getOperand(1)->toString();
             break;
         case IROpcode::Add:
             ss << "add " << getType()->toString() << " " << getOperand(0)->toString() << ", " << getOperand(1)->toString();

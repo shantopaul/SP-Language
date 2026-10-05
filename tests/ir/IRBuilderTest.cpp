@@ -63,7 +63,7 @@ TEST(IRBuilderTest, ArithmeticAndVariables) {
     std::string irStr = printer.print(*module);
 
     EXPECT_NE(irStr.find("define i32 @main() {"), std::string::npos);
-    EXPECT_NE(irStr.find("alloca ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("alloca i32"), std::string::npos);
     EXPECT_NE(irStr.find("mul i32"), std::string::npos);
     EXPECT_NE(irStr.find("add i32"), std::string::npos);
     EXPECT_NE(irStr.find("ret i32"), std::string::npos);
