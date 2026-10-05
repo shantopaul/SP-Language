@@ -361,6 +361,16 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_panic", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "msg", 0)},
                    true);
+
+    // ptr sp_rt_alloc(i64)
+    createFunction("sp_rt_alloc", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "size", 0)},
+                   true);
+
+    // void sp_rt_free(ptr)
+    createFunction("sp_rt_free", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
 }
 
 } // namespace sp::ir

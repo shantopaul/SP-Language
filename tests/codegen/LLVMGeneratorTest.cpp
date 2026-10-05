@@ -4,6 +4,7 @@
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
+#include "sp/runtime/Runtime.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -161,4 +162,14 @@ TEST(LLVMGeneratorTest, EndToEndNativeFibonacciCalculation) {
 
     std::error_code ec;
     fs::remove(exePath, ec);
+}
+
+TEST(LLVMGeneratorTest, RuntimeMemoryAllocationAndFree) {
+    void* ptr = sp_rt_alloc(64);
+    ASSERT_NE(ptr, nullptr);
+    auto* bytes = static_cast<unsigned char*>(ptr);
+    for (size_t i = 0; i < 64; ++i) {
+        EXPECT_EQ(bytes[i], 0);
+    }
+    sp_rt_free(ptr);
 }
