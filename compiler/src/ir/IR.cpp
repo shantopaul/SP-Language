@@ -305,6 +305,12 @@ std::string IRInstruction::format() const {
         case IROpcode::BitCast:
             ss << "bitcast " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
             break;
+        case IROpcode::PtrToInt:
+            ss << "ptrtoint " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
+            break;
+        case IROpcode::IntToPtr:
+            ss << "inttoptr " << getOperand(0)->getType()->toString() << " " << getOperand(0)->toString() << " to " << getType()->toString();
+            break;
         case IROpcode::GetElementPtr: {
             const auto* gep = dynamic_cast<const GetElementPtrInst*>(this);
             if (gep) {
@@ -414,6 +420,133 @@ void IRModule::initRuntimeDeclarations() {
     // void sp_rt_free(ptr)
     createFunction("sp_rt_free", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
+
+    // Native Array primitives
+    // ptr sp_rt_array_alloc(i64, i64)
+    createFunction("sp_rt_array_alloc", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "length", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "elem_size", 1)},
+                   true);
+
+    // i64 sp_rt_array_length(ptr)
+    createFunction("sp_rt_array_length", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0)},
+                   true);
+
+    // ptr sp_rt_array_data(ptr)
+    createFunction("sp_rt_array_data", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0)},
+                   true);
+
+    // ptr sp_rt_array_get_ptr(ptr, i64, i64)
+    createFunction("sp_rt_array_get_ptr", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "elem_size", 2)},
+                   true);
+
+    // i64 sp_rt_array_get_i64(ptr, i64)
+    createFunction("sp_rt_array_get_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
+    // void sp_rt_array_set_i64(ptr, i64, i64)
+    createFunction("sp_rt_array_set_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 2)},
+                   true);
+
+    // double sp_rt_array_get_f64(ptr, i64)
+    createFunction("sp_rt_array_get_f64", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
+    // void sp_rt_array_set_f64(ptr, i64, double)
+    createFunction("sp_rt_array_set_f64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "val", 2)},
+                   true);
+
+    // Native List<T> primitives
+    // ptr sp_rt_list_alloc(i64, i64)
+    createFunction("sp_rt_list_alloc", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "elem_size", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "init_cap", 1)},
+                   true);
+
+    // i64 sp_rt_list_size(ptr)
+    createFunction("sp_rt_list_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)},
+                   true);
+
+    // void sp_rt_list_push_i64(ptr, i64)
+    createFunction("sp_rt_list_push_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)},
+                   true);
+
+    // i64 sp_rt_list_get_i64(ptr, i64)
+    createFunction("sp_rt_list_get_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
+    // void sp_rt_list_set_i64(ptr, i64, i64)
+    createFunction("sp_rt_list_set_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 2)},
+                   true);
+
+    // i64 sp_rt_list_pop_i64(ptr)
+    createFunction("sp_rt_list_pop_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)},
+                   true);
+
+    // Native Map<K, V> primitives
+    // ptr sp_rt_map_alloc()
+    createFunction("sp_rt_map_alloc", IRType::getPointer(), {}, true);
+
+    // i64 sp_rt_map_size(ptr)
+    createFunction("sp_rt_map_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)},
+                   true);
+
+    // void sp_rt_map_set_str(ptr, ptr, i64)
+    createFunction("sp_rt_map_set_str", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "key", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 2)},
+                   true);
+
+    // i64 sp_rt_map_get_str(ptr, ptr)
+    createFunction("sp_rt_map_get_str", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "key", 1)},
+                   true);
+
+    // i1 sp_rt_map_contains_str(ptr, ptr)
+    createFunction("sp_rt_map_contains_str", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "key", 1)},
+                   true);
+
+    // void sp_rt_map_set_i64(ptr, i64, i64)
+    createFunction("sp_rt_map_set_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 2)},
+                   true);
+
+    // i64 sp_rt_map_get_i64(ptr, i64)
+    createFunction("sp_rt_map_get_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)},
                    true);
 }
 

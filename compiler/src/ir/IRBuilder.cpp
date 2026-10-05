@@ -110,6 +110,18 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
         return cast;
     }
 
+    if (srcType->isPointer() && targetType->isInteger()) {
+        auto cast = std::make_shared<CastInst>(IROpcode::PtrToInt, val, targetType, tempName);
+        if (m_currentBlock) m_currentBlock->addInstruction(cast);
+        return cast;
+    }
+
+    if (srcType->isInteger() && targetType->isPointer()) {
+        auto cast = std::make_shared<CastInst>(IROpcode::IntToPtr, val, targetType, tempName);
+        if (m_currentBlock) m_currentBlock->addInstruction(cast);
+        return cast;
+    }
+
     return val;
 }
 
@@ -822,6 +834,65 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
 }
 
 void IRBuilder::visit(const ast::AssignExpr& node) {
+    if (const auto* idx = dynamic_cast<const ast::IndexExpr*>(&node.getTarget())) {
+        idx->getObject().accept(*this);
+        IRValuePtr objVal = m_lastExprValue;
+
+        idx->getIndex().accept(*this);
+        IRValuePtr idxVal = m_lastExprValue;
+
+        node.getValue().accept(*this);
+        IRValuePtr rhsVal = m_lastExprValue;
+
+        if (!objVal || !idxVal || !rhsVal) {
+            return;
+        }
+
+        auto semaObjType = m_sema.getNodeType(&idx->getObject());
+        if (semaObjType && semaObjType->isMap()) {
+            if (idxVal->getType()->isPointer()) {
+                rhsVal = emitCastIfNeeded(rhsVal, IRType::getInt64());
+                auto setCall = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_map_set_str",
+                    std::vector<IRValuePtr>{objVal, idxVal, rhsVal}
+                );
+                m_currentBlock->addInstruction(setCall);
+            } else {
+                idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+                rhsVal = emitCastIfNeeded(rhsVal, IRType::getInt64());
+                auto setCall = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_map_set_i64",
+                    std::vector<IRValuePtr>{objVal, idxVal, rhsVal}
+                );
+                m_currentBlock->addInstruction(setCall);
+            }
+        } else {
+            idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+            if (rhsVal->getType()->isFloatingPoint()) {
+                rhsVal = emitCastIfNeeded(rhsVal, IRType::getDouble());
+                auto setCall = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_array_set_f64",
+                    std::vector<IRValuePtr>{objVal, idxVal, rhsVal}
+                );
+                m_currentBlock->addInstruction(setCall);
+            } else {
+                rhsVal = emitCastIfNeeded(rhsVal, IRType::getInt64());
+                auto setCall = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_array_set_i64",
+                    std::vector<IRValuePtr>{objVal, idxVal, rhsVal}
+                );
+                m_currentBlock->addInstruction(setCall);
+            }
+        }
+
+        m_lastExprValue = rhsVal;
+        return;
+    }
+
     IRValuePtr targetPtr = nullptr;
     IRTypePtr valType = nullptr;
 
@@ -1121,6 +1192,156 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             m_lastExprValue = nullptr;
             m_lastExprType = IRType::getVoid();
             return;
+        }
+
+        auto semaObjType = m_sema.getNodeType(&mem->getObject());
+        if (semaObjType && (semaObjType->isArray() || semaObjType->isMap() ||
+                            (semaObjType->isClass() && (semaObjType->toString().rfind("List", 0) == 0 || semaObjType->toString().rfind("Map", 0) == 0)))) {
+            if (methodName == "length" || methodName == "size") {
+                std::string fnName = semaObjType->isArray() ? "sp_rt_array_length"
+                                     : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_size"
+                                     : "sp_rt_list_size";
+                std::string lenReg = m_currentFunction->nextTempName("len");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    fnName,
+                    std::vector<IRValuePtr>{objVal},
+                    lenReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            } else if (methodName == "push" || methodName == "add") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getVoid(),
+                        "sp_rt_list_push_i64",
+                        std::vector<IRValuePtr>{objVal, elemVal}
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            } else if (methodName == "pop") {
+                std::string popReg = m_currentFunction->nextTempName("pop_val");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_list_pop_i64",
+                    std::vector<IRValuePtr>{objVal},
+                    popReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            } else if (methodName == "get") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto idxVal = m_lastExprValue;
+                    if (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) {
+                        std::string getReg = m_currentFunction->nextTempName("map_get");
+                        if (idxVal->getType()->isPointer()) {
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getInt64(),
+                                "sp_rt_map_get_str",
+                                std::vector<IRValuePtr>{objVal, idxVal},
+                                getReg
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                            m_lastExprValue = callInst;
+                            m_lastExprType = IRType::getInt64();
+                        } else {
+                            idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getInt64(),
+                                "sp_rt_map_get_i64",
+                                std::vector<IRValuePtr>{objVal, idxVal},
+                                getReg
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                            m_lastExprValue = callInst;
+                            m_lastExprType = IRType::getInt64();
+                        }
+                        return;
+                    } else {
+                        idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+                        std::string getReg = m_currentFunction->nextTempName("list_get");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt64(),
+                            semaObjType->isArray() ? "sp_rt_array_get_i64" : "sp_rt_list_get_i64",
+                            std::vector<IRValuePtr>{objVal, idxVal},
+                            getReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getInt64();
+                        return;
+                    }
+                }
+            } else if (methodName == "set") {
+                if (node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto idxVal = m_lastExprValue;
+                    node.getArgs()[1]->accept(*this);
+                    auto valVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    if (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) {
+                        if (idxVal->getType()->isPointer()) {
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getVoid(),
+                                "sp_rt_map_set_str",
+                                std::vector<IRValuePtr>{objVal, idxVal, valVal}
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        } else {
+                            idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+                            auto callInst = std::make_shared<CallInst>(
+                                IRType::getVoid(),
+                                "sp_rt_map_set_i64",
+                                std::vector<IRValuePtr>{objVal, idxVal, valVal}
+                            );
+                            m_currentBlock->addInstruction(callInst);
+                        }
+                    } else {
+                        idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getVoid(),
+                            semaObjType->isArray() ? "sp_rt_array_set_i64" : "sp_rt_list_set_i64",
+                            std::vector<IRValuePtr>{objVal, idxVal, valVal}
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            } else if (methodName == "isEmpty") {
+                std::string fnName = semaObjType->isArray() ? "sp_rt_array_length"
+                                     : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_size"
+                                     : "sp_rt_list_size";
+                std::string lenReg = m_currentFunction->nextTempName("len");
+                auto lenCall = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    fnName,
+                    std::vector<IRValuePtr>{objVal},
+                    lenReg
+                );
+                m_currentBlock->addInstruction(lenCall);
+                std::string cmpReg = m_currentFunction->nextTempName("is_empty");
+                auto cmpInst = std::make_shared<CompareInst>(
+                    IROpcode::ICmpEq,
+                    lenCall,
+                    std::make_shared<ConstantInt>(IRType::getInt64(), 0),
+                    cmpReg
+                );
+                m_currentBlock->addInstruction(cmpInst);
+                m_lastExprValue = cmpInst;
+                m_lastExprType = IRType::getInt1();
+                return;
+            }
         }
 
         std::string className;
@@ -1567,7 +1788,30 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
         return;
     }
 
-    // 2. Class/Struct member field access
+    // 2. Built-in collection property access (.length / .size)
+    if (semaType && (semaType->isArray() || semaType->isString() || semaType->isMap() ||
+                    (semaType->isClass() && (semaType->toString().rfind("List", 0) == 0 || semaType->toString().rfind("Map", 0) == 0)))) {
+        if (node.getMember() == "length" || node.getMember() == "size") {
+            node.getObject().accept(*this);
+            auto objVal = m_lastExprValue;
+            std::string fnName = (semaType->isArray() || semaType->isString()) ? "sp_rt_array_length"
+                                 : (semaType->isMap() || semaType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_size"
+                                 : "sp_rt_list_size";
+            std::string lenReg = m_currentFunction->nextTempName("len");
+            auto callInst = std::make_shared<CallInst>(
+                IRType::getInt64(),
+                fnName,
+                std::vector<IRValuePtr>{objVal},
+                lenReg
+            );
+            m_currentBlock->addInstruction(callInst);
+            m_lastExprValue = callInst;
+            m_lastExprType = IRType::getInt64();
+            return;
+        }
+    }
+
+    // 3. Class/Struct member field access
     IRTypePtr fieldType = nullptr;
     auto fieldPtr = emitMemberPointer(node, fieldType);
     if (fieldPtr && fieldType) {
@@ -1584,8 +1828,122 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
         m_lastExprType = nullptr;
     }
 }
-void IRBuilder::visit(const ast::IndexExpr& node) { (void)node; }
-void IRBuilder::visit(const ast::ArrayExpr& node) { (void)node; }
+
+void IRBuilder::visit(const ast::IndexExpr& node) {
+    node.getObject().accept(*this);
+    IRValuePtr objVal = m_lastExprValue;
+
+    node.getIndex().accept(*this);
+    IRValuePtr idxVal = m_lastExprValue;
+
+    if (!objVal || !idxVal) {
+        m_lastExprValue = nullptr;
+        m_lastExprType = nullptr;
+        return;
+    }
+
+    auto semaObjType = m_sema.getNodeType(&node.getObject());
+    auto semaResultType = m_sema.getNodeType(&node);
+    IRTypePtr targetIRType = mapType(semaResultType.get());
+
+    if (semaObjType && semaObjType->isMap()) {
+        if (idxVal->getType()->isPointer()) {
+            std::string getReg = m_currentFunction->nextTempName("map_val");
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getInt64(),
+                "sp_rt_map_get_str",
+                std::vector<IRValuePtr>{objVal, idxVal},
+                getReg
+            );
+            m_currentBlock->addInstruction(getCall);
+            m_lastExprValue = emitCastIfNeeded(getCall, targetIRType);
+            m_lastExprType = targetIRType;
+        } else {
+            idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+            std::string getReg = m_currentFunction->nextTempName("map_val");
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getInt64(),
+                "sp_rt_map_get_i64",
+                std::vector<IRValuePtr>{objVal, idxVal},
+                getReg
+            );
+            m_currentBlock->addInstruction(getCall);
+            m_lastExprValue = emitCastIfNeeded(getCall, targetIRType);
+            m_lastExprType = targetIRType;
+        }
+        return;
+    }
+
+    idxVal = emitCastIfNeeded(idxVal, IRType::getInt64());
+
+    if (targetIRType && targetIRType->isFloatingPoint()) {
+        std::string getReg = m_currentFunction->nextTempName("arr_elem");
+        auto getCall = std::make_shared<CallInst>(
+            IRType::getDouble(),
+            "sp_rt_array_get_f64",
+            std::vector<IRValuePtr>{objVal, idxVal},
+            getReg
+        );
+        m_currentBlock->addInstruction(getCall);
+        m_lastExprValue = emitCastIfNeeded(getCall, targetIRType);
+        m_lastExprType = targetIRType;
+    } else {
+        std::string getReg = m_currentFunction->nextTempName("arr_elem");
+        auto getCall = std::make_shared<CallInst>(
+            IRType::getInt64(),
+            "sp_rt_array_get_i64",
+            std::vector<IRValuePtr>{objVal, idxVal},
+            getReg
+        );
+        m_currentBlock->addInstruction(getCall);
+        m_lastExprValue = emitCastIfNeeded(getCall, targetIRType);
+        m_lastExprType = targetIRType;
+    }
+}
+
+void IRBuilder::visit(const ast::ArrayExpr& node) {
+    size_t count = node.getElements().size();
+    auto countVal = std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(count));
+    auto elemSizeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 8);
+
+    std::string arrReg = m_currentFunction->nextTempName("arr");
+    auto allocCall = std::make_shared<CallInst>(
+        IRType::getPointer(),
+        "sp_rt_array_alloc",
+        std::vector<IRValuePtr>{countVal, elemSizeVal},
+        arrReg
+    );
+    m_currentBlock->addInstruction(allocCall);
+
+    for (size_t i = 0; i < count; ++i) {
+        node.getElements()[i]->accept(*this);
+        IRValuePtr elemVal = m_lastExprValue;
+        auto idxVal = std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(i));
+
+        if (m_lastExprType && m_lastExprType->isFloatingPoint()) {
+            if (m_lastExprType->isFloat()) {
+                elemVal = emitCastIfNeeded(elemVal, IRType::getDouble());
+            }
+            auto setCall = std::make_shared<CallInst>(
+                IRType::getVoid(),
+                "sp_rt_array_set_f64",
+                std::vector<IRValuePtr>{allocCall, idxVal, elemVal}
+            );
+            m_currentBlock->addInstruction(setCall);
+        } else {
+            elemVal = emitCastIfNeeded(elemVal, IRType::getInt64());
+            auto setCall = std::make_shared<CallInst>(
+                IRType::getVoid(),
+                "sp_rt_array_set_i64",
+                std::vector<IRValuePtr>{allocCall, idxVal, elemVal}
+            );
+            m_currentBlock->addInstruction(setCall);
+        }
+    }
+
+    m_lastExprValue = allocCall;
+    m_lastExprType = IRType::getPointer();
+}
 void IRBuilder::visit(const ast::MapExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::LambdaExpr& node) { (void)node; }
 void IRBuilder::visit(const ast::NewExpr& node) {

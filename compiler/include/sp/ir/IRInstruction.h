@@ -72,6 +72,8 @@ enum class IROpcode {
     FPTrunc,
     FPExt,
     BitCast,
+    PtrToInt,
+    IntToPtr,
 
     // Control Flow / Terminators
     Br,

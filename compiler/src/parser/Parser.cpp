@@ -884,7 +884,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                         (checkNext(lexer::TokenType::Identifier) ||
                          checkNext(lexer::TokenType::Less) ||
                          checkNext(lexer::TokenType::Question) ||
-                         checkNext(lexer::TokenType::OpenBracket)));
+                         (checkNext(lexer::TokenType::OpenBracket) && m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].type == lexer::TokenType::CloseBracket)));
     if (couldBeDecl) {
         size_t saved = m_current;
         std::string type = parseType();
@@ -1177,8 +1177,9 @@ std::string Parser::parseType() {
     }
 
     // Array type: int[]
-    while (match(lexer::TokenType::OpenBracket)) {
-        consume(lexer::TokenType::CloseBracket, "Expected ']' for array type");
+    while (check(lexer::TokenType::OpenBracket) && checkNext(lexer::TokenType::CloseBracket)) {
+        advance();
+        advance();
         type += "[]";
     }
 
@@ -1208,7 +1209,7 @@ std::vector<ast::Parameter> Parser::parseParameters() {
                                    (check(lexer::TokenType::Identifier) &&
                                     (checkNext(lexer::TokenType::Identifier) ||
                                      checkNext(lexer::TokenType::Question) ||
-                                     checkNext(lexer::TokenType::OpenBracket) ||
+                                     (checkNext(lexer::TokenType::OpenBracket) && m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].type == lexer::TokenType::CloseBracket) ||
                                      checkNext(lexer::TokenType::Less)));
                 if (couldBeType) {
                     type = parseType();

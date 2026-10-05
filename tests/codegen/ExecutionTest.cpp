@@ -318,5 +318,24 @@ TEST(ExecutionTest, EnumConstantsAndBranchExecution) {
     EXPECT_NE(output.find("Resource Not Found: 404"), std::string::npos);
 }
 
+TEST(ExecutionTest, NativeArrayAllocationIndexingAndLengthExecution) {
+    const std::string source = R"(
+        fn main() {
+            var nums = [10, 20, 30];
+            println(nums.length);
+            println(nums[0]);
+            println(nums[1]);
+            nums[1] = 99;
+            println(nums[1]);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_array");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("10"), std::string::npos);
+    EXPECT_NE(output.find("99"), std::string::npos);
+}
+
+
 
 
