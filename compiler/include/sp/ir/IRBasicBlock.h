@@ -24,7 +24,11 @@ public:
     void addInstruction(IRInstructionPtr inst) {
         if (inst) {
             inst->setParent(this);
-            m_instructions.push_back(std::move(inst));
+            if (hasTerminator()) {
+                m_instructions.insert(m_instructions.end() - 1, std::move(inst));
+            } else {
+                m_instructions.push_back(std::move(inst));
+            }
         }
     }
 

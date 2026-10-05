@@ -55,9 +55,11 @@ public:
     // Helper to map type names to IR types
     ir::IRTypePtr mapType(const std::string& typeName) const;
     [[nodiscard]] const sema::SemanticAnalyzer& getSema() const noexcept { return m_sema; }
+    static std::string mangleGenericName(const std::string& name);
 
 private:
     void buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModule& irModule);
+    void buildSpecializedClassLayout(const std::shared_ptr<sema::ClassType>& clsType, ir::IRModule& irModule);
     void buildStructLayout(const ast::StructDecl& structDecl, ir::IRModule& irModule);
 
     const sema::SemanticAnalyzer& m_sema;

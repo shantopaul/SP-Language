@@ -6,6 +6,10 @@
 #include <memory>
 #include <vector>
 
+namespace sp::ast {
+class FunctionDecl;
+}
+
 namespace sp::sema {
 
 enum class SymbolKind {
@@ -113,6 +117,13 @@ public:
     [[nodiscard]] bool isAbstract() const noexcept { return m_isAbstract; }
     [[nodiscard]] bool isOverride() const noexcept { return m_isOverride; }
 
+    void setTypeParams(std::vector<std::string> params) { m_typeParams = std::move(params); }
+    [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
+
+    void setASTDecl(const ast::FunctionDecl* decl) noexcept { m_astDecl = decl; }
+    [[nodiscard]] const ast::FunctionDecl* getASTDecl() const noexcept { return m_astDecl; }
+
     void addOverload(std::shared_ptr<FunctionSymbol> overload) {
         m_overloads.push_back(std::move(overload));
     }
@@ -120,6 +131,8 @@ public:
 
 private:
     std::shared_ptr<FunctionType> m_fnType;
+    std::vector<std::string> m_typeParams;
+    const ast::FunctionDecl* m_astDecl{nullptr};
     bool m_isMethod{false};
     bool m_isAbstract{false};
     bool m_isOverride{false};

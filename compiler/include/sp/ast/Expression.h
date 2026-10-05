@@ -98,11 +98,17 @@ private:
 
 class CallExpr : public ExpressionNode {
 public:
-    CallExpr(ExprPtr callee, std::vector<ExprPtr> args, diagnostics::SourceLocation loc)
+    CallExpr(ExprPtr callee, std::vector<std::string> typeArgs, std::vector<ExprPtr> args, diagnostics::SourceLocation loc)
         : ExpressionNode(ASTNodeKind::CallExpr, std::move(loc)),
-          m_callee(std::move(callee)), m_args(std::move(args)) {}
+          m_callee(std::move(callee)), m_typeArgs(std::move(typeArgs)), m_args(std::move(args)) {}
+
+    CallExpr(ExprPtr callee, std::vector<ExprPtr> args, diagnostics::SourceLocation loc)
+        : CallExpr(std::move(callee), {}, std::move(args), std::move(loc)) {}
 
     [[nodiscard]] const ExpressionNode& getCallee() const noexcept { return *m_callee; }
+    [[nodiscard]] const std::vector<std::string>& getTypeArgs() const noexcept { return m_typeArgs; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeArgs.empty(); }
+    void setTypeArgs(std::vector<std::string> typeArgs) { m_typeArgs = std::move(typeArgs); }
     [[nodiscard]] const std::vector<ExprPtr>& getArgs() const noexcept { return m_args; }
 
     [[nodiscard]] ExprPtr& getCalleePtr() noexcept { return m_callee; }
@@ -112,6 +118,7 @@ public:
 
 private:
     ExprPtr m_callee;
+    std::vector<std::string> m_typeArgs;
     std::vector<ExprPtr> m_args;
 };
 
@@ -251,6 +258,7 @@ public:
 
     [[nodiscard]] const std::string& getTypeName() const noexcept { return m_typeName; }
     [[nodiscard]] const std::vector<std::string>& getTypeArgs() const noexcept { return m_typeArgs; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeArgs.empty(); }
     [[nodiscard]] const std::vector<ExprPtr>& getArgs() const noexcept { return m_args; }
 
     void accept(ASTVisitor& visitor) const override;

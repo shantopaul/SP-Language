@@ -41,6 +41,7 @@ add_executable(sp_tests
     codegen/ExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
+    runtime/RuntimeTest.cpp
 )
 
 target_link_libraries(sp_tests

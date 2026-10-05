@@ -321,7 +321,21 @@ void TypeChecker::visit(const ast::CallExpr& node) {
         if (!candidates.empty()) {
             auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), fnName);
             if (resolved) {
-                m_currentExprType = resolved->getFunctionType()->getReturnType();
+                if (resolved->isGeneric() && resolved->getASTDecl()) {
+                    const auto* astDecl = resolved->getASTDecl();
+                    std::vector<std::string> typeArgs = node.getTypeArgs();
+                    if (typeArgs.empty() && !argTypes.empty()) {
+                        for (const auto& argT : argTypes) {
+                            typeArgs.push_back(argT->toString());
+                        }
+                    }
+                    const_cast<ast::CallExpr&>(node).setTypeArgs(typeArgs);
+                    std::string specRetStr = TypeContext::substituteType(astDecl->getReturnType(), astDecl->getTypeParams(), typeArgs);
+                    auto retT = m_typeCtx.resolveType(specRetStr);
+                    m_currentExprType = retT ? retT : resolved->getFunctionType()->getReturnType();
+                } else {
+                    m_currentExprType = resolved->getFunctionType()->getReturnType();
+                }
             } else {
                 m_currentExprType = m_typeCtx.getError();
             }
@@ -435,9 +449,96 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
+        if (objType->isArray()) {
+            if (methodName == "length" || methodName == "size") {
+                m_currentExprType = m_typeCtx.getInt();
+                return;
+            }
+            if (methodName == "isEmpty") {
+                m_currentExprType = m_typeCtx.getBool();
+                return;
+            }
+            const auto& arr = static_cast<const ArrayType&>(*objType);
+            if (methodName == "push" || methodName == "add") {
+                m_currentExprType = m_typeCtx.getVoid();
+                return;
+            }
+            if (methodName == "pop" || methodName == "removeLast") {
+                m_currentExprType = arr.getElementType();
+                return;
+            }
+            if (methodName == "contains") {
+                m_currentExprType = m_typeCtx.getBool();
+                return;
+            }
+            if (methodName == "get") {
+                m_currentExprType = arr.getElementType();
+                return;
+            }
+            if (methodName == "set") {
+                m_currentExprType = m_typeCtx.getVoid();
+                return;
+            }
+            if (methodName == "map" || methodName == "filter") {
+                m_currentExprType = objType;
+                return;
+            }
+            if (methodName == "reduce") {
+                m_currentExprType = arr.getElementType();
+                return;
+            }
+        }
+
+        if (objType->isMap()) {
+            const auto& mapType = static_cast<const MapType&>(*objType);
+            if (methodName == "size") {
+                m_currentExprType = m_typeCtx.getInt();
+                return;
+            }
+            if (methodName == "isEmpty") {
+                m_currentExprType = m_typeCtx.getBool();
+                return;
+            }
+            if (methodName == "get") {
+                m_currentExprType = m_typeCtx.getNullableType(mapType.getValueType());
+                return;
+            }
+            if (methodName == "set" || methodName == "remove") {
+                m_currentExprType = m_typeCtx.getVoid();
+                return;
+            }
+            if (methodName == "contains" || methodName == "containsKey") {
+                m_currentExprType = m_typeCtx.getBool();
+                return;
+            }
+        }
+
         m_diagnostics.reportError("E1003", "Type '" + objType->toString() + "' has no method named '" + methodName + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
         return;
+    }
+
+    if (callee.getKind() == ast::ASTNodeKind::IdentifierExpr) {
+        const auto& idExpr = static_cast<const ast::IdentifierExpr&>(callee);
+        auto sym = m_symbolTable.lookup(idExpr.getName());
+        if (sym && sym->getKind() == SymbolKind::Function) {
+            auto fnSym = std::static_pointer_cast<FunctionSymbol>(sym);
+            if (fnSym->isGeneric() && fnSym->getASTDecl()) {
+                const auto* astDecl = fnSym->getASTDecl();
+                std::vector<std::string> typeArgs = node.getTypeArgs();
+                if (typeArgs.empty() && !argTypes.empty()) {
+                    for (const auto& argT : argTypes) {
+                        typeArgs.push_back(argT->toString());
+                    }
+                }
+                std::string specRetStr = TypeContext::substituteType(astDecl->getReturnType(), astDecl->getTypeParams(), typeArgs);
+                auto retT = m_typeCtx.resolveType(specRetStr);
+                if (retT) {
+                    m_currentExprType = retT;
+                    return;
+                }
+            }
+        }
     }
 
     auto calleeType = checkExpr(callee);
@@ -543,6 +644,19 @@ void TypeChecker::visit(const ast::IndexExpr& node) {
         return;
     }
 
+    if (objType->isClass() && objType->toString().rfind("List<", 0) == 0) {
+        if (!indexType->isInteger()) {
+            m_diagnostics.reportError("E1001", "List index must be an integer, got '" + indexType->toString() + "'", node.getLocation());
+        }
+        std::string s = objType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        std::string elemStr = s.substr(lt + 1, gt - lt - 1);
+        auto elemType = m_typeCtx.resolveType(elemStr);
+        m_currentExprType = elemType ? elemType : m_typeCtx.getAny();
+        return;
+    }
+
     if (objType->isMap()) {
         const auto& mapType = static_cast<const MapType&>(*objType);
         if (!indexType->isAssignableTo(*mapType.getKeyType())) {
@@ -592,15 +706,48 @@ void TypeChecker::visit(const ast::MapExpr& node) {
 }
 
 void TypeChecker::visit(const ast::LambdaExpr& node) {
+    m_symbolTable.enterScope(ScopeKind::Function);
+
     std::vector<TypePtr> paramTypes;
     for (const auto& param : node.getParams()) {
         auto pType = m_typeCtx.resolveType(param.type);
-        paramTypes.push_back(pType ? pType : m_typeCtx.getAny());
+        if (!pType) pType = m_typeCtx.getInt();
+        paramTypes.push_back(pType);
+
+        if (!param.name.empty()) {
+            auto paramSym = std::make_shared<VariableSymbol>(param.name, pType, node.getLocation(), false, true);
+            m_symbolTable.define(paramSym);
+        }
     }
 
     TypePtr returnType = m_typeCtx.resolveType(node.getReturnType());
-    if (!returnType) returnType = m_typeCtx.getVoid();
+    TypePtr prevReturnType = m_currentFunctionReturnType;
 
+    if (!returnType) {
+        if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
+            returnType = checkExpr(*exprBody);
+        } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
+            m_currentFunctionReturnType = m_typeCtx.getUnknown();
+            checkStmt(*blockBody);
+            returnType = (m_currentFunctionReturnType && !m_currentFunctionReturnType->isUnknown() && !m_currentFunctionReturnType->isAny())
+                             ? m_currentFunctionReturnType
+                             : m_typeCtx.getInt();
+        } else {
+            returnType = m_typeCtx.getInt();
+        }
+    } else {
+        m_currentFunctionReturnType = returnType;
+        if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
+            checkExpr(*exprBody);
+        } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
+            checkStmt(*blockBody);
+        }
+    }
+
+    m_currentFunctionReturnType = prevReturnType;
+    m_symbolTable.exitScope();
+
+    if (!returnType || returnType->isError()) returnType = m_typeCtx.getInt();
     m_currentExprType = m_typeCtx.getFunctionType(std::move(paramTypes), std::move(returnType));
 }
 
@@ -641,7 +788,61 @@ void TypeChecker::visit(const ast::AssignExpr& node) {
 
 void TypeChecker::visit(const ast::NewExpr& node) {
     const std::string& typeName = node.getTypeName();
-    auto userType = m_typeCtx.findUserType(typeName);
+
+    // Check built-in collections instantiation: new List<T>() or new Map<K, V>()
+    if (typeName == "Array") {
+        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        if (!elem) elem = m_typeCtx.getAny();
+        for (const auto& argPtr : node.getArgs()) {
+            checkExpr(*argPtr);
+        }
+        m_currentExprType = m_typeCtx.getArrayType(elem);
+        return;
+    }
+    if (typeName == "List") {
+        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        if (!elem) elem = m_typeCtx.getAny();
+        for (const auto& argPtr : node.getArgs()) {
+            checkExpr(*argPtr);
+        }
+        m_currentExprType = m_typeCtx.resolveType("List<" + elem->toString() + ">");
+        return;
+    }
+    if (typeName == "Map") {
+        TypePtr k = node.getTypeArgs().size() > 0 ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getString();
+        TypePtr v = node.getTypeArgs().size() > 1 ? m_typeCtx.resolveType(node.getTypeArgs()[1]) : m_typeCtx.getAny();
+        if (!k) k = m_typeCtx.getString();
+        if (!v) v = m_typeCtx.getAny();
+        for (const auto& argPtr : node.getArgs()) {
+            checkExpr(*argPtr);
+        }
+        m_currentExprType = m_typeCtx.getMapType(k, v);
+        return;
+    }
+    if (typeName == "Set") {
+        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        if (!elem) elem = m_typeCtx.getAny();
+        for (const auto& argPtr : node.getArgs()) {
+            checkExpr(*argPtr);
+        }
+        m_currentExprType = m_typeCtx.resolveType("Set<" + elem->toString() + ">");
+        return;
+    }
+
+    std::string resolvedName = typeName;
+    if (node.isGeneric()) {
+        resolvedName += "<";
+        for (size_t i = 0; i < node.getTypeArgs().size(); ++i) {
+            if (i > 0) resolvedName += ", ";
+            resolvedName += node.getTypeArgs()[i];
+        }
+        resolvedName += ">";
+    }
+
+    auto userType = m_typeCtx.resolveType(resolvedName);
+    if (!userType) {
+        userType = m_typeCtx.findUserType(typeName);
+    }
 
     if (!userType) {
         m_diagnostics.reportError("E1002", "Undefined class '" + typeName + "' in 'new' expression", node.getLocation());
@@ -804,11 +1005,24 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
     if (iterType->isArray()) {
         const auto& arr = static_cast<const ArrayType&>(*iterType);
         itemType = arr.getElementType();
+    } else if (iterType->isClass() && iterType->toString().rfind("List<", 0) == 0) {
+        std::string s = iterType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        itemType = m_typeCtx.resolveType(s.substr(lt + 1, gt - lt - 1));
+        if (!itemType) itemType = m_typeCtx.getAny();
     } else if (iterType->isMap()) {
         const auto& map = static_cast<const MapType&>(*iterType);
         itemType = map.getKeyType();
     } else {
         m_diagnostics.reportError("E1001", "For-in loop requires an iterable collection or array, got '" + iterType->toString() + "'", node.getLocation());
+    }
+
+    if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let") {
+        auto annotType = m_typeCtx.resolveType(node.getType());
+        if (annotType) {
+            itemType = annotType;
+        }
     }
 
     m_symbolTable.enterScope(ScopeKind::Block);
@@ -880,7 +1094,9 @@ void TypeChecker::visit(const ast::ReturnStmt& node) {
     }
 
     auto valType = checkExpr(*node.getValue());
-    if (!valType->isAssignableTo(*m_currentFunctionReturnType)) {
+    if (m_currentFunctionReturnType->isUnknown() || m_currentFunctionReturnType->isAny()) {
+        m_currentFunctionReturnType = valType;
+    } else if (!valType->isAssignableTo(*m_currentFunctionReturnType)) {
         m_diagnostics.reportError("E1005", "Return type mismatch: expected '" + m_currentFunctionReturnType->toString() +
                                   "', got '" + valType->toString() + "'", node.getLocation());
     }
@@ -948,7 +1164,22 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
     TypePtr returnType = m_typeCtx.getVoid();
     if (!node.getReturnType().empty()) {
         auto r = m_typeCtx.resolveType(node.getReturnType());
-        if (r) returnType = r;
+        if (r) {
+            returnType = r;
+        } else {
+            bool isTypeParam = false;
+            for (const auto& tp : node.getTypeParams()) {
+                if (tp == node.getReturnType()) { isTypeParam = true; break; }
+            }
+            if (!isTypeParam && m_currentEnclosingClass) {
+                for (const auto& tp : m_currentEnclosingClass->getTypeParams()) {
+                    if (tp == node.getReturnType()) { isTypeParam = true; break; }
+                }
+            }
+            if (isTypeParam) {
+                returnType = m_typeCtx.getAny();
+            }
+        }
     }
 
     TypePtr prevReturnType = m_currentFunctionReturnType;

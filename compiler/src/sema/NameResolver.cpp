@@ -79,6 +79,8 @@ void NameResolver::resolveClassDeclPass1(const ast::ClassDecl& decl) {
 
     auto classType = m_typeCtx.createClassType(name);
     classType->setAbstract(decl.isAbstract());
+    classType->setTypeParams(decl.getTypeParams());
+    classType->setASTDecl(&decl);
 
     auto classSym = std::make_shared<ClassSymbol>(name, classType, decl.getLocation(), decl.getVisibility());
     m_symbolTable.define(classSym);
@@ -128,6 +130,7 @@ void NameResolver::resolveEnumDeclPass1(const ast::EnumDecl& decl) {
 
 void NameResolver::resolveFunctionDeclPass1(const ast::FunctionDecl& decl) {
     const std::string& name = decl.getName();
+    m_activeTypeParams = decl.getTypeParams();
 
     std::vector<TypePtr> paramTypes;
     for (const auto& param : decl.getParams()) {
@@ -144,11 +147,15 @@ void NameResolver::resolveFunctionDeclPass1(const ast::FunctionDecl& decl) {
     auto fnType = m_typeCtx.getFunctionType(std::move(paramTypes), std::move(returnType));
     auto fnSym = std::make_shared<FunctionSymbol>(name, fnType, decl.getLocation(), decl.getVisibility(),
                                                   decl.isStatic(), false, decl.isAbstract(), decl.isOverride());
+    fnSym->setTypeParams(decl.getTypeParams());
+    fnSym->setASTDecl(&decl);
 
     if (!m_symbolTable.define(fnSym)) {
         m_diagnostics.reportError("E1004", "Duplicate declaration of function '" + name + "' with identical parameter types",
                                   decl.getLocation(), "Provide unique parameter types or rename the function");
     }
+
+    m_activeTypeParams.clear();
 }
 
 void NameResolver::pass2_resolveMembersAndInheritance(const ast::Program& program) {
@@ -199,6 +206,7 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
     auto userType = m_typeCtx.findUserType(decl.getName());
     if (!userType || !userType->isClass()) return;
     auto clsType = std::static_pointer_cast<ClassType>(userType);
+    m_activeTypeParams = decl.getTypeParams();
 
     // Resolve superclass
     if (decl.hasBaseClass()) {
@@ -312,6 +320,7 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
             clsType->addMethod(std::move(method));
         }
     }
+    m_activeTypeParams.clear();
 }
 
 void NameResolver::resolveInterfaceMembers(const ast::InterfaceDecl& decl) {
@@ -408,6 +417,15 @@ void NameResolver::resolveEnumMembers(const ast::EnumDecl& decl) {
 
 TypePtr NameResolver::resolveTypeWithDiagnostic(const std::string& typeStr, const diagnostics::SourceLocation& loc) {
     if (typeStr.empty()) return m_typeCtx.getVoid();
+
+    if (!m_activeTypeParams.empty()) {
+        for (const auto& tp : m_activeTypeParams) {
+            if (typeStr == tp) {
+                return m_typeCtx.getAny();
+            }
+        }
+    }
+
     auto type = m_typeCtx.resolveType(typeStr);
     if (!type) {
         m_diagnostics.reportError("E1002", "Undefined type '" + typeStr + "'", loc,

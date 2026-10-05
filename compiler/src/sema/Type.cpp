@@ -1,4 +1,6 @@
 #include "sp/sema/Type.h"
+#include "sp/ast/Declaration.h"
+#include "sp/ast/Statement.h"
 #include <sstream>
 #include <algorithm>
 
@@ -450,6 +452,147 @@ TypePtr TypeContext::findUserType(const std::string& name) const {
     return nullptr;
 }
 
+std::vector<std::string> TypeContext::splitTypeArgs(const std::string& inner) {
+    std::vector<std::string> args;
+    std::string current;
+    int depth = 0;
+    for (char c : inner) {
+        if (c == '<') {
+            depth++;
+            current += c;
+        } else if (c == '>') {
+            depth--;
+            current += c;
+        } else if (c == ',' && depth == 0) {
+            size_t f = current.find_first_not_of(" \t\n\r");
+            size_t l = current.find_last_not_of(" \t\n\r");
+            if (f != std::string::npos) {
+                args.push_back(current.substr(f, l - f + 1));
+            }
+            current.clear();
+        } else {
+            current += c;
+        }
+    }
+    size_t f = current.find_first_not_of(" \t\n\r");
+    size_t l = current.find_last_not_of(" \t\n\r");
+    if (f != std::string::npos) {
+        args.push_back(current.substr(f, l - f + 1));
+    }
+    return args;
+}
+
+std::string TypeContext::substituteType(const std::string& typeStr,
+                                       const std::vector<std::string>& typeParams,
+                                       const std::vector<std::string>& typeArgs) {
+    std::string result = typeStr;
+    for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); ++i) {
+        const std::string& param = typeParams[i];
+        const std::string& arg = typeArgs[i];
+
+        if (result == param) {
+            return arg;
+        }
+        if (result == param + "[]") {
+            return arg + "[]";
+        }
+        if (result == param + "?") {
+            return arg + "?";
+        }
+        size_t pos = 0;
+        while ((pos = result.find(param, pos)) != std::string::npos) {
+            bool leftOk = (pos == 0 || (!isalnum(result[pos - 1]) && result[pos - 1] != '_'));
+            bool rightOk = (pos + param.size() >= result.size() || (!isalnum(result[pos + param.size()]) && result[pos + param.size()] != '_'));
+            if (leftOk && rightOk) {
+                result.replace(pos, param.size(), arg);
+                pos += arg.size();
+            } else {
+                pos += param.size();
+            }
+        }
+    }
+    return result;
+}
+
+std::shared_ptr<ClassType> TypeContext::specializeClassType(
+    const std::shared_ptr<ClassType>& baseCls,
+    const std::vector<std::string>& typeArgs) {
+
+    std::string specName = baseCls->getName() + "<";
+    for (size_t i = 0; i < typeArgs.size(); ++i) {
+        if (i > 0) specName += ", ";
+        specName += typeArgs[i];
+    }
+    specName += ">";
+
+    auto existing = findUserType(specName);
+    if (existing && existing->isClass()) {
+        return std::static_pointer_cast<ClassType>(existing);
+    }
+
+    auto specCls = createClassType(specName);
+    specCls->setAbstract(baseCls->isAbstract());
+    specCls->setASTDecl(baseCls->getASTDecl());
+
+    const auto& typeParams = baseCls->getTypeParams();
+
+    if (baseCls->getASTDecl()) {
+        for (const auto& member : baseCls->getASTDecl()->getMembers()) {
+            if (!member) continue;
+            if (member->getKind() == ast::ASTNodeKind::VarDeclStmt) {
+                const auto& varDecl = static_cast<const ast::VarDeclStmt&>(*member);
+                std::string specFieldTypeStr = substituteType(varDecl.getType(), typeParams, typeArgs);
+                auto fType = resolveType(specFieldTypeStr);
+                if (!fType) fType = getAny();
+                specCls->addField({
+                    .name = varDecl.getName(),
+                    .type = fType,
+                    .visibility = varDecl.getVisibility().empty() ? "public" : varDecl.getVisibility(),
+                    .isStatic = varDecl.isStatic(),
+                    .isConst = varDecl.isConst()
+                });
+            } else if (member->getKind() == ast::ASTNodeKind::FunctionDecl) {
+                const auto& fnDecl = static_cast<const ast::FunctionDecl&>(*member);
+                std::vector<TypePtr> paramTypes;
+                for (const auto& param : fnDecl.getParams()) {
+                    std::string specParamTypeStr = substituteType(param.getType(), typeParams, typeArgs);
+                    auto pType = resolveType(specParamTypeStr);
+                    paramTypes.push_back(pType ? pType : getAny());
+                }
+                std::string specRetTypeStr = substituteType(fnDecl.getReturnType(), typeParams, typeArgs);
+                auto rType = resolveType(specRetTypeStr);
+                if (!rType) rType = getVoid();
+                auto fnType = getFunctionType(std::move(paramTypes), std::move(rType));
+                specCls->addMethod({
+                    .name = fnDecl.getName(),
+                    .functionType = fnType,
+                    .visibility = fnDecl.getVisibility().empty() ? "public" : fnDecl.getVisibility(),
+                    .isStatic = fnDecl.isStatic(),
+                    .isAbstract = fnDecl.isAbstract(),
+                    .isOverride = fnDecl.isOverride()
+                });
+            }
+        }
+    } else {
+        for (const auto& [fname, field] : baseCls->getFields()) {
+            std::string substitutedTypeStr = substituteType(field.type->toString(), typeParams, typeArgs);
+            auto fType = resolveType(substitutedTypeStr);
+            specCls->addField({
+                .name = fname,
+                .type = fType ? fType : field.type,
+                .visibility = field.visibility,
+                .isStatic = field.isStatic,
+                .isConst = field.isConst
+            });
+        }
+        for (const auto& method : baseCls->getMethods()) {
+            specCls->addMethod(method);
+        }
+    }
+
+    return specCls;
+}
+
 TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
     // Strip leading and trailing whitespace
     size_t first = rawTypeStr.find_first_not_of(" \t\n\r");
@@ -473,12 +616,37 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         return getArrayType(elem);
     }
 
-    // Check List<T> or Array<T>
-    if ((s.rfind("List<", 0) == 0 || s.rfind("Array<", 0) == 0) && s.back() == '>') {
+    // Check Array<T>
+    if (s.rfind("Array<", 0) == 0 && s.back() == '>') {
         size_t openBracket = s.find('<');
         std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
         auto elem = resolveType(inner);
         return getArrayType(elem);
+    }
+
+    // Check List<T>
+    if (s.rfind("List<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "List<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto listCls = createClassType(specName);
+        listCls->addMethod({"push", getFunctionType({elem}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"add", getFunctionType({elem}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"pop", getFunctionType({}, elem), "public", false, false, false});
+        listCls->addMethod({"get", getFunctionType({m_int64Type}, elem), "public", false, false, false});
+        listCls->addMethod({"set", getFunctionType({m_int64Type, elem}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
+        listCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
+        listCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        listCls->addMethod({"map", getFunctionType({getAny()}, listCls), "public", false, false, false});
+        listCls->addMethod({"filter", getFunctionType({getAny()}, listCls), "public", false, false, false});
+        listCls->addMethod({"reduce", getFunctionType({getAny(), elem ? elem : m_int64Type}, elem ? elem : m_int64Type), "public", false, false, false});
+        return listCls;
     }
 
     // Check Map<K, V>
@@ -489,6 +657,26 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
             std::string vStr = s.substr(comma + 1, s.size() - comma - 2);
             return getMapType(resolveType(kStr), resolveType(vStr));
         }
+    }
+
+    // Check Set<T>
+    if (s.rfind("Set<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "Set<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto setCls = createClassType(specName);
+        setCls->addMethod({"add", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        setCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
+        setCls->addMethod({"remove", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        setCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
+        setCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
+        setCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        return setCls;
     }
 
     // Check primitive types
@@ -513,6 +701,19 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
     // Check registered user types (classes, interfaces, structs, enums)
     auto userType = findUserType(s);
     if (userType) return userType;
+
+    // Check user-defined generic class specialization (e.g. Box<int>, Pair<string, int>)
+    if (s.find('<') != std::string::npos && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string baseName = s.substr(0, openBracket);
+        auto baseType = findUserType(baseName);
+        if (baseType && baseType->isClass()) {
+            auto baseCls = std::static_pointer_cast<ClassType>(baseType);
+            std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+            std::vector<std::string> typeArgs = splitTypeArgs(inner);
+            return specializeClassType(baseCls, typeArgs);
+        }
+    }
 
     // If unresolved at this moment, return an unknown nominal placeholder or null
     return nullptr;

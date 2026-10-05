@@ -24,4 +24,51 @@ extern "C" {
     // Object and dynamic memory management
     void* sp_rt_alloc(uint64_t size);
     void sp_rt_free(void* ptr);
+
+    // Native Array primitives
+    void* sp_rt_array_alloc(int64_t length, int64_t element_size);
+    int64_t sp_rt_array_length(void* arr);
+    void* sp_rt_array_data(void* arr);
+    void* sp_rt_array_get_ptr(void* arr, int64_t index, int64_t element_size);
+    int64_t sp_rt_array_get_i64(void* arr, int64_t index);
+    void sp_rt_array_set_i64(void* arr, int64_t index, int64_t val);
+    double sp_rt_array_get_f64(void* arr, int64_t index);
+    void sp_rt_array_set_f64(void* arr, int64_t index, double val);
+
+    // Native List<T> primitives
+    void* sp_rt_list_alloc(int64_t element_size, int64_t initial_capacity);
+    int64_t sp_rt_list_size(void* list);
+    void sp_rt_list_push_i64(void* list, int64_t val);
+    int64_t sp_rt_list_get_i64(void* list, int64_t index);
+    void sp_rt_list_set_i64(void* list, int64_t index, int64_t val);
+    int64_t sp_rt_list_pop_i64(void* list);
+
+    // Native Map<K, V> primitives
+    void* sp_rt_map_alloc();
+    int64_t sp_rt_map_size(void* map);
+    void sp_rt_map_set_str(void* map, const char* key, int64_t val);
+    int64_t sp_rt_map_get_str(void* map, const char* key);
+    bool sp_rt_map_contains_str(void* map, const char* key);
+    void sp_rt_map_set_i64(void* map, int64_t key, int64_t val);
+    int64_t sp_rt_map_get_i64(void* map, int64_t key);
+
+    // Native Set<T> primitives
+    void* sp_rt_set_alloc();
+    int64_t sp_rt_set_size(void* set);
+    void sp_rt_set_add_i64(void* set, int64_t val);
+    void sp_rt_set_add_str(void* set, const char* val);
+    bool sp_rt_set_contains_i64(void* set, int64_t val);
+    bool sp_rt_set_contains_str(void* set, const char* val);
+    void sp_rt_set_remove_i64(void* set, int64_t val);
+    void sp_rt_set_remove_str(void* set, const char* val);
+
+    // Higher-order collection functions
+    void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t));
+    void* sp_rt_array_filter(void* arr, int64_t (*predicate)(int64_t));
+    int64_t sp_rt_array_reduce(void* arr, int64_t (*fn)(int64_t, int64_t), int64_t initial);
+
+    void* sp_rt_list_map(void* list, int64_t (*fn)(int64_t));
+    void* sp_rt_list_filter(void* list, int64_t (*predicate)(int64_t));
+    int64_t sp_rt_list_reduce(void* list, int64_t (*fn)(int64_t, int64_t), int64_t initial);
 }
+

@@ -29,6 +29,9 @@ public:
     void compileConstructor(const ast::ClassDecl& classDecl, const ast::FunctionDecl* ctorDecl, const codegen::ClassLayout& layout);
     void compileDefaultConstructor(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout);
     void compileMethod(const ast::ClassDecl& classDecl, const ast::FunctionDecl& methodDecl, const codegen::ClassLayout& layout);
+    void compileSpecializedConstructor(const ast::FunctionDecl* ctorDecl, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs, const codegen::ClassLayout& layout);
+    void compileSpecializedMethod(const ast::FunctionDecl& methodDecl, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs, const codegen::ClassLayout& layout);
+    void compileSpecializedFunction(const ast::FunctionDecl& fnDecl, const std::vector<std::string>& typeArgs);
 
     IRValuePtr emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType);
     void setCurrentClass(const codegen::ClassLayout* layout) noexcept { m_currentClass = layout; }
@@ -112,9 +115,12 @@ private:
 
     size_t m_blockCounter{0};
     size_t m_varCounter{0};
+    size_t m_lambdaCounter{0};
 
     std::unique_ptr<codegen::VTableBuilder> m_vtableBuilder;
     const codegen::ClassLayout* m_currentClass{nullptr};
+    std::unordered_map<std::string, const ast::ClassDecl*> m_genericClasses;
+    std::unordered_map<std::string, const ast::FunctionDecl*> m_genericFunctions;
 };
 
 } // namespace sp::ir

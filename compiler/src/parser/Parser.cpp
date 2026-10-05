@@ -110,7 +110,37 @@ void Parser::synchronize() {
     }
 }
 
-Precedence Parser::getPrecedence(lexer::TokenType type) noexcept {
+bool Parser::isGenericCall(size_t startPos) const noexcept {
+    if (startPos >= m_tokens.size() || !m_tokens[startPos].is(lexer::TokenType::Less)) {
+        return false;
+    }
+    size_t pos = startPos + 1;
+    int depth = 1;
+    while (pos < m_tokens.size()) {
+        const auto& tok = m_tokens[pos];
+        if (tok.is(lexer::TokenType::Less)) {
+            depth++;
+        } else if (tok.is(lexer::TokenType::Greater)) {
+            depth--;
+            if (depth == 0) {
+                return (pos + 1 < m_tokens.size() && m_tokens[pos + 1].is(lexer::TokenType::OpenParen));
+            }
+        } else if (tok.is(lexer::TokenType::Identifier) ||
+                   tok.is(lexer::TokenType::Comma) ||
+                   tok.is(lexer::TokenType::OpenBracket) ||
+                   tok.is(lexer::TokenType::CloseBracket) ||
+                   tok.is(lexer::TokenType::Question) ||
+                   isTypeKeyword(tok.type)) {
+            // Valid token within type argument list
+        } else {
+            return false;
+        }
+        pos++;
+    }
+    return false;
+}
+
+Precedence Parser::getPrecedence(lexer::TokenType type) const noexcept {
     switch (type) {
         case lexer::TokenType::Equal:
         case lexer::TokenType::PlusEqual:
@@ -146,6 +176,11 @@ Precedence Parser::getPrecedence(lexer::TokenType type) noexcept {
             return Precedence::Equality;
 
         case lexer::TokenType::Less:
+            if (isGenericCall(m_current)) {
+                return Precedence::Call;
+            }
+            return Precedence::Relational;
+
         case lexer::TokenType::LessEqual:
         case lexer::TokenType::Greater:
         case lexer::TokenType::GreaterEqual:
@@ -225,6 +260,19 @@ ast::ExprPtr Parser::parsePrefix() {
     if (match(lexer::TokenType::KeywordAssert)) {
         return std::make_unique<ast::IdentifierExpr>("assert", previous().location);
     }
+    if (check(lexer::TokenType::Identifier) && m_current + 1 < m_tokens.size() && m_tokens[m_current + 1].is(lexer::TokenType::FatArrow)) {
+        diagnostics::SourceLocation loc = peek().location;
+        std::string paramName = advance().lexeme;
+        advance(); // consume '=>'
+        ast::ASTNodePtr body;
+        if (check(lexer::TokenType::OpenBrace)) {
+            body = parseBlock();
+        } else {
+            body = parseExpression();
+        }
+        std::vector<ast::LambdaExpr::Param> params = {{paramName, ""}};
+        return std::make_unique<ast::LambdaExpr>(std::move(params), "", std::move(body), loc);
+    }
     if (match(lexer::TokenType::Identifier)) {
         return std::make_unique<ast::IdentifierExpr>(previous().lexeme, previous().location);
     }
@@ -264,6 +312,26 @@ ast::ExprPtr Parser::parsePrefix() {
 }
 
 ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
+    // Generic Function Call: callee<T1, T2>(arg1, arg2)
+    if (check(lexer::TokenType::Less) && isGenericCall(m_current)) {
+        const lexer::Token& opTok = advance();
+        diagnostics::SourceLocation loc = opTok.location;
+        std::vector<std::string> typeArgs;
+        do {
+            typeArgs.push_back(parseType());
+        } while (match(lexer::TokenType::Comma));
+        consume(lexer::TokenType::Greater, "Expected '>' after generic type arguments");
+        consume(lexer::TokenType::OpenParen, "Expected '(' after generic type arguments in call");
+        std::vector<ast::ExprPtr> args;
+        if (!check(lexer::TokenType::CloseParen)) {
+            do {
+                args.push_back(parseExpression());
+            } while (match(lexer::TokenType::Comma));
+        }
+        consume(lexer::TokenType::CloseParen, "Expected ')' after argument list");
+        return std::make_unique<ast::CallExpr>(std::move(left), std::move(typeArgs), std::move(args), loc);
+    }
+
     const lexer::Token& opTok = advance();
     diagnostics::SourceLocation loc = opTok.location;
     Precedence prec = getPrecedence(opTok.type);
@@ -586,23 +654,41 @@ ast::StmtPtr Parser::parseForStatement() {
     diagnostics::SourceLocation loc = previous().location;
     consume(lexer::TokenType::OpenParen, "Expected '(' after 'for'");
 
-    // Range or For-In loop: for (i in 0..10) or for (string name in names)
-    if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier)) {
-        std::string type = advance().lexeme;
+    // For-In loop:
+    // Case 1: for (var x in iterable) or for (let x in iterable)
+    if ((check(lexer::TokenType::KeywordVar) || check(lexer::TokenType::KeywordLet)) &&
+        checkNext(lexer::TokenType::Identifier) &&
+        m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].lexeme == "in") {
+        advance(); // var / let
         std::string varName = advance().lexeme;
-        if (match(lexer::TokenType::Identifier) && previous().lexeme == "in") {
-            ast::ExprPtr iterable = parseExpression();
-            consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
-            ast::StmtPtr body = parseStatement();
-            return std::make_unique<ast::ForInStmt>(varName, type, std::move(iterable), std::move(body), loc);
-        }
-    } else if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier) && peekNext().lexeme == "in") {
-        std::string varName = advance().lexeme;
-        advance(); // consume 'in'
+        advance(); // in
         ast::ExprPtr iterable = parseExpression();
         consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
         ast::StmtPtr body = parseStatement();
         return std::make_unique<ast::ForInStmt>(varName, "auto", std::move(iterable), std::move(body), loc);
+    }
+
+    // Case 2: for (x in iterable)
+    if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Identifier) &&
+        m_tokens[m_current + 1].lexeme == "in") {
+        std::string varName = advance().lexeme;
+        advance(); // in
+        ast::ExprPtr iterable = parseExpression();
+        consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
+        ast::StmtPtr body = parseStatement();
+        return std::make_unique<ast::ForInStmt>(varName, "auto", std::move(iterable), std::move(body), loc);
+    }
+
+    // Case 3: for (Type x in iterable) e.g. for (int x in nums) or for (string s in list)
+    if (checkNext(lexer::TokenType::Identifier) &&
+        m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].lexeme == "in") {
+        std::string type = parseType();
+        std::string varName = advance().lexeme;
+        advance(); // in
+        ast::ExprPtr iterable = parseExpression();
+        consume(lexer::TokenType::CloseParen, "Expected ')' after for-in expression");
+        ast::StmtPtr body = parseStatement();
+        return std::make_unique<ast::ForInStmt>(varName, type, std::move(iterable), std::move(body), loc);
     }
 
     // Classic for loop: for (init; condition; increment)
@@ -829,7 +915,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                         (checkNext(lexer::TokenType::Identifier) ||
                          checkNext(lexer::TokenType::Less) ||
                          checkNext(lexer::TokenType::Question) ||
-                         checkNext(lexer::TokenType::OpenBracket)));
+                         (checkNext(lexer::TokenType::OpenBracket) && m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].type == lexer::TokenType::CloseBracket)));
     if (couldBeDecl) {
         size_t saved = m_current;
         std::string type = parseType();
@@ -911,6 +997,15 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected function name");
     std::string name = nameTok.lexeme;
 
+    std::vector<std::string> typeParams;
+    if (match(lexer::TokenType::Less)) {
+        do {
+            const lexer::Token& paramTok = consume(lexer::TokenType::Identifier, "Expected type parameter name");
+            typeParams.push_back(paramTok.lexeme);
+        } while (match(lexer::TokenType::Comma));
+        consume(lexer::TokenType::Greater, "Expected '>' after generic type parameters");
+    }
+
     std::vector<ast::Parameter> params = parseParameters();
 
     std::string returnType = "void";
@@ -934,7 +1029,7 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
     }
 
     return std::make_unique<ast::FunctionDecl>(
-        name, std::move(params), returnType,
+        name, std::move(typeParams), std::move(params), returnType,
         std::move(body), std::move(shortBody),
         visibility, isStatic, isOverride, isAbstract, false, loc);
 }
@@ -943,6 +1038,15 @@ ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) 
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected class name");
     std::string name = nameTok.lexeme;
+
+    std::vector<std::string> typeParams;
+    if (match(lexer::TokenType::Less)) {
+        do {
+            const lexer::Token& paramTok = consume(lexer::TokenType::Identifier, "Expected type parameter name");
+            typeParams.push_back(paramTok.lexeme);
+        } while (match(lexer::TokenType::Comma));
+        consume(lexer::TokenType::Greater, "Expected '>' after generic type parameters");
+    }
 
     std::string baseClass;
     std::vector<std::string> interfaces;
@@ -994,7 +1098,7 @@ ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) 
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of class body");
 
-    return std::make_unique<ast::ClassDecl>(name, baseClass, std::move(interfaces), std::move(members), visibility, isAbstract, loc);
+    return std::make_unique<ast::ClassDecl>(name, std::move(typeParams), baseClass, std::move(interfaces), std::move(members), visibility, isAbstract, loc);
 }
 
 ast::ASTNodePtr Parser::parseInterfaceDecl(std::string visibility) {
@@ -1104,8 +1208,9 @@ std::string Parser::parseType() {
     }
 
     // Array type: int[]
-    while (match(lexer::TokenType::OpenBracket)) {
-        consume(lexer::TokenType::CloseBracket, "Expected ']' for array type");
+    while (check(lexer::TokenType::OpenBracket) && checkNext(lexer::TokenType::CloseBracket)) {
+        advance();
+        advance();
         type += "[]";
     }
 
@@ -1135,7 +1240,7 @@ std::vector<ast::Parameter> Parser::parseParameters() {
                                    (check(lexer::TokenType::Identifier) &&
                                     (checkNext(lexer::TokenType::Identifier) ||
                                      checkNext(lexer::TokenType::Question) ||
-                                     checkNext(lexer::TokenType::OpenBracket) ||
+                                     (checkNext(lexer::TokenType::OpenBracket) && m_current + 2 < m_tokens.size() && m_tokens[m_current + 2].type == lexer::TokenType::CloseBracket) ||
                                      checkNext(lexer::TokenType::Less)));
                 if (couldBeType) {
                     type = parseType();

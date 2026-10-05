@@ -59,7 +59,8 @@ private:
     // Pratt Expression Parsing
     ast::ExprPtr parsePrefix();
     ast::ExprPtr parseInfix(ast::ExprPtr left);
-    static Precedence getPrecedence(lexer::TokenType type) noexcept;
+    [[nodiscard]] bool isGenericCall(size_t startPos) const noexcept;
+    [[nodiscard]] Precedence getPrecedence(lexer::TokenType type) const noexcept;
 
     ast::ExprPtr parseGroupedOrLambda();
     ast::ExprPtr parseArrayLiteral();

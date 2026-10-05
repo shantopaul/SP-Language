@@ -4,6 +4,7 @@
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
+#include "sp/ir/IRPrinter.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -55,7 +56,6 @@ std::string runSPProgram(const std::string& source, const std::string& testName)
     int code = std::system(cmd.c_str());
 #endif
     (void)code;
-
     std::ifstream in(outPath);
     std::ostringstream ss;
     ss << in.rdbuf();
@@ -318,5 +318,237 @@ TEST(ExecutionTest, EnumConstantsAndBranchExecution) {
     EXPECT_NE(output.find("Resource Not Found: 404"), std::string::npos);
 }
 
+TEST(ExecutionTest, NativeArrayAllocationIndexingAndLengthExecution) {
+    const std::string source = R"(
+        fn main() {
+            var nums = [10, 20, 30];
+            println(nums.length);
+            println(nums[0]);
+            println(nums[1]);
+            nums[1] = 99;
+            println(nums[1]);
+        }
+    )";
 
+    std::string output = runSPProgram(source, "exec_array");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("10"), std::string::npos);
+    EXPECT_NE(output.find("99"), std::string::npos);
+}
+
+TEST(ExecutionTest, GenericClassMonomorphizationExecution) {
+    const std::string source = R"(
+        class Box<T> {
+            var val: T;
+
+            Box(T initial) {
+                this.val = initial;
+            }
+
+            fn get() -> T {
+                return this.val;
+            }
+
+            fn set(T newVal) {
+                this.val = newVal;
+            }
+        }
+
+        fn main() {
+            var intBox = new Box<int>(42);
+            println(intBox.get());
+            intBox.set(100);
+            println(intBox.get());
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_box_mono");
+    EXPECT_NE(output.find("42"), std::string::npos);
+    EXPECT_NE(output.find("100"), std::string::npos);
+}
+
+TEST(ExecutionTest, GenericFunctionMonomorphizationExecution) {
+    const std::string source = R"(
+        fn chooseFirst<T>(T a, T b) -> T {
+            return a;
+        }
+
+        fn main() {
+            var x = chooseFirst<int>(77, 99);
+            println(x);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_fn_mono");
+    EXPECT_NE(output.find("77"), std::string::npos);
+}
+
+TEST(ExecutionTest, StandardListCollectionNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var list = new List<int>();
+            list.push(10);
+            list.push(20);
+            list.push(30);
+            println(list.size());
+            println(list[0]);
+            println(list[1]);
+            list[1] = 55;
+            println(list[1]);
+            var lastVal = list.pop();
+            println(lastVal);
+            println(list.size());
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_list");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("10"), std::string::npos);
+    EXPECT_NE(output.find("55"), std::string::npos);
+    EXPECT_NE(output.find("30"), std::string::npos);
+    EXPECT_NE(output.find("2"), std::string::npos);
+}
+
+TEST(ExecutionTest, StandardMapCollectionNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var map = new Map<string, int>();
+            map["apple"] = 100;
+            map["banana"] = 250;
+            println(map.size());
+            println(map["apple"]);
+            println(map["banana"]);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_map");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("100"), std::string::npos);
+    EXPECT_NE(output.find("250"), std::string::npos);
+}
+
+TEST(ExecutionTest, ForInLoopArrayAndListNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var nums = [10, 20, 30];
+            var sum = 0;
+            for (x in nums) {
+                sum = sum + x;
+            }
+            println("Array Sum:");
+            println(sum);
+
+            var list = new List<int>();
+            list.push(5);
+            list.push(15);
+            list.push(25);
+            var listSum = 0;
+            for (item in list) {
+                listSum = listSum + item;
+            }
+            println("List Sum:");
+            println(listSum);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_for_in");
+    EXPECT_NE(output.find("Array Sum:"), std::string::npos);
+    EXPECT_NE(output.find("60"), std::string::npos);
+    EXPECT_NE(output.find("List Sum:"), std::string::npos);
+    EXPECT_NE(output.find("45"), std::string::npos);
+}
+
+TEST(ExecutionTest, LambdaFunctionsAndClosuresNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var add = (int a, int b) => a + b;
+            var square = (int x) => x * x;
+            var factorial = (int n) => {
+                var r = 1;
+                for (var i = 2; i <= n; i = i + 1) {
+                    r = r * i;
+                }
+                return r;
+            };
+
+            println(add(12, 18));
+            println(square(9));
+            println(factorial(5));
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_lambda");
+    EXPECT_NE(output.find("30"), std::string::npos);
+    EXPECT_NE(output.find("81"), std::string::npos);
+    EXPECT_NE(output.find("120"), std::string::npos);
+}
+
+TEST(ExecutionTest, HigherOrderFunctionsNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var nums = [1, 2, 3, 4, 5];
+            var doubled = nums.map((int x) => x * 2);
+            for (x in doubled) {
+                println(x);
+            }
+
+            var evens = nums.filter((int x) => x % 2 == 0);
+            for (x in evens) {
+                println(x);
+            }
+
+            var sum = nums.reduce((int acc, int x) => acc + x, 0);
+            println(sum);
+
+            var list = new List<int>();
+            list.push(10);
+            list.push(20);
+            list.push(30);
+            var mappedList = list.map((int x) => x / 10);
+            for (item in mappedList) {
+                println(item);
+            }
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_hof");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("4"), std::string::npos);
+    EXPECT_NE(output.find("6"), std::string::npos);
+    EXPECT_NE(output.find("8"), std::string::npos);
+    EXPECT_NE(output.find("10"), std::string::npos);
+    EXPECT_NE(output.find("15"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+    EXPECT_NE(output.find("3"), std::string::npos);
+}
+
+TEST(ExecutionTest, StandardSetCollectionNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var s = new Set<int>();
+            s.add(10);
+            s.add(20);
+            s.add(10);
+            println(s.size());
+            println(s.contains(10));
+            println(s.contains(30));
+            s.remove(10);
+            println(s.size());
+            println(s.contains(10));
+
+            var strSet = new Set<string>();
+            strSet.add("apple");
+            strSet.add("banana");
+            println(strSet.size());
+            println(strSet.contains("apple"));
+            println(strSet.contains("orange"));
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_set");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("false"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+}
 

@@ -49,7 +49,16 @@ void ASTPrinter::visit(const UnaryExpr& node) {
 }
 
 void ASTPrinter::visit(const CallExpr& node) {
-    line("CallExpr:");
+    std::string typeArgsStr;
+    if (node.isGeneric()) {
+        typeArgsStr = "<";
+        for (size_t i = 0; i < node.getTypeArgs().size(); ++i) {
+            if (i > 0) typeArgsStr += ", ";
+            typeArgsStr += node.getTypeArgs()[i];
+        }
+        typeArgsStr += ">";
+    }
+    line("CallExpr" + typeArgsStr + ":");
     m_indent++;
     line("Callee:");
     m_indent++;
@@ -379,13 +388,23 @@ void ASTPrinter::visit(const FunctionDecl& node) {
     if (node.isAbstract()) flags += "abstract ";
     if (node.isAsync()) flags += "async ";
 
+    std::string typeParamsStr;
+    if (node.isGeneric()) {
+        typeParamsStr = "<";
+        for (size_t i = 0; i < node.getTypeParams().size(); ++i) {
+            if (i > 0) typeParamsStr += ", ";
+            typeParamsStr += node.getTypeParams()[i];
+        }
+        typeParamsStr += ">";
+    }
+
     std::string paramsStr;
     for (size_t i = 0; i < node.getParams().size(); ++i) {
         if (i > 0) paramsStr += ", ";
         paramsStr += node.getParams()[i].getType() + " " + node.getParams()[i].getName();
     }
 
-    line("FunctionDecl(" + flags + node.getName() + "(" + paramsStr + ") -> " + (node.getReturnType().empty() ? "void" : node.getReturnType()) + "):");
+    line("FunctionDecl(" + flags + node.getName() + typeParamsStr + "(" + paramsStr + ") -> " + (node.getReturnType().empty() ? "void" : node.getReturnType()) + "):");
     m_indent++;
     if (node.isShortForm()) {
         line("Body(=>):");
@@ -399,9 +418,19 @@ void ASTPrinter::visit(const FunctionDecl& node) {
 }
 
 void ASTPrinter::visit(const ClassDecl& node) {
+    std::string typeParamsStr;
+    if (node.isGeneric()) {
+        typeParamsStr = "<";
+        for (size_t i = 0; i < node.getTypeParams().size(); ++i) {
+            if (i > 0) typeParamsStr += ", ";
+            typeParamsStr += node.getTypeParams()[i];
+        }
+        typeParamsStr += ">";
+    }
+
     std::string header = (node.getVisibility().empty() ? "" : node.getVisibility() + " ") +
                          (node.isAbstract() ? "abstract " : "") +
-                         "class " + node.getName();
+                         "class " + node.getName() + typeParamsStr;
     if (node.hasBaseClass()) {
         header += " extends " + node.getBaseClass();
     }
