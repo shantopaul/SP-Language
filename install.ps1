@@ -16,13 +16,28 @@ $scriptRoot = $PSScriptRoot
 
 # 1. Build using CMake & Ninja
 Write-Host "`n[1/4] Building SP Compiler in Release mode..." -ForegroundColor Green
-$cmakeCmd = (Get-Command cmake -ErrorAction SilentlyContinue)?.Source
-if (-not $cmakeCmd) {
-    if (Test-Path "K:\AndroidDev\tools\sdk\cmake\3.22.1\bin\cmake.exe") {
-        $cmakeCmd = "K:\AndroidDev\tools\sdk\cmake\3.22.1\bin\cmake.exe"
-    } else {
-        Write-Error "CMake was not found in PATH or known locations. Please install CMake."
+$cmakeCmd = $null
+$cmakeObj = Get-Command cmake -ErrorAction SilentlyContinue
+if ($cmakeObj) {
+    $cmakeCmd = $cmakeObj.Source
+} elseif (Test-Path "K:\AndroidDev\tools\sdk\cmake\3.22.1\bin\cmake.exe") {
+    $cmakeCmd = "K:\AndroidDev\tools\sdk\cmake\3.22.1\bin\cmake.exe"
+    $cmakeDir = Split-Path $cmakeCmd
+    if ($env:Path -notlike "*$cmakeDir*") {
+        $env:Path = "$cmakeDir;$env:Path"
     }
+} else {
+    Write-Error "CMake was not found in PATH or known locations. Please install CMake."
+}
+
+# Ensure Ninja and Clang are in path if present in Android SDK
+if (Test-Path "K:\AndroidDev\tools\sdk\cmake\3.22.1\bin") {
+    $binDir = "K:\AndroidDev\tools\sdk\cmake\3.22.1\bin"
+    if ($env:Path -notlike "*$binDir*") { $env:Path = "$binDir;$env:Path" }
+}
+if (Test-Path "K:\AndroidDev\tools\sdk\ndk\28.2.13676358\toolchains\llvm\prebuilt\windows-x86_64\bin") {
+    $ndkBin = "K:\AndroidDev\tools\sdk\ndk\28.2.13676358\toolchains\llvm\prebuilt\windows-x86_64\bin"
+    if ($env:Path -notlike "*$ndkBin*") { $env:Path = "$ndkBin;$env:Path" }
 }
 
 & $cmakeCmd -B "$scriptRoot\build" -G "Ninja" -DCMAKE_BUILD_TYPE=Release
