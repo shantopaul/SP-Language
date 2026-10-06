@@ -681,4 +681,93 @@ TEST(ExecutionTest, TypeInferenceNativeExecution) {
     EXPECT_NE(output.find("App: SP Lang"), std::string::npos);
 }
 
+TEST(ExecutionTest, OperatorsNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            int a = 20;
+            int b = 7;
+
+            println("${a} + ${b} = ${a + b}");
+            println("${a} - ${b} = ${a - b}");
+            println("${a} * ${b} = ${a * b}");
+            println("${a} / ${b} = ${a / b}");
+            println("${a} % ${b} = ${a % b}");
+
+            println("${a} == ${b} = ${a == b}");
+            println("${a} != ${b} = ${a != b}");
+            println("${a} > ${b} = ${a > b}");
+            println("${a} < ${b} = ${a < b}");
+            println("${a} >= ${b} = ${a >= b}");
+            println("${a} <= ${b} = ${a <= b}");
+
+            bool x = true;
+            bool y = false;
+
+            println("${x} && ${y} = ${x && y}");
+            println("${x} || ${y} = ${x || y}");
+            println("!${x} = ${!x}");
+
+            int n = 10;
+            n += 5;
+            println("n += 5 = ${n}");
+            n -= 3;
+            println("n -= 3 = ${n}");
+            n *= 2;
+            println("n *= 2 = ${n}");
+            n /= 4;
+            println("n /= 4 = ${n}");
+            n %= 4;
+            println("n %= 4 = ${n}");
+
+            int counter = 0;
+            counter++;
+            println("counter++ = ${counter}");
+            counter++;
+            println("counter++ = ${counter}");
+            counter--;
+            println("counter-- = ${counter}");
+
+            int p = 0b1100;
+            int q = 0b1010;
+
+            println("p & q = ${p & q}");
+            println("p | q = ${p | q}");
+            println("p ^ q = ${p ^ q}");
+            println("~p = ${~p}");
+            println("p << 1 = ${p << 1}");
+            println("p >> 1 = ${p >> 1}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_operators");
+    EXPECT_NE(output.find("20 + 7 = 27"), std::string::npos);
+    EXPECT_NE(output.find("20 - 7 = 13"), std::string::npos);
+    EXPECT_NE(output.find("20 * 7 = 140"), std::string::npos);
+    EXPECT_NE(output.find("20 / 7 = 2"), std::string::npos);
+    EXPECT_NE(output.find("20 % 7 = 6"), std::string::npos);
+    EXPECT_NE(output.find("20 == 7 = false"), std::string::npos);
+    EXPECT_NE(output.find("20 != 7 = true"), std::string::npos);
+    EXPECT_NE(output.find("20 > 7 = true"), std::string::npos);
+    EXPECT_NE(output.find("20 < 7 = false"), std::string::npos);
+    EXPECT_NE(output.find("20 >= 7 = true"), std::string::npos);
+    EXPECT_NE(output.find("20 <= 7 = false"), std::string::npos);
+    EXPECT_NE(output.find("true && false = false"), std::string::npos);
+    EXPECT_NE(output.find("true || false = true"), std::string::npos);
+    EXPECT_NE(output.find("!true = false"), std::string::npos);
+    EXPECT_NE(output.find("n += 5 = 15"), std::string::npos);
+    EXPECT_NE(output.find("n -= 3 = 12"), std::string::npos);
+    EXPECT_NE(output.find("n *= 2 = 24"), std::string::npos);
+    EXPECT_NE(output.find("n /= 4 = 6"), std::string::npos);
+    EXPECT_NE(output.find("n %= 4 = 2"), std::string::npos);
+    EXPECT_NE(output.find("counter++ = 1"), std::string::npos);
+    EXPECT_NE(output.find("counter++ = 2"), std::string::npos);
+    EXPECT_NE(output.find("counter-- = 1"), std::string::npos);
+    EXPECT_NE(output.find("p & q = 8"), std::string::npos);
+    EXPECT_NE(output.find("p | q = 14"), std::string::npos);
+    EXPECT_NE(output.find("p ^ q = 6"), std::string::npos);
+    EXPECT_NE(output.find("~p = -13"), std::string::npos);
+    EXPECT_NE(output.find("p << 1 = 24"), std::string::npos);
+    EXPECT_NE(output.find("p >> 1 = 6"), std::string::npos);
+}
+
 
