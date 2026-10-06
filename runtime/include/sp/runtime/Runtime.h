@@ -15,11 +15,23 @@ extern "C" {
     void sp_rt_println_float(float val);
     void sp_rt_println_double(double val);
     void sp_rt_println_bool(bool val);
+    void sp_rt_println_char(char val);
 
     void sp_rt_print_string(const char* str);
     void sp_rt_print_int(int64_t val);
     void sp_rt_print_uint(uint64_t val);
     void sp_rt_print_float(float val);
+    void sp_rt_print_double(double val);
+    void sp_rt_print_bool(bool val);
+    void sp_rt_print_char(char val);
+
+    const char* sp_rt_read_line();
+    const char* sp_rt_readln();
+
+    int64_t     sp_rt_str_to_int(const char* s);
+    double      sp_rt_str_to_double(const char* s);
+    float       sp_rt_str_to_float(const char* s);
+    bool        sp_rt_str_to_bool(const char* s);
 
     // String operations
     const char* sp_rt_str_concat(const char* s1, const char* s2);

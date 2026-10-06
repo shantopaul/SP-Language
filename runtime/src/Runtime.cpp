@@ -53,26 +53,105 @@ void sp_rt_println_bool(bool val) {
     std::cout << (val ? "true" : "false") << "\n";
 }
 
+void sp_rt_println_char(char val) {
+    std::cout << val << "\n";
+}
+
 void sp_rt_print_string(const char* str) {
     if (str) {
         std::cout << str;
     } else {
         std::cout << "null";
     }
+    std::cout.flush();
 }
 
 void sp_rt_print_int(int64_t val) {
     std::cout << val;
+    std::cout.flush();
 }
 
 void sp_rt_print_uint(uint64_t val) {
     std::cout << val;
+    std::cout.flush();
 }
 
 void sp_rt_print_float(float val) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.7g", val);
     std::cout << buf;
+    std::cout.flush();
+}
+
+void sp_rt_print_double(double val) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.16g", val);
+    std::cout << buf;
+    std::cout.flush();
+}
+
+void sp_rt_print_bool(bool val) {
+    std::cout << (val ? "true" : "false");
+    std::cout.flush();
+}
+
+void sp_rt_print_char(char val) {
+    std::cout << val;
+    std::cout.flush();
+}
+
+const char* sp_rt_read_line() {
+    std::cout.flush();
+    std::string line;
+    if (std::getline(std::cin, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        char* res = static_cast<char*>(malloc(line.size() + 1));
+        if (res) {
+            std::memcpy(res, line.c_str(), line.size() + 1);
+        }
+        return res;
+    }
+    char* res = static_cast<char*>(malloc(1));
+    if (res) res[0] = '\0';
+    return res;
+}
+
+const char* sp_rt_readln() {
+    return sp_rt_read_line();
+}
+
+int64_t sp_rt_str_to_int(const char* s) {
+    if (!s) return 0;
+    try {
+        return std::stoll(s, nullptr, 0);
+    } catch (...) {
+        return 0;
+    }
+}
+
+double sp_rt_str_to_double(const char* s) {
+    if (!s) return 0.0;
+    try {
+        return std::stod(s);
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+float sp_rt_str_to_float(const char* s) {
+    if (!s) return 0.0f;
+    try {
+        return std::stof(s);
+    } catch (...) {
+        return 0.0f;
+    }
+}
+
+bool sp_rt_str_to_bool(const char* s) {
+    if (!s) return false;
+    return (std::strcmp(s, "true") == 0 || std::strcmp(s, "1") == 0);
 }
 
 const char* sp_rt_str_concat(const char* s1, const char* s2) {

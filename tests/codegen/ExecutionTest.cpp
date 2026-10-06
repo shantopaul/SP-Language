@@ -22,7 +22,7 @@ fs::path getOutputDir() {
     return fs::temp_directory_path();
 }
 
-std::string runSPProgram(const std::string& source, const std::string& testName) {
+std::string runSPProgram(const std::string& source, const std::string& testName, const std::string& input = "") {
     diagnostics::DiagnosticEngine diags(std::cerr);
     lexer::Lexer lexer(source, testName + ".sp", &diags);
     auto tokens = lexer.tokenizeAll();
@@ -48,7 +48,16 @@ std::string runSPProgram(const std::string& source, const std::string& testName)
     }
 
     std::string outPath = exePath.string() + ".out.txt";
-    std::string cmd = "\"" + exePath.string() + "\" > \"" + outPath + "\" 2>&1";
+    std::string inPath = exePath.string() + ".in.txt";
+    std::string cmd;
+    if (!input.empty()) {
+        std::ofstream inFile(inPath);
+        inFile << input;
+        inFile.close();
+        cmd = "\"" + exePath.string() + "\" < \"" + inPath + "\" > \"" + outPath + "\" 2>&1";
+    } else {
+        cmd = "\"" + exePath.string() + "\" > \"" + outPath + "\" 2>&1";
+    }
 #if defined(_WIN32)
     std::string fullCmd = "\"" + cmd + "\"";
     int code = std::system(fullCmd.c_str());
@@ -63,6 +72,7 @@ std::string runSPProgram(const std::string& source, const std::string& testName)
 
     std::error_code ec;
     fs::remove(outPath, ec);
+    fs::remove(inPath, ec);
     fs::remove(exePath, ec);
     return ss.str();
 }
@@ -814,6 +824,34 @@ TEST(ExecutionTest, StringsAndInterpolationNativeExecution) {
     EXPECT_NE(output.find("Backslash: \\"), std::string::npos);
     EXPECT_NE(output.find("Unicode: A"), std::string::npos);
     EXPECT_NE(output.find("Roses are red,\nViolets are blue,\nSP is awesome,\nAnd so are you."), std::string::npos);
+}
+
+TEST(ExecutionTest, ConsoleIOAndParseNativeExecution) {
+    const std::string source = R"(
+        import std.io;
+
+        fn main() {
+            println("Hello, World!");
+            print("Enter name: ");
+
+            string name = readLine();
+            println("Hello, ${name}!");
+
+            print("Enter age: ");
+            int age = int.parse(readLine());
+            println("You are ${age} years old.");
+
+            print("Enter score: ");
+            double score = double.parse(readLine());
+            println("Your score is ${score}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_console_io", "Shanto\n21\n95.5\n");
+    EXPECT_NE(output.find("Hello, World!"), std::string::npos);
+    EXPECT_NE(output.find("Hello, Shanto!"), std::string::npos);
+    EXPECT_NE(output.find("You are 21 years old."), std::string::npos);
+    EXPECT_NE(output.find("Your score is 95.5"), std::string::npos);
 }
 
 

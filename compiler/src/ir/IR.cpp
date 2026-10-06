@@ -429,6 +429,56 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
                    true);
 
+    // void sp_rt_print_double(double)
+    createFunction("sp_rt_print_double", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_bool(i1)
+    createFunction("sp_rt_print_bool", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt1(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_char(i8)
+    createFunction("sp_rt_print_char", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
+                   true);
+
+    // void sp_rt_println_char(i8)
+    createFunction("sp_rt_println_char", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_read_line()
+    createFunction("sp_rt_read_line", IRType::getPointer(IRType::getInt8()),
+                   {},
+                   true);
+
+    // ptr sp_rt_readln()
+    createFunction("sp_rt_readln", IRType::getPointer(IRType::getInt8()),
+                   {},
+                   true);
+
+    // i64 sp_rt_str_to_int(ptr)
+    createFunction("sp_rt_str_to_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // double sp_rt_str_to_double(ptr)
+    createFunction("sp_rt_str_to_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // float sp_rt_str_to_float(ptr)
+    createFunction("sp_rt_str_to_float", IRType::getFloat(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // i1 sp_rt_str_to_bool(ptr)
+    createFunction("sp_rt_str_to_bool", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
     // void sp_rt_assert(i1, ptr)
     createFunction("sp_rt_assert", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getInt1(), "cond", 0),

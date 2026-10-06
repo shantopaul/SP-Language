@@ -96,6 +96,12 @@ void TypeChecker::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    auto primType = m_typeCtx.resolveType(name);
+    if (primType && !primType->isError()) {
+        m_currentExprType = primType;
+        return;
+    }
+
     m_diagnostics.reportError("E1002", "Undefined variable or symbol '" + name + "'", node.getLocation(),
                               "Ensure the variable is declared before use");
     m_currentExprType = m_typeCtx.getError();
@@ -545,6 +551,22 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 return;
             }
         }
+        if (objType->isInteger() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getInt();
+            return;
+        }
+        if (objType->isDouble() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getDouble();
+            return;
+        }
+        if (objType->isFloat() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getFloat();
+            return;
+        }
+        if (objType->isBoolean() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getBool();
+            return;
+        }
 
         m_diagnostics.reportError("E1003", "Type '" + objType->toString() + "' has no method named '" + methodName + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
@@ -657,6 +679,24 @@ void TypeChecker::visit(const ast::MemberExpr& node) {
     // Built-in properties: string length
     if (objType->isString() && (member == "length" || member == "size")) {
         m_currentExprType = m_typeCtx.getInt();
+        return;
+    }
+
+    // Built-in static methods / members: type.parse
+    if (objType->isInteger() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getInt());
+        return;
+    }
+    if (objType->isDouble() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getDouble());
+        return;
+    }
+    if (objType->isFloat() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getFloat());
+        return;
+    }
+    if (objType->isBoolean() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getBool());
         return;
     }
 

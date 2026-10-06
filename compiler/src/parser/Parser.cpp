@@ -277,6 +277,10 @@ ast::ExprPtr Parser::parsePrefix() {
     if (match(lexer::TokenType::Identifier)) {
         return std::make_unique<ast::IdentifierExpr>(previous().lexeme, previous().location);
     }
+    if (isTypeKeyword(peek().type)) {
+        const auto& tok = advance();
+        return std::make_unique<ast::IdentifierExpr>(tok.lexeme, tok.location);
+    }
 
     // Grouped expression or Lambda: (x, y) => expr
     if (check(lexer::TokenType::OpenParen)) {

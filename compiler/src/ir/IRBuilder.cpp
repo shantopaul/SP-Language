@@ -1773,6 +1773,81 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
         }
 
+        // 1a2. Static type methods: int.parse(...), double.parse(...)
+        if (const auto* idObj = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject())) {
+            const std::string& targetName = idObj->getName();
+            if (methodName == "parse") {
+                if (targetName == "int" || targetName == "int32" || targetName == "int64") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        IRValuePtr strVal = m_lastExprValue;
+                        std::string resName = m_currentFunction ? m_currentFunction->nextTempName("parsed_int") : "%parsed_int";
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt64(),
+                            "sp_rt_str_to_int",
+                            std::vector<IRValuePtr>{strVal},
+                            resName
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getInt64();
+                        return;
+                    }
+                }
+                if (targetName == "double") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        IRValuePtr strVal = m_lastExprValue;
+                        std::string resName = m_currentFunction ? m_currentFunction->nextTempName("parsed_double") : "%parsed_double";
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getDouble(),
+                            "sp_rt_str_to_double",
+                            std::vector<IRValuePtr>{strVal},
+                            resName
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getDouble();
+                        return;
+                    }
+                }
+                if (targetName == "float") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        IRValuePtr strVal = m_lastExprValue;
+                        std::string resName = m_currentFunction ? m_currentFunction->nextTempName("parsed_float") : "%parsed_float";
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getFloat(),
+                            "sp_rt_str_to_float",
+                            std::vector<IRValuePtr>{strVal},
+                            resName
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getFloat();
+                        return;
+                    }
+                }
+                if (targetName == "bool") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        IRValuePtr strVal = m_lastExprValue;
+                        std::string resName = m_currentFunction ? m_currentFunction->nextTempName("parsed_bool") : "%parsed_bool";
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt1(),
+                            "sp_rt_str_to_bool",
+                            std::vector<IRValuePtr>{strVal},
+                            resName
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getInt1();
+                        return;
+                    }
+                }
+            }
+        }
+
         // 1b. obj.method(...)
         mem->getObject().accept(*this);
         IRValuePtr objVal = m_lastExprValue;
@@ -2437,6 +2512,9 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             } else if (argType && argType->isInt1()) {
                 auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_bool", std::vector<IRValuePtr>{argVal});
                 m_currentBlock->addInstruction(call);
+            } else if (semaType && semaType->isChar()) {
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_char", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
             } else if (semaType && semaType->isUnsignedInteger()) {
                 if (!argType->isInt64()) {
                     std::string zextName = m_currentFunction ? m_currentFunction->nextTempName("zext") : "%zext";
@@ -2473,6 +2551,12 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             } else if (argType && argType->isDouble()) {
                 auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_double", std::vector<IRValuePtr>{argVal});
                 m_currentBlock->addInstruction(call);
+            } else if (argType && argType->isInt1()) {
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_bool", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
+            } else if (semaType && semaType->isChar()) {
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_char", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
             } else if (semaType && semaType->isUnsignedInteger()) {
                 if (!argType->isInt64()) {
                     std::string zextName = m_currentFunction ? m_currentFunction->nextTempName("zext") : "%zext";
@@ -2490,6 +2574,20 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         }
         m_lastExprValue = nullptr;
         m_lastExprType = IRType::getVoid();
+        return;
+    }
+
+    if (calleeName == "readLine" || calleeName == "readln") {
+        std::string resName = m_currentFunction ? m_currentFunction->nextTempName("readline") : "%readline";
+        auto call = std::make_shared<CallInst>(
+            IRType::getPointer(IRType::getInt8()),
+            "sp_rt_read_line",
+            std::vector<IRValuePtr>{},
+            resName
+        );
+        m_currentBlock->addInstruction(call);
+        m_lastExprValue = call;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
         return;
     }
 

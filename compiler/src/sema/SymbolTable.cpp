@@ -188,6 +188,14 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     );
     define(fnReadLn);
 
+    // readLine() -> string
+    auto fnReadLine = std::make_shared<FunctionSymbol>(
+        "readLine",
+        typeCtx.getFunctionType({}, typeCtx.getString()),
+        builtinLoc
+    );
+    define(fnReadLine);
+
     // assert(bool) -> void
     auto fnAssert = std::make_shared<FunctionSymbol>(
         "assert",
