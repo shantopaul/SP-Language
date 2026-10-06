@@ -28,14 +28,14 @@
 - [x] [14. Lists](#14-lists) ✅
 - [x] [15. Maps & Dictionaries](#15-maps--dictionaries) ✅
 - [x] [16. Classes](#16-classes) ✅
-- [17. Constructors](#17-constructors)
-- [18. Access Modifiers](#18-access-modifiers)
-- [19. Inheritance](#19-inheritance)
-- [20. Interfaces](#20-interfaces)
-- [21. Abstract Classes](#21-abstract-classes)
-- [22. Static Members](#22-static-members)
-- [23. Structs](#23-structs)
-- [24. Enums](#24-enums)
+- [x] [17. Constructors](#17-constructors) ✅
+- [x] [18. Access Modifiers](#18-access-modifiers) ✅
+- [x] [19. Inheritance](#19-inheritance) ✅
+- [x] [20. Interfaces](#20-interfaces) ✅
+- [x] [21. Abstract Classes](#21-abstract-classes) ✅
+- [x] [22. Static Members](#22-static-members) ✅
+- [x] [23. Structs](#23-structs) ✅
+- [x] [24. Enums](#24-enums) ✅
 - [25. Generics](#25-generics)
 - [26. Null Safety](#26-null-safety)
 - [27. Error Handling — Try/Catch](#27-error-handling--trycatch)
@@ -1288,7 +1288,7 @@ Is adult now: true
 
 ---
 
-## 17. Constructors
+## 17. Constructors ✅
 
 ```sp
 class Product {
@@ -1347,7 +1347,7 @@ fn main() {
 
 ---
 
-## 18. Access Modifiers
+## 18. Access Modifiers ✅
 
 ```sp
 class BankAccount {
@@ -1432,7 +1432,7 @@ Balance: $1300.0
 
 ---
 
-## 19. Inheritance
+## 19. Inheritance ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -1553,7 +1553,7 @@ Whiskers is purring... 😺
 
 ---
 
-## 20. Interfaces
+## 20. Interfaces ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -1651,7 +1651,7 @@ fn main() {
 
 ---
 
-## 21. Abstract Classes
+## 21. Abstract Classes ✅
 
 ```sp
 abstract class Vehicle {
@@ -1719,7 +1719,7 @@ Trek (2023) — Human Power 🚴, max 45 km/h
 
 ---
 
-## 22. Static Members
+## 22. Static Members ✅
 
 ```sp
 class Counter {
@@ -1775,7 +1775,7 @@ fn main() {
 
 ---
 
-## 23. Structs
+## 23. Structs ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -1828,7 +1828,7 @@ fn main() {
 
 ---
 
-## 24. Enums
+## 24. Enums ✅
 
 ```sp
 enum Direction {

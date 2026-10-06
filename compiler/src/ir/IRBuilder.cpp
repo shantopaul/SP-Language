@@ -7,6 +7,17 @@
 
 namespace sp::ir {
 
+static IRValuePtr makeDefaultValue(const IRTypePtr& type) {
+    if (!type || type->isVoid()) return nullptr;
+    if (type->isPointer()) {
+        return std::make_shared<ConstantNull>(type);
+    } else if (type->isFloatingPoint()) {
+        return std::make_shared<ConstantFloat>(type, 0.0);
+    } else {
+        return std::make_shared<ConstantInt>(type, 0);
+    }
+}
+
 IRBuilder::IRBuilder(const sema::SemanticAnalyzer& sema)
     : m_sema(sema) {}
 
@@ -466,8 +477,7 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
-                std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -1269,7 +1279,7 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -1414,8 +1424,7 @@ void IRBuilder::compileSpecializedMethod(
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
-                std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -1483,8 +1492,7 @@ void IRBuilder::compileSpecializedFunction(
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
-                std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
