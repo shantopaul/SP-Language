@@ -761,6 +761,15 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_os_exit", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "code", 0)}, true);
 
+    // Process runtime functions (std.process)
+    createFunction("sp_rt_process_exec", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "cmd", 0)}, true);
+    createFunction("sp_rt_process_spawn", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "cmd", 0)}, true);
+    createFunction("sp_rt_process_run", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "cmd", 0)}, true);
+    createFunction("sp_rt_process_pid", IRType::getInt64(), {}, true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

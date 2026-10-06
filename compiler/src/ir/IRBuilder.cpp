@@ -2664,6 +2664,47 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     return;
                 }
             }
+
+            if (targetName == "Process") {
+                if (methodName == "exec" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto cmd = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("proc_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_process_exec", std::vector<IRValuePtr>{cmd}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "spawn" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto cmd = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("proc_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_process_spawn", std::vector<IRValuePtr>{cmd}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if ((methodName == "run" || methodName == "execCapture") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto cmd = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("proc_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_process_run", std::vector<IRValuePtr>{cmd}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if (methodName == "pid") {
+                    std::string reg = m_currentFunction->nextTempName("proc_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_process_pid", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+            }
         }
 
         // 1b. obj.method(...)
@@ -3939,6 +3980,45 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         m_currentBlock->addInstruction(callInst);
         m_lastExprValue = nullptr;
         m_lastExprType = IRType::getVoid();
+        return;
+    }
+
+    if (calleeName == "exec" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto cmd = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("proc_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_process_exec", std::vector<IRValuePtr>{cmd}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if (calleeName == "spawn" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto cmd = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("proc_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_process_spawn", std::vector<IRValuePtr>{cmd}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if ((calleeName == "runCommand" || calleeName == "execCapture") && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto cmd = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("proc_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_process_run", std::vector<IRValuePtr>{cmd}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+    if (calleeName == "pid") {
+        std::string reg = m_currentFunction->nextTempName("proc_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_process_pid", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
         return;
     }
 

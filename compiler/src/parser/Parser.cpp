@@ -261,6 +261,9 @@ ast::ExprPtr Parser::parsePrefix() {
     if (match(lexer::TokenType::KeywordAssert)) {
         return std::make_unique<ast::IdentifierExpr>("assert", previous().location);
     }
+    if (match(lexer::TokenType::KeywordSpawn)) {
+        return std::make_unique<ast::IdentifierExpr>("spawn", previous().location);
+    }
     if (check(lexer::TokenType::Identifier) && m_current + 1 < m_tokens.size() && m_tokens[m_current + 1].is(lexer::TokenType::FatArrow)) {
         diagnostics::SourceLocation loc = peek().location;
         std::string paramName = advance().lexeme;
@@ -368,7 +371,9 @@ ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
     // Member Access: obj.member or safe navigation obj?.member
     if (opTok.is(lexer::TokenType::Dot) || opTok.is(lexer::TokenType::QuestionDot)) {
         bool isSafeNav = opTok.is(lexer::TokenType::QuestionDot);
-        const lexer::Token& memberTok = consume(lexer::TokenType::Identifier, "Expected member identifier after '.'");
+        const lexer::Token& memberTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
+            ? advance()
+            : consume(lexer::TokenType::Identifier, "Expected member identifier after '.'");
         return std::make_unique<ast::MemberExpr>(std::move(left), memberTok.lexeme, isSafeNav, loc);
     }
 
@@ -1134,7 +1139,7 @@ ast::ASTNodePtr Parser::parseImportDecl() {
 
 ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract) {
     diagnostics::SourceLocation loc = previous().location;
-    const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+    const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
         ? advance()
         : consume(lexer::TokenType::Identifier, "Expected function name");
     std::string name = nameTok.lexeme;

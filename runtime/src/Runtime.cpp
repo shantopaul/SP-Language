@@ -1188,5 +1188,69 @@ void sp_rt_os_exit(int64_t code) {
     std::exit(static_cast<int>(code));
 }
 
+// Process runtime functions (std.process)
+int64_t sp_rt_process_exec(const char* cmd) {
+    if (!cmd) return -1;
+    int ret = std::system(cmd);
+    return static_cast<int64_t>(ret);
+}
+
+int64_t sp_rt_process_spawn(const char* cmd) {
+    if (!cmd) return -1;
+#if defined(_WIN32)
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+    std::vector<char> cmdBuf(cmd, cmd + std::strlen(cmd) + 1);
+    if (CreateProcessA(NULL, cmdBuf.data(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        int64_t pid = static_cast<int64_t>(pi.dwProcessId);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        return pid;
+    }
+    return -1;
+#else
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl("/bin/sh", "sh", "-c", cmd, (char*)NULL);
+        _exit(127);
+    }
+    return static_cast<int64_t>(pid);
+#endif
+}
+
+const char* sp_rt_process_run(const char* cmd) {
+    if (!cmd) return "";
+#if defined(_WIN32)
+    FILE* pipe = _popen(cmd, "r");
+#else
+    FILE* pipe = popen(cmd, "r");
+#endif
+    if (!pipe) return "";
+    std::string result;
+    char buffer[256];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        result += buffer;
+    }
+#if defined(_WIN32)
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+    char* copy = static_cast<char*>(malloc(result.size() + 1));
+    std::memcpy(copy, result.c_str(), result.size() + 1);
+    return copy;
+}
+
+int64_t sp_rt_process_pid() {
+#if defined(_WIN32)
+    return static_cast<int64_t>(GetCurrentProcessId());
+#else
+    return static_cast<int64_t>(getpid());
+#endif
+}
+
 }
 

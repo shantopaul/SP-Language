@@ -339,6 +339,12 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("arch", typeCtx.getFunctionType({}, typeCtx.getString()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("args", typeCtx.getFunctionType({}, typeCtx.getArrayType(typeCtx.getString())), builtinLoc));
     define(std::make_shared<FunctionSymbol>("exit", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+
+    // Built-in process functions (std.process)
+    define(std::make_shared<FunctionSymbol>("exec", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("spawn", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("runCommand", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("pid", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
 }
 
 } // namespace sp::sema

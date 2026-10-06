@@ -189,4 +189,10 @@ extern "C" {
     const char* sp_rt_os_arch();
     void*       sp_rt_os_args();
     void        sp_rt_os_exit(int64_t code);
+
+    // Process functions (std.process)
+    int64_t     sp_rt_process_exec(const char* cmd);
+    int64_t     sp_rt_process_spawn(const char* cmd);
+    const char* sp_rt_process_run(const char* cmd);
+    int64_t     sp_rt_process_pid();
 }

@@ -487,6 +487,12 @@ TypeContext::TypeContext() {
     osCls->addMethod({"args", getFunctionType({}, getArrayType(m_stringType)), "public", true, false, false});
     osCls->addMethod({"exit", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
     osCls->addMethod({"exit", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+
+    auto procCls = createClassType("Process");
+    procCls->addMethod({"exec", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
+    procCls->addMethod({"spawn", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
+    procCls->addMethod({"run", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    procCls->addMethod({"pid", getFunctionType({}, m_int32Type), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

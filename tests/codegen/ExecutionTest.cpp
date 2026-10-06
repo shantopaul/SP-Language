@@ -1661,3 +1661,46 @@ TEST(ExecutionTest, StdlibOsNativeExecution) {
     EXPECT_NE(output.find("os_static_arch: true"), std::string::npos);
     EXPECT_NE(output.find("os_static_get: SP_VAL_42"), std::string::npos);
 }
+
+TEST(ExecutionTest, StdlibProcessNativeExecution) {
+    const std::string source = R"sp(
+        import std.process;
+
+        fn main() {
+            int curPid = pid();
+            println("pid_gt_0: ${curPid > 0}");
+
+            string okCmd = "cmd.exe /c exit 0";
+            int ret0 = exec(okCmd);
+            println("ret_is_0: ${ret0 == 0}");
+
+            string echoCmd = "cmd.exe /c echo HelloProcess";
+            string out = runCommand(echoCmd);
+            string targetSub = "HelloProcess";
+            bool hasSub = out.contains(targetSub);
+            println("out_contains: ${hasSub}");
+
+            int chPid = spawn(okCmd);
+            println("spawn_gt_0: ${chPid > 0}");
+
+            int staticRet = Process.exec(okCmd);
+            println("static_ret_0: ${staticRet == 0}");
+
+            string staticOut = Process.run(echoCmd);
+            bool hasStaticSub = staticOut.contains(targetSub);
+            println("static_out_contains: ${hasStaticSub}");
+
+            int staticPid = Process.pid();
+            println("static_pid_gt_0: ${staticPid > 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_process");
+    EXPECT_NE(output.find("pid_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("ret_is_0: true"), std::string::npos);
+    EXPECT_NE(output.find("out_contains: true"), std::string::npos);
+    EXPECT_NE(output.find("spawn_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("static_ret_0: true"), std::string::npos);
+    EXPECT_NE(output.find("static_out_contains: true"), std::string::npos);
+    EXPECT_NE(output.find("static_pid_gt_0: true"), std::string::npos);
+}
