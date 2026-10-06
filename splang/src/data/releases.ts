@@ -40,9 +40,9 @@ export const CURRENT_RELEASE: ReleaseInfo = {
       arch: "x64 (64-bit)",
       filename: "sp-1.0.0-windows-x64.zip",
       format: ".zip",
-      size: "24.6 MB",
-      sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      url: "https://github.com/shantopaul/SP-Language/releases/download/v1.0.0/sp-1.0.0-windows-x64.zip",
+      size: "3.85 MB",
+      sha256: "37916cd8eca92e73fbd7c7c3bcc70f4efe0573f0b4fbad0ebe1b7e093cefee9c",
+      url: "/downloads/sp-1.0.0-windows-x64.zip",
       primary: true,
     },
     {
