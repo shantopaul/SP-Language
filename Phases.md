@@ -404,7 +404,7 @@ This document outlines the detailed development phases for the SP Programming La
 - [ ] 6. Conduct a security audit (package signing, lockfile integrity, checksums).
 - [ ] 7. Perform and publish benchmarks against other languages (e.g., Fibonacci, sorting, JSON parsing).
 - [ ] 8. Resolve outstanding bugs and handle edge cases gracefully.
-- [ ] 9. Launch the official website (`sp-lang.org`).
+- [ ] 9. Launch the official website (`splang.shantopaul.com`) and package registry (`registry.splang.shantopaul.com`).
 - [ ] 10. Publish official GitHub releases containing pre-compiled binaries for Windows, Linux, and macOS.
 - [ ] 11. Write the v1.0.0 announcement blog post.
 

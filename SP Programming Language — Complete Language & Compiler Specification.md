@@ -7,7 +7,7 @@
 **Source Extension:** `.sp`  
 **Compiler:** `spc`  
 **Package Manager:** `spm`  
-**Language Website:** `sp-lang.org` *(future)*  
+**Language Website:** `splang.shantopaul.com` *(future)*  
 **Repository:** `github.com/shantopaul/sp-language` *(proposed)*  
 **Language Type:** General-Purpose Programming Language  
 **Primary Paradigms:** Procedural, Object-Oriented, Functional, Generic  
@@ -1866,7 +1866,7 @@ spc test
 Future registry:
 
 ```text
-packages.sp-lang.org
+registry.splang.shantopaul.com
 ```
 
 Example:
@@ -3408,7 +3408,7 @@ docs/
 Future documentation:
 
 ```text
-https://sp-lang.org/docs
+https://splang.shantopaul.com/docs
 ```
 
 Sections:

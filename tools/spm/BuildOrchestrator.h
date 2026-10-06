@@ -46,10 +46,10 @@ public:
     static bool clean(const std::string& projectDir, std::string& errorMsg);
 
     // Package and prepare for publishing to registry
-    static PublishResult publish(const std::string& projectDir, const std::string& registryUrl = "https://registry.sp-lang.org");
+    static PublishResult publish(const std::string& projectDir, const std::string& registryUrl = "https://registry.splang.shantopaul.com");
 
     // Search registry for packages
-    static std::vector<SearchResult> search(const std::string& query, const std::string& registryUrl = "https://registry.sp-lang.org");
+    static std::vector<SearchResult> search(const std::string& query, const std::string& registryUrl = "https://registry.splang.shantopaul.com");
 
 private:
     static std::string readFile(const std::string& path);

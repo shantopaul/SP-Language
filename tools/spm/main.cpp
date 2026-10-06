@@ -366,7 +366,7 @@ int handleClean(int /*argc*/, char* /*argv*/[]) {
 }
 
 int handlePublish(int argc, char* argv[]) {
-    std::string registryUrl = "https://registry.sp-lang.org";
+    std::string registryUrl = "https://registry.splang.shantopaul.com";
     for (int i = 2; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--registry" && i + 1 < argc) {
             registryUrl = argv[++i];

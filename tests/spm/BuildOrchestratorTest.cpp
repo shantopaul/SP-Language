@@ -46,7 +46,7 @@ TEST_F(BuildOrchestratorTest, PublishProjectValidationAndArtifact) {
     std::string err;
     ASSERT_TRUE(scaffoldProject(m_tempDir.string(), "pkg_publish_test", true, err)) << err;
 
-    auto pubRes = BuildOrchestrator::publish(m_tempDir.string(), "https://registry.sp-lang.org");
+    auto pubRes = BuildOrchestrator::publish(m_tempDir.string(), "https://registry.splang.shantopaul.com");
     ASSERT_TRUE(pubRes.success) << pubRes.errorMessage;
     EXPECT_TRUE(fs::exists(pubRes.packageArtifact));
 }
