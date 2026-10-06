@@ -1,0 +1,49 @@
+import React from "react";
+import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
+import { CodeBlock } from "@/components/ui/CodeBlock";
+import { Callout } from "@/components/ui/Callout";
+import { PrevNextNav } from "@/components/ui/PrevNextNav";
+
+export const metadata = {
+  title: "VS Code Extension",
+  description: "Official VS Code extension for syntax highlighting, LSP, and debugging in SP.",
+};
+
+export default function VsCodeExtensionPage() {
+  const installCmd = `code --install-extension shantopaul.sp-lang`;
+
+  return (
+    <div className="space-y-6">
+      <Breadcrumbs
+        items={[
+          { title: "Developer Tools", href: "/tools" },
+          { title: "VS Code Extension" },
+        ]}
+      />
+
+      <h1 className="text-3xl font-extrabold text-white">Official VS Code Extension</h1>
+      <p className="text-sm text-slate-300">
+        The official extension is located inside the repository at <code>editors/vscode/</code> and available on the Visual Studio Marketplace.
+      </p>
+
+      <CodeBlock code={installCmd} language="bash" />
+
+      <h2 className="text-xl font-bold text-white pt-4">Extension Features</h2>
+      <ul className="list-disc list-inside space-y-2 text-xs sm:text-sm text-slate-300">
+        <li><strong>TextMate Grammar:</strong> Complete syntax highlighting for keywords, types, decorators, strings, numbers, and doc comments.</li>
+        <li><strong>Language Server Integration:</strong> Automatically connects to <code>spls.exe</code> for code completion, hover tooltips, and real-time red squiggly error diagnostics.</li>
+        <li><strong>Debug Adapter Protocol:</strong> Configures <code>spd.exe</code> for one-click F5 debugging with breakpoints and variable viewing.</li>
+        <li><strong>Snippets:</strong> Quick code snippets for <code>fn</code>, <code>class</code>, <code>struct</code>, <code>match</code>, and <code>test</code> blocks.</li>
+      </ul>
+
+      <Callout type="tip" title="Bundled in Release Packages">
+        When you install SP via <code>winget</code>, <code>install.ps1</code>, or <code>install.sh</code>, the VS Code extension manifest is automatically installed into your editor.
+      </Callout>
+
+      <PrevNextNav
+        prev={{ title: "DAP Debugger (spd)", href: "/tools/debugger" }}
+        next={{ title: "7-Language Benchmarks", href: "/benchmarks" }}
+      />
+    </div>
+  );
+}
