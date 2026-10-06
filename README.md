@@ -926,6 +926,14 @@ SP-Language/
 
 ## 📖 Documentation
 
+### 🌐 Official Online Resources
+
+- **Official Website:** [splang.shantopaul.com](https://splang.shantopaul.com)
+- **Official Documentation:** [docs.splang.shantopaul.com](https://docs.splang.shantopaul.com)
+- **Package Registry:** [registry.splang.shantopaul.com](https://registry.splang.shantopaul.com)
+
+### 📚 Repository Specifications & Guides
+
 | Document | Description |
 |:---------|:------------|
 | **[Language Specification](SP%20Programming%20Language%20—%20Complete%20Language%20%26%20Compiler%20Specification.md)** | Complete 135-section language spec (4,000+ lines) |

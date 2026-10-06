@@ -42,12 +42,22 @@ add_executable(sp_tests
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
     runtime/RuntimeTest.cpp
+    spm/ProjectConfigTest.cpp
+    spm/DependencyResolverTest.cpp
+    spm/LockfileTest.cpp
+    spm/BuildOrchestratorTest.cpp
+)
+
+target_include_directories(sp_tests
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/tools
 )
 
 target_link_libraries(sp_tests
     PRIVATE
         sp_compiler
         sp_runtime
+        spm_core
         GTest::gtest_main
 )
 

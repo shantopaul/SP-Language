@@ -119,7 +119,7 @@ The SP compiler is designed with developer experience (DX) in mind. Output is cl
 
 ---
 
-## 4. Website Design (sp-lang.org)
+## 4. Website Design (splang.shantopaul.com)
 
 ### Layout
 - **Max content width:** 1200px
