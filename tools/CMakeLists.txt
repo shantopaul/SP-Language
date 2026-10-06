@@ -14,11 +14,19 @@ target_include_directories(sp_test_runner PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_test_runner PUBLIC sp_compiler sp_runtime)
 target_compile_features(sp_test_runner PRIVATE cxx_std_20)
 
+# SP Documentation Generator Library (sp_doc_generator)
+add_library(sp_doc_generator
+    doc/DocGenerator.cpp
+)
+target_include_directories(sp_doc_generator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sp_doc_generator PUBLIC sp_compiler)
+target_compile_features(sp_doc_generator PRIVATE cxx_std_20)
+
 # SP Compiler Executable (spc)
 add_executable(spc
     spc/main.cpp
 )
-target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner)
+target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator)
 target_compile_features(spc PRIVATE cxx_std_20)
 
 # SP Package Manager Core Library (spm_core)

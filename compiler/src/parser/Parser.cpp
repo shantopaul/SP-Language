@@ -1157,7 +1157,7 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
     std::vector<ast::Parameter> params = parseParameters();
 
     std::string returnType = "void";
-    if (match(lexer::TokenType::Arrow)) {
+    if (match(lexer::TokenType::Arrow) || match(lexer::TokenType::Colon)) {
         returnType = parseType();
     }
 
@@ -1264,7 +1264,7 @@ ast::ASTNodePtr Parser::parseInterfaceDecl(std::string visibility) {
             diagnostics::SourceLocation fnLoc = fnName.location;
             std::vector<ast::Parameter> params = parseParameters();
             std::string returnType = "void";
-            if (match(lexer::TokenType::Arrow)) {
+            if (match(lexer::TokenType::Arrow) || match(lexer::TokenType::Colon)) {
                 returnType = parseType();
             }
             consume(lexer::TokenType::Semicolon, "Expected ';' after interface method signature");
@@ -1291,11 +1291,23 @@ ast::ASTNodePtr Parser::parseStructDecl(std::string visibility) {
     std::vector<std::unique_ptr<ast::VarDeclStmt>> fields;
 
     while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
-        std::string type = parseType();
-        const lexer::Token& fieldName = consume(lexer::TokenType::Identifier, "Expected field name in struct");
-        diagnostics::SourceLocation fieldLoc = fieldName.location;
+        std::string type;
+        std::string fieldName;
+        diagnostics::SourceLocation fieldLoc = peek().location;
+
+        if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::Colon)) {
+            fieldName = advance().lexeme;
+            consume(lexer::TokenType::Colon, "Expected ':' after field name");
+            type = parseType();
+        } else {
+            type = parseType();
+            const lexer::Token& fTok = consume(lexer::TokenType::Identifier, "Expected field name in struct");
+            fieldName = fTok.lexeme;
+            fieldLoc = fTok.location;
+        }
+
         consume(lexer::TokenType::Semicolon, "Expected ';' after struct field");
-        fields.push_back(std::make_unique<ast::VarDeclStmt>(type, fieldName.lexeme, nullptr, false, false, fieldLoc));
+        fields.push_back(std::make_unique<ast::VarDeclStmt>(type, fieldName, nullptr, false, false, fieldLoc));
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of struct body");
