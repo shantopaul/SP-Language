@@ -1243,3 +1243,60 @@ TEST(ExecutionTest, WhileAndDoWhileNativeExecution) {
     EXPECT_NE(output.find("-> 1"), std::string::npos);
     EXPECT_NE(output.find("Reached 1 in 111 steps"), std::string::npos);
 }
+
+TEST(ExecutionTest, ArraysComprehensiveNativeExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            int[] numbers = {10, 20, 30, 40, 50};
+            string[] names = {"Alice", "Bob", "Charlie"};
+            let scores = [95, 87, 92, 78, 88];
+
+            println("First: ${numbers[0]}");
+            println("Last: ${numbers[4]}");
+
+            numbers[0] = 100;
+            println("Updated first: ${numbers[0]}");
+
+            println("\nAll names:");
+            for (string name in names) {
+                println("  - ${name}");
+            }
+
+            println("\nAll scores:");
+            for (int i = 0; i < scores.length(); i++) {
+                println("  Student ${i + 1}: ${scores[i]}");
+            }
+
+            println("\nLength: ${scores.length()}");
+
+            int maxScore = scores[0];
+            for (int s in scores) {
+                if (s > maxScore) maxScore = s;
+            }
+            println("Highest score: ${maxScore}");
+
+            int total = 0;
+            for (int s in scores) {
+                total += s;
+            }
+            println("Total: ${total}");
+            println("Average: ${total / scores.length()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_arrays");
+    EXPECT_NE(output.find("First: 10"), std::string::npos);
+    EXPECT_NE(output.find("Last: 50"), std::string::npos);
+    EXPECT_NE(output.find("Updated first: 100"), std::string::npos);
+    EXPECT_NE(output.find("All names:"), std::string::npos);
+    EXPECT_NE(output.find("- Alice"), std::string::npos);
+    EXPECT_NE(output.find("- Bob"), std::string::npos);
+    EXPECT_NE(output.find("- Charlie"), std::string::npos);
+    EXPECT_NE(output.find("Student 1: 95"), std::string::npos);
+    EXPECT_NE(output.find("Student 5: 88"), std::string::npos);
+    EXPECT_NE(output.find("Length: 5"), std::string::npos);
+    EXPECT_NE(output.find("Highest score: 95"), std::string::npos);
+    EXPECT_NE(output.find("Total: 440"), std::string::npos);
+    EXPECT_NE(output.find("Average: 88"), std::string::npos);
+}
+

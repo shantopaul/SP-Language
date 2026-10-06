@@ -541,19 +541,39 @@ ast::ExprPtr Parser::parseMapLiteral() {
     diagnostics::SourceLocation loc = peek().location;
     advance(); // Consume '{'
 
-    std::vector<ast::MapExpr::Entry> entries;
-
-    if (!check(lexer::TokenType::CloseBrace)) {
-        do {
-            ast::ExprPtr key = parseExpression();
-            consume(lexer::TokenType::Colon, "Expected ':' between key and value in map entry");
-            ast::ExprPtr value = parseExpression();
-            entries.emplace_back(std::move(key), std::move(value));
-        } while (match(lexer::TokenType::Comma));
+    if (check(lexer::TokenType::CloseBrace)) {
+        advance();
+        return std::make_unique<ast::MapExpr>(std::vector<ast::MapExpr::Entry>{}, loc);
     }
 
-    consume(lexer::TokenType::CloseBrace, "Expected '}' at end of map literal");
-    return std::make_unique<ast::MapExpr>(std::move(entries), loc);
+    ast::ExprPtr first = parseExpression();
+    if (match(lexer::TokenType::Colon)) {
+        std::vector<ast::MapExpr::Entry> entries;
+        ast::ExprPtr value = parseExpression();
+        entries.emplace_back(std::move(first), std::move(value));
+
+        while (match(lexer::TokenType::Comma)) {
+            if (check(lexer::TokenType::CloseBrace)) break;
+            ast::ExprPtr key = parseExpression();
+            consume(lexer::TokenType::Colon, "Expected ':' between key and value in map entry");
+            ast::ExprPtr val = parseExpression();
+            entries.emplace_back(std::move(key), std::move(val));
+        }
+
+        consume(lexer::TokenType::CloseBrace, "Expected '}' at end of map literal");
+        return std::make_unique<ast::MapExpr>(std::move(entries), loc);
+    } else {
+        std::vector<ast::ExprPtr> elements;
+        elements.push_back(std::move(first));
+
+        while (match(lexer::TokenType::Comma)) {
+            if (check(lexer::TokenType::CloseBrace)) break;
+            elements.push_back(parseExpression());
+        }
+
+        consume(lexer::TokenType::CloseBrace, "Expected '}' at end of array literal");
+        return std::make_unique<ast::ArrayExpr>(std::move(elements), loc);
+    }
 }
 
 ast::ExprPtr Parser::parseNewExpr() {
