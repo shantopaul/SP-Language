@@ -34,9 +34,9 @@
 # CMake build directories
 build/
 cmake-build-*/
-out/
-bin/
-lib/
+/out/
+/bin/
+/lib/
 CMakeUserPresets.json
 
 # CMake temporary files
