@@ -72,6 +72,141 @@ int handleInit(int argc, char* argv[]) {
     return 0;
 }
 
+int handleAdd(int argc, char* argv[]) {
+    if (argc < 3) {
+        std::cerr << "error: 'spm add' requires a package name\n"
+                  << "Usage: spm add <package> [--version <req>] [--path <path>] [--git <url>] [--dev]\n";
+        return 1;
+    }
+
+    std::string pkgName;
+    std::string versionReq = "*";
+    std::string path;
+    std::string gitUrl;
+    bool isDev = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--dev") {
+            isDev = true;
+        } else if ((arg == "--version" || arg == "-v") && i + 1 < argc) {
+            versionReq = argv[++i];
+        } else if (arg == "--path" && i + 1 < argc) {
+            path = argv[++i];
+        } else if (arg == "--git" && i + 1 < argc) {
+            gitUrl = argv[++i];
+        } else if (!arg.starts_with("-")) {
+            if (pkgName.empty()) {
+                pkgName = arg;
+            }
+        }
+    }
+
+    if (pkgName.empty()) {
+        std::cerr << "error: missing package name to add\n";
+        return 1;
+    }
+
+    fs::path tomlPath = "sp.toml";
+    if (!fs::exists(tomlPath)) {
+        std::cerr << "error: could not find 'sp.toml' in current directory\n"
+                  << "Run 'spm init' to initialize an SP project first.\n";
+        return 1;
+    }
+
+    sp::spm::ProjectConfig config;
+    if (!config.loadFromFile(tomlPath.string())) {
+        std::cerr << "error: failed to load sp.toml: " << config.getLastError() << "\n";
+        return 1;
+    }
+
+    sp::spm::Dependency dep;
+    dep.name = pkgName;
+    dep.versionReq = versionReq;
+    dep.path = path;
+    dep.gitUrl = gitUrl;
+
+    if (!config.addDependency(dep, isDev)) {
+        std::cerr << "error: failed to add dependency '" << pkgName << "'\n";
+        return 1;
+    }
+
+    if (!config.saveToFile(tomlPath.string())) {
+        std::cerr << "error: failed to save sp.toml: " << config.getLastError() << "\n";
+        return 1;
+    }
+
+    std::cout << "Added " << (isDev ? "dev-dependency" : "dependency")
+              << " '" << pkgName << "'";
+    if (!path.empty()) {
+        std::cout << " (path: " << path << ")";
+    } else if (!gitUrl.empty()) {
+        std::cout << " (git: " << gitUrl << ")";
+    } else {
+        std::cout << " (version: " << versionReq << ")";
+    }
+    std::cout << " to sp.toml\n";
+
+    return 0;
+}
+
+int handleRemove(int argc, char* argv[]) {
+    if (argc < 3) {
+        std::cerr << "error: 'spm remove' requires a package name\n"
+                  << "Usage: spm remove <package> [--dev]\n";
+        return 1;
+    }
+
+    std::string pkgName;
+    bool isDev = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--dev") {
+            isDev = true;
+        } else if (!arg.starts_with("-")) {
+            if (pkgName.empty()) {
+                pkgName = arg;
+            }
+        }
+    }
+
+    if (pkgName.empty()) {
+        std::cerr << "error: missing package name to remove\n";
+        return 1;
+    }
+
+    fs::path tomlPath = "sp.toml";
+    if (!fs::exists(tomlPath)) {
+        std::cerr << "error: could not find 'sp.toml' in current directory\n";
+        return 1;
+    }
+
+    sp::spm::ProjectConfig config;
+    if (!config.loadFromFile(tomlPath.string())) {
+        std::cerr << "error: failed to load sp.toml: " << config.getLastError() << "\n";
+        return 1;
+    }
+
+    bool removed = config.removeDependency(pkgName, isDev);
+    if (!removed && !isDev) {
+        removed = config.removeDependency(pkgName, true);
+    }
+
+    if (!removed) {
+        std::cerr << "error: dependency '" << pkgName << "' not found in sp.toml\n";
+        return 1;
+    }
+
+    if (!config.saveToFile(tomlPath.string())) {
+        std::cerr << "error: failed to save sp.toml: " << config.getLastError() << "\n";
+        return 1;
+    }
+
+    std::cout << "Removed dependency '" << pkgName << "' from sp.toml\n";
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -94,6 +229,14 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "init") {
         return handleInit(argc, argv);
+    }
+
+    if (cmd == "add") {
+        return handleAdd(argc, argv);
+    }
+
+    if (cmd == "remove") {
+        return handleRemove(argc, argv);
     }
 
     std::cerr << "error: unknown or not-yet-implemented command: " << cmd << "\n"
