@@ -1,0 +1,91 @@
+{
+  "Function Declaration": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params}): ${3:void} {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Declare a new SP function"
+  },
+  "Async Function": {
+    "prefix": "afn",
+    "body": [
+      "async fn ${1:name}(${2:params}): ${3:void} {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Declare an asynchronous function"
+  },
+  "Class Declaration": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Declare a new SP class"
+  },
+  "Interface Declaration": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Name} {",
+      "\tfn ${2:method}(): ${3:void};",
+      "}"
+    ],
+    "description": "Declare a new SP interface"
+  },
+  "Struct Declaration": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:type};",
+      "}"
+    ],
+    "description": "Declare a lightweight SP struct"
+  },
+  "Enum Declaration": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant}",
+      "}"
+    ],
+    "description": "Declare an enumerated type"
+  },
+  "For In Loop": {
+    "prefix": "forin",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Iterate over collection or range"
+  },
+  "Test Block": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:description}\" {",
+      "\tassert(${2:condition});",
+      "}"
+    ],
+    "description": "Declare a native test block"
+  },
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "fn main() {",
+      "\tprintln(\"Hello, SP!\");",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Application entry point"
+  },
+  "Print Line": {
+    "prefix": "print",
+    "body": [
+      "println(${1:\"Hello\"});"
+    ],
+    "description": "Print to stdout with newline"
+  }
+}
