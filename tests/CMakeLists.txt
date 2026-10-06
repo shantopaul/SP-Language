@@ -43,6 +43,7 @@ add_executable(sp_tests
     codegen/ClassGeneratorTest.cpp
     runtime/RuntimeTest.cpp
     spm/ProjectConfigTest.cpp
+    spm/DependencyResolverTest.cpp
 )
 
 target_include_directories(sp_tests

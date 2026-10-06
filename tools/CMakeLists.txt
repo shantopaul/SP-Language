@@ -8,6 +8,8 @@ target_compile_features(spc PRIVATE cxx_std_20)
 # SP Package Manager Core Library (spm_core)
 add_library(spm_core
     spm/ProjectConfig.cpp
+    spm/SemVer.cpp
+    spm/DependencyResolver.cpp
 )
 target_include_directories(spm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(spm_core PUBLIC sp_compiler sp_runtime)
