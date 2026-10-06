@@ -399,7 +399,7 @@ This document outlines the detailed development phases for the SP Programming La
 - [ ] 1. Stabilize the language specification (no more breaking changes).
 - [ ] 2. Optimize compiler performance and generated code quality.
 - [ ] 3. Solidify cross-compilation support via `--target` flags.
-- [ ] 4. Complete and deploy the official documentation website.
+- [ ] 4. Complete and deploy the official documentation website (`docs.splang.shantopaul.com`).
 - [ ] 5. Write comprehensive getting-started guides, tutorials, and a language reference.
 - [ ] 6. Conduct a security audit (package signing, lockfile integrity, checksums).
 - [ ] 7. Perform and publish benchmarks against other languages (e.g., Fibonacci, sorting, JSON parsing).

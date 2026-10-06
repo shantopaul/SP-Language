@@ -3408,7 +3408,7 @@ docs/
 Future documentation:
 
 ```text
-https://splang.shantopaul.com/docs
+https://docs.splang.shantopaul.com
 ```
 
 Sections:
