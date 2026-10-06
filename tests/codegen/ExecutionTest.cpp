@@ -963,5 +963,74 @@ TEST(ExecutionTest, FunctionsComprehensiveNativeExecution) {
     EXPECT_NE(output.find("0 1 1 2 3 5 8 13 21 34"), std::string::npos);
 }
 
+TEST(ExecutionTest, IfElseControlFlowNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            int age = 21;
+            int score = 85;
+            string role = "admin";
+
+            if (age >= 18) {
+                println("You are an adult.");
+            }
+
+            if (age >= 18) {
+                println("Welcome! You can enter.");
+            } else {
+                println("Sorry, you must be 18+.");
+            }
+
+            if (score >= 90) {
+                println("Grade: A  ⭐ Excellent!");
+            } else if (score >= 80) {
+                println("Grade: B  👍 Good job!");
+            } else if (score >= 70) {
+                println("Grade: C  📝 Average");
+            } else if (score >= 60) {
+                println("Grade: D  ⚠️ Below average");
+            } else {
+                println("Grade: F  ❌ Failed");
+            }
+
+            if (age >= 18) {
+                if (role == "admin") {
+                    println("Admin access granted.");
+                } else {
+                    println("User access granted.");
+                }
+            } else {
+                println("Access denied.");
+            }
+
+            bool hasLicense = true;
+
+            if (age >= 18 && hasLicense) {
+                println("You can drive! 🚗");
+            }
+
+            if (role == "admin" || role == "moderator") {
+                println("You have elevated permissions.");
+            }
+
+            if (!hasLicense) {
+                println("Get a license first.");
+            }
+
+            string status = age >= 18 ? "Adult" : "Minor";
+            println("Status: ${status}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_if_else");
+    EXPECT_NE(output.find("You are an adult."), std::string::npos);
+    EXPECT_NE(output.find("Welcome! You can enter."), std::string::npos);
+    EXPECT_NE(output.find("Grade: B  👍 Good job!"), std::string::npos);
+    EXPECT_NE(output.find("Admin access granted."), std::string::npos);
+    EXPECT_NE(output.find("You can drive! 🚗"), std::string::npos);
+    EXPECT_NE(output.find("You have elevated permissions."), std::string::npos);
+    EXPECT_NE(output.find("Status: Adult"), std::string::npos);
+}
+
+
 
 
