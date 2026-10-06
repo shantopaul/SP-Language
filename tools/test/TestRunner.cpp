@@ -304,6 +304,9 @@ TestSuiteResult TestRunner::runAll(const std::string& targetPath, const std::str
     auto totalStart = std::chrono::high_resolution_clock::now();
 
     for (const auto& file : files) {
+        if (m_verbose) {
+            std::cout << "--> running test suite in: " << file << "\n";
+        }
         auto fileRes = runFile(file, filter);
         for (const auto& r : fileRes.results) {
             std::cout << "test " << std::left << std::setw(36) << r.name << " ... ";
