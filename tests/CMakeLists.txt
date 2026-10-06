@@ -46,6 +46,11 @@ add_executable(sp_tests
     spm/DependencyResolverTest.cpp
     spm/LockfileTest.cpp
     spm/BuildOrchestratorTest.cpp
+    fmt/FormatterTest.cpp
+    test/TestRunnerTest.cpp
+    doc/DocGeneratorTest.cpp
+    spls/LspServerTest.cpp
+    debugger/DapServerTest.cpp
 )
 
 target_include_directories(sp_tests
@@ -58,6 +63,11 @@ target_link_libraries(sp_tests
         sp_compiler
         sp_runtime
         spm_core
+        sp_fmt
+        sp_test_runner
+        sp_doc_generator
+        sp_lsp_server
+        sp_debugger
         GTest::gtest_main
 )
 

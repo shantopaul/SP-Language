@@ -63,7 +63,7 @@ endif()
 # Installation rules (Distribution package like Java JDK / C++ GCC)
 include(GNUInstallDirs)
 
-install(TARGETS spc spm
+install(TARGETS spc spm spls spd
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 

@@ -3665,13 +3665,18 @@ void IRBuilder::visit(const ast::CallExpr& node) {
     }
 
     if (calleeName == "assert") {
-        if (node.getArgs().size() >= 2) {
+        if (!node.getArgs().empty()) {
             node.getArgs()[0]->accept(*this);
             IRValuePtr condVal = m_lastExprValue;
             condVal = emitCastIfNeeded(condVal, IRType::getInt1());
 
-            node.getArgs()[1]->accept(*this);
-            IRValuePtr msgVal = m_lastExprValue;
+            IRValuePtr msgVal = nullptr;
+            if (node.getArgs().size() >= 2) {
+                node.getArgs()[1]->accept(*this);
+                msgVal = m_lastExprValue;
+            } else {
+                msgVal = m_module->getOrCreateStringLiteral("assertion failed");
+            }
 
             auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_assert", std::vector<IRValuePtr>{condVal, msgVal});
             m_currentBlock->addInstruction(call);

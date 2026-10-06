@@ -10,6 +10,9 @@
 #include "sp/ir/IRPrinter.h"
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/runtime/Runtime.h"
+#include "fmt/Formatter.h"
+#include "test/TestRunner.h"
+#include "doc/DocGenerator.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -42,6 +45,7 @@ void printHelp() {
               << "  run <file>      Compile and immediately execute an SP program\n"
               << "  fmt <file>      Format SP source files according to style rules\n"
               << "  test [path]     Execute SP unit and integration tests\n"
+              << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
               << "  init [name]     Initialize a new SP project with sp.toml\n\n"
               << "Options:\n"
               << "  -o <path>       Specify output binary path (for build command)\n"
@@ -257,6 +261,131 @@ int main(int argc, char* argv[]) {
         }
 
         return 0;
+    }
+
+    if (command == "fmt") {
+        bool writeInPlace = false;
+        bool checkMode = false;
+        int indentWidth = 4;
+        std::string filename;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if (arg == "-w" || arg == "--write") {
+                writeInPlace = true;
+            } else if (arg == "--check") {
+                checkMode = true;
+            } else if (arg == "--indent" && i + 1 < argc) {
+                indentWidth = std::stoi(argv[++i]);
+            } else if (!arg.starts_with("-")) {
+                if (filename.empty()) {
+                    filename = arg;
+                }
+            }
+        }
+
+        if (filename.empty()) {
+            std::cerr << "error: 'spc fmt' requires an SP source file\n"
+                      << "Usage: spc fmt <file.sp> [-w/--write] [--check] [--indent <N>]\n";
+            return 1;
+        }
+
+        std::string source = readFile(filename);
+        if (source.empty() && fs::exists(filename) && fs::file_size(filename) > 0) {
+            std::cerr << "error: could not read file " << filename << "\n";
+            return 1;
+        }
+
+        sp::fmt::FormatOptions opts;
+        opts.indentWidth = indentWidth;
+        sp::fmt::Formatter formatter(opts);
+
+        if (checkMode) {
+            bool formatted = formatter.isFormatted(source);
+            if (!formatted) {
+                std::cout << filename << " is not formatted.\n";
+                return 1;
+            }
+            std::cout << filename << " is properly formatted.\n";
+            return 0;
+        }
+
+        std::string formattedCode = formatter.format(source);
+        if (writeInPlace) {
+            std::ofstream out(filename);
+            if (!out.is_open()) {
+                std::cerr << "error: failed to write to " << filename << "\n";
+                return 1;
+            }
+            out << formattedCode;
+            std::cout << "Formatted " << filename << "\n";
+            return 0;
+        }
+
+        std::cout << formattedCode;
+        return 0;
+    }
+
+    if (command == "test") {
+        std::string targetPath = ".";
+        std::string filter;
+        bool verbose = false;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if ((arg == "--filter" || arg == "-f") && i + 1 < argc) {
+                filter = argv[++i];
+            } else if (arg == "--verbose" || arg == "-v") {
+                verbose = true;
+            } else if (!arg.starts_with("-")) {
+                targetPath = arg;
+            }
+        }
+
+        sp::testing::TestRunner runner(verbose);
+        auto suite = runner.runAll(targetPath, filter);
+        return suite.isSuccess() ? 0 : 1;
+    }
+
+    if (command == "doc") {
+        std::string inputPath = ".";
+        std::string outputDir = "docs";
+        bool onlyHtml = false;
+        bool onlyMd = false;
+        std::string projectName = "SP Documentation";
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if ((arg == "-o" || arg == "--out" || arg == "--output") && i + 1 < argc) {
+                outputDir = argv[++i];
+            } else if (arg == "--html") {
+                onlyHtml = true;
+            } else if (arg == "--md") {
+                onlyMd = true;
+            } else if ((arg == "--title" || arg == "--project") && i + 1 < argc) {
+                projectName = argv[++i];
+            } else if (!arg.starts_with("-")) {
+                inputPath = arg;
+            }
+        }
+
+        sp::doc::DocOptions opts;
+        opts.outputDir = outputDir;
+        opts.projectName = projectName;
+        if (onlyHtml && !onlyMd) {
+            opts.generateHtml = true;
+            opts.generateMarkdown = false;
+        } else if (onlyMd && !onlyHtml) {
+            opts.generateHtml = false;
+            opts.generateMarkdown = true;
+        } else {
+            opts.generateHtml = true;
+            opts.generateMarkdown = true;
+        }
+
+        sp::doc::DocGenerator generator(opts);
+        bool success = generator.generate(inputPath, outputDir);
+        return success ? 0 : 1;
     }
 
     diagEngine.reportError("E1000", "Unknown command: " + std::string(command),

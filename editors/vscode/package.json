@@ -1,0 +1,204 @@
+{
+  "name": "sp-language-support",
+  "displayName": "SP Language Support",
+  "description": "Rich language support for the SP Programming Language, powered by spls (SP Language Server).",
+  "version": "0.9.0",
+  "publisher": "shantopaul",
+  "author": {
+    "name": "Shanto Paul",
+    "url": "https://shantopaul.com"
+  },
+  "homepage": "https://splang.shantopaul.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shantopaul/SP-Language"
+  },
+  "bugs": {
+    "url": "https://github.com/shantopaul/SP-Language/issues"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters",
+    "Snippets"
+  ],
+  "keywords": [
+    "sp",
+    "splang",
+    "language server",
+    "compiler",
+    "lsp"
+  ],
+  "activationEvents": [
+    "onLanguage:sp",
+    "workspaceContains:sp.toml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "sp",
+        "aliases": [
+          "SP",
+          "sp",
+          "splang"
+        ],
+        "extensions": [
+          ".sp"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sp",
+        "scopeName": "source.sp",
+        "path": "./syntaxes/sp.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "sp",
+        "path": "./snippets/sp.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "SP Language Configuration",
+      "properties": {
+        "sp.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the SP Language Server (spls) binary. Defaults to system PATH or C:\\SP-Language\\bin\\spls.exe."
+        },
+        "sp.languageServer.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the SP Language Server."
+        },
+        "sp.debugger.path": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the SP Debug Adapter Protocol (spd) binary. Defaults to system PATH or C:\\SP-Language\\bin\\spd.exe."
+        },
+        "sp.format.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically format SP source files on save using spc fmt."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "sp.restartServer",
+        "title": "SP: Restart Language Server"
+      },
+      {
+        "command": "sp.format",
+        "title": "SP: Format File (spc fmt)"
+      },
+      {
+        "command": "sp.run",
+        "title": "SP: Run Current File"
+      },
+      {
+        "command": "sp.build",
+        "title": "SP: Build Current File"
+      },
+      {
+        "command": "sp.test",
+        "title": "SP: Run Tests in Workspace"
+      },
+      {
+        "command": "sp.initProject",
+        "title": "SP: Initialize New Project (spm init)"
+      },
+      {
+        "command": "sp.buildProject",
+        "title": "SP: Build Project (spm build)"
+      },
+      {
+        "command": "sp.runProject",
+        "title": "SP: Run Project (spm run)"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "sp",
+        "label": "SP Debugger (spd)",
+        "languages": [
+          "sp"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the SP file to debug",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch at the program entry point",
+                "default": true
+              },
+              "args": {
+                "type": "array",
+                "description": "Command line arguments passed to the program",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "sp",
+            "name": "SP: Debug Current File",
+            "request": "launch",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ]
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceExtname == .sp",
+          "command": "sp.run",
+          "group": "run"
+        },
+        {
+          "when": "resourceExtname == .sp",
+          "command": "sp.build",
+          "group": "run"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.14.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0",
+    "vscode-languageclient": "^8.1.0"
+  }
+}
