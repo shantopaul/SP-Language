@@ -506,6 +506,12 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s2", 1)},
                    true);
 
+    // i1 sp_rt_str_equals(ptr, ptr)
+    createFunction("sp_rt_str_equals", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s1", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s2", 1)},
+                   true);
+
     // ptr sp_rt_str_from_int(i64)
     createFunction("sp_rt_str_from_int", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},

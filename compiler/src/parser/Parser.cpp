@@ -627,6 +627,10 @@ ast::StmtPtr Parser::parseStatement() {
     if (match(lexer::TokenType::KeywordThrow)) {
         return parseThrowStatement();
     }
+    if (match(lexer::TokenType::KeywordEnum)) {
+        auto ed = parseEnumDecl("");
+        return std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(ed.release()));
+    }
 
     // Check for variable declaration with explicit or user-defined type: int x = 10; or Person p = ...;
     bool couldBeTypeDecl = isTypeKeyword(peek().type) ||
@@ -832,7 +836,8 @@ ast::StmtPtr Parser::parseMatchStatement() {
         ast::ExprPtr pattern = nullptr;
 
         // Wildcard '_' pattern
-        if (match(lexer::TokenType::Identifier) && previous().lexeme == "_") {
+        if (check(lexer::TokenType::Identifier) && peek().lexeme == "_") {
+            advance();
             pattern = nullptr;
         } else {
             pattern = parseExpression();

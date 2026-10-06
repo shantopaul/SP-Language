@@ -1031,6 +1031,91 @@ TEST(ExecutionTest, IfElseControlFlowNativeExecution) {
     EXPECT_NE(output.find("Status: Adult"), std::string::npos);
 }
 
+TEST(ExecutionTest, SwitchAndMatchNativeExecution) {
+    const std::string source = R"(
+        fn classicSwitchDemo(int day) {
+            println("--- Classic Switch ---");
+            switch (day) {
+                case 1:
+                    println("Monday");
+                    break;
+                case 2:
+                    println("Tuesday");
+                    break;
+                case 3:
+                    println("Wednesday");
+                    break;
+                case 4:
+                    println("Thursday");
+                    break;
+                case 5:
+                    println("Friday");
+                    break;
+                case 6:
+                    println("Saturday 🎉");
+                    break;
+                case 7:
+                    println("Sunday 🎉");
+                    break;
+                default:
+                    println("Invalid day");
+            }
+        }
+
+        fn modernMatchDemo() {
+            int day = 3;
+
+            println("--- Modern Match ---");
+            match day {
+                1 => println("Monday"),
+                2 => println("Tuesday"),
+                3 => println("Wednesday"),
+                4 => println("Thursday"),
+                5 => println("Friday"),
+                6 => println("Saturday 🎉"),
+                7 => println("Sunday 🎉"),
+                _ => println("Invalid day")
+            }
+
+            string command = "start";
+
+            match command {
+                "start"   => println("Starting server..."),
+                "stop"    => println("Stopping server..."),
+                "restart" => println("Restarting server..."),
+                "status"  => println("Server is running."),
+                _         => println("Unknown command: ${command}")
+            }
+
+            enum Season { Spring, Summer, Autumn, Winter }
+
+            Season current = Season.Summer;
+
+            match current {
+                Season.Spring => println("🌸 Flowers blooming"),
+                Season.Summer => println("☀️ Beach time!"),
+                Season.Autumn => println("🍂 Leaves falling"),
+                Season.Winter => println("❄️ Stay warm!")
+            }
+        }
+
+        fn main() {
+            classicSwitchDemo(3);
+            classicSwitchDemo(99);
+            modernMatchDemo();
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_switch_match");
+    EXPECT_NE(output.find("--- Classic Switch ---"), std::string::npos);
+    EXPECT_NE(output.find("Wednesday"), std::string::npos);
+    EXPECT_NE(output.find("Invalid day"), std::string::npos);
+    EXPECT_NE(output.find("--- Modern Match ---"), std::string::npos);
+    EXPECT_NE(output.find("Starting server..."), std::string::npos);
+    EXPECT_NE(output.find("☀️ Beach time!"), std::string::npos);
+}
+
+
 
 
 

@@ -167,6 +167,12 @@ const char* sp_rt_str_concat(const char* s1, const char* s2) {
     return res;
 }
 
+bool sp_rt_str_equals(const char* s1, const char* s2) {
+    if (s1 == s2) return true;
+    if (!s1 || !s2) return false;
+    return std::strcmp(s1, s2) == 0;
+}
+
 const char* sp_rt_str_from_int(int64_t val) {
     std::string s = std::to_string(val);
     char* res = static_cast<char*>(malloc(s.size() + 1));

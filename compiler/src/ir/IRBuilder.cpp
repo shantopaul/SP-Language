@@ -823,8 +823,183 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
     // 8. End block
     setInsertPoint(endBB);
 }
-void IRBuilder::visit(const ast::SwitchStmt& node) { (void)node; }
-void IRBuilder::visit(const ast::MatchStmt& node) { (void)node; }
+void IRBuilder::visit(const ast::SwitchStmt& node) {
+    if (!m_currentFunction || !m_currentBlock) return;
+
+    node.getSubject().accept(*this);
+    IRValuePtr subjVal = m_lastExprValue;
+    IRTypePtr subjType = m_lastExprType;
+    if (!subjVal) return;
+
+    auto endBB = createBlock("switch_end");
+    m_breakStack.push_back(endBB->getName());
+
+    const auto& cases = node.getCases();
+    size_t numCases = cases.size();
+
+    auto defaultBB = node.getDefaultStatements().empty() ? nullptr : createBlock("switch_default");
+    std::string defaultTarget = defaultBB ? defaultBB->getName() : endBB->getName();
+
+    if (numCases == 0) {
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(defaultTarget));
+    } else {
+        std::vector<IRBasicBlock*> testBBs;
+        std::vector<IRBasicBlock*> bodyBBs;
+        for (size_t i = 0; i < numCases; ++i) {
+            testBBs.push_back(createBlock("switch_test"));
+            bodyBBs.push_back(createBlock("switch_body"));
+        }
+
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(testBBs[0]->getName()));
+
+        auto semaSubj = m_sema.getNodeType(&node.getSubject());
+        bool isSubjStr = (semaSubj && semaSubj->isString()) || (subjType && subjType->isPointer());
+
+        for (size_t i = 0; i < numCases; ++i) {
+            setInsertPoint(testBBs[i]);
+            cases[i].getValue().accept(*this);
+            IRValuePtr caseVal = m_lastExprValue;
+            IRTypePtr caseType = m_lastExprType;
+
+            IRValuePtr condVal = nullptr;
+            if (isSubjStr || (caseType && caseType->isPointer())) {
+                auto call = std::make_shared<CallInst>(
+                    IRType::getInt1(), "sp_rt_str_equals",
+                    std::vector<IRValuePtr>{subjVal, caseVal},
+                    m_currentFunction->nextTempName("str_eq"));
+                testBBs[i]->addInstruction(call);
+                condVal = call;
+            } else {
+                bool isFloat = (subjType && subjType->isFloatingPoint()) || (caseType && caseType->isFloatingPoint());
+                IRTypePtr cmpType = isFloat ? IRType::getDouble()
+                                            : ((subjType && subjType->isInt64()) || (caseType && caseType->isInt64())
+                                                   ? IRType::getInt64()
+                                                   : IRType::getInt32());
+                auto l = emitCastIfNeeded(subjVal, cmpType);
+                auto r = emitCastIfNeeded(caseVal, cmpType);
+                auto cmp = std::make_shared<CompareInst>(
+                    isFloat ? IROpcode::FCmpEq : IROpcode::ICmpEq,
+                    l, r, m_currentFunction->nextTempName("cmp"));
+                testBBs[i]->addInstruction(cmp);
+                condVal = cmp;
+            }
+
+            std::string nextTest = (i + 1 < numCases) ? testBBs[i + 1]->getName() : defaultTarget;
+            testBBs[i]->addInstruction(std::make_shared<CondBranchInst>(condVal, bodyBBs[i]->getName(), nextTest));
+
+            // Case body
+            setInsertPoint(bodyBBs[i]);
+            pushScope();
+            for (const auto& s : cases[i].getStatements()) {
+                if (s) s->accept(*this);
+            }
+            popScope();
+
+            if (!m_currentBlock->hasTerminator()) {
+                std::string fallthrough = (i + 1 < numCases) ? bodyBBs[i + 1]->getName() : defaultTarget;
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(fallthrough));
+            }
+        }
+    }
+
+    if (defaultBB) {
+        setInsertPoint(defaultBB);
+        pushScope();
+        for (const auto& s : node.getDefaultStatements()) {
+            if (s) s->accept(*this);
+        }
+        popScope();
+        if (!m_currentBlock->hasTerminator()) {
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(endBB->getName()));
+        }
+    }
+
+    m_breakStack.pop_back();
+    setInsertPoint(endBB);
+}
+
+void IRBuilder::visit(const ast::MatchStmt& node) {
+    if (!m_currentFunction || !m_currentBlock) return;
+
+    node.getSubject().accept(*this);
+    IRValuePtr subjVal = m_lastExprValue;
+    IRTypePtr subjType = m_lastExprType;
+    if (!subjVal) return;
+
+    auto endBB = createBlock("match_end");
+
+    const auto& arms = node.getArms();
+    size_t numArms = arms.size();
+
+    if (numArms == 0) {
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(endBB->getName()));
+        setInsertPoint(endBB);
+        return;
+    }
+
+    std::vector<IRBasicBlock*> testBBs;
+    std::vector<IRBasicBlock*> bodyBBs;
+    for (size_t i = 0; i < numArms; ++i) {
+        testBBs.push_back(createBlock("match_test"));
+        bodyBBs.push_back(createBlock("match_body"));
+    }
+
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(testBBs[0]->getName()));
+
+    auto semaSubj = m_sema.getNodeType(&node.getSubject());
+    bool isSubjStr = (semaSubj && semaSubj->isString()) || (subjType && subjType->isPointer());
+
+    for (size_t i = 0; i < numArms; ++i) {
+        setInsertPoint(testBBs[i]);
+        const auto& arm = arms[i];
+
+        if (arm.isWildcard()) {
+            testBBs[i]->addInstruction(std::make_shared<BranchInst>(bodyBBs[i]->getName()));
+        } else {
+            arm.getPattern()->accept(*this);
+            IRValuePtr patVal = m_lastExprValue;
+            IRTypePtr patType = m_lastExprType;
+
+            IRValuePtr condVal = nullptr;
+            if (isSubjStr || (patType && patType->isPointer())) {
+                auto call = std::make_shared<CallInst>(
+                    IRType::getInt1(), "sp_rt_str_equals",
+                    std::vector<IRValuePtr>{subjVal, patVal},
+                    m_currentFunction->nextTempName("str_eq"));
+                testBBs[i]->addInstruction(call);
+                condVal = call;
+            } else {
+                bool isFloat = (subjType && subjType->isFloatingPoint()) || (patType && patType->isFloatingPoint());
+                IRTypePtr cmpType = isFloat ? IRType::getDouble()
+                                            : ((subjType && subjType->isInt64()) || (patType && patType->isInt64())
+                                                   ? IRType::getInt64()
+                                                   : IRType::getInt32());
+                auto l = emitCastIfNeeded(subjVal, cmpType);
+                auto r = emitCastIfNeeded(patVal, cmpType);
+                auto cmp = std::make_shared<CompareInst>(
+                    isFloat ? IROpcode::FCmpEq : IROpcode::ICmpEq,
+                    l, r, m_currentFunction->nextTempName("cmp"));
+                testBBs[i]->addInstruction(cmp);
+                condVal = cmp;
+            }
+
+            std::string nextTest = (i + 1 < numArms) ? testBBs[i + 1]->getName() : endBB->getName();
+            testBBs[i]->addInstruction(std::make_shared<CondBranchInst>(condVal, bodyBBs[i]->getName(), nextTest));
+        }
+
+        // Arm body
+        setInsertPoint(bodyBBs[i]);
+        pushScope();
+        arm.getBody().accept(*this);
+        popScope();
+
+        if (!m_currentBlock->hasTerminator()) {
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(endBB->getName()));
+        }
+    }
+
+    setInsertPoint(endBB);
+}
 
 void IRBuilder::visit(const ast::ReturnStmt& node) {
     if (node.hasValue()) {
@@ -1584,6 +1759,33 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         m_lastExprValue = call;
         m_lastExprType = IRType::getPointer(IRType::getInt8());
         return;
+    }
+
+    // String equality comparison
+    if (node.getOp() == lexer::TokenType::EqualEqual || node.getOp() == lexer::TokenType::BangEqual) {
+        auto semaL = m_sema.getNodeType(&node.getLeft());
+        auto semaR = m_sema.getNodeType(&node.getRight());
+        bool isString = (semaL && semaL->isString()) || (semaR && semaR->isString()) ||
+                        ((lhsType && lhsType->isPointer()) && (rhsType && rhsType->isPointer()));
+        if (isString) {
+            std::string resName = m_currentFunction->nextTempName("str_eq");
+            auto call = std::make_shared<CallInst>(
+                IRType::getInt1(), "sp_rt_str_equals",
+                std::vector<IRValuePtr>{lhs, rhs},
+                resName);
+            m_currentBlock->addInstruction(call);
+            if (node.getOp() == lexer::TokenType::BangEqual) {
+                std::string notName = m_currentFunction->nextTempName("str_ne");
+                auto notInst = std::make_shared<BinaryInst>(
+                    IROpcode::Xor, call, std::make_shared<ConstantInt>(IRType::getInt1(), 1), notName);
+                m_currentBlock->addInstruction(notInst);
+                m_lastExprValue = notInst;
+            } else {
+                m_lastExprValue = call;
+            }
+            m_lastExprType = IRType::getInt1();
+            return;
+        }
     }
 
     // Type promotion / widening

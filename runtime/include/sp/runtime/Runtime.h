@@ -35,6 +35,7 @@ extern "C" {
 
     // String operations
     const char* sp_rt_str_concat(const char* s1, const char* s2);
+    bool        sp_rt_str_equals(const char* s1, const char* s2);
     const char* sp_rt_str_from_int(int64_t val);
     const char* sp_rt_str_from_uint(uint64_t val);
     const char* sp_rt_str_from_float(float val);

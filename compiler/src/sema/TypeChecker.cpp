@@ -1175,6 +1175,7 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
 void TypeChecker::visit(const ast::SwitchStmt& node) {
     auto subjType = checkExpr(node.getSubject());
 
+    m_switchDepth++;
     for (const auto& sc : node.getCases()) {
         auto caseValType = checkExpr(sc.getValue());
         if (!caseValType->isAssignableTo(*subjType)) {
@@ -1189,6 +1190,7 @@ void TypeChecker::visit(const ast::SwitchStmt& node) {
     for (const auto& defStmt : node.getDefaultStatements()) {
         if (defStmt) checkStmt(*defStmt);
     }
+    m_switchDepth--;
 }
 
 void TypeChecker::visit(const ast::MatchStmt& node) {
@@ -1239,8 +1241,8 @@ void TypeChecker::visit(const ast::ReturnStmt& node) {
 }
 
 void TypeChecker::visit(const ast::BreakStmt& node) {
-    if (m_loopDepth <= 0) {
-        m_diagnostics.reportError("E1001", "'break' statement outside of loop", node.getLocation());
+    if (m_loopDepth <= 0 && m_switchDepth <= 0) {
+        m_diagnostics.reportError("E1001", "'break' statement outside of loop or switch", node.getLocation());
     }
 }
 
