@@ -55,7 +55,7 @@ public:
 // Default provider for local filesystem paths and mock registry
 class DefaultPackageProvider : public IPackageProvider {
 public:
-    DefaultPackageProvider() = default;
+    DefaultPackageProvider();
 
     void registerMockPackage(const ProjectConfig& config);
 

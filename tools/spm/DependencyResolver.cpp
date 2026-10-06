@@ -20,6 +20,25 @@ std::string sourceKindToString(PackageSourceKind kind) {
     return "registry";
 }
 
+DefaultPackageProvider::DefaultPackageProvider() {
+    auto addStd = [this](const std::string& name, const std::string& ver, const std::string& desc) {
+        ProjectConfig cfg;
+        cfg.getPackage().name = name;
+        cfg.getPackage().version = ver;
+        cfg.getPackage().description = desc;
+        cfg.getPackage().packageType = "lib";
+        registerMockPackage(cfg);
+    };
+
+    addStd("sp_math", "1.0.0", "Advanced mathematics, linear algebra, and statistical functions for SP");
+    addStd("sp_json", "0.8.2", "High-performance JSON parser and serializer with zero-copy decoding");
+    addStd("sp_http", "0.4.0", "Fast HTTP client and server library with async IO support");
+    addStd("sp_logger", "1.2.0", "Structured terminal and file logging utility for SP applications");
+    addStd("sp_test", "1.0.1", "BDD-style unit and benchmark testing framework for SP");
+    addStd("sp_crypto", "0.3.0", "Cryptographic primitives, SHA-256, AES, and secure hashing");
+    addStd("sp_csv", "0.2.1", "Fast CSV reader, writer, and typed data record parser");
+}
+
 void DefaultPackageProvider::registerMockPackage(const ProjectConfig& config) {
     m_mockRegistry[config.getPackage().name].push_back(config);
 }
