@@ -71,3 +71,9 @@ Thumbs.db
 # Package manager local caches
 .spm/
 sp.lock.bak
+
+# Node.js and Next.js web build artifacts
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
