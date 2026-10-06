@@ -52,12 +52,12 @@
 - [x] [38. Modules & Imports](#38-modules--imports) ✅
 - [x] [39. Async & Await](#39-async--await) ✅
 - [x] [40. Threads & Concurrency](#40-threads--concurrency) ✅
-- [41. Unsafe Mode](#41-unsafe-mode)
-- [42. Native Interop (C FFI)](#42-native-interop-c-ffi)
-- [43. Testing](#43-testing)
-- [44. Comments & Documentation](#44-comments--documentation)
-- [45. Multi-Syntax Compatibility](#45-multi-syntax-compatibility)
-- [46. Complete Programs](#46-complete-programs)
+- [x] [41. Unsafe Mode](#41-unsafe-mode) ✅
+- [x] [42. Native Interop (C FFI)](#42-native-interop-c-ffi) ✅
+- [x] [43. Testing](#43-testing) ✅
+- [x] [44. Comments & Documentation](#44-comments--documentation) ✅
+- [x] [45. Multi-Syntax Compatibility](#45-multi-syntax-compatibility) ✅
+- [x] [46. Complete Programs](#46-complete-programs) ✅
 
 ---
 
@@ -2793,7 +2793,7 @@ fn main() {
 
 ---
 
-## 41. Unsafe Mode
+## 41. Unsafe Mode ✅
 
 ```sp
 fn main() {
@@ -2816,7 +2816,7 @@ fn main() {
 
 ---
 
-## 42. Native Interop (C FFI)
+## 42. Native Interop (C FFI) ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2842,7 +2842,7 @@ fn main() {
 
 ---
 
-## 43. Testing
+## 43. Testing ✅
 
 ```sp
 import std.testing;
@@ -2905,7 +2905,7 @@ $ spc test
 
 ---
 
-## 44. Comments & Documentation
+## 44. Comments & Documentation ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2961,7 +2961,7 @@ class User {
 
 ---
 
-## 45. Multi-Syntax Compatibility
+## 45. Multi-Syntax Compatibility ✅
 
 SP's unique feature — multiple syntax styles that compile to identical code:
 
@@ -3076,7 +3076,7 @@ public static void main() {
 
 ---
 
-## 46. Complete Programs
+## 46. Complete Programs ✅
 
 ### 🧮 Calculator
 
