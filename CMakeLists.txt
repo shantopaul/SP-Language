@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(SP_Language
-    VERSION 0.5.0
+    VERSION 1.0.0
     DESCRIPTION "SP Programming Language Compiler and Toolchain"
-    HOMEPAGE_URL "https://github.com/shantopaul/SP-Language"
+    HOMEPAGE_URL "https://splang.shantopaul.com"
     LANGUAGES C CXX
 )
 

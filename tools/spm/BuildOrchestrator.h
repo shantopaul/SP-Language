@@ -32,9 +32,19 @@ struct SearchResult {
     std::string description;
 };
 
+struct VerifyResult {
+    bool success{false};
+    size_t packagesVerified{0};
+    std::vector<std::string> warnings;
+    std::string errorMessage;
+};
+
 class BuildOrchestrator {
 public:
     BuildOrchestrator() = default;
+
+    // Verify project integrity (validates sp.toml, sp.lock, dependency graph, and package checksums)
+    static VerifyResult verify(const std::string& projectDir);
 
     // Build the package at projectDir (resolves dependencies, generates IR, compiles binary to target/debug or target/release)
     static BuildResult build(const std::string& projectDir, const BuildOptions& options = {});

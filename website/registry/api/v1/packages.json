@@ -1,0 +1,77 @@
+{
+  "registry": "https://registry.splang.shantopaul.com",
+  "version": "1.0.0",
+  "total_packages": 7,
+  "packages": [
+    {
+      "name": "sp_math",
+      "version": "1.0.0",
+      "description": "Advanced mathematics, linear algebra, and statistical functions for SP",
+      "author": "Shanto Paul",
+      "license": "MIT",
+      "downloads": 14200,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000001",
+      "dependencies": []
+    },
+    {
+      "name": "sp_json",
+      "version": "0.8.2",
+      "description": "High-performance JSON parser and serializer with zero-copy decoding",
+      "author": "Shanto Paul",
+      "license": "MIT",
+      "downloads": 28900,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000002",
+      "dependencies": []
+    },
+    {
+      "name": "sp_http",
+      "version": "0.4.0",
+      "description": "Fast HTTP client and server library with async IO support",
+      "author": "Shanto Paul",
+      "license": "Apache-2.0",
+      "downloads": 19450,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000003",
+      "dependencies": ["sp_json"]
+    },
+    {
+      "name": "sp_logger",
+      "version": "1.2.0",
+      "description": "Structured terminal and file logging utility for SP applications",
+      "author": "SP Community",
+      "license": "MIT",
+      "downloads": 8700,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000004",
+      "dependencies": []
+    },
+    {
+      "name": "sp_test",
+      "version": "1.0.1",
+      "description": "BDD-style unit and benchmark testing framework for SP",
+      "author": "SP Core Team",
+      "license": "MIT",
+      "downloads": 35200,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000005",
+      "dependencies": []
+    },
+    {
+      "name": "sp_crypto",
+      "version": "0.3.0",
+      "description": "Cryptographic primitives, SHA-256, AES, and secure hashing",
+      "author": "Shanto Paul",
+      "license": "MIT",
+      "downloads": 6300,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000006",
+      "dependencies": []
+    },
+    {
+      "name": "sp_csv",
+      "version": "0.2.1",
+      "description": "Fast CSV reader, writer, and typed data record parser",
+      "author": "SP Community",
+      "license": "MIT",
+      "downloads": 4800,
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e00000000000000000000000000000007",
+      "dependencies": []
+    }
+  ]
+}

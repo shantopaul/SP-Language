@@ -2,6 +2,7 @@
 #include "DependencyResolver.h"
 #include "Lockfile.h"
 #include "BuildOrchestrator.h"
+#include "sp/Version.h"
 #include <iostream>
 #include <string_view>
 #include <vector>
@@ -13,8 +14,10 @@ namespace fs = std::filesystem;
 namespace {
 
 void printVersion() {
-    std::cout << "spm (SP Package Manager) version 0.8.0-alpha\n"
-              << "Copyright (c) 2026 Shanto Paul\n";
+    std::cout << "spm (SP Package Manager) version " << sp::SP_VERSION_STRING << "\n"
+              << "Copyright (c) 2026 Shanto Paul\n"
+              << "Registry: " << sp::SP_REGISTRY_URL << "\n"
+              << "Docs:     " << sp::SP_DOCS_URL << "\n";
 }
 
 void printHelp() {
@@ -28,6 +31,7 @@ void printHelp() {
               << "  build               Compile current package and its dependencies\n"
               << "  run [args...]       Compile and immediately run package binary\n"
               << "  clean               Remove build artifacts (target/ directory)\n"
+              << "  verify              Verify package lockfile integrity and cryptographic checksums\n"
               << "  publish             Publish current package to registry\n"
               << "  search <query>      Search for packages in registry\n\n"
               << "Options:\n"
@@ -365,6 +369,18 @@ int handleClean(int /*argc*/, char* /*argv*/[]) {
     return 0;
 }
 
+int handleVerify(int /*argc*/, char* /*argv*/[]) {
+    auto res = sp::spm::BuildOrchestrator::verify(".");
+    if (!res.success) {
+        std::cerr << "error: verification failed: " << res.errorMessage << "\n";
+        return 1;
+    }
+    std::cout << "Verified: package integrity and lockfile checksums valid ("
+              << res.packagesVerified << " package" << (res.packagesVerified == 1 ? "" : "s")
+              << " verified, 0 tampering detected).\n";
+    return 0;
+}
+
 int handlePublish(int argc, char* argv[]) {
     std::string registryUrl = "https://registry.splang.shantopaul.com";
     for (int i = 2; i < argc; ++i) {
@@ -461,6 +477,10 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "clean") {
         return handleClean(argc, argv);
+    }
+
+    if (cmd == "verify") {
+        return handleVerify(argc, argv);
     }
 
     if (cmd == "publish") {

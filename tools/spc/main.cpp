@@ -10,6 +10,7 @@
 #include "sp/ir/IRPrinter.h"
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/runtime/Runtime.h"
+#include "sp/Version.h"
 #include "fmt/Formatter.h"
 #include "test/TestRunner.h"
 #include "doc/DocGenerator.h"
@@ -27,9 +28,11 @@ namespace fs = std::filesystem;
 namespace {
 
 void printVersion() {
-    std::cout << "spc (SP Programming Language Compiler) version 0.5.0-alpha\n"
+    std::cout << "spc (SP Programming Language Compiler) version " << sp::SP_VERSION_STRING << "\n"
               << "Copyright (c) 2026 Shanto Paul\n"
-              << "Target: native machine code (LLVM backend)\n";
+              << "Website: " << sp::SP_HOMEPAGE_URL << "\n"
+              << "Docs:    " << sp::SP_DOCS_URL << "\n"
+              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (native LLVM backend)\n";
 }
 
 void printHelp() {
@@ -49,9 +52,10 @@ void printHelp() {
               << "  init [name]     Initialize a new SP project with sp.toml\n\n"
               << "Options:\n"
               << "  -o <path>       Specify output binary path (for build command)\n"
+              << "  -O0, -O1, -O2, -O3, -Os Optimization level (default: -O0)\n"
               << "  --release       Build with -O3 optimizations enabled\n"
               << "  --debug         Build with debug symbols (-g) enabled\n"
-              << "  --target <arch> Cross-compile for target architecture\n"
+              << "  --target <arch> Cross-compile for target architecture triple\n"
               << "  -h, --help      Display this help message\n"
               << "  -v, --version   Display compiler version information\n";
 }
@@ -95,6 +99,8 @@ int main(int argc, char* argv[]) {
         // Parse options and identify input source file
         std::string filename;
         std::string outputPath;
+        std::string targetTriple;
+        std::string optLevel;
         bool releaseMode = false;
         bool debugMode = false;
 
@@ -104,8 +110,16 @@ int main(int argc, char* argv[]) {
                 outputPath = argv[++i];
             } else if (arg == "--release") {
                 releaseMode = true;
+                optLevel = "-O3";
             } else if (arg == "--debug") {
                 debugMode = true;
+                optLevel = "-O0";
+            } else if (arg == "-O0" || arg == "-O1" || arg == "-O2" || arg == "-O3" || arg == "-Os" || arg == "-Oz") {
+                optLevel = std::string(arg);
+            } else if (arg == "--target" && i + 1 < argc) {
+                targetTriple = argv[++i];
+            } else if (arg.starts_with("--target=")) {
+                targetTriple = std::string(arg.substr(9));
             } else if (arg == "-h" || arg == "--help") {
                 printHelp();
                 return 0;
@@ -222,6 +236,12 @@ int main(int argc, char* argv[]) {
         sp::codegen::CodegenOptions codegenOpts;
         codegenOpts.releaseMode = releaseMode;
         codegenOpts.debugSymbols = debugMode;
+        if (!targetTriple.empty()) {
+            codegenOpts.targetTriple = targetTriple;
+        }
+        if (!optLevel.empty()) {
+            codegenOpts.optLevel = optLevel;
+        }
         sp::codegen::LLVMGenerator llvmGen(codegenOpts);
 
         if (command == "llvm") {

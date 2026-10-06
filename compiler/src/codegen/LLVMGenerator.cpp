@@ -219,6 +219,11 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
 #if !defined(_WIN32)
     cmd << "-pthread ";
 #endif
+
+    if (!m_options.targetTriple.empty()) {
+        cmd << "--target=" << m_options.targetTriple << " ";
+    }
+
     cmd << "\"" << tempLLPath << "\" ";
 
     if (fs::exists(rtSrc)) {
@@ -228,7 +233,12 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
         cmd << "-I \"" << rtInc << "\" ";
     }
 
-    if (m_options.releaseMode) {
+    if (!m_options.optLevel.empty()) {
+        cmd << m_options.optLevel << " ";
+        if (m_options.debugSymbols) {
+            cmd << "-g ";
+        }
+    } else if (m_options.releaseMode) {
         cmd << "-O3 ";
     } else if (m_options.debugSymbols) {
         cmd << "-g -O0 ";

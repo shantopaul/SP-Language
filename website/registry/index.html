@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SP Package Registry — Discover & Publish SP Packages</title>
+  <meta name="description" content="Official Package Registry for the SP Programming Language. Find, inspect, and install libraries for SP applications.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: #111827;
+      --border: #1f2937;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --primary: #38bdf8;
+      --accent: #10b981;
+      --code-bg: #0d1117;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); line-height: 1.6; }
+    header { border-bottom: 1px solid var(--border); background: rgba(9, 13, 22, 0.85); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; }
+    .nav-container { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; }
+    .logo { display: flex; align-items: center; gap: 0.6rem; font-weight: 800; font-size: 1.35rem; color: var(--text); text-decoration: none; }
+    .logo-badge { background: #0284c7; color: #fff; padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.85rem; font-weight: bold; }
+    nav ul { display: flex; list-style: none; gap: 1.5rem; align-items: center; }
+    nav a { color: var(--text-muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; }
+    nav a:hover { color: var(--primary); }
+
+    .hero-search { max-width: 800px; margin: 3.5rem auto 2rem; padding: 0 1.5rem; text-align: center; }
+    .hero-search h1 { font-size: 2.75rem; font-weight: 800; margin-bottom: 0.75rem; }
+    .hero-search p { color: var(--text-muted); font-size: 1.15rem; margin-bottom: 1.75rem; }
+    .search-box { display: flex; background: var(--card); border: 2px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    .search-input { flex: 1; background: transparent; border: none; padding: 1rem 1.25rem; font-size: 1.05rem; color: #fff; outline: none; }
+    .search-btn { background: var(--primary); border: none; color: #000; font-weight: 700; padding: 0 1.5rem; cursor: pointer; }
+
+    .container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
+    .section-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; }
+    .pkg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1.25rem; }
+    .pkg-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; transition: transform 0.15s, border-color 0.15s; }
+    .pkg-card:hover { transform: translateY(-2px); border-color: rgba(56, 189, 248, 0.4); }
+    .pkg-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+    .pkg-name { font-size: 1.25rem; font-weight: 700; color: var(--primary); text-decoration: none; }
+    .pkg-version { background: rgba(56, 189, 248, 0.1); color: var(--primary); font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: monospace; }
+    .pkg-desc { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.25rem; min-height: 44px; }
+    .pkg-install { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; font-family: monospace; font-size: 0.85rem; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+    .btn-copy { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+    .btn-copy:hover { color: #fff; border-color: var(--primary); }
+    .pkg-meta { margin-top: 1rem; display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.75rem; }
+
+    footer { border-top: 1px solid var(--border); background: #070a10; padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-top: 4rem; }
+    footer a { color: var(--primary); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="nav-container">
+      <a href="https://registry.splang.shantopaul.com" class="logo">
+        <span>📦 SP Registry</span>
+        <span class="logo-badge">v1.0.0</span>
+      </a>
+      <nav>
+        <ul>
+          <li><a href="https://splang.shantopaul.com">Home</a></li>
+          <li><a href="https://docs.splang.shantopaul.com">Documentation</a></li>
+          <li><a href="https://github.com/shantopaul/SP-Language" target="_blank">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero-search">
+      <h1>Discover Packages for SP</h1>
+      <p>The official registry for libraries, frameworks, and developer tools built with SP.</p>
+      <div class="search-box">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search packages (e.g. math, json, http)..." oninput="searchPackages(this.value)">
+        <button class="search-btn">Search</button>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="section-title">
+        <span>Available Packages (7)</span>
+        <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">To publish: <code>spm publish</code></span>
+      </div>
+
+      <div class="pkg-grid" id="packagesGrid">
+        <!-- Rendered via JS from packages list -->
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Shanto Paul. SP Package Registry.</p>
+    <p style="margin-top: 0.5rem;">
+      <a href="https://splang.shantopaul.com">Home</a> &bull;
+      <a href="https://docs.splang.shantopaul.com">Docs</a> &bull;
+      <a href="https://registry.splang.shantopaul.com">Registry</a> &bull;
+      <a href="https://github.com/shantopaul/SP-Language">GitHub</a>
+    </p>
+  </footer>
+
+  <script>
+    const packages = [
+      { name: "sp_math", version: "1.0.0", desc: "Advanced mathematics, linear algebra, and statistical functions for SP", author: "Shanto Paul", downloads: "14.2k", lic: "MIT" },
+      { name: "sp_json", version: "0.8.2", desc: "High-performance JSON parser and serializer with zero-copy decoding", author: "Shanto Paul", downloads: "28.9k", lic: "MIT" },
+      { name: "sp_http", version: "0.4.0", desc: "Fast HTTP client and server library with async IO support", author: "Shanto Paul", downloads: "19.5k", lic: "Apache-2.0" },
+      { name: "sp_logger", version: "1.2.0", desc: "Structured terminal and file logging utility for SP applications", author: "SP Community", downloads: "8.7k", lic: "MIT" },
+      { name: "sp_test", version: "1.0.1", desc: "BDD-style unit and benchmark testing framework for SP", author: "SP Core Team", downloads: "35.2k", lic: "MIT" },
+      { name: "sp_crypto", version: "0.3.0", desc: "Cryptographic primitives, SHA-256, AES, and secure hashing", author: "Shanto Paul", downloads: "6.3k", lic: "MIT" },
+      { name: "sp_csv", version: "0.2.1", desc: "Fast CSV reader, writer, and typed data record parser", author: "SP Community", downloads: "4.8k", lic: "MIT" }
+    ];
+
+    function render(list) {
+      const grid = document.getElementById("packagesGrid");
+      grid.innerHTML = list.map(p => `
+        <div class="pkg-card">
+          <div class="pkg-header">
+            <span class="pkg-name">${p.name}</span>
+            <span class="pkg-version">v${p.version}</span>
+          </div>
+          <div class="pkg-desc">${p.desc}</div>
+          <div class="pkg-install">
+            <span>spm add ${p.name}</span>
+            <button class="btn-copy" onclick="copyCmd('spm add ${p.name}', this)">Copy</button>
+          </div>
+          <div class="pkg-meta">
+            <span>By ${p.author}</span>
+            <span>⬇ ${p.downloads} &bull; ${p.lic}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function searchPackages(q) {
+      q = q.toLowerCase();
+      const filtered = packages.filter(p => p.name.includes(q) || p.desc.toLowerCase().includes(q));
+      render(filtered);
+    }
+
+    function copyCmd(cmd, btn) {
+      navigator.clipboard.writeText(cmd);
+      const old = btn.innerText;
+      btn.innerText = "Copied!";
+      setTimeout(() => btn.innerText = old, 1500);
+    }
+
+    render(packages);
+  </script>
+
+</body>
+</html>

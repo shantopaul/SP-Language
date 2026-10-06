@@ -257,4 +257,98 @@ std::vector<SearchResult> BuildOrchestrator::search(const std::string& query, co
     return matches;
 }
 
+VerifyResult BuildOrchestrator::verify(const std::string& projectDir) {
+    VerifyResult result;
+
+    fs::path manifestPath = fs::path(projectDir) / "sp.toml";
+    if (!fs::exists(manifestPath)) {
+        result.errorMessage = "Missing manifest 'sp.toml' in directory: " + projectDir;
+        return result;
+    }
+
+    ProjectConfig config;
+    if (!config.loadFromFile(manifestPath.string())) {
+        result.errorMessage = "Failed to parse 'sp.toml': " + config.getLastError();
+        return result;
+    }
+
+    // Verify root package metadata
+    if (config.getPackage().name.empty()) {
+        result.errorMessage = "Package name cannot be empty in sp.toml";
+        return result;
+    }
+
+    auto rootVersion = Version::parse(config.getPackage().version);
+    if (!rootVersion) {
+        result.errorMessage = "Invalid package version '" + config.getPackage().version + "' in sp.toml";
+        return result;
+    }
+
+    fs::path lockPath = fs::path(projectDir) / "sp.lock";
+    if (!fs::exists(lockPath)) {
+        if (config.getDependencies().empty()) {
+            result.success = true;
+            result.packagesVerified = 0;
+            return result;
+        }
+        result.errorMessage = "Missing lockfile 'sp.lock'. Run 'spm install' to resolve dependencies.";
+        return result;
+    }
+
+    Lockfile lock;
+    if (!lock.loadFromFile(lockPath.string())) {
+        result.errorMessage = "Failed to load 'sp.lock': " + lock.getLastError();
+        return result;
+    }
+
+    // Verify lockfile satisfies config
+    if (!lock.isUpToDate(config)) {
+        result.errorMessage = "sp.lock is out of sync with sp.toml. Run 'spm install' or 'spm update'.";
+        return result;
+    }
+
+    // Verify each locked package's integrity & cryptographic checksum
+    std::vector<std::string> seen;
+    for (const auto& pkg : lock.getPackages()) {
+        if (pkg.name.empty()) {
+            result.errorMessage = "Found locked package with empty name";
+            return result;
+        }
+
+        for (const auto& s : seen) {
+            if (s == pkg.name) {
+                result.errorMessage = "Duplicate package '" + pkg.name + "' detected in sp.lock";
+                return result;
+            }
+        }
+        seen.push_back(pkg.name);
+
+        auto ver = Version::parse(pkg.version);
+        if (!ver) {
+            result.errorMessage = "Invalid version '" + pkg.version + "' for package '" + pkg.name + "' in sp.lock";
+            return result;
+        }
+
+        // Validate cryptographic checksum
+        if (pkg.checksum.empty()) {
+            result.errorMessage = "Security audit failed: Missing checksum for package '" + pkg.name + "' in sp.lock";
+            return result;
+        }
+
+        // Verify checksum matches expected deterministic hash
+        std::string expectedChecksum = DependencyResolver::computeChecksum(pkg.name, *ver, pkg.source);
+        if (pkg.checksum != expectedChecksum) {
+            result.errorMessage = "Security audit failed: Checksum mismatch / tampering detected for package '" +
+                                  pkg.name + "' (expected: " + expectedChecksum + ", recorded: " + pkg.checksum + ")";
+            return result;
+        }
+
+        result.packagesVerified++;
+    }
+
+    result.success = true;
+    return result;
+}
+
 } // namespace sp::spm
+
