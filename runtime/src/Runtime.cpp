@@ -32,8 +32,20 @@ void sp_rt_println_int(int64_t val) {
     std::cout << val << "\n";
 }
 
-void sp_rt_println_double(double val) {
+void sp_rt_println_uint(uint64_t val) {
     std::cout << val << "\n";
+}
+
+void sp_rt_println_float(float val) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.7g", val);
+    std::cout << buf << "\n";
+}
+
+void sp_rt_println_double(double val) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.16g", val);
+    std::cout << buf << "\n";
 }
 
 void sp_rt_println_bool(bool val) {
@@ -50,6 +62,16 @@ void sp_rt_print_string(const char* str) {
 
 void sp_rt_print_int(int64_t val) {
     std::cout << val;
+}
+
+void sp_rt_print_uint(uint64_t val) {
+    std::cout << val;
+}
+
+void sp_rt_print_float(float val) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.7g", val);
+    std::cout << buf;
 }
 
 const char* sp_rt_str_concat(const char* s1, const char* s2) {
@@ -74,13 +96,33 @@ const char* sp_rt_str_from_int(int64_t val) {
     return res;
 }
 
-const char* sp_rt_str_from_double(double val) {
-    std::ostringstream ss;
-    ss << val;
-    std::string s = ss.str();
+const char* sp_rt_str_from_uint(uint64_t val) {
+    std::string s = std::to_string(val);
     char* res = static_cast<char*>(malloc(s.size() + 1));
     if (res) {
         std::memcpy(res, s.c_str(), s.size() + 1);
+    }
+    return res;
+}
+
+const char* sp_rt_str_from_float(float val) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.7g", val);
+    size_t len = std::strlen(buf);
+    char* res = static_cast<char*>(malloc(len + 1));
+    if (res) {
+        std::memcpy(res, buf, len + 1);
+    }
+    return res;
+}
+
+const char* sp_rt_str_from_double(double val) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.16g", val);
+    size_t len = std::strlen(buf);
+    char* res = static_cast<char*>(malloc(len + 1));
+    if (res) {
+        std::memcpy(res, buf, len + 1);
     }
     return res;
 }

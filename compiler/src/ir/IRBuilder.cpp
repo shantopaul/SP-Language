@@ -3,6 +3,7 @@
 #include "sp/codegen/ClassGenerator.h"
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
 
 namespace sp::ir {
 
@@ -73,6 +74,10 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
     std::string tempName = m_currentFunction ? m_currentFunction->nextTempName("cast") : "%cast";
 
     if (srcType->isInteger() && targetType->isInteger()) {
+        if (auto constInt = std::dynamic_pointer_cast<ConstantInt>(val)) {
+            return std::make_shared<ConstantInt>(targetType, constInt->getValue());
+        }
+
         size_t srcBits = 32;
         if (srcType->isInt1()) srcBits = 1;
         else if (srcType->isInt8()) srcBits = 8;
@@ -99,12 +104,18 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
     }
 
     if (srcType->isInteger() && targetType->isFloatingPoint()) {
+        if (auto constInt = std::dynamic_pointer_cast<ConstantInt>(val)) {
+            return std::make_shared<ConstantFloat>(targetType, static_cast<double>(constInt->getValue()));
+        }
         auto cast = std::make_shared<CastInst>(IROpcode::SIToFP, val, targetType, tempName);
         if (m_currentBlock) m_currentBlock->addInstruction(cast);
         return cast;
     }
 
     if (srcType->isFloatingPoint() && targetType->isInteger()) {
+        if (auto constFloat = std::dynamic_pointer_cast<ConstantFloat>(val)) {
+            return std::make_shared<ConstantInt>(targetType, static_cast<int64_t>(constFloat->getValue()));
+        }
         auto cast = std::make_shared<CastInst>(IROpcode::FPToSI, val, targetType, tempName);
         if (m_currentBlock) m_currentBlock->addInstruction(cast);
         return cast;
@@ -123,6 +134,9 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
     }
 
     if (srcType->isFloatingPoint() && targetType->isFloatingPoint()) {
+        if (auto constFloat = std::dynamic_pointer_cast<ConstantFloat>(val)) {
+            return std::make_shared<ConstantFloat>(targetType, constFloat->getValue());
+        }
         if (srcType->isDouble() && targetType->isFloat()) {
             auto cast = std::make_shared<CastInst>(IROpcode::FPTrunc, val, targetType, tempName);
             if (m_currentBlock) m_currentBlock->addInstruction(cast);
@@ -137,7 +151,7 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
     return val;
 }
 
-IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType) {
+IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType, const ast::ExpressionNode* exprNode) {
     if (!val || !valType) return m_module->getOrCreateStringLiteral("");
     if (valType->isPointer()) {
         return val;
@@ -151,7 +165,9 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType) {
         if (m_currentBlock) m_currentBlock->addInstruction(call);
         return call;
     }
-    if (valType->isInt8()) {
+
+    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
+    if (semaType && semaType->isChar()) {
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_from_char",
                                                std::vector<IRValuePtr>{val},
@@ -159,8 +175,17 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType) {
         if (m_currentBlock) m_currentBlock->addInstruction(call);
         return call;
     }
-    if (valType->isFloatingPoint()) {
-        val = emitCastIfNeeded(val, IRType::getDouble());
+
+    if (valType->isFloat()) {
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_from_float",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
+
+    if (valType->isDouble()) {
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_from_double",
                                                std::vector<IRValuePtr>{val},
@@ -168,6 +193,37 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType) {
         if (m_currentBlock) m_currentBlock->addInstruction(call);
         return call;
     }
+
+    if (semaType && semaType->isUnsignedInteger()) {
+        if (auto constInt = std::dynamic_pointer_cast<ConstantInt>(val)) {
+            uint64_t uval = static_cast<uint64_t>(constInt->getValue());
+            if (valType->isInt8()) uval &= 0xFFULL;
+            else if (valType->isInt16()) uval &= 0xFFFFULL;
+            else if (valType->isInt32()) uval &= 0xFFFFFFFFULL;
+            val = std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(uval));
+        } else if (!valType->isInt64()) {
+            std::string zextName = m_currentFunction ? m_currentFunction->nextTempName("zext") : "%zext";
+            auto zext = std::make_shared<CastInst>(IROpcode::ZExt, val, IRType::getInt64(), zextName);
+            if (m_currentBlock) m_currentBlock->addInstruction(zext);
+            val = zext;
+        }
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_from_uint",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
+
+    if (!semaType && valType->isInt8()) {
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_str_from_char",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
+
     val = emitCastIfNeeded(val, IRType::getInt64());
     auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                            "sp_rt_str_from_int",
@@ -1201,24 +1257,52 @@ void IRBuilder::visit(const ast::LiteralExpr& node) {
     switch (node.getLiteralKind()) {
         case ast::LiteralKind::Integer: {
             int64_t val = 0;
+            std::string cleanVal = node.getValue();
+            cleanVal.erase(std::remove(cleanVal.begin(), cleanVal.end(), '_'), cleanVal.end());
             try {
-                val = std::stoll(node.getValue(), nullptr, 0);
+                if (cleanVal.rfind("0b", 0) == 0 || cleanVal.rfind("0B", 0) == 0) {
+                    val = static_cast<int64_t>(std::stoull(cleanVal.substr(2), nullptr, 2));
+                } else if (cleanVal.rfind("0o", 0) == 0 || cleanVal.rfind("0O", 0) == 0) {
+                    val = static_cast<int64_t>(std::stoull(cleanVal.substr(2), nullptr, 8));
+                } else {
+                    val = std::stoll(cleanVal, nullptr, 0);
+                }
             } catch (...) {
-                val = 0;
+                try {
+                    val = static_cast<int64_t>(std::stoull(cleanVal, nullptr, 0));
+                } catch (...) {
+                    val = 0;
+                }
             }
-            m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), val);
-            m_lastExprType = IRType::getInt32();
+            if (val > 2147483647LL || val < -2147483648LL) {
+                m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt64(), val);
+                m_lastExprType = IRType::getInt64();
+            } else {
+                m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), val);
+                m_lastExprType = IRType::getInt32();
+            }
             break;
         }
         case ast::LiteralKind::Float: {
             double val = 0.0;
+            std::string cleanVal = node.getValue();
+            cleanVal.erase(std::remove(cleanVal.begin(), cleanVal.end(), '_'), cleanVal.end());
+            bool isFloat32 = (!cleanVal.empty() && (cleanVal.back() == 'f' || cleanVal.back() == 'F'));
+            if (isFloat32) {
+                cleanVal.pop_back();
+            }
             try {
-                val = std::stod(node.getValue());
+                val = std::stod(cleanVal);
             } catch (...) {
                 val = 0.0;
             }
-            m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), val);
-            m_lastExprType = IRType::getDouble();
+            if (isFloat32) {
+                m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getFloat(), val);
+                m_lastExprType = IRType::getFloat();
+            } else {
+                m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), val);
+                m_lastExprType = IRType::getDouble();
+            }
             break;
         }
         case ast::LiteralKind::Boolean: {
@@ -1482,8 +1566,8 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
     // String concatenation if either operand is string/pointer
     if (node.getOp() == lexer::TokenType::Plus &&
         ((lhsType && lhsType->isPointer()) || (rhsType && rhsType->isPointer()))) {
-        auto lhsStr = convertToStringValue(lhs, lhsType);
-        auto rhsStr = convertToStringValue(rhs, rhsType);
+        auto lhsStr = convertToStringValue(lhs, lhsType, &node.getLeft());
+        auto rhsStr = convertToStringValue(rhs, rhsType, &node.getRight());
         std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str_cat") : "%str_cat";
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_concat",
@@ -2166,15 +2250,27 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             IRValuePtr argVal = m_lastExprValue;
             IRTypePtr argType = m_lastExprType;
 
+            auto semaType = m_sema.getNodeType(node.getArgs()[0].get());
             if (argType && argType->isPointer()) {
                 auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_string", std::vector<IRValuePtr>{argVal});
                 m_currentBlock->addInstruction(call);
-            } else if (argType && argType->isFloatingPoint()) {
-                argVal = emitCastIfNeeded(argVal, IRType::getDouble());
+            } else if (argType && argType->isFloat()) {
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_float", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
+            } else if (argType && argType->isDouble()) {
                 auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_double", std::vector<IRValuePtr>{argVal});
                 m_currentBlock->addInstruction(call);
             } else if (argType && argType->isInt1()) {
                 auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_bool", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
+            } else if (semaType && semaType->isUnsignedInteger()) {
+                if (!argType->isInt64()) {
+                    std::string zextName = m_currentFunction ? m_currentFunction->nextTempName("zext") : "%zext";
+                    auto zext = std::make_shared<CastInst>(IROpcode::ZExt, argVal, IRType::getInt64(), zextName);
+                    if (m_currentBlock) m_currentBlock->addInstruction(zext);
+                    argVal = zext;
+                }
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_uint", std::vector<IRValuePtr>{argVal});
                 m_currentBlock->addInstruction(call);
             } else {
                 argVal = emitCastIfNeeded(argVal, IRType::getInt64());
@@ -2193,8 +2289,24 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             IRValuePtr argVal = m_lastExprValue;
             IRTypePtr argType = m_lastExprType;
 
+            auto semaType = m_sema.getNodeType(node.getArgs()[0].get());
             if (argType && argType->isPointer()) {
                 auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_string", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
+            } else if (argType && argType->isFloat()) {
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_float", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
+            } else if (argType && argType->isDouble()) {
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_double", std::vector<IRValuePtr>{argVal});
+                m_currentBlock->addInstruction(call);
+            } else if (semaType && semaType->isUnsignedInteger()) {
+                if (!argType->isInt64()) {
+                    std::string zextName = m_currentFunction ? m_currentFunction->nextTempName("zext") : "%zext";
+                    auto zext = std::make_shared<CastInst>(IROpcode::ZExt, argVal, IRType::getInt64(), zextName);
+                    if (m_currentBlock) m_currentBlock->addInstruction(zext);
+                    argVal = zext;
+                }
+                auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_uint", std::vector<IRValuePtr>{argVal});
                 m_currentBlock->addInstruction(call);
             } else {
                 argVal = emitCastIfNeeded(argVal, IRType::getInt64());

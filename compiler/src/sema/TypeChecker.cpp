@@ -789,6 +789,13 @@ void TypeChecker::visit(const ast::AssignExpr& node) {
             valueType = m_typeCtx.getFloat();
         }
     }
+    if (targetType->isInteger() && valueType->isInteger()) {
+        if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(&node.getValue())) {
+            if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                valueType = targetType;
+            }
+        }
+    }
 
     // Check null safety (E1008)
     if (!targetType->isNullable() && valueType->isNull()) {
@@ -925,6 +932,13 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
                     initType = m_typeCtx.getFloat();
                 }
             }
+            if (varType->isInteger() && initType->isInteger()) {
+                if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
+                    if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                        initType = varType;
+                    }
+                }
+            }
 
             // Null safety check (E1008)
             if (!varType->isNullable() && initType->isNull()) {
@@ -961,6 +975,13 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
             if (varType->getKind() == TypeKind::Float && initType->getKind() == TypeKind::Double) {
                 if (dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
                     initType = m_typeCtx.getFloat();
+                }
+            }
+            if (varType->isInteger() && initType->isInteger()) {
+                if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
+                    if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                        initType = varType;
+                    }
                 }
             }
 

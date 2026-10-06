@@ -96,7 +96,7 @@ private:
     void setInsertPoint(IRBasicBlock* block);
 
     IRValuePtr emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType);
-    IRValuePtr convertToStringValue(IRValuePtr val, IRTypePtr valType);
+    IRValuePtr convertToStringValue(IRValuePtr val, IRTypePtr valType, const ast::ExpressionNode* exprNode = nullptr);
 
     [[maybe_unused]] const sema::SemanticAnalyzer& m_sema;
     std::unique_ptr<IRModule> m_module;

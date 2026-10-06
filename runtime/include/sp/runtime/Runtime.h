@@ -11,15 +11,21 @@ extern "C" {
     // Standard I/O built-in runtime functions
     void sp_rt_println_string(const char* str);
     void sp_rt_println_int(int64_t val);
+    void sp_rt_println_uint(uint64_t val);
+    void sp_rt_println_float(float val);
     void sp_rt_println_double(double val);
     void sp_rt_println_bool(bool val);
 
     void sp_rt_print_string(const char* str);
     void sp_rt_print_int(int64_t val);
+    void sp_rt_print_uint(uint64_t val);
+    void sp_rt_print_float(float val);
 
     // String operations
     const char* sp_rt_str_concat(const char* s1, const char* s2);
     const char* sp_rt_str_from_int(int64_t val);
+    const char* sp_rt_str_from_uint(uint64_t val);
+    const char* sp_rt_str_from_float(float val);
     const char* sp_rt_str_from_double(double val);
     const char* sp_rt_str_from_bool(bool val);
     const char* sp_rt_str_from_char(char val);

@@ -66,6 +66,7 @@ public:
     [[nodiscard]] bool isUnsignedInteger() const noexcept;
     [[nodiscard]] bool isFloatingPoint() const noexcept;
     [[nodiscard]] bool isBoolean() const noexcept { return m_kind == TypeKind::Bool; }
+    [[nodiscard]] bool isChar() const noexcept { return m_kind == TypeKind::Char; }
     [[nodiscard]] bool isString() const noexcept { return m_kind == TypeKind::String; }
     [[nodiscard]] bool isVoid() const noexcept { return m_kind == TypeKind::Void; }
     [[nodiscard]] bool isNull() const noexcept { return m_kind == TypeKind::Null; }

@@ -6,6 +6,7 @@
 #include "sp/ir/IRModule.h"
 #include <sstream>
 #include <iomanip>
+#include <cstring>
 
 namespace sp::ir {
 
@@ -124,8 +125,15 @@ std::string ConstantInt::toString() const {
 }
 
 std::string ConstantFloat::toString() const {
+    double dval = m_value;
+    if (getType() && getType()->isFloat()) {
+        float fval = static_cast<float>(m_value);
+        dval = static_cast<double>(fval);
+    }
+    uint64_t bits = 0;
+    std::memcpy(&bits, &dval, sizeof(bits));
     std::ostringstream ss;
-    ss << std::fixed << std::setprecision(6) << m_value;
+    ss << "0x" << std::uppercase << std::hex << std::setfill('0') << std::setw(16) << bits;
     return ss.str();
 }
 
@@ -381,6 +389,16 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
                    true);
 
+    // void sp_rt_println_uint(i64)
+    createFunction("sp_rt_println_uint", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // void sp_rt_println_float(float)
+    createFunction("sp_rt_println_float", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
+                   true);
+
     // void sp_rt_println_double(double)
     createFunction("sp_rt_println_double", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getDouble(), "val", 0)},
@@ -399,6 +417,16 @@ void IRModule::initRuntimeDeclarations() {
     // void sp_rt_print_int(i64)
     createFunction("sp_rt_print_int", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_uint(i64)
+    createFunction("sp_rt_print_uint", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_float(float)
+    createFunction("sp_rt_print_float", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
                    true);
 
     // void sp_rt_assert(i1, ptr)
@@ -431,6 +459,16 @@ void IRModule::initRuntimeDeclarations() {
     // ptr sp_rt_str_from_int(i64)
     createFunction("sp_rt_str_from_int", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_uint(i64)
+    createFunction("sp_rt_str_from_uint", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_float(float)
+    createFunction("sp_rt_str_from_float", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
                    true);
 
     // ptr sp_rt_str_from_double(double)
