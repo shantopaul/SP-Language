@@ -50,7 +50,7 @@ export default function DownloadsPage() {
           >
             <Button className="w-full justify-center" variant="primary">
               <Download className="w-4 h-4 mr-1.5" />
-              Download .zip (24.6 MB)
+              Download .zip ({CURRENT_RELEASE.artifacts.find((a) => a.os === "Windows")?.size || "3.85 MB"})
             </Button>
           </a>
         </div>
