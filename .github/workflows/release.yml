@@ -78,10 +78,8 @@ jobs:
         shasum -a 256 "sp-1.0.0-${{ matrix.target }}.tar.gz" > "sp-1.0.0-${{ matrix.target }}.tar.gz.sha256"
 
     - name: Upload Release Assets
-      uses: softprops/action-gh-release@v2
-      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-      with:
-        tag_name: v1.0.0
-        files: |
-          sp-1.0.0-${{ matrix.target }}.zip*
-          sp-1.0.0-${{ matrix.target }}.tar.gz*
+      shell: bash
+      run: |
+        gh release upload v1.0.0 sp-1.0.0-${{ matrix.target }}.* --clobber
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
