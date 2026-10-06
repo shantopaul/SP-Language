@@ -44,14 +44,14 @@
 - [x] [30. Higher-Order Functions](#30-higher-order-functions) ✅
 - [x] [31. Closures](#31-closures) ✅
 - [x] [32. String Methods](#32-string-methods) ✅
-- [33. Method Overloading](#33-method-overloading)
-- [34. Operator Overloading](#34-operator-overloading)
-- [35. Extension Methods](#35-extension-methods)
-- [36. Traits](#36-traits)
-- [37. Annotations](#37-annotations)
-- [38. Modules & Imports](#38-modules--imports)
-- [39. Async & Await](#39-async--await)
-- [40. Threads & Concurrency](#40-threads--concurrency)
+- [x] [33. Method Overloading](#33-method-overloading) ✅
+- [x] [34. Operator Overloading](#34-operator-overloading) ✅
+- [x] [35. Extension Methods](#35-extension-methods) ✅
+- [x] [36. Traits](#36-traits) ✅
+- [x] [37. Annotations](#37-annotations) ✅
+- [x] [38. Modules & Imports](#38-modules--imports) ✅
+- [x] [39. Async & Await](#39-async--await) ✅
+- [x] [40. Threads & Concurrency](#40-threads--concurrency) ✅
 - [41. Unsafe Mode](#41-unsafe-mode)
 - [42. Native Interop (C FFI)](#42-native-interop-c-ffi)
 - [43. Testing](#43-testing)
@@ -2441,7 +2441,7 @@ fn main() {
 
 ---
 
-## 33. Method Overloading
+## 33. Method Overloading ✅
 
 ```sp
 class Printer {
@@ -2487,7 +2487,7 @@ fn main() {
 
 ---
 
-## 34. Operator Overloading
+## 34. Operator Overloading ✅
 
 ```sp
 struct Vector2 {
@@ -2528,7 +2528,7 @@ fn main() {
 
 ---
 
-## 35. Extension Methods
+## 35. Extension Methods ✅
 
 ```sp
 extend string {
@@ -2575,7 +2575,7 @@ fn main() {
 
 ---
 
-## 36. Traits
+## 36. Traits ✅
 
 ```sp
 trait Serializable {
@@ -2618,7 +2618,7 @@ fn main() {
 
 ---
 
-## 37. Annotations
+## 37. Annotations ✅
 
 ```sp
 @Serializable
@@ -2664,7 +2664,7 @@ class MathService {
 
 ---
 
-## 38. Modules & Imports
+## 38. Modules & Imports ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2734,7 +2734,7 @@ fn main() {
 
 ---
 
-## 39. Async & Await
+## 39. Async & Await ✅
 
 ```sp
 import std.http;
@@ -2763,7 +2763,7 @@ async fn main() {
 
 ---
 
-## 40. Threads & Concurrency
+## 40. Threads & Concurrency ✅
 
 ```sp
 fn main() {
