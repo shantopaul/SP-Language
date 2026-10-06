@@ -455,6 +455,33 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
+        if (objType->isString()) {
+            if (methodName == "length" || methodName == "size") {
+                m_currentExprType = m_typeCtx.getInt();
+                return;
+            }
+            if (methodName == "upper" || methodName == "lower" || methodName == "trim") {
+                m_currentExprType = m_typeCtx.getString();
+                return;
+            }
+            if (methodName == "contains" || methodName == "startsWith" || methodName == "endsWith" || methodName == "isEmpty") {
+                m_currentExprType = m_typeCtx.getBool();
+                return;
+            }
+            if (methodName == "indexOf") {
+                m_currentExprType = m_typeCtx.getInt();
+                return;
+            }
+            if (methodName == "replace" || methodName == "substring") {
+                m_currentExprType = m_typeCtx.getString();
+                return;
+            }
+            if (methodName == "charAt") {
+                m_currentExprType = m_typeCtx.getChar();
+                return;
+            }
+        }
+
         if (objType->isArray()) {
             if (methodName == "length" || methodName == "size") {
                 m_currentExprType = m_typeCtx.getInt();

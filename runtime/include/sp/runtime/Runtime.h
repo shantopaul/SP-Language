@@ -29,6 +29,17 @@ extern "C" {
     const char* sp_rt_str_from_double(double val);
     const char* sp_rt_str_from_bool(bool val);
     const char* sp_rt_str_from_char(char val);
+    int64_t     sp_rt_str_len(const char* s);
+    const char* sp_rt_str_upper(const char* s);
+    const char* sp_rt_str_lower(const char* s);
+    const char* sp_rt_str_trim(const char* s);
+    bool        sp_rt_str_contains(const char* s, const char* sub);
+    bool        sp_rt_str_starts_with(const char* s, const char* prefix);
+    bool        sp_rt_str_ends_with(const char* s, const char* suffix);
+    int64_t     sp_rt_str_index_of(const char* s, const char* sub);
+    const char* sp_rt_str_substring(const char* s, int64_t start, int64_t end);
+    const char* sp_rt_str_replace(const char* s, const char* from, const char* to);
+    char        sp_rt_str_char_at(const char* s, int64_t idx);
 
     // Diagnostics and assertions
     void sp_rt_assert(bool cond, const char* msg);

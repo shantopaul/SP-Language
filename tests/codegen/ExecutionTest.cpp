@@ -770,4 +770,50 @@ TEST(ExecutionTest, OperatorsNativeExecution) {
     EXPECT_NE(output.find("p >> 1 = 6"), std::string::npos);
 }
 
+TEST(ExecutionTest, StringsAndInterpolationNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            string firstName = "Shanto";
+            string lastName = "Paul";
+            int age = 21;
+
+            string fullName = firstName + " " + lastName;
+            println(fullName);
+
+            println("Hello, ${firstName}!");
+            println("Full Name: ${firstName} ${lastName}");
+            println("Age next year: ${age + 1}");
+            println("Name length: ${firstName.length()}");
+            println("Uppercase: ${firstName.upper()}");
+
+            println("Line 1\nLine 2");
+            println("Tab\there");
+            println("She said \"Hello\"");
+            println("Backslash: \\");
+            println("Unicode: \u0041");
+
+            string poem = "Roses are red,\n"
+                        + "Violets are blue,\n"
+                        + "SP is awesome,\n"
+                        + "And so are you.";
+
+            println(poem);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_strings_interpolation");
+    EXPECT_NE(output.find("Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("Hello, Shanto!"), std::string::npos);
+    EXPECT_NE(output.find("Full Name: Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("Age next year: 22"), std::string::npos);
+    EXPECT_NE(output.find("Name length: 6"), std::string::npos);
+    EXPECT_NE(output.find("Uppercase: SHANTO"), std::string::npos);
+    EXPECT_NE(output.find("Line 1\nLine 2"), std::string::npos);
+    EXPECT_NE(output.find("Tab\there"), std::string::npos);
+    EXPECT_NE(output.find("She said \"Hello\""), std::string::npos);
+    EXPECT_NE(output.find("Backslash: \\"), std::string::npos);
+    EXPECT_NE(output.find("Unicode: A"), std::string::npos);
+    EXPECT_NE(output.find("Roses are red,\nViolets are blue,\nSP is awesome,\nAnd so are you."), std::string::npos);
+}
+
 

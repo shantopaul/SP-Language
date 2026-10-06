@@ -486,6 +486,70 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
                    true);
 
+    // i64 sp_rt_str_len(ptr)
+    createFunction("sp_rt_str_len", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_upper(ptr)
+    createFunction("sp_rt_str_upper", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_lower(ptr)
+    createFunction("sp_rt_str_lower", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_trim(ptr)
+    createFunction("sp_rt_str_trim", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // i1 sp_rt_str_contains(ptr, ptr)
+    createFunction("sp_rt_str_contains", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "sub", 1)},
+                   true);
+
+    // i1 sp_rt_str_starts_with(ptr, ptr)
+    createFunction("sp_rt_str_starts_with", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "prefix", 1)},
+                   true);
+
+    // i1 sp_rt_str_ends_with(ptr, ptr)
+    createFunction("sp_rt_str_ends_with", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "suffix", 1)},
+                   true);
+
+    // i64 sp_rt_str_index_of(ptr, ptr)
+    createFunction("sp_rt_str_index_of", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "sub", 1)},
+                   true);
+
+    // ptr sp_rt_str_substring(ptr, i64, i64)
+    createFunction("sp_rt_str_substring", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "start", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "end", 2)},
+                   true);
+
+    // ptr sp_rt_str_replace(ptr, ptr, ptr)
+    createFunction("sp_rt_str_replace", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "from", 1),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "to", 2)},
+                   true);
+
+    // i8 sp_rt_str_char_at(ptr, i64)
+    createFunction("sp_rt_str_char_at", IRType::getInt8(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "idx", 1)},
+                   true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

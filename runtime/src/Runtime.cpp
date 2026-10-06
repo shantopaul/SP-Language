@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <sstream>
 #include <vector>
 #include <string>
@@ -144,6 +145,125 @@ const char* sp_rt_str_from_char(char val) {
         res[1] = '\0';
     }
     return res;
+}
+
+int64_t sp_rt_str_len(const char* s) {
+    if (!s) return 0;
+    return static_cast<int64_t>(std::strlen(s));
+}
+
+const char* sp_rt_str_upper(const char* s) {
+    if (!s) return "";
+    size_t len = std::strlen(s);
+    char* res = static_cast<char*>(malloc(len + 1));
+    if (res) {
+        for (size_t i = 0; i < len; ++i) {
+            res[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(s[i])));
+        }
+        res[len] = '\0';
+    }
+    return res;
+}
+
+const char* sp_rt_str_lower(const char* s) {
+    if (!s) return "";
+    size_t len = std::strlen(s);
+    char* res = static_cast<char*>(malloc(len + 1));
+    if (res) {
+        for (size_t i = 0; i < len; ++i) {
+            res[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(s[i])));
+        }
+        res[len] = '\0';
+    }
+    return res;
+}
+
+const char* sp_rt_str_trim(const char* s) {
+    if (!s) return "";
+    size_t len = std::strlen(s);
+    size_t start = 0;
+    while (start < len && std::isspace(static_cast<unsigned char>(s[start]))) {
+        start++;
+    }
+    size_t end = len;
+    while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+        end--;
+    }
+    size_t subLen = end - start;
+    char* res = static_cast<char*>(malloc(subLen + 1));
+    if (res) {
+        std::memcpy(res, s + start, subLen);
+        res[subLen] = '\0';
+    }
+    return res;
+}
+
+bool sp_rt_str_contains(const char* s, const char* sub) {
+    if (!s || !sub) return false;
+    return std::strstr(s, sub) != nullptr;
+}
+
+bool sp_rt_str_starts_with(const char* s, const char* prefix) {
+    if (!s || !prefix) return false;
+    size_t l1 = std::strlen(s);
+    size_t l2 = std::strlen(prefix);
+    if (l2 > l1) return false;
+    return std::strncmp(s, prefix, l2) == 0;
+}
+
+bool sp_rt_str_ends_with(const char* s, const char* suffix) {
+    if (!s || !suffix) return false;
+    size_t l1 = std::strlen(s);
+    size_t l2 = std::strlen(suffix);
+    if (l2 > l1) return false;
+    return std::strcmp(s + (l1 - l2), suffix) == 0;
+}
+
+int64_t sp_rt_str_index_of(const char* s, const char* sub) {
+    if (!s || !sub) return -1;
+    const char* p = std::strstr(s, sub);
+    if (!p) return -1;
+    return static_cast<int64_t>(p - s);
+}
+
+const char* sp_rt_str_substring(const char* s, int64_t start, int64_t end) {
+    if (!s) return "";
+    size_t len = std::strlen(s);
+    if (start < 0) start = 0;
+    if (end < start) end = start;
+    if (static_cast<size_t>(start) > len) start = len;
+    if (static_cast<size_t>(end) > len) end = len;
+    size_t subLen = end - start;
+    char* res = static_cast<char*>(malloc(subLen + 1));
+    if (res) {
+        std::memcpy(res, s + start, subLen);
+        res[subLen] = '\0';
+    }
+    return res;
+}
+
+const char* sp_rt_str_replace(const char* s, const char* from, const char* to) {
+    if (!s) return "";
+    if (!from || std::strlen(from) == 0) return s;
+    if (!to) to = "";
+    std::string str(s);
+    std::string fromStr(from);
+    std::string toStr(to);
+    size_t pos = 0;
+    while ((pos = str.find(fromStr, pos)) != std::string::npos) {
+        str.replace(pos, fromStr.length(), toStr);
+        pos += toStr.length();
+    }
+    char* res = static_cast<char*>(malloc(str.size() + 1));
+    if (res) {
+        std::memcpy(res, str.c_str(), str.size() + 1);
+    }
+    return res;
+}
+
+char sp_rt_str_char_at(const char* s, int64_t idx) {
+    if (!s || idx < 0 || static_cast<size_t>(idx) >= std::strlen(s)) return '\0';
+    return s[idx];
 }
 
 void sp_rt_assert(bool cond, const char* msg) {
