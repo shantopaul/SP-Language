@@ -323,6 +323,14 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("listDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getArrayType(typeCtx.getString())), builtinLoc));
     define(std::make_shared<FunctionSymbol>("isFile", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("isDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+
+    // Built-in time functions (std.time)
+    define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("sleep", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("sleepSeconds", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
 }
 
 } // namespace sp::sema

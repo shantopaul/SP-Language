@@ -12,6 +12,15 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <thread>
+#include <ctime>
+#if defined(_WIN32) || defined(_WIN64)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 extern "C" {
 
@@ -1003,6 +1012,113 @@ bool sp_rt_fs_is_dir(const char* path) {
     if (!path) return false;
     std::error_code ec;
     return std::filesystem::is_directory(path, ec);
+}
+
+// Time functions (std.time)
+int64_t sp_rt_time_now_ms() {
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+}
+
+int64_t sp_rt_time_now_secs() {
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+}
+
+int64_t sp_rt_time_now_ns() {
+    auto now = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+}
+
+void sp_rt_time_sleep_ms(int64_t ms) {
+    if (ms > 0) {
+#if defined(_WIN32) || defined(_WIN64)
+        ::Sleep(static_cast<DWORD>(ms));
+#else
+        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+#endif
+    }
+}
+
+void sp_rt_time_sleep_secs(int64_t s) {
+    if (s > 0) {
+#if defined(_WIN32) || defined(_WIN64)
+        ::Sleep(static_cast<DWORD>(s * 1000));
+#else
+        std::this_thread::sleep_for(std::chrono::seconds(s));
+#endif
+    }
+}
+
+const char* sp_rt_time_format_iso(int64_t timestamp) {
+    std::time_t t = static_cast<std::time_t>(timestamp > 100000000000LL ? timestamp / 1000 : timestamp);
+    std::tm tm_buf{};
+#if defined(_WIN32) || defined(_WIN64)
+    gmtime_s(&tm_buf, &t);
+#else
+    gmtime_r(&t, &tm_buf);
+#endif
+    char buf[64];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+    char* copy = static_cast<char*>(malloc(std::strlen(buf) + 1));
+    std::strcpy(copy, buf);
+    return copy;
+}
+
+int64_t sp_rt_time_parse_iso(const char* iso_str) {
+    if (!iso_str) return 0;
+    std::tm tm_buf{};
+    int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
+    if (sscanf(iso_str, "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &min, &sec) >= 3) {
+        tm_buf.tm_year = year - 1900;
+        tm_buf.tm_mon = month - 1;
+        tm_buf.tm_mday = day;
+        tm_buf.tm_hour = hour;
+        tm_buf.tm_min = min;
+        tm_buf.tm_sec = sec;
+#if defined(_WIN32) || defined(_WIN64)
+        std::time_t t = _mkgmtime(&tm_buf);
+#else
+        std::time_t t = timegm(&tm_buf);
+#endif
+        if (t != static_cast<std::time_t>(-1)) {
+            return static_cast<int64_t>(t);
+        }
+    }
+    return 0;
+}
+
+// Duration functions (std.time)
+struct SPDurationImpl {
+    int64_t millis;
+};
+
+void* sp_rt_duration_from_millis(int64_t ms) {
+    auto* d = new SPDurationImpl();
+    d->millis = ms;
+    return d;
+}
+
+void* sp_rt_duration_from_seconds(int64_t s) {
+    return sp_rt_duration_from_millis(s * 1000);
+}
+
+void* sp_rt_duration_from_minutes(int64_t m) {
+    return sp_rt_duration_from_millis(m * 60000);
+}
+
+void* sp_rt_duration_from_hours(int64_t h) {
+    return sp_rt_duration_from_millis(h * 3600000);
+}
+
+int64_t sp_rt_duration_to_millis(void* d) {
+    if (!d) return 0;
+    return static_cast<SPDurationImpl*>(d)->millis;
+}
+
+int64_t sp_rt_duration_to_seconds(void* d) {
+    if (!d) return 0;
+    return static_cast<SPDurationImpl*>(d)->millis / 1000;
 }
 
 }

@@ -453,6 +453,31 @@ TypeContext::TypeContext() {
     fileCls->addMethod({"delete", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
     fileCls->addMethod({"deleteFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
     fileCls->addMethod({"isFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+
+    auto timeCls = createClassType("Time");
+    timeCls->addMethod({"now", getFunctionType({}, m_int32Type), "public", true, false, false});
+    timeCls->addMethod({"nowSeconds", getFunctionType({}, m_int32Type), "public", true, false, false});
+    timeCls->addMethod({"nowNanos", getFunctionType({}, m_int64Type), "public", true, false, false});
+    timeCls->addMethod({"sleep", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"sleep", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"sleepSeconds", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"sleepSeconds", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"format", getFunctionType({m_int32Type}, m_stringType), "public", true, false, false});
+    timeCls->addMethod({"format", getFunctionType({m_int64Type}, m_stringType), "public", true, false, false});
+    timeCls->addMethod({"parse", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
+
+    auto durationCls = createClassType("Duration");
+    durationCls->addField({"millis", m_int32Type, "public", false, false});
+    durationCls->addMethod({"fromMillis", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromMillis", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromSeconds", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromSeconds", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromMinutes", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromMinutes", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromHours", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromHours", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"toMillis", getFunctionType({}, m_int32Type), "public", false, false, false});
+    durationCls->addMethod({"toSeconds", getFunctionType({}, m_int32Type), "public", false, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

@@ -164,4 +164,21 @@ extern "C" {
     void*       sp_rt_fs_list_dir(const char* path);
     bool        sp_rt_fs_is_file(const char* path);
     bool        sp_rt_fs_is_dir(const char* path);
+
+    // Time functions (std.time)
+    int64_t     sp_rt_time_now_ms();
+    int64_t     sp_rt_time_now_secs();
+    int64_t     sp_rt_time_now_ns();
+    void        sp_rt_time_sleep_ms(int64_t ms);
+    void        sp_rt_time_sleep_secs(int64_t s);
+    const char* sp_rt_time_format_iso(int64_t epoch_ms);
+    int64_t     sp_rt_time_parse_iso(const char* iso_str);
+
+    // Duration functions (std.time)
+    void*       sp_rt_duration_from_millis(int64_t ms);
+    void*       sp_rt_duration_from_seconds(int64_t s);
+    void*       sp_rt_duration_from_minutes(int64_t m);
+    void*       sp_rt_duration_from_hours(int64_t h);
+    int64_t     sp_rt_duration_to_millis(void* d);
+    int64_t     sp_rt_duration_to_seconds(void* d);
 }

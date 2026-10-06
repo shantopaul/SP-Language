@@ -722,6 +722,33 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_fs_is_dir", IRType::getInt1(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
 
+    // Time runtime functions (std.time)
+    createFunction("sp_rt_time_now_ms", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_time_now_secs", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_time_now_ns", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_time_sleep_ms", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 0)}, true);
+    createFunction("sp_rt_time_sleep_secs", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "s", 0)}, true);
+    createFunction("sp_rt_time_format_iso", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "epoch_ms", 0)}, true);
+    createFunction("sp_rt_time_parse_iso", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "iso_str", 0)}, true);
+
+    // Duration runtime functions (std.time)
+    createFunction("sp_rt_duration_from_millis", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 0)}, true);
+    createFunction("sp_rt_duration_from_seconds", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "s", 0)}, true);
+    createFunction("sp_rt_duration_from_minutes", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "m", 0)}, true);
+    createFunction("sp_rt_duration_from_hours", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "h", 0)}, true);
+    createFunction("sp_rt_duration_to_millis", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "d", 0)}, true);
+    createFunction("sp_rt_duration_to_seconds", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "d", 0)}, true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

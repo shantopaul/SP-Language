@@ -2531,6 +2531,81 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     return;
                 }
             }
+
+            if (targetName == "Time") {
+                if (methodName == "now") {
+                    std::string reg = m_currentFunction->nextTempName("time_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_now_ms", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "nowSeconds") {
+                    std::string reg = m_currentFunction->nextTempName("time_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_now_secs", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "nowNanos") {
+                    std::string reg = m_currentFunction->nextTempName("time_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_now_ns", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if ((methodName == "sleep" || methodName == "sleepSeconds") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string fn = (methodName == "sleep") ? "sp_rt_time_sleep_ms" : "sp_rt_time_sleep_secs";
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), fn, std::vector<IRValuePtr>{ms});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "format" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("time_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_time_format_iso", std::vector<IRValuePtr>{ms}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if (methodName == "parse" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto s = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("time_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_parse_iso", std::vector<IRValuePtr>{s}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+            }
+
+            if (targetName == "Duration") {
+                if ((methodName == "fromMillis" || methodName == "fromSeconds" ||
+                     methodName == "fromMinutes" || methodName == "fromHours") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string fn = "sp_rt_duration_from_millis";
+                    if (methodName == "fromSeconds") fn = "sp_rt_duration_from_seconds";
+                    else if (methodName == "fromMinutes") fn = "sp_rt_duration_from_minutes";
+                    else if (methodName == "fromHours") fn = "sp_rt_duration_from_hours";
+                    std::string reg = m_currentFunction->nextTempName("dur");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(), fn, std::vector<IRValuePtr>{val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer();
+                    return;
+                }
+            }
         }
 
         // 1b. obj.method(...)
@@ -2543,6 +2618,35 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         }
 
         auto semaObjType = m_sema.getNodeType(&mem->getObject());
+        if (semaObjType && semaObjType->isClass() && semaObjType->toString() == "Duration") {
+            if (methodName == "toMillis") {
+                std::string reg = m_currentFunction->nextTempName("dur_ms");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_duration_to_millis",
+                    std::vector<IRValuePtr>{objVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+            if (methodName == "toSeconds") {
+                std::string reg = m_currentFunction->nextTempName("dur_s");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_duration_to_seconds",
+                    std::vector<IRValuePtr>{objVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+        }
+
         if (semaObjType && semaObjType->isString()) {
             if (methodName == "length" || methodName == "size") {
                 std::string lenReg = m_currentFunction->nextTempName("slen");
@@ -3669,6 +3773,61 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
+    if (calleeName == "now") {
+        std::string reg = m_currentFunction->nextTempName("time_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_now_ms", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if (calleeName == "nowSeconds") {
+        std::string reg = m_currentFunction->nextTempName("time_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_now_secs", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if (calleeName == "nowNanos") {
+        std::string reg = m_currentFunction->nextTempName("time_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_now_ns", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if ((calleeName == "sleep" || calleeName == "sleepSeconds") && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        std::string fn = (calleeName == "sleep") ? "sp_rt_time_sleep_ms" : "sp_rt_time_sleep_secs";
+        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), fn, std::vector<IRValuePtr>{ms});
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
+        return;
+    }
+    if (calleeName == "formatTime" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        std::string reg = m_currentFunction->nextTempName("time_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_time_format_iso", std::vector<IRValuePtr>{ms}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+    if (calleeName == "parseTime" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto s = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("time_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_time_parse_iso", std::vector<IRValuePtr>{s}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+
     // Check if callee is a method on 'this'
     if (m_currentClass && m_currentClass->methodSlotMap.count(calleeName)) {
         int slotIdx = m_currentClass->methodSlotMap.at(calleeName);
@@ -3989,6 +4148,24 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
         }
     }
 
+    if (semaType && semaType->isClass() && semaType->toString() == "Duration") {
+        if (node.getMember() == "millis") {
+            node.getObject().accept(*this);
+            auto objVal = m_lastExprValue;
+            std::string reg = m_currentFunction->nextTempName("dur_ms");
+            auto callInst = std::make_shared<CallInst>(
+                IRType::getInt64(),
+                "sp_rt_duration_to_millis",
+                std::vector<IRValuePtr>{objVal},
+                reg
+            );
+            m_currentBlock->addInstruction(callInst);
+            m_lastExprValue = callInst;
+            m_lastExprType = IRType::getInt64();
+            return;
+        }
+    }
+
     // 3. Class/Struct member field access
     IRTypePtr fieldType = nullptr;
     auto fieldPtr = emitMemberPointer(node, fieldType);
@@ -4285,6 +4462,21 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             "sp_rt_set_alloc",
             std::vector<IRValuePtr>{},
             setReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Duration") {
+        std::string durReg = m_currentFunction->nextTempName("dur");
+        auto zeroVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_duration_from_millis",
+            std::vector<IRValuePtr>{zeroVal},
+            durReg
         );
         m_currentBlock->addInstruction(allocCall);
         m_lastExprValue = allocCall;

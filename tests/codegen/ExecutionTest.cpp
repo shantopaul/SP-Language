@@ -1577,3 +1577,48 @@ TEST(ExecutionTest, StdlibFsNativeExecution) {
     EXPECT_NE(output.find("exists_after_del: false"), std::string::npos);
     EXPECT_NE(output.find("dir_exists_after_del: false"), std::string::npos);
 }
+
+TEST(ExecutionTest, StdlibTimeNativeExecution) {
+    const std::string source = R"sp(
+        import std.time;
+
+        fn main() {
+            int t1 = now();
+            int tSecs = nowSeconds();
+            println("now_gt_0: ${t1 > 0}");
+            println("secs_gt_0: ${tSecs > 0}");
+
+            sleep(15);
+            int t2 = now();
+            int elapsed = t2 - t1;
+            println("elapsed_gte_10: ${elapsed >= 10}");
+
+            string iso = formatTime(1700000000);
+            println("formatted_iso: ${iso}");
+
+            int parsed = parseTime("2023-11-14T22:13:20Z");
+            println("parsed_epoch: ${parsed}");
+
+            Duration d = Duration.fromSeconds(3);
+            println("d_millis: ${d.toMillis()}");
+            println("d_seconds: ${d.toSeconds()}");
+
+            Duration dMin = Duration.fromMinutes(1);
+            println("d_min_millis: ${dMin.toMillis()}");
+
+            int staticNow = Time.now();
+            println("time_static_gt_0: ${staticNow > 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_time");
+    EXPECT_NE(output.find("now_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("secs_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("elapsed_gte_10: true"), std::string::npos);
+    EXPECT_NE(output.find("formatted_iso: 2023-11-14T22:13:20Z"), std::string::npos);
+    EXPECT_NE(output.find("parsed_epoch: 1700000000"), std::string::npos);
+    EXPECT_NE(output.find("d_millis: 3000"), std::string::npos);
+    EXPECT_NE(output.find("d_seconds: 3"), std::string::npos);
+    EXPECT_NE(output.find("d_min_millis: 60000"), std::string::npos);
+    EXPECT_NE(output.find("time_static_gt_0: true"), std::string::npos);
+}
