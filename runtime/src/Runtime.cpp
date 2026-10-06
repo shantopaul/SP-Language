@@ -585,6 +585,30 @@ int64_t sp_rt_list_pop_i64(void* list) {
     return val;
 }
 
+void sp_rt_list_clear(void* list) {
+    if (!list) return;
+    static_cast<SPListImpl*>(list)->items.clear();
+}
+
+bool sp_rt_list_contains_i64(void* list, int64_t val) {
+    if (!list) return false;
+    auto& items = static_cast<SPListImpl*>(list)->items;
+    return std::find(items.begin(), items.end(), val) != items.end();
+}
+
+void sp_rt_list_remove_at(void* list, int64_t index) {
+    if (!list) return;
+    auto* impl = static_cast<SPListImpl*>(list);
+    if (index >= 0 && static_cast<size_t>(index) < impl->items.size()) {
+        impl->items.erase(impl->items.begin() + index);
+    }
+}
+
+bool sp_rt_list_is_empty(void* list) {
+    if (!list) return true;
+    return static_cast<SPListImpl*>(list)->items.empty();
+}
+
 // Native Map<K, V> primitives
 void* sp_rt_map_alloc() {
     return new SPMapImpl();
@@ -626,6 +650,35 @@ int64_t sp_rt_map_get_i64(void* map, int64_t key) {
     auto& m = static_cast<SPMapImpl*>(map)->int_map;
     auto it = m.find(key);
     return it != m.end() ? it->second : 0;
+}
+
+bool sp_rt_map_contains_i64(void* map, int64_t key) {
+    if (!map) return false;
+    auto& m = static_cast<SPMapImpl*>(map)->int_map;
+    return m.find(key) != m.end();
+}
+
+void sp_rt_map_remove_str(void* map, const char* key) {
+    if (!map || !key) return;
+    static_cast<SPMapImpl*>(map)->str_map.erase(key);
+}
+
+void sp_rt_map_remove_i64(void* map, int64_t key) {
+    if (!map) return;
+    static_cast<SPMapImpl*>(map)->int_map.erase(key);
+}
+
+void sp_rt_map_clear(void* map) {
+    if (!map) return;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    impl->str_map.clear();
+    impl->int_map.clear();
+}
+
+bool sp_rt_map_is_empty(void* map) {
+    if (!map) return true;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    return impl->str_map.empty() && impl->int_map.empty();
 }
 
 // Native Set<T> primitives
@@ -670,6 +723,24 @@ void sp_rt_set_remove_i64(void* set, int64_t val) {
 void sp_rt_set_remove_str(void* set, const char* val) {
     if (!set || !val) return;
     static_cast<SPSetImpl*>(set)->str_set.erase(val);
+}
+
+void sp_rt_set_clear(void* set) {
+    if (!set) return;
+    auto* impl = static_cast<SPSetImpl*>(set);
+    impl->str_set.clear();
+    impl->int_set.clear();
+}
+
+bool sp_rt_set_is_empty(void* set) {
+    if (!set) return true;
+    auto* impl = static_cast<SPSetImpl*>(set);
+    return impl->str_set.empty() && impl->int_set.empty();
+}
+
+bool sp_rt_array_is_empty(void* arr) {
+    if (!arr) return true;
+    return sp_rt_array_length(arr) == 0;
 }
 
 // Higher-order collection functions

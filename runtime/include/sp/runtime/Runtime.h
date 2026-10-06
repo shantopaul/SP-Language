@@ -88,6 +88,10 @@ extern "C" {
     int64_t sp_rt_list_get_i64(void* list, int64_t index);
     void sp_rt_list_set_i64(void* list, int64_t index, int64_t val);
     int64_t sp_rt_list_pop_i64(void* list);
+    void sp_rt_list_clear(void* list);
+    bool sp_rt_list_contains_i64(void* list, int64_t val);
+    void sp_rt_list_remove_at(void* list, int64_t index);
+    bool sp_rt_list_is_empty(void* list);
 
     // Native Map<K, V> primitives
     void* sp_rt_map_alloc();
@@ -97,6 +101,11 @@ extern "C" {
     bool sp_rt_map_contains_str(void* map, const char* key);
     void sp_rt_map_set_i64(void* map, int64_t key, int64_t val);
     int64_t sp_rt_map_get_i64(void* map, int64_t key);
+    bool sp_rt_map_contains_i64(void* map, int64_t key);
+    void sp_rt_map_remove_str(void* map, const char* key);
+    void sp_rt_map_remove_i64(void* map, int64_t key);
+    void sp_rt_map_clear(void* map);
+    bool sp_rt_map_is_empty(void* map);
 
     // Native Set<T> primitives
     void* sp_rt_set_alloc();
@@ -107,6 +116,10 @@ extern "C" {
     bool sp_rt_set_contains_str(void* set, const char* val);
     void sp_rt_set_remove_i64(void* set, int64_t val);
     void sp_rt_set_remove_str(void* set, const char* val);
+    void sp_rt_set_clear(void* set);
+    bool sp_rt_set_is_empty(void* set);
+
+    bool sp_rt_array_is_empty(void* arr);
 
     // Higher-order collection functions
     void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t));

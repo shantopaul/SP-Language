@@ -705,6 +705,9 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         listCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
         listCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
         listCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        listCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
+        listCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"removeAt", getFunctionType({m_int64Type}, m_voidType), "public", false, false, false});
         listCls->addMethod({"map", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"filter", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"reduce", getFunctionType({getAny(), elem ? elem : m_int64Type}, elem ? elem : m_int64Type), "public", false, false, false});
@@ -735,6 +738,7 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         setCls->addMethod({"add", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
         setCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
         setCls->addMethod({"remove", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        setCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
         setCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
         setCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
         setCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});

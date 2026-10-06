@@ -864,6 +864,47 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getPointer(), "val", 1)},
                    true);
 
+    createFunction("sp_rt_set_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)}, true);
+
+    createFunction("sp_rt_set_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)}, true);
+
+    createFunction("sp_rt_list_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)}, true);
+
+    createFunction("sp_rt_list_contains_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+
+    createFunction("sp_rt_list_remove_at", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)}, true);
+
+    createFunction("sp_rt_list_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)}, true);
+
+    createFunction("sp_rt_map_contains_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)}, true);
+
+    createFunction("sp_rt_map_remove_str", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "key", 1)}, true);
+
+    createFunction("sp_rt_map_remove_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)}, true);
+
+    createFunction("sp_rt_map_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)}, true);
+
+    createFunction("sp_rt_map_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)}, true);
+
+    createFunction("sp_rt_array_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0)}, true);
+
     // Higher-order collection functions
     createFunction("sp_rt_array_map", IRType::getPointer(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0),

@@ -559,11 +559,15 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = arr.getElementType();
                 return;
             }
+            if (methodName == "clear" || methodName == "removeAt") {
+                m_currentExprType = m_typeCtx.getVoid();
+                return;
+            }
         }
 
         if (objType->isMap()) {
             const auto& mapType = static_cast<const MapType&>(*objType);
-            if (methodName == "size") {
+            if (methodName == "size" || methodName == "length") {
                 m_currentExprType = m_typeCtx.getInt();
                 return;
             }
@@ -575,7 +579,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = m_typeCtx.getNullableType(mapType.getValueType());
                 return;
             }
-            if (methodName == "set" || methodName == "remove") {
+            if (methodName == "set" || methodName == "remove" || methodName == "clear") {
                 m_currentExprType = m_typeCtx.getVoid();
                 return;
             }

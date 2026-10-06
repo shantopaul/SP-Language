@@ -1439,3 +1439,82 @@ TEST(ExecutionTest, StdlibMathNativeExecution) {
 
 
 
+
+TEST(ExecutionTest, StdlibCollectionsNativeExecution) {
+    const std::string source = R"sp(
+        import std.collections;
+
+        fn main() {
+            List<int> numbers = new List<int>();
+            println("list_empty_1: ${numbers.isEmpty()}");
+            numbers.push(10);
+            numbers.push(20);
+            numbers.push(30);
+            println("list_len: ${numbers.length()}");
+            println("list_has_20: ${numbers.contains(20)}");
+            println("list_has_99: ${numbers.contains(99)}");
+            println("list_get_1: ${numbers.get(1)}");
+            numbers.set(1, 25);
+            println("list_get_1_after_set: ${numbers.get(1)}");
+            numbers.removeAt(0);
+            println("list_after_remove: len=${numbers.length()}, first=${numbers.get(0)}");
+            numbers.clear();
+            println("list_empty_2: ${numbers.isEmpty()}");
+
+            Map<string, int> scores = new Map<string, int>();
+            println("map_empty_1: ${scores.isEmpty()}");
+            scores.set("Alice", 95);
+            scores.set("Bob", 88);
+            scores.set("Charlie", 72);
+            string alice = "Alice";
+            string bob = "Bob";
+            string david = "David";
+            println("map_len: ${scores.length()}");
+            println("map_has_alice: ${scores.contains(alice)}");
+            println("map_has_david: ${scores.containsKey(david)}");
+            println("map_get_alice: ${scores.get(alice)}");
+            scores.remove(bob);
+            println("map_after_remove_bob: len=${scores.length()}, has_bob=${scores.contains(bob)}");
+            scores.clear();
+            println("map_empty_2: ${scores.isEmpty()}");
+
+            Set<int> uniqueNums = new Set<int>();
+            println("set_empty_1: ${uniqueNums.isEmpty()}");
+            uniqueNums.add(5);
+            uniqueNums.add(10);
+            uniqueNums.add(5);
+            println("set_len: ${uniqueNums.length()}");
+            println("set_has_5: ${uniqueNums.contains(5)}");
+            println("set_has_15: ${uniqueNums.contains(15)}");
+            uniqueNums.remove(5);
+            println("set_after_remove_5: has_5=${uniqueNums.contains(5)}");
+            uniqueNums.clear();
+            println("set_empty_2: ${uniqueNums.isEmpty()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_collections");
+    EXPECT_NE(output.find("list_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("list_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("list_has_20: true"), std::string::npos);
+    EXPECT_NE(output.find("list_has_99: false"), std::string::npos);
+    EXPECT_NE(output.find("list_get_1: 20"), std::string::npos);
+    EXPECT_NE(output.find("list_get_1_after_set: 25"), std::string::npos);
+    EXPECT_NE(output.find("list_after_remove: len=2, first=25"), std::string::npos);
+    EXPECT_NE(output.find("list_empty_2: true"), std::string::npos);
+
+    EXPECT_NE(output.find("map_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("map_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("map_has_alice: true"), std::string::npos);
+    EXPECT_NE(output.find("map_has_david: false"), std::string::npos);
+    EXPECT_NE(output.find("map_get_alice: 95"), std::string::npos);
+    EXPECT_NE(output.find("map_after_remove_bob: len=2, has_bob=false"), std::string::npos);
+    EXPECT_NE(output.find("map_empty_2: true"), std::string::npos);
+
+    EXPECT_NE(output.find("set_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("set_len: 2"), std::string::npos);
+    EXPECT_NE(output.find("set_has_5: true"), std::string::npos);
+    EXPECT_NE(output.find("set_has_15: false"), std::string::npos);
+    EXPECT_NE(output.find("set_after_remove_5: has_5=false"), std::string::npos);
+    EXPECT_NE(output.find("set_empty_2: true"), std::string::npos);
+}
