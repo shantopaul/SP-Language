@@ -45,6 +45,7 @@ add_executable(sp_tests
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp
     spm/LockfileTest.cpp
+    spm/BuildOrchestratorTest.cpp
 )
 
 target_include_directories(sp_tests

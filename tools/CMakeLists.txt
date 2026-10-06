@@ -11,6 +11,7 @@ add_library(spm_core
     spm/SemVer.cpp
     spm/DependencyResolver.cpp
     spm/Lockfile.cpp
+    spm/BuildOrchestrator.cpp
 )
 target_include_directories(spm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(spm_core PUBLIC sp_compiler sp_runtime)
