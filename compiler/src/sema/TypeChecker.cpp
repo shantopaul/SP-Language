@@ -96,6 +96,12 @@ void TypeChecker::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    auto primType = m_typeCtx.resolveType(name);
+    if (primType && !primType->isError()) {
+        m_currentExprType = primType;
+        return;
+    }
+
     m_diagnostics.reportError("E1002", "Undefined variable or symbol '" + name + "'", node.getLocation(),
                               "Ensure the variable is declared before use");
     m_currentExprType = m_typeCtx.getError();
@@ -118,6 +124,18 @@ void TypeChecker::visit(const ast::BinaryExpr& node) {
             m_currentExprType = m_typeCtx.getString();
             return;
         }
+    }
+
+    // Range operator: ..
+    if (op == lexer::TokenType::DotDot) {
+        if (!leftType->isInteger() || !rightType->isInteger()) {
+            m_diagnostics.reportError("E1001", "Range operator '..' requires integer operands, got '" +
+                                      leftType->toString() + "' and '" + rightType->toString() + "'", node.getLocation());
+            m_currentExprType = m_typeCtx.getError();
+            return;
+        }
+        m_currentExprType = m_typeCtx.getArrayType(m_typeCtx.getInt());
+        return;
     }
 
     // Arithmetic operators: +, -, *, /, %
@@ -269,7 +287,19 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
     std::vector<std::shared_ptr<FunctionSymbol>> viable;
     for (const auto& candidate : candidates) {
         const auto& paramTypes = candidate->getFunctionType()->getParamTypes();
-        if (paramTypes.size() != argTypes.size()) continue;
+        const auto* astDecl = candidate->getASTDecl();
+        size_t minParams = paramTypes.size();
+        size_t maxParams = paramTypes.size();
+        if (astDecl) {
+            minParams = 0;
+            for (const auto& p : astDecl->getParams()) {
+                if (!p.hasDefaultValue()) {
+                    minParams++;
+                }
+            }
+        }
+
+        if (argTypes.size() < minParams || argTypes.size() > maxParams) continue;
 
         bool match = true;
         for (size_t i = 0; i < argTypes.size(); ++i) {
@@ -294,9 +324,10 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
         return nullptr;
     }
 
-    // If multiple match, prefer exact matches
+    // If multiple match, prefer exact matches with identical arg count
     for (const auto& candidate : viable) {
         const auto& paramTypes = candidate->getFunctionType()->getParamTypes();
+        if (paramTypes.size() != argTypes.size()) continue;
         bool exact = true;
         for (size_t i = 0; i < argTypes.size(); ++i) {
             if (!argTypes[i]->equals(*paramTypes[i])) {
@@ -455,6 +486,41 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
+        if (objType->isString()) {
+            if (methodName == "length" || methodName == "size") {
+                m_currentExprType = m_typeCtx.getInt();
+                return;
+            }
+            if (methodName == "upper" || methodName == "lower" || methodName == "trim") {
+                m_currentExprType = m_typeCtx.getString();
+                return;
+            }
+            if (methodName == "contains" || methodName == "startsWith" || methodName == "endsWith" || methodName == "isEmpty") {
+                m_currentExprType = m_typeCtx.getBool();
+                return;
+            }
+            if (methodName == "indexOf") {
+                m_currentExprType = m_typeCtx.getInt();
+                return;
+            }
+            if (methodName == "replace" || methodName == "substring") {
+                m_currentExprType = m_typeCtx.getString();
+                return;
+            }
+            if (methodName == "charAt") {
+                m_currentExprType = m_typeCtx.getChar();
+                return;
+            }
+            if (methodName == "split") {
+                m_currentExprType = m_typeCtx.getArrayType(m_typeCtx.getString());
+                return;
+            }
+            if (methodName == "reverse" || methodName == "repeat") {
+                m_currentExprType = m_typeCtx.getString();
+                return;
+            }
+        }
+
         if (objType->isArray()) {
             if (methodName == "length" || methodName == "size") {
                 m_currentExprType = m_typeCtx.getInt();
@@ -493,11 +559,15 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = arr.getElementType();
                 return;
             }
+            if (methodName == "clear" || methodName == "removeAt") {
+                m_currentExprType = m_typeCtx.getVoid();
+                return;
+            }
         }
 
         if (objType->isMap()) {
             const auto& mapType = static_cast<const MapType&>(*objType);
-            if (methodName == "size") {
+            if (methodName == "size" || methodName == "length") {
                 m_currentExprType = m_typeCtx.getInt();
                 return;
             }
@@ -509,7 +579,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = m_typeCtx.getNullableType(mapType.getValueType());
                 return;
             }
-            if (methodName == "set" || methodName == "remove") {
+            if (methodName == "set" || methodName == "remove" || methodName == "clear") {
                 m_currentExprType = m_typeCtx.getVoid();
                 return;
             }
@@ -517,6 +587,22 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = m_typeCtx.getBool();
                 return;
             }
+        }
+        if (objType->isInteger() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getInt();
+            return;
+        }
+        if (objType->isDouble() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getDouble();
+            return;
+        }
+        if (objType->isFloat() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getFloat();
+            return;
+        }
+        if (objType->isBoolean() && methodName == "parse") {
+            m_currentExprType = m_typeCtx.getBool();
+            return;
         }
 
         m_diagnostics.reportError("E1003", "Type '" + objType->toString() + "' has no method named '" + methodName + "'", node.getLocation());
@@ -630,6 +716,24 @@ void TypeChecker::visit(const ast::MemberExpr& node) {
     // Built-in properties: string length
     if (objType->isString() && (member == "length" || member == "size")) {
         m_currentExprType = m_typeCtx.getInt();
+        return;
+    }
+
+    // Built-in static methods / members: type.parse
+    if (objType->isInteger() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getInt());
+        return;
+    }
+    if (objType->isDouble() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getDouble());
+        return;
+    }
+    if (objType->isFloat() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getFloat());
+        return;
+    }
+    if (objType->isBoolean() && member == "parse") {
+        m_currentExprType = m_typeCtx.getFunctionType({m_typeCtx.getString()}, m_typeCtx.getBool());
         return;
     }
 
@@ -789,6 +893,13 @@ void TypeChecker::visit(const ast::AssignExpr& node) {
             valueType = m_typeCtx.getFloat();
         }
     }
+    if (targetType->isInteger() && valueType->isInteger()) {
+        if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(&node.getValue())) {
+            if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                valueType = targetType;
+            }
+        }
+    }
 
     // Check null safety (E1008)
     if (!targetType->isNullable() && valueType->isNull()) {
@@ -925,6 +1036,13 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
                     initType = m_typeCtx.getFloat();
                 }
             }
+            if (varType->isInteger() && initType->isInteger()) {
+                if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
+                    if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                        initType = varType;
+                    }
+                }
+            }
 
             // Null safety check (E1008)
             if (!varType->isNullable() && initType->isNull()) {
@@ -961,6 +1079,13 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
             if (varType->getKind() == TypeKind::Float && initType->getKind() == TypeKind::Double) {
                 if (dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
                     initType = m_typeCtx.getFloat();
+                }
+            }
+            if (varType->isInteger() && initType->isInteger()) {
+                if (const auto* lit = dynamic_cast<const ast::LiteralExpr*>(node.getInitializer())) {
+                    if (lit->getLiteralKind() == ast::LiteralKind::Integer) {
+                        initType = varType;
+                    }
                 }
             }
 
@@ -1074,6 +1199,7 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
 void TypeChecker::visit(const ast::SwitchStmt& node) {
     auto subjType = checkExpr(node.getSubject());
 
+    m_switchDepth++;
     for (const auto& sc : node.getCases()) {
         auto caseValType = checkExpr(sc.getValue());
         if (!caseValType->isAssignableTo(*subjType)) {
@@ -1088,6 +1214,7 @@ void TypeChecker::visit(const ast::SwitchStmt& node) {
     for (const auto& defStmt : node.getDefaultStatements()) {
         if (defStmt) checkStmt(*defStmt);
     }
+    m_switchDepth--;
 }
 
 void TypeChecker::visit(const ast::MatchStmt& node) {
@@ -1138,8 +1265,8 @@ void TypeChecker::visit(const ast::ReturnStmt& node) {
 }
 
 void TypeChecker::visit(const ast::BreakStmt& node) {
-    if (m_loopDepth <= 0) {
-        m_diagnostics.reportError("E1001", "'break' statement outside of loop", node.getLocation());
+    if (m_loopDepth <= 0 && m_switchDepth <= 0) {
+        m_diagnostics.reportError("E1001", "'break' statement outside of loop or switch", node.getLocation());
     }
 }
 
@@ -1251,7 +1378,19 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
         }
     } else if (node.isShortForm()) {
         auto shortType = checkExpr(*node.getShortBody());
-        if (!shortType->isAssignableTo(*returnType)) {
+        if (returnType->isVoid() && (node.getReturnType().empty() || node.getReturnType() == "void")) {
+            returnType = shortType;
+            const_cast<ast::FunctionDecl&>(node).setReturnType(shortType->toString());
+            auto syms = m_symbolTable.lookupFunctions(node.getName());
+            for (auto& s : syms) {
+                if (s->getASTDecl() == &node) {
+                    std::vector<TypePtr> pTypes = s->getFunctionType()->getParamTypes();
+                    auto newFnType = m_typeCtx.getFunctionType(std::move(pTypes), shortType);
+                    s->setFunctionType(newFnType);
+                    break;
+                }
+            }
+        } else if (!shortType->isAssignableTo(*returnType)) {
             m_diagnostics.reportError("E1005", "Short function body return type mismatch: expected '" +
                                       returnType->toString() + "', got '" + shortType->toString() + "'", node.getLocation());
         }
@@ -1348,6 +1487,16 @@ void TypeChecker::visit(const ast::ImportDecl& /*node*/) {
 }
 
 void TypeChecker::visit(const ast::Program& node) {
+    // Pre-pass: Infer return types of short-form functions
+    for (const auto& decl : node.getDeclarations()) {
+        if (decl && decl->getKind() == ast::ASTNodeKind::FunctionDecl) {
+            const auto& fn = static_cast<const ast::FunctionDecl&>(*decl);
+            if (fn.isShortForm() && (fn.getReturnType().empty() || fn.getReturnType() == "void")) {
+                visit(fn);
+            }
+        }
+    }
+
     for (const auto& decl : node.getDeclarations()) {
         if (decl) {
             switch (decl->getKind()) {

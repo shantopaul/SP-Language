@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sp/ast/Declaration.h"
+#include "sp/ast/Statement.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
 #include "sp/sema/SymbolTable.h"
 #include "sp/sema/Type.h"
@@ -31,6 +32,7 @@ private:
     void resolveInterfaceMembers(const ast::InterfaceDecl& decl);
     void resolveStructMembers(const ast::StructDecl& decl);
     void resolveEnumMembers(const ast::EnumDecl& decl);
+    void collectNestedTypes(const ast::StatementNode& stmt);
 
     bool checkCircularInheritance(const std::shared_ptr<ClassType>& cls, const std::string& superName, const diagnostics::SourceLocation& loc);
 

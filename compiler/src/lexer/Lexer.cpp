@@ -344,7 +344,17 @@ Token Lexer::scanString() {
                         }
                         hex += advance();
                     }
-                    value += "\\u" + hex;
+                    uint32_t codepoint = static_cast<uint32_t>(std::stoul(hex, nullptr, 16));
+                    if (codepoint <= 0x7F) {
+                        value += static_cast<char>(codepoint);
+                    } else if (codepoint <= 0x7FF) {
+                        value += static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F));
+                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                    } else {
+                        value += static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F));
+                        value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                    }
                     break;
                 }
                 default:

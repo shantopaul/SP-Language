@@ -22,7 +22,7 @@ fs::path getOutputDir() {
     return fs::temp_directory_path();
 }
 
-std::string runSPProgram(const std::string& source, const std::string& testName) {
+std::string runSPProgram(const std::string& source, const std::string& testName, const std::string& input = "") {
     diagnostics::DiagnosticEngine diags(std::cerr);
     lexer::Lexer lexer(source, testName + ".sp", &diags);
     auto tokens = lexer.tokenizeAll();
@@ -48,7 +48,16 @@ std::string runSPProgram(const std::string& source, const std::string& testName)
     }
 
     std::string outPath = exePath.string() + ".out.txt";
-    std::string cmd = "\"" + exePath.string() + "\" > \"" + outPath + "\" 2>&1";
+    std::string inPath = exePath.string() + ".in.txt";
+    std::string cmd;
+    if (!input.empty()) {
+        std::ofstream inFile(inPath);
+        inFile << input;
+        inFile.close();
+        cmd = "\"" + exePath.string() + "\" < \"" + inPath + "\" > \"" + outPath + "\" 2>&1";
+    } else {
+        cmd = "\"" + exePath.string() + "\" > \"" + outPath + "\" 2>&1";
+    }
 #if defined(_WIN32)
     std::string fullCmd = "\"" + cmd + "\"";
     int code = std::system(fullCmd.c_str());
@@ -63,6 +72,7 @@ std::string runSPProgram(const std::string& source, const std::string& testName)
 
     std::error_code ec;
     fs::remove(outPath, ec);
+    fs::remove(inPath, ec);
     fs::remove(exePath, ec);
     return ss.str();
 }
@@ -599,4 +609,1165 @@ TEST(ExecutionTest, VariablesConstantsAndInterpolationNativeExecution) {
     EXPECT_NE(output.find("Tax Rate: 0.15"), std::string::npos);
 }
 
+TEST(ExecutionTest, AllPrimitiveTypesNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            int number = 42;
+            uint positive = 100;
 
+            int8 tiny = 127;
+            int16 small = 32000;
+            int32 medium = 2147483647;
+            int64 large = 9223372036854;
+
+            uint8 uTiny = 255;
+            uint16 uSmall = 65535;
+            uint32 uMedium = 4294967295;
+            uint64 uLarge = 18446744073;
+
+            float price = 29.99;
+            double precise = 3.141592653589793;
+
+            bool alive = true;
+            bool dead = false;
+
+            char letter = 'A';
+            char symbol = '@';
+            char newline = '\n';
+
+            string text = "Hello, SP!";
+            string empty = "";
+
+            byte raw = 0xFF;
+
+            println("int:    ${number}");
+            println("float:  ${price}");
+            println("double: ${precise}");
+            println("bool:   ${alive}");
+            println("char:   ${letter}");
+            println("string: ${text}");
+            println("byte:   ${raw}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_primitive_types");
+    EXPECT_NE(output.find("int:    42"), std::string::npos);
+    EXPECT_NE(output.find("float:  29.99"), std::string::npos);
+    EXPECT_NE(output.find("double: 3.141592653589793"), std::string::npos);
+    EXPECT_NE(output.find("bool:   true"), std::string::npos);
+    EXPECT_NE(output.find("char:   A"), std::string::npos);
+    EXPECT_NE(output.find("string: Hello, SP!"), std::string::npos);
+    EXPECT_NE(output.find("byte:   255"), std::string::npos);
+}
+
+TEST(ExecutionTest, TypeInferenceNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var age = 21;
+            var name = "Shanto";
+            var price = 99.99;
+            var active = true;
+
+            age = 22;
+            name = "Shanto Paul";
+
+            let count = 100;
+            let message = "Hello";
+
+            const PI = 3.14159;
+            const APP = "SP Lang";
+
+            println("Age: ${age}");
+            println("Name: ${name}");
+            println("PI: ${PI}");
+            println("App: ${APP}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_type_inference");
+    EXPECT_NE(output.find("Age: 22"), std::string::npos);
+    EXPECT_NE(output.find("Name: Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("PI: 3.14159"), std::string::npos);
+    EXPECT_NE(output.find("App: SP Lang"), std::string::npos);
+}
+
+TEST(ExecutionTest, OperatorsNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            int a = 20;
+            int b = 7;
+
+            println("${a} + ${b} = ${a + b}");
+            println("${a} - ${b} = ${a - b}");
+            println("${a} * ${b} = ${a * b}");
+            println("${a} / ${b} = ${a / b}");
+            println("${a} % ${b} = ${a % b}");
+
+            println("${a} == ${b} = ${a == b}");
+            println("${a} != ${b} = ${a != b}");
+            println("${a} > ${b} = ${a > b}");
+            println("${a} < ${b} = ${a < b}");
+            println("${a} >= ${b} = ${a >= b}");
+            println("${a} <= ${b} = ${a <= b}");
+
+            bool x = true;
+            bool y = false;
+
+            println("${x} && ${y} = ${x && y}");
+            println("${x} || ${y} = ${x || y}");
+            println("!${x} = ${!x}");
+
+            int n = 10;
+            n += 5;
+            println("n += 5 = ${n}");
+            n -= 3;
+            println("n -= 3 = ${n}");
+            n *= 2;
+            println("n *= 2 = ${n}");
+            n /= 4;
+            println("n /= 4 = ${n}");
+            n %= 4;
+            println("n %= 4 = ${n}");
+
+            int counter = 0;
+            counter++;
+            println("counter++ = ${counter}");
+            counter++;
+            println("counter++ = ${counter}");
+            counter--;
+            println("counter-- = ${counter}");
+
+            int p = 0b1100;
+            int q = 0b1010;
+
+            println("p & q = ${p & q}");
+            println("p | q = ${p | q}");
+            println("p ^ q = ${p ^ q}");
+            println("~p = ${~p}");
+            println("p << 1 = ${p << 1}");
+            println("p >> 1 = ${p >> 1}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_operators");
+    EXPECT_NE(output.find("20 + 7 = 27"), std::string::npos);
+    EXPECT_NE(output.find("20 - 7 = 13"), std::string::npos);
+    EXPECT_NE(output.find("20 * 7 = 140"), std::string::npos);
+    EXPECT_NE(output.find("20 / 7 = 2"), std::string::npos);
+    EXPECT_NE(output.find("20 % 7 = 6"), std::string::npos);
+    EXPECT_NE(output.find("20 == 7 = false"), std::string::npos);
+    EXPECT_NE(output.find("20 != 7 = true"), std::string::npos);
+    EXPECT_NE(output.find("20 > 7 = true"), std::string::npos);
+    EXPECT_NE(output.find("20 < 7 = false"), std::string::npos);
+    EXPECT_NE(output.find("20 >= 7 = true"), std::string::npos);
+    EXPECT_NE(output.find("20 <= 7 = false"), std::string::npos);
+    EXPECT_NE(output.find("true && false = false"), std::string::npos);
+    EXPECT_NE(output.find("true || false = true"), std::string::npos);
+    EXPECT_NE(output.find("!true = false"), std::string::npos);
+    EXPECT_NE(output.find("n += 5 = 15"), std::string::npos);
+    EXPECT_NE(output.find("n -= 3 = 12"), std::string::npos);
+    EXPECT_NE(output.find("n *= 2 = 24"), std::string::npos);
+    EXPECT_NE(output.find("n /= 4 = 6"), std::string::npos);
+    EXPECT_NE(output.find("n %= 4 = 2"), std::string::npos);
+    EXPECT_NE(output.find("counter++ = 1"), std::string::npos);
+    EXPECT_NE(output.find("counter++ = 2"), std::string::npos);
+    EXPECT_NE(output.find("counter-- = 1"), std::string::npos);
+    EXPECT_NE(output.find("p & q = 8"), std::string::npos);
+    EXPECT_NE(output.find("p | q = 14"), std::string::npos);
+    EXPECT_NE(output.find("p ^ q = 6"), std::string::npos);
+    EXPECT_NE(output.find("~p = -13"), std::string::npos);
+    EXPECT_NE(output.find("p << 1 = 24"), std::string::npos);
+    EXPECT_NE(output.find("p >> 1 = 6"), std::string::npos);
+}
+
+TEST(ExecutionTest, StringsAndInterpolationNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            string firstName = "Shanto";
+            string lastName = "Paul";
+            int age = 21;
+
+            string fullName = firstName + " " + lastName;
+            println(fullName);
+
+            println("Hello, ${firstName}!");
+            println("Full Name: ${firstName} ${lastName}");
+            println("Age next year: ${age + 1}");
+            println("Name length: ${firstName.length()}");
+            println("Uppercase: ${firstName.upper()}");
+
+            println("Line 1\nLine 2");
+            println("Tab\there");
+            println("She said \"Hello\"");
+            println("Backslash: \\");
+            println("Unicode: \u0041");
+
+            string poem = "Roses are red,\n"
+                        + "Violets are blue,\n"
+                        + "SP is awesome,\n"
+                        + "And so are you.";
+
+            println(poem);
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_strings_interpolation");
+    EXPECT_NE(output.find("Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("Hello, Shanto!"), std::string::npos);
+    EXPECT_NE(output.find("Full Name: Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("Age next year: 22"), std::string::npos);
+    EXPECT_NE(output.find("Name length: 6"), std::string::npos);
+    EXPECT_NE(output.find("Uppercase: SHANTO"), std::string::npos);
+    EXPECT_NE(output.find("Line 1\nLine 2"), std::string::npos);
+    EXPECT_NE(output.find("Tab\there"), std::string::npos);
+    EXPECT_NE(output.find("She said \"Hello\""), std::string::npos);
+    EXPECT_NE(output.find("Backslash: \\"), std::string::npos);
+    EXPECT_NE(output.find("Unicode: A"), std::string::npos);
+    EXPECT_NE(output.find("Roses are red,\nViolets are blue,\nSP is awesome,\nAnd so are you."), std::string::npos);
+}
+
+TEST(ExecutionTest, ConsoleIOAndParseNativeExecution) {
+    const std::string source = R"(
+        import std.io;
+
+        fn main() {
+            println("Hello, World!");
+            print("Enter name: ");
+
+            string name = readLine();
+            println("Hello, ${name}!");
+
+            print("Enter age: ");
+            int age = int.parse(readLine());
+            println("You are ${age} years old.");
+
+            print("Enter score: ");
+            double score = double.parse(readLine());
+            println("Your score is ${score}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_console_io", "Shanto\n21\n95.5\n");
+    EXPECT_NE(output.find("Hello, World!"), std::string::npos);
+    EXPECT_NE(output.find("Hello, Shanto!"), std::string::npos);
+    EXPECT_NE(output.find("You are 21 years old."), std::string::npos);
+    EXPECT_NE(output.find("Your score is 95.5"), std::string::npos);
+}
+
+TEST(ExecutionTest, FunctionsComprehensiveNativeExecution) {
+    const std::string source = R"(
+        fn add(int a, int b) -> int {
+            return a + b;
+        }
+
+        fn greet(string name) {
+            println("Hello, ${name}!");
+        }
+
+        fn isAdult(int age) -> bool {
+            return age >= 18;
+        }
+
+        fn getFullName(string first, string last) -> string {
+            return "${first} ${last}";
+        }
+
+        int multiply(int a, int b) {
+            return a * b;
+        }
+
+        string formatAge(string name, int age) {
+            return "${name} is ${age} years old";
+        }
+
+        void sayGoodbye(string name) {
+            println("Goodbye, ${name}!");
+        }
+
+        fn square(int x) => x * x;
+        fn cube(int x) => x * x * x;
+        fn max(int a, int b) => a > b ? a : b;
+        fn min(int a, int b) => a < b ? a : b;
+        fn isEven(int n) => n % 2 == 0;
+        fn doubleNum(int n) => n * 2;
+
+        fn createUser(string name, int age, string role = "user") -> string {
+            return "${name} (${age}) - ${role}";
+        }
+
+        fn factorial(int n) -> int {
+            if (n <= 1) return 1;
+            return n * factorial(n - 1);
+        }
+
+        fn fibonacci(int n) -> int {
+            if (n <= 0) return 0;
+            if (n == 1) return 1;
+            return fibonacci(n - 1) + fibonacci(n - 2);
+        }
+
+        fn main() {
+            int sum = add(10, 20);
+            println("Sum: ${sum}");
+
+            greet("Shanto");
+
+            println(isAdult(21));
+            println(isAdult(15));
+
+            println(getFullName("Shanto", "Paul"));
+
+            println(multiply(5, 4));
+            println(formatAge("Shanto", 21));
+            sayGoodbye("World");
+
+            println("5² = ${square(5)}");
+            println("3³ = ${cube(3)}");
+            println("max(3,7) = ${max(3, 7)}");
+            println("min(3,7) = ${min(3, 7)}");
+            println("isEven(4) = ${isEven(4)}");
+            println("double(8) = ${doubleNum(8)}");
+
+            println(createUser("Shanto", 21));
+            println(createUser("Admin", 30, "admin"));
+
+            println("5! = ${factorial(5)}");
+            println("10! = ${factorial(10)}");
+
+            for (int i = 0; i < 10; i++) {
+                print("${fibonacci(i)} ");
+            }
+            println("");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_functions");
+    EXPECT_NE(output.find("Sum: 30"), std::string::npos);
+    EXPECT_NE(output.find("Hello, Shanto!"), std::string::npos);
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("false"), std::string::npos);
+    EXPECT_NE(output.find("Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("20"), std::string::npos);
+    EXPECT_NE(output.find("Shanto is 21 years old"), std::string::npos);
+    EXPECT_NE(output.find("Goodbye, World!"), std::string::npos);
+    EXPECT_NE(output.find("5² = 25"), std::string::npos);
+    EXPECT_NE(output.find("3³ = 27"), std::string::npos);
+    EXPECT_NE(output.find("max(3,7) = 7"), std::string::npos);
+    EXPECT_NE(output.find("min(3,7) = 3"), std::string::npos);
+    EXPECT_NE(output.find("isEven(4) = true"), std::string::npos);
+    EXPECT_NE(output.find("double(8) = 16"), std::string::npos);
+    EXPECT_NE(output.find("Shanto (21) - user"), std::string::npos);
+    EXPECT_NE(output.find("Admin (30) - admin"), std::string::npos);
+    EXPECT_NE(output.find("5! = 120"), std::string::npos);
+    EXPECT_NE(output.find("10! = 3628800"), std::string::npos);
+    EXPECT_NE(output.find("0 1 1 2 3 5 8 13 21 34"), std::string::npos);
+}
+
+TEST(ExecutionTest, IfElseControlFlowNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            int age = 21;
+            int score = 85;
+            string role = "admin";
+
+            if (age >= 18) {
+                println("You are an adult.");
+            }
+
+            if (age >= 18) {
+                println("Welcome! You can enter.");
+            } else {
+                println("Sorry, you must be 18+.");
+            }
+
+            if (score >= 90) {
+                println("Grade: A  ⭐ Excellent!");
+            } else if (score >= 80) {
+                println("Grade: B  👍 Good job!");
+            } else if (score >= 70) {
+                println("Grade: C  📝 Average");
+            } else if (score >= 60) {
+                println("Grade: D  ⚠️ Below average");
+            } else {
+                println("Grade: F  ❌ Failed");
+            }
+
+            if (age >= 18) {
+                if (role == "admin") {
+                    println("Admin access granted.");
+                } else {
+                    println("User access granted.");
+                }
+            } else {
+                println("Access denied.");
+            }
+
+            bool hasLicense = true;
+
+            if (age >= 18 && hasLicense) {
+                println("You can drive! 🚗");
+            }
+
+            if (role == "admin" || role == "moderator") {
+                println("You have elevated permissions.");
+            }
+
+            if (!hasLicense) {
+                println("Get a license first.");
+            }
+
+            string status = age >= 18 ? "Adult" : "Minor";
+            println("Status: ${status}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_if_else");
+    EXPECT_NE(output.find("You are an adult."), std::string::npos);
+    EXPECT_NE(output.find("Welcome! You can enter."), std::string::npos);
+    EXPECT_NE(output.find("Grade: B  👍 Good job!"), std::string::npos);
+    EXPECT_NE(output.find("Admin access granted."), std::string::npos);
+    EXPECT_NE(output.find("You can drive! 🚗"), std::string::npos);
+    EXPECT_NE(output.find("You have elevated permissions."), std::string::npos);
+    EXPECT_NE(output.find("Status: Adult"), std::string::npos);
+}
+
+TEST(ExecutionTest, SwitchAndMatchNativeExecution) {
+    const std::string source = R"(
+        fn classicSwitchDemo(int day) {
+            println("--- Classic Switch ---");
+            switch (day) {
+                case 1:
+                    println("Monday");
+                    break;
+                case 2:
+                    println("Tuesday");
+                    break;
+                case 3:
+                    println("Wednesday");
+                    break;
+                case 4:
+                    println("Thursday");
+                    break;
+                case 5:
+                    println("Friday");
+                    break;
+                case 6:
+                    println("Saturday 🎉");
+                    break;
+                case 7:
+                    println("Sunday 🎉");
+                    break;
+                default:
+                    println("Invalid day");
+            }
+        }
+
+        fn modernMatchDemo() {
+            int day = 3;
+
+            println("--- Modern Match ---");
+            match day {
+                1 => println("Monday"),
+                2 => println("Tuesday"),
+                3 => println("Wednesday"),
+                4 => println("Thursday"),
+                5 => println("Friday"),
+                6 => println("Saturday 🎉"),
+                7 => println("Sunday 🎉"),
+                _ => println("Invalid day")
+            }
+
+            string command = "start";
+
+            match command {
+                "start"   => println("Starting server..."),
+                "stop"    => println("Stopping server..."),
+                "restart" => println("Restarting server..."),
+                "status"  => println("Server is running."),
+                _         => println("Unknown command: ${command}")
+            }
+
+            enum Season { Spring, Summer, Autumn, Winter }
+
+            Season current = Season.Summer;
+
+            match current {
+                Season.Spring => println("🌸 Flowers blooming"),
+                Season.Summer => println("☀️ Beach time!"),
+                Season.Autumn => println("🍂 Leaves falling"),
+                Season.Winter => println("❄️ Stay warm!")
+            }
+        }
+
+        fn main() {
+            classicSwitchDemo(3);
+            classicSwitchDemo(99);
+            modernMatchDemo();
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_switch_match");
+    EXPECT_NE(output.find("--- Classic Switch ---"), std::string::npos);
+    EXPECT_NE(output.find("Wednesday"), std::string::npos);
+    EXPECT_NE(output.find("Invalid day"), std::string::npos);
+    EXPECT_NE(output.find("--- Modern Match ---"), std::string::npos);
+    EXPECT_NE(output.find("Starting server..."), std::string::npos);
+    EXPECT_NE(output.find("☀️ Beach time!"), std::string::npos);
+}
+
+TEST(ExecutionTest, ForLoopsComprehensiveNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            println("=== Classic For ===");
+            for (int i = 1; i <= 5; i++) {
+                println("Count: ${i}");
+            }
+
+            println("\n=== Range Loop ===");
+            for (i in 0..5) {
+                print("${i} ");
+            }
+            println("");
+
+            println("\n=== For-Each ===");
+            let fruits = ["Apple", "Banana", "Cherry", "Date"];
+
+            for (string fruit in fruits) {
+                println("🍎 ${fruit}");
+            }
+
+            println("\n=== Multiplication Table (1-5) ===");
+            for (int i = 1; i <= 5; i++) {
+                for (int j = 1; j <= 5; j++) {
+                    print("${i * j}\t");
+                }
+                println("");
+            }
+
+            println("\n=== Break at 5 ===");
+            for (int i = 1; i <= 10; i++) {
+                if (i == 5) break;
+                print("${i} ");
+            }
+            println("");
+
+            println("\n=== Skip even numbers ===");
+            for (int i = 1; i <= 10; i++) {
+                if (i % 2 == 0) continue;
+                print("${i} ");
+            }
+            println("");
+
+            println("\n=== Countdown ===");
+            for (int i = 5; i >= 1; i--) {
+                println("${i}...");
+            }
+            println("🚀 Liftoff!");
+
+            int sum = 0;
+            for (int i = 1; i <= 100; i++) {
+                sum += i;
+            }
+            println("\nSum of 1-100: ${sum}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_for_loops");
+    EXPECT_NE(output.find("Count: 1"), std::string::npos);
+    EXPECT_NE(output.find("Count: 5"), std::string::npos);
+    EXPECT_NE(output.find("0 1 2 3 4"), std::string::npos);
+    EXPECT_NE(output.find("🍎 Apple"), std::string::npos);
+    EXPECT_NE(output.find("🍎 Date"), std::string::npos);
+    EXPECT_NE(output.find("1\t2\t3\t4\t5"), std::string::npos);
+    EXPECT_NE(output.find("5\t10\t15\t20\t25"), std::string::npos);
+    EXPECT_NE(output.find("1 2 3 4"), std::string::npos);
+    EXPECT_NE(output.find("1 3 5 7 9"), std::string::npos);
+    EXPECT_NE(output.find("5..."), std::string::npos);
+    EXPECT_NE(output.find("1..."), std::string::npos);
+    EXPECT_NE(output.find("🚀 Liftoff!"), std::string::npos);
+    EXPECT_NE(output.find("Sum of 1-100: 5050"), std::string::npos);
+}
+
+TEST(ExecutionTest, WhileAndDoWhileNativeExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            println("=== While Loop ===");
+            int count = 1;
+            while (count <= 5) {
+                println("Count: ${count}");
+                count++;
+            }
+
+            println("\n=== Do-While Loop ===");
+            int n = 1;
+            do {
+                println("n = ${n}");
+                n *= 2;
+            } while (n <= 16);
+
+            int power = 1;
+            int exponent = 0;
+            while (power <= 1000) {
+                power *= 2;
+                exponent++;
+            }
+            println("\n2^${exponent} = ${power} (first power of 2 > 1000)");
+
+            println("\n=== Collatz Sequence (start: 27) ===");
+            int num = 27;
+            int steps = 0;
+            print("${num}");
+            while (num != 1) {
+                if (num % 2 == 0) {
+                    num = num / 2;
+                } else {
+                    num = num * 3 + 1;
+                }
+                print(" -> ${num}");
+                steps++;
+            }
+            println("\nReached 1 in ${steps} steps");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_while_loops");
+    EXPECT_NE(output.find("=== While Loop ==="), std::string::npos);
+    EXPECT_NE(output.find("Count: 1"), std::string::npos);
+    EXPECT_NE(output.find("Count: 5"), std::string::npos);
+    EXPECT_NE(output.find("=== Do-While Loop ==="), std::string::npos);
+    EXPECT_NE(output.find("n = 1"), std::string::npos);
+    EXPECT_NE(output.find("n = 16"), std::string::npos);
+    EXPECT_NE(output.find("2^10 = 1024 (first power of 2 > 1000)"), std::string::npos);
+    EXPECT_NE(output.find("=== Collatz Sequence (start: 27) ==="), std::string::npos);
+    EXPECT_NE(output.find("27 -> 82"), std::string::npos);
+    EXPECT_NE(output.find("-> 1"), std::string::npos);
+    EXPECT_NE(output.find("Reached 1 in 111 steps"), std::string::npos);
+}
+
+TEST(ExecutionTest, ArraysComprehensiveNativeExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            int[] numbers = {10, 20, 30, 40, 50};
+            string[] names = {"Alice", "Bob", "Charlie"};
+            let scores = [95, 87, 92, 78, 88];
+
+            println("First: ${numbers[0]}");
+            println("Last: ${numbers[4]}");
+
+            numbers[0] = 100;
+            println("Updated first: ${numbers[0]}");
+
+            println("\nAll names:");
+            for (string name in names) {
+                println("  - ${name}");
+            }
+
+            println("\nAll scores:");
+            for (int i = 0; i < scores.length(); i++) {
+                println("  Student ${i + 1}: ${scores[i]}");
+            }
+
+            println("\nLength: ${scores.length()}");
+
+            int maxScore = scores[0];
+            for (int s in scores) {
+                if (s > maxScore) maxScore = s;
+            }
+            println("Highest score: ${maxScore}");
+
+            int total = 0;
+            for (int s in scores) {
+                total += s;
+            }
+            println("Total: ${total}");
+            println("Average: ${total / scores.length()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_arrays");
+    EXPECT_NE(output.find("First: 10"), std::string::npos);
+    EXPECT_NE(output.find("Last: 50"), std::string::npos);
+    EXPECT_NE(output.find("Updated first: 100"), std::string::npos);
+    EXPECT_NE(output.find("All names:"), std::string::npos);
+    EXPECT_NE(output.find("- Alice"), std::string::npos);
+    EXPECT_NE(output.find("- Bob"), std::string::npos);
+    EXPECT_NE(output.find("- Charlie"), std::string::npos);
+    EXPECT_NE(output.find("Student 1: 95"), std::string::npos);
+    EXPECT_NE(output.find("Student 5: 88"), std::string::npos);
+    EXPECT_NE(output.find("Length: 5"), std::string::npos);
+    EXPECT_NE(output.find("Highest score: 95"), std::string::npos);
+    EXPECT_NE(output.find("Total: 440"), std::string::npos);
+    EXPECT_NE(output.find("Average: 88"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibIONativeExecution) {
+    const std::string source = R"sp(
+        import std.io;
+
+        fn main() {
+            println("=== Stdlib IO Test ===");
+            print("Direct print: ");
+            println(42);
+            println(3.14);
+            println(true);
+
+            eprintln("[STDERR] Test diagnostic message");
+
+            IO.println("Via IO.println");
+            IO.print("Via IO.print\n");
+            IO.flush();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_io");
+    EXPECT_NE(output.find("=== Stdlib IO Test ==="), std::string::npos);
+    EXPECT_NE(output.find("Direct print: 42"), std::string::npos);
+    EXPECT_NE(output.find("3.14"), std::string::npos);
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("Via IO.println"), std::string::npos);
+    EXPECT_NE(output.find("Via IO.print"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibStringNativeExecution) {
+    const std::string source = R"sp(
+        import std.string;
+
+        fn main() {
+            string text = "  Hello, SP!  ";
+            string trimmed = text.trim();
+            println("Trimmed: '${trimmed}'");
+            println("Upper: '${trimmed.upper()}'");
+            println("Lower: '${trimmed.lower()}'");
+            println("Length: ${text.length()}");
+
+            string spSub = "SP";
+            println("Contains SP: ${trimmed.contains(spSub)}");
+            string rep = trimmed.replace("SP", "World");
+            println("Replaced: '${rep}'");
+
+            string csv = "one,two,three";
+            string delim = ",";
+            string[] items = csv.split(delim);
+            println("Split count: ${items.length()}");
+            println("First: ${items[0]}");
+            println("Last: ${items[2]}");
+
+            string word = "Language";
+            println("Reversed: ${word.reverse()}");
+            string pad = "AB";
+            println("Repeat: ${pad.repeat(3)}");
+
+            string author = "shanto";
+            println("Via String.upper: ${String.upper(author)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_string");
+    EXPECT_NE(output.find("Trimmed: 'Hello, SP!'"), std::string::npos);
+    EXPECT_NE(output.find("Upper: 'HELLO, SP!'"), std::string::npos);
+    EXPECT_NE(output.find("Lower: 'hello, sp!'"), std::string::npos);
+    EXPECT_NE(output.find("Length: 14"), std::string::npos);
+    EXPECT_NE(output.find("Contains SP: true"), std::string::npos);
+    EXPECT_NE(output.find("Replaced: 'Hello, World!'"), std::string::npos);
+    EXPECT_NE(output.find("Split count: 3"), std::string::npos);
+    EXPECT_NE(output.find("First: one"), std::string::npos);
+    EXPECT_NE(output.find("Last: three"), std::string::npos);
+    EXPECT_NE(output.find("Reversed: egaugnaL"), std::string::npos);
+    EXPECT_NE(output.find("Repeat: ABABAB"), std::string::npos);
+    EXPECT_NE(output.find("Via String.upper: SHANTO"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibMathNativeExecution) {
+    const std::string source = R"sp(
+        import std.math;
+
+        fn main() {
+            println("PI: ${PI}");
+            println("E: ${E}");
+            println("TAU: ${TAU}");
+            println("Math.PI: ${Math.PI}");
+
+            println("sqrt: ${sqrt(16.0)}");
+            println("pow: ${pow(2.0, 4.0)}");
+            int a = -25;
+            println("abs_int: ${abs(a)}");
+            double d = -12.5;
+            println("abs_dbl: ${abs(d)}");
+            println("min_int: ${min(7, 3)}");
+            println("max_int: ${max(7, 3)}");
+            println("min_dbl: ${min(4.5, 9.5)}");
+            println("max_dbl: ${max(4.5, 9.5)}");
+            println("floor: ${floor(5.8)}");
+            println("ceil: ${ceil(5.2)}");
+            println("round: ${round(5.5)}");
+            println("sin0: ${sin(0.0)}");
+            println("cos0: ${cos(0.0)}");
+            println("log2: ${log2(8.0)}");
+            println("log10: ${log10(100.0)}");
+
+            println("Math.sqrt: ${Math.sqrt(49.0)}");
+            println("Math.pow: ${Math.pow(3.0, 2.0)}");
+            int mNeg = -77;
+            println("Math.abs: ${Math.abs(mNeg)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_math");
+    EXPECT_NE(output.find("PI: 3.14159"), std::string::npos);
+    EXPECT_NE(output.find("E: 2.71828"), std::string::npos);
+    EXPECT_NE(output.find("TAU: 6.28318"), std::string::npos);
+    EXPECT_NE(output.find("Math.PI: 3.14159"), std::string::npos);
+    EXPECT_NE(output.find("sqrt: 4"), std::string::npos);
+    EXPECT_NE(output.find("pow: 16"), std::string::npos);
+    EXPECT_NE(output.find("abs_int: 25"), std::string::npos);
+    EXPECT_NE(output.find("abs_dbl: 12.5"), std::string::npos);
+    EXPECT_NE(output.find("min_int: 3"), std::string::npos);
+    EXPECT_NE(output.find("max_int: 7"), std::string::npos);
+    EXPECT_NE(output.find("min_dbl: 4.5"), std::string::npos);
+    EXPECT_NE(output.find("max_dbl: 9.5"), std::string::npos);
+    EXPECT_NE(output.find("floor: 5"), std::string::npos);
+    EXPECT_NE(output.find("ceil: 6"), std::string::npos);
+    EXPECT_NE(output.find("round: 6"), std::string::npos);
+    EXPECT_NE(output.find("sin0: 0"), std::string::npos);
+    EXPECT_NE(output.find("cos0: 1"), std::string::npos);
+    EXPECT_NE(output.find("log2: 3"), std::string::npos);
+    EXPECT_NE(output.find("log10: 2"), std::string::npos);
+    EXPECT_NE(output.find("Math.sqrt: 7"), std::string::npos);
+    EXPECT_NE(output.find("Math.pow: 9"), std::string::npos);
+    EXPECT_NE(output.find("Math.abs: 77"), std::string::npos);
+}
+
+
+
+
+TEST(ExecutionTest, StdlibCollectionsNativeExecution) {
+    const std::string source = R"sp(
+        import std.collections;
+
+        fn main() {
+            List<int> numbers = new List<int>();
+            println("list_empty_1: ${numbers.isEmpty()}");
+            numbers.push(10);
+            numbers.push(20);
+            numbers.push(30);
+            println("list_len: ${numbers.length()}");
+            println("list_has_20: ${numbers.contains(20)}");
+            println("list_has_99: ${numbers.contains(99)}");
+            println("list_get_1: ${numbers.get(1)}");
+            numbers.set(1, 25);
+            println("list_get_1_after_set: ${numbers.get(1)}");
+            numbers.removeAt(0);
+            println("list_after_remove: len=${numbers.length()}, first=${numbers.get(0)}");
+            numbers.clear();
+            println("list_empty_2: ${numbers.isEmpty()}");
+
+            Map<string, int> scores = new Map<string, int>();
+            println("map_empty_1: ${scores.isEmpty()}");
+            scores.set("Alice", 95);
+            scores.set("Bob", 88);
+            scores.set("Charlie", 72);
+            string alice = "Alice";
+            string bob = "Bob";
+            string david = "David";
+            println("map_len: ${scores.length()}");
+            println("map_has_alice: ${scores.contains(alice)}");
+            println("map_has_david: ${scores.containsKey(david)}");
+            println("map_get_alice: ${scores.get(alice)}");
+            scores.remove(bob);
+            println("map_after_remove_bob: len=${scores.length()}, has_bob=${scores.contains(bob)}");
+            scores.clear();
+            println("map_empty_2: ${scores.isEmpty()}");
+
+            Set<int> uniqueNums = new Set<int>();
+            println("set_empty_1: ${uniqueNums.isEmpty()}");
+            uniqueNums.add(5);
+            uniqueNums.add(10);
+            uniqueNums.add(5);
+            println("set_len: ${uniqueNums.length()}");
+            println("set_has_5: ${uniqueNums.contains(5)}");
+            println("set_has_15: ${uniqueNums.contains(15)}");
+            uniqueNums.remove(5);
+            println("set_after_remove_5: has_5=${uniqueNums.contains(5)}");
+            uniqueNums.clear();
+            println("set_empty_2: ${uniqueNums.isEmpty()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_collections");
+    EXPECT_NE(output.find("list_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("list_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("list_has_20: true"), std::string::npos);
+    EXPECT_NE(output.find("list_has_99: false"), std::string::npos);
+    EXPECT_NE(output.find("list_get_1: 20"), std::string::npos);
+    EXPECT_NE(output.find("list_get_1_after_set: 25"), std::string::npos);
+    EXPECT_NE(output.find("list_after_remove: len=2, first=25"), std::string::npos);
+    EXPECT_NE(output.find("list_empty_2: true"), std::string::npos);
+
+    EXPECT_NE(output.find("map_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("map_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("map_has_alice: true"), std::string::npos);
+    EXPECT_NE(output.find("map_has_david: false"), std::string::npos);
+    EXPECT_NE(output.find("map_get_alice: 95"), std::string::npos);
+    EXPECT_NE(output.find("map_after_remove_bob: len=2, has_bob=false"), std::string::npos);
+    EXPECT_NE(output.find("map_empty_2: true"), std::string::npos);
+
+    EXPECT_NE(output.find("set_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("set_len: 2"), std::string::npos);
+    EXPECT_NE(output.find("set_has_5: true"), std::string::npos);
+    EXPECT_NE(output.find("set_has_15: false"), std::string::npos);
+    EXPECT_NE(output.find("set_after_remove_5: has_5=false"), std::string::npos);
+    EXPECT_NE(output.find("set_empty_2: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibFsNativeExecution) {
+    const std::string source = R"sp(
+        import std.fs;
+
+        fn main() {
+            string testFile = "temp_exec_fs.txt";
+            string testDir = "temp_exec_dir";
+            string msg1 = "Hello Filesystem!";
+            string msg2 = " More content.";
+
+            bool wOk = writeText(testFile, msg1);
+            println("w_ok: ${wOk}");
+            println("exists_1: ${exists(testFile)}");
+            println("is_file_1: ${isFile(testFile)}");
+            println("read_1: ${readText(testFile)}");
+
+            bool appOk = appendText(testFile, msg2);
+            println("app_ok: ${appOk}");
+            println("read_2: ${readText(testFile)}");
+
+            bool mkdirOk = createDir(testDir);
+            println("mkdir_ok: ${mkdirOk}");
+            println("dir_exists_1: ${exists(testDir)}");
+            println("is_dir_1: ${isDir(testDir)}");
+
+            string nested = "temp_exec_dir/child.txt";
+            string nestedMsg = "child";
+            writeText(nested, nestedMsg);
+            string[] items = listDir(testDir);
+            println("dir_items_len: ${items.length()}");
+            println("dir_item_0: ${items[0]}");
+
+            bool delF = delete(testFile);
+            bool delD = delete(testDir);
+            println("del_file: ${delF}");
+            println("del_dir: ${delD}");
+            println("exists_after_del: ${exists(testFile)}");
+            println("dir_exists_after_del: ${exists(testDir)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_fs");
+    EXPECT_NE(output.find("w_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("exists_1: true"), std::string::npos);
+    EXPECT_NE(output.find("is_file_1: true"), std::string::npos);
+    EXPECT_NE(output.find("read_1: Hello Filesystem!"), std::string::npos);
+    EXPECT_NE(output.find("app_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("read_2: Hello Filesystem! More content."), std::string::npos);
+    EXPECT_NE(output.find("mkdir_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("dir_exists_1: true"), std::string::npos);
+    EXPECT_NE(output.find("is_dir_1: true"), std::string::npos);
+    EXPECT_NE(output.find("dir_items_len: 1"), std::string::npos);
+    EXPECT_NE(output.find("dir_item_0: child.txt"), std::string::npos);
+    EXPECT_NE(output.find("del_file: true"), std::string::npos);
+    EXPECT_NE(output.find("del_dir: true"), std::string::npos);
+    EXPECT_NE(output.find("exists_after_del: false"), std::string::npos);
+    EXPECT_NE(output.find("dir_exists_after_del: false"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibTimeNativeExecution) {
+    const std::string source = R"sp(
+        import std.time;
+
+        fn main() {
+            int t1 = now();
+            int tSecs = nowSeconds();
+            println("now_gt_0: ${t1 > 0}");
+            println("secs_gt_0: ${tSecs > 0}");
+
+            sleep(15);
+            int t2 = now();
+            int elapsed = t2 - t1;
+            println("elapsed_gte_10: ${elapsed >= 10}");
+
+            string iso = formatTime(1700000000);
+            println("formatted_iso: ${iso}");
+
+            int parsed = parseTime("2023-11-14T22:13:20Z");
+            println("parsed_epoch: ${parsed}");
+
+            Duration d = Duration.fromSeconds(3);
+            println("d_millis: ${d.toMillis()}");
+            println("d_seconds: ${d.toSeconds()}");
+
+            Duration dMin = Duration.fromMinutes(1);
+            println("d_min_millis: ${dMin.toMillis()}");
+
+            int staticNow = Time.now();
+            println("time_static_gt_0: ${staticNow > 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_time");
+    EXPECT_NE(output.find("now_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("secs_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("elapsed_gte_10: true"), std::string::npos);
+    EXPECT_NE(output.find("formatted_iso: 2023-11-14T22:13:20Z"), std::string::npos);
+    EXPECT_NE(output.find("parsed_epoch: 1700000000"), std::string::npos);
+    EXPECT_NE(output.find("d_millis: 3000"), std::string::npos);
+    EXPECT_NE(output.find("d_seconds: 3"), std::string::npos);
+    EXPECT_NE(output.find("d_min_millis: 60000"), std::string::npos);
+    EXPECT_NE(output.find("time_static_gt_0: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibOsNativeExecution) {
+    const std::string source = R"sp(
+        import std.os;
+
+        fn main() {
+            string plat = platform();
+            println("platform_len_gt_0: ${plat.length() > 0}");
+
+            string architecture = arch();
+            println("arch_len_gt_0: ${architecture.length() > 0}");
+
+            string k = "SP_TEST_KEY";
+            string v = "SP_VAL_42";
+            bool sOk = setEnv(k, v);
+            println("set_env_ok: ${sOk}");
+
+            string got = getEnv(k);
+            println("get_env: ${got}");
+
+            string[] myArgs = args();
+            println("args_gte_0: ${myArgs.length() >= 0}");
+
+            println("os_static_plat: ${OS.platform().length() > 0}");
+            println("os_static_arch: ${OS.arch().length() > 0}");
+            println("os_static_get: ${OS.getEnv(k)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_os");
+    EXPECT_NE(output.find("platform_len_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("arch_len_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("set_env_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("get_env: SP_VAL_42"), std::string::npos);
+    EXPECT_NE(output.find("args_gte_0: true"), std::string::npos);
+    EXPECT_NE(output.find("os_static_plat: true"), std::string::npos);
+    EXPECT_NE(output.find("os_static_arch: true"), std::string::npos);
+    EXPECT_NE(output.find("os_static_get: SP_VAL_42"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibProcessNativeExecution) {
+    const std::string source = R"sp(
+        import std.process;
+
+        fn main() {
+            int curPid = pid();
+            println("pid_gt_0: ${curPid > 0}");
+
+            string okCmd = "cmd.exe /c exit 0";
+            int ret0 = exec(okCmd);
+            println("ret_is_0: ${ret0 == 0}");
+
+            string echoCmd = "cmd.exe /c echo HelloProcess";
+            string out = runCommand(echoCmd);
+            string targetSub = "HelloProcess";
+            bool hasSub = out.contains(targetSub);
+            println("out_contains: ${hasSub}");
+
+            int chPid = spawn(okCmd);
+            println("spawn_gt_0: ${chPid > 0}");
+
+            int staticRet = Process.exec(okCmd);
+            println("static_ret_0: ${staticRet == 0}");
+
+            string staticOut = Process.run(echoCmd);
+            bool hasStaticSub = staticOut.contains(targetSub);
+            println("static_out_contains: ${hasStaticSub}");
+
+            int staticPid = Process.pid();
+            println("static_pid_gt_0: ${staticPid > 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_process");
+    EXPECT_NE(output.find("pid_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("ret_is_0: true"), std::string::npos);
+    EXPECT_NE(output.find("out_contains: true"), std::string::npos);
+    EXPECT_NE(output.find("spawn_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("static_ret_0: true"), std::string::npos);
+    EXPECT_NE(output.find("static_out_contains: true"), std::string::npos);
+    EXPECT_NE(output.find("static_pid_gt_0: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibFullIntegrationNativeExecution) {
+    const std::string source = R"sp(
+        import std.io;
+        import std.string;
+        import std.math;
+        import std.collections;
+        import std.fs;
+        import std.time;
+        import std.os;
+        import std.process;
+
+        fn main() {
+            // 1. std.io
+            println("Full Stdlib Integration Verified!");
+
+            // 2. std.string
+            string raw = "  sp language  ";
+            string clean = raw.trim().upper();
+            println("clean_str: '${clean}'");
+
+            // 3. std.math
+            double sq = sqrt(64.0);
+            println("math_sqrt: ${sq}");
+
+            // 4. std.collections
+            List<int> nums = new List<int>();
+            nums.push(10);
+            nums.push(20);
+            nums.push(30);
+            println("list_len: ${nums.length()}");
+
+            Map<string, int> ages = new Map<string, int>();
+            string name = "Antigravity";
+            ages.set(name, 25);
+            println("map_val: ${ages.get(name)}");
+
+            // 5. std.fs
+            string dummyPath = "non_existent_test_file.sp";
+            println("fs_exists: ${exists(dummyPath)}");
+
+            // 6. std.time
+            int t = now();
+            println("time_now_gt_0: ${t > 0}");
+
+            // 7. std.os
+            string curPlatform = platform();
+            string curArch = arch();
+            println("os_info: ${curPlatform.length() > 0 && curArch.length() > 0}");
+
+            // 8. std.process
+            int currentPid = pid();
+            println("proc_pid_gt_0: ${currentPid > 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_full_integration");
+    EXPECT_NE(output.find("Full Stdlib Integration Verified!"), std::string::npos);
+    EXPECT_NE(output.find("clean_str: 'SP LANGUAGE'"), std::string::npos);
+    EXPECT_NE(output.find("math_sqrt: 8"), std::string::npos);
+    EXPECT_NE(output.find("list_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("map_val: 25"), std::string::npos);
+    EXPECT_NE(output.find("fs_exists: false"), std::string::npos);
+    EXPECT_NE(output.find("time_now_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("os_info: true"), std::string::npos);
+    EXPECT_NE(output.find("proc_pid_gt_0: true"), std::string::npos);
+}

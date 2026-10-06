@@ -155,7 +155,24 @@ void NameResolver::resolveFunctionDeclPass1(const ast::FunctionDecl& decl) {
                                   decl.getLocation(), "Provide unique parameter types or rename the function");
     }
 
+    if (decl.hasBody() && decl.getBody()) {
+        collectNestedTypes(*decl.getBody());
+    }
+
     m_activeTypeParams.clear();
+}
+
+void NameResolver::collectNestedTypes(const ast::StatementNode& stmt) {
+    if (stmt.getKind() == ast::ASTNodeKind::EnumDecl) {
+        const auto& ed = static_cast<const ast::EnumDecl&>(stmt);
+        resolveEnumDeclPass1(ed);
+        resolveEnumMembers(ed);
+    } else if (stmt.getKind() == ast::ASTNodeKind::BlockStmt) {
+        const auto& block = static_cast<const ast::BlockStmt&>(stmt);
+        for (const auto& s : block.getStatements()) {
+            if (s) collectNestedTypes(*s);
+        }
+    }
 }
 
 void NameResolver::pass2_resolveMembersAndInheritance(const ast::Program& program) {

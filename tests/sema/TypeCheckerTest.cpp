@@ -311,3 +311,17 @@ TEST(TypeCheckerTest, CannotAssignToConstantReportsE1005) {
     EXPECT_GE(diag.errorCount(), 1);
 }
 
+TEST(TypeCheckerTest, CannotAssignToInferredConstantReportsE1005) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        fn main() {
+            const PI = 3.14159;
+            PI = 3.14;
+        }
+    )";
+    EXPECT_FALSE(analyzeSource(source, diag));
+    EXPECT_TRUE(diag.hasErrors());
+    EXPECT_GE(diag.errorCount(), 1);
+}
+
+

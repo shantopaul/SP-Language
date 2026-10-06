@@ -113,6 +113,10 @@ public:
           m_isOverride(isOverride) {}
 
     [[nodiscard]] const std::shared_ptr<FunctionType>& getFunctionType() const noexcept { return m_fnType; }
+    void setFunctionType(std::shared_ptr<FunctionType> fnType) noexcept {
+        m_fnType = fnType;
+        setType(fnType);
+    }
     [[nodiscard]] bool isMethod() const noexcept { return m_isMethod; }
     [[nodiscard]] bool isAbstract() const noexcept { return m_isAbstract; }
     [[nodiscard]] bool isOverride() const noexcept { return m_isOverride; }

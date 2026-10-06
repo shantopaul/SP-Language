@@ -261,6 +261,9 @@ ast::ExprPtr Parser::parsePrefix() {
     if (match(lexer::TokenType::KeywordAssert)) {
         return std::make_unique<ast::IdentifierExpr>("assert", previous().location);
     }
+    if (match(lexer::TokenType::KeywordSpawn)) {
+        return std::make_unique<ast::IdentifierExpr>("spawn", previous().location);
+    }
     if (check(lexer::TokenType::Identifier) && m_current + 1 < m_tokens.size() && m_tokens[m_current + 1].is(lexer::TokenType::FatArrow)) {
         diagnostics::SourceLocation loc = peek().location;
         std::string paramName = advance().lexeme;
@@ -276,6 +279,10 @@ ast::ExprPtr Parser::parsePrefix() {
     }
     if (match(lexer::TokenType::Identifier)) {
         return std::make_unique<ast::IdentifierExpr>(previous().lexeme, previous().location);
+    }
+    if (isTypeKeyword(peek().type)) {
+        const auto& tok = advance();
+        return std::make_unique<ast::IdentifierExpr>(tok.lexeme, tok.location);
     }
 
     // Grouped expression or Lambda: (x, y) => expr
@@ -364,7 +371,9 @@ ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
     // Member Access: obj.member or safe navigation obj?.member
     if (opTok.is(lexer::TokenType::Dot) || opTok.is(lexer::TokenType::QuestionDot)) {
         bool isSafeNav = opTok.is(lexer::TokenType::QuestionDot);
-        const lexer::Token& memberTok = consume(lexer::TokenType::Identifier, "Expected member identifier after '.'");
+        const lexer::Token& memberTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
+            ? advance()
+            : consume(lexer::TokenType::Identifier, "Expected member identifier after '.'");
         return std::make_unique<ast::MemberExpr>(std::move(left), memberTok.lexeme, isSafeNav, loc);
     }
 
@@ -537,19 +546,39 @@ ast::ExprPtr Parser::parseMapLiteral() {
     diagnostics::SourceLocation loc = peek().location;
     advance(); // Consume '{'
 
-    std::vector<ast::MapExpr::Entry> entries;
-
-    if (!check(lexer::TokenType::CloseBrace)) {
-        do {
-            ast::ExprPtr key = parseExpression();
-            consume(lexer::TokenType::Colon, "Expected ':' between key and value in map entry");
-            ast::ExprPtr value = parseExpression();
-            entries.emplace_back(std::move(key), std::move(value));
-        } while (match(lexer::TokenType::Comma));
+    if (check(lexer::TokenType::CloseBrace)) {
+        advance();
+        return std::make_unique<ast::MapExpr>(std::vector<ast::MapExpr::Entry>{}, loc);
     }
 
-    consume(lexer::TokenType::CloseBrace, "Expected '}' at end of map literal");
-    return std::make_unique<ast::MapExpr>(std::move(entries), loc);
+    ast::ExprPtr first = parseExpression();
+    if (match(lexer::TokenType::Colon)) {
+        std::vector<ast::MapExpr::Entry> entries;
+        ast::ExprPtr value = parseExpression();
+        entries.emplace_back(std::move(first), std::move(value));
+
+        while (match(lexer::TokenType::Comma)) {
+            if (check(lexer::TokenType::CloseBrace)) break;
+            ast::ExprPtr key = parseExpression();
+            consume(lexer::TokenType::Colon, "Expected ':' between key and value in map entry");
+            ast::ExprPtr val = parseExpression();
+            entries.emplace_back(std::move(key), std::move(val));
+        }
+
+        consume(lexer::TokenType::CloseBrace, "Expected '}' at end of map literal");
+        return std::make_unique<ast::MapExpr>(std::move(entries), loc);
+    } else {
+        std::vector<ast::ExprPtr> elements;
+        elements.push_back(std::move(first));
+
+        while (match(lexer::TokenType::Comma)) {
+            if (check(lexer::TokenType::CloseBrace)) break;
+            elements.push_back(parseExpression());
+        }
+
+        consume(lexer::TokenType::CloseBrace, "Expected '}' at end of array literal");
+        return std::make_unique<ast::ArrayExpr>(std::move(elements), loc);
+    }
 }
 
 ast::ExprPtr Parser::parseNewExpr() {
@@ -622,6 +651,10 @@ ast::StmtPtr Parser::parseStatement() {
     }
     if (match(lexer::TokenType::KeywordThrow)) {
         return parseThrowStatement();
+    }
+    if (match(lexer::TokenType::KeywordEnum)) {
+        auto ed = parseEnumDecl("");
+        return std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(ed.release()));
     }
 
     // Check for variable declaration with explicit or user-defined type: int x = 10; or Person p = ...;
@@ -828,7 +861,8 @@ ast::StmtPtr Parser::parseMatchStatement() {
         ast::ExprPtr pattern = nullptr;
 
         // Wildcard '_' pattern
-        if (match(lexer::TokenType::Identifier) && previous().lexeme == "_") {
+        if (check(lexer::TokenType::Identifier) && peek().lexeme == "_") {
+            advance();
             pattern = nullptr;
         } else {
             pattern = parseExpression();
@@ -1060,12 +1094,16 @@ ast::ASTNodePtr Parser::parseModuleDecl() {
     diagnostics::SourceLocation loc = previous().location;
     std::string moduleName;
 
-    const lexer::Token& part = consume(lexer::TokenType::Identifier, "Expected module identifier");
+    const lexer::Token& part = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        ? advance()
+        : consume(lexer::TokenType::Identifier, "Expected module identifier");
     moduleName += part.lexeme;
 
     while (match(lexer::TokenType::Dot)) {
         moduleName += ".";
-        const lexer::Token& subPart = consume(lexer::TokenType::Identifier, "Expected identifier after '.' in module name");
+        const lexer::Token& subPart = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+            ? advance()
+            : consume(lexer::TokenType::Identifier, "Expected identifier after '.' in module name");
         moduleName += subPart.lexeme;
     }
 
@@ -1078,7 +1116,9 @@ ast::ASTNodePtr Parser::parseImportDecl() {
     std::string importPath;
     bool isWildcard = false;
 
-    const lexer::Token& part = consume(lexer::TokenType::Identifier, "Expected import path");
+    const lexer::Token& part = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        ? advance()
+        : consume(lexer::TokenType::Identifier, "Expected import path");
     importPath += part.lexeme;
 
     while (match(lexer::TokenType::Dot)) {
@@ -1087,7 +1127,9 @@ ast::ASTNodePtr Parser::parseImportDecl() {
             break;
         }
         importPath += ".";
-        const lexer::Token& subPart = consume(lexer::TokenType::Identifier, "Expected identifier after '.' in import path");
+        const lexer::Token& subPart = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+            ? advance()
+            : consume(lexer::TokenType::Identifier, "Expected identifier after '.' in import path");
         importPath += subPart.lexeme;
     }
 
@@ -1097,7 +1139,9 @@ ast::ASTNodePtr Parser::parseImportDecl() {
 
 ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract) {
     diagnostics::SourceLocation loc = previous().location;
-    const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected function name");
+    const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
+        ? advance()
+        : consume(lexer::TokenType::Identifier, "Expected function name");
     std::string name = nameTok.lexeme;
 
     std::vector<std::string> typeParams;

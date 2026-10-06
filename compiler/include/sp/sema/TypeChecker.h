@@ -89,6 +89,7 @@ private:
     TypePtr m_currentFunctionReturnType{nullptr};
     std::shared_ptr<ClassType> m_currentEnclosingClass{nullptr};
     int m_loopDepth{0};
+    int m_switchDepth{0};
 
     std::unordered_map<const ast::ExpressionNode*, TypePtr> m_nodeTypes;
 };

@@ -188,6 +188,60 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     );
     define(fnReadLn);
 
+    // readLine() -> string
+    auto fnReadLine = std::make_shared<FunctionSymbol>(
+        "readLine",
+        typeCtx.getFunctionType({}, typeCtx.getString()),
+        builtinLoc
+    );
+    define(fnReadLine);
+
+    // eprint(string) -> void, eprint(any) -> void
+    auto fnEprintStr = std::make_shared<FunctionSymbol>(
+        "eprint",
+        typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintStr);
+
+    auto fnEprintAny = std::make_shared<FunctionSymbol>(
+        "eprint",
+        typeCtx.getFunctionType({typeCtx.getAny()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintAny);
+
+    // eprintln(string) -> void, eprintln(any) -> void
+    auto fnEprintlnStr = std::make_shared<FunctionSymbol>(
+        "eprintln",
+        typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintlnStr);
+
+    auto fnEprintlnAny = std::make_shared<FunctionSymbol>(
+        "eprintln",
+        typeCtx.getFunctionType({typeCtx.getAny()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintlnAny);
+
+    // flush() -> void
+    auto fnFlush = std::make_shared<FunctionSymbol>(
+        "flush",
+        typeCtx.getFunctionType({}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnFlush);
+
+    // eflush() -> void
+    auto fnEflush = std::make_shared<FunctionSymbol>(
+        "eflush",
+        typeCtx.getFunctionType({}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEflush);
+
     // assert(bool) -> void
     auto fnAssert = std::make_shared<FunctionSymbol>(
         "assert",
@@ -219,6 +273,78 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
         builtinLoc
     );
     define(fnLen);
+
+    // Built-in math functions and constants
+    define(std::make_shared<VariableSymbol>("PI", typeCtx.getDouble(), builtinLoc, true));
+    define(std::make_shared<VariableSymbol>("E", typeCtx.getDouble(), builtinLoc, true));
+    define(std::make_shared<VariableSymbol>("TAU", typeCtx.getDouble(), builtinLoc, true));
+
+    define(std::make_shared<FunctionSymbol>("sqrt", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("pow", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("sin", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("cos", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("tan", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("asin", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("acos", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("atan", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("atan2", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("floor", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("ceil", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("round", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+
+    auto fnAbsInt = std::make_shared<FunctionSymbol>("abs", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getInt()), builtinLoc);
+    auto fnAbsDbl = std::make_shared<FunctionSymbol>("abs", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc);
+    fnAbsInt->addOverload(fnAbsDbl);
+    define(fnAbsInt);
+
+    auto fnMinInt = std::make_shared<FunctionSymbol>("min", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, typeCtx.getInt()), builtinLoc);
+    auto fnMinDbl = std::make_shared<FunctionSymbol>("min", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc);
+    fnMinInt->addOverload(fnMinDbl);
+    define(fnMinInt);
+
+    auto fnMaxInt = std::make_shared<FunctionSymbol>("max", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, typeCtx.getInt()), builtinLoc);
+    auto fnMaxDbl = std::make_shared<FunctionSymbol>("max", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc);
+    fnMaxInt->addOverload(fnMaxDbl);
+    define(fnMaxInt);
+
+    define(std::make_shared<FunctionSymbol>("log", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("log10", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("log2", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("exp", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+
+    // Built-in filesystem functions (std.fs)
+    define(std::make_shared<FunctionSymbol>("readText", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("writeText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("appendText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("exists", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("deleteFile", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("delete", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("createDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("listDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getArrayType(typeCtx.getString())), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("isFile", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("isDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+
+    // Built-in time functions (std.time)
+    define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("sleep", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("sleepSeconds", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+
+    // Built-in OS functions (std.os)
+    define(std::make_shared<FunctionSymbol>("getEnv", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("setEnv", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("platform", typeCtx.getFunctionType({}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("arch", typeCtx.getFunctionType({}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("args", typeCtx.getFunctionType({}, typeCtx.getArrayType(typeCtx.getString())), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("exit", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+
+    // Built-in process functions (std.process)
+    define(std::make_shared<FunctionSymbol>("exec", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("spawn", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("runCommand", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("pid", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
 }
 
 } // namespace sp::sema

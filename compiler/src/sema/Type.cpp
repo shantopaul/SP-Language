@@ -370,6 +370,129 @@ TypeContext::TypeContext() {
     m_anyType = std::make_shared<PrimitiveType>(TypeKind::Any, "any");
     m_unknownType = std::make_shared<PrimitiveType>(TypeKind::Unknown, "unknown");
     m_errorType = std::make_shared<PrimitiveType>(TypeKind::Error, "<type-error>");
+
+    auto ioCls = createClassType("IO");
+    ioCls->addMethod({"println", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"print", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"eprintln", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"eprint", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"readLine", getFunctionType({}, m_stringType), "public", true, false, false});
+    ioCls->addMethod({"readln", getFunctionType({}, m_stringType), "public", true, false, false});
+    ioCls->addMethod({"flush", getFunctionType({}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"eflush", getFunctionType({}, m_voidType), "public", true, false, false});
+
+    auto consoleCls = createClassType("Console");
+    consoleCls->addMethod({"println", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"print", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"eprintln", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"eprint", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"readLine", getFunctionType({}, m_stringType), "public", true, false, false});
+    consoleCls->addMethod({"readln", getFunctionType({}, m_stringType), "public", true, false, false});
+    consoleCls->addMethod({"flush", getFunctionType({}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"eflush", getFunctionType({}, m_voidType), "public", true, false, false});
+
+    auto strCls = createClassType("String");
+    strCls->addMethod({"length", getFunctionType({m_stringType}, m_int64Type), "public", true, false, false});
+    strCls->addMethod({"upper", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"lower", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"trim", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"contains", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    strCls->addMethod({"indexOf", getFunctionType({m_stringType, m_stringType}, m_int64Type), "public", true, false, false});
+    strCls->addMethod({"replace", getFunctionType({m_stringType, m_stringType, m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"substring", getFunctionType({m_stringType, m_int64Type, m_int64Type}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"split", getFunctionType({m_stringType, m_stringType}, getArrayType(m_stringType)), "public", true, false, false});
+    strCls->addMethod({"reverse", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+
+    auto mathCls = createClassType("Math");
+    mathCls->addField({"PI", m_doubleType, "public", true, true});
+    mathCls->addField({"E", m_doubleType, "public", true, true});
+    mathCls->addField({"TAU", m_doubleType, "public", true, true});
+    mathCls->addMethod({"sqrt", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"pow", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"sin", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"cos", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"tan", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"asin", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"acos", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"atan", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"atan2", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"floor", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"ceil", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"round", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"abs", getFunctionType({m_int32Type}, m_int32Type), "public", true, false, false});
+    mathCls->addMethod({"abs", getFunctionType({m_int64Type}, m_int64Type), "public", true, false, false});
+    mathCls->addMethod({"abs", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"min", getFunctionType({m_int32Type, m_int32Type}, m_int32Type), "public", true, false, false});
+    mathCls->addMethod({"min", getFunctionType({m_int64Type, m_int64Type}, m_int64Type), "public", true, false, false});
+    mathCls->addMethod({"min", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"max", getFunctionType({m_int32Type, m_int32Type}, m_int32Type), "public", true, false, false});
+    mathCls->addMethod({"max", getFunctionType({m_int64Type, m_int64Type}, m_int64Type), "public", true, false, false});
+    mathCls->addMethod({"max", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"log", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"log10", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"log2", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"exp", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+
+    auto fsCls = createClassType("FS");
+    fsCls->addMethod({"readText", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    fsCls->addMethod({"writeText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"appendText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"exists", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"delete", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"deleteFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"createDir", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"listDir", getFunctionType({m_stringType}, getArrayType(m_stringType)), "public", true, false, false});
+    fsCls->addMethod({"isFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"isDir", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+
+    auto fileCls = createClassType("File");
+    fileCls->addMethod({"readText", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    fileCls->addMethod({"writeText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"appendText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"exists", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"delete", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"deleteFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"isFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+
+    auto timeCls = createClassType("Time");
+    timeCls->addMethod({"now", getFunctionType({}, m_int32Type), "public", true, false, false});
+    timeCls->addMethod({"nowSeconds", getFunctionType({}, m_int32Type), "public", true, false, false});
+    timeCls->addMethod({"nowNanos", getFunctionType({}, m_int64Type), "public", true, false, false});
+    timeCls->addMethod({"sleep", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"sleep", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"sleepSeconds", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"sleepSeconds", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+    timeCls->addMethod({"format", getFunctionType({m_int32Type}, m_stringType), "public", true, false, false});
+    timeCls->addMethod({"format", getFunctionType({m_int64Type}, m_stringType), "public", true, false, false});
+    timeCls->addMethod({"parse", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
+
+    auto durationCls = createClassType("Duration");
+    durationCls->addField({"millis", m_int32Type, "public", false, false});
+    durationCls->addMethod({"fromMillis", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromMillis", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromSeconds", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromSeconds", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromMinutes", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromMinutes", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromHours", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"fromHours", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
+    durationCls->addMethod({"toMillis", getFunctionType({}, m_int32Type), "public", false, false, false});
+    durationCls->addMethod({"toSeconds", getFunctionType({}, m_int32Type), "public", false, false, false});
+
+    auto osCls = createClassType("OS");
+    osCls->addMethod({"getEnv", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    osCls->addMethod({"setEnv", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    osCls->addMethod({"platform", getFunctionType({}, m_stringType), "public", true, false, false});
+    osCls->addMethod({"arch", getFunctionType({}, m_stringType), "public", true, false, false});
+    osCls->addMethod({"args", getFunctionType({}, getArrayType(m_stringType)), "public", true, false, false});
+    osCls->addMethod({"exit", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    osCls->addMethod({"exit", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+
+    auto procCls = createClassType("Process");
+    procCls->addMethod({"exec", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
+    procCls->addMethod({"spawn", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
+    procCls->addMethod({"run", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    procCls->addMethod({"pid", getFunctionType({}, m_int32Type), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {
@@ -643,6 +766,9 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         listCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
         listCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
         listCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        listCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
+        listCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
+        listCls->addMethod({"removeAt", getFunctionType({m_int64Type}, m_voidType), "public", false, false, false});
         listCls->addMethod({"map", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"filter", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"reduce", getFunctionType({getAny(), elem ? elem : m_int64Type}, elem ? elem : m_int64Type), "public", false, false, false});
@@ -673,6 +799,7 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         setCls->addMethod({"add", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
         setCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
         setCls->addMethod({"remove", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        setCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
         setCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
         setCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
         setCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});

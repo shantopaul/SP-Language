@@ -96,7 +96,7 @@ private:
     void setInsertPoint(IRBasicBlock* block);
 
     IRValuePtr emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType);
-    IRValuePtr convertToStringValue(IRValuePtr val, IRTypePtr valType);
+    IRValuePtr convertToStringValue(IRValuePtr val, IRTypePtr valType, const ast::ExpressionNode* exprNode = nullptr);
 
     [[maybe_unused]] const sema::SemanticAnalyzer& m_sema;
     std::unique_ptr<IRModule> m_module;
@@ -122,6 +122,7 @@ private:
     const codegen::ClassLayout* m_currentClass{nullptr};
     std::unordered_map<std::string, const ast::ClassDecl*> m_genericClasses;
     std::unordered_map<std::string, const ast::FunctionDecl*> m_genericFunctions;
+    std::unordered_map<std::string, const ast::FunctionDecl*> m_astFunctions;
 };
 
 } // namespace sp::ir

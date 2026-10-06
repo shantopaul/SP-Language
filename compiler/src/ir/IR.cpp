@@ -6,6 +6,7 @@
 #include "sp/ir/IRModule.h"
 #include <sstream>
 #include <iomanip>
+#include <cstring>
 
 namespace sp::ir {
 
@@ -124,8 +125,15 @@ std::string ConstantInt::toString() const {
 }
 
 std::string ConstantFloat::toString() const {
+    double dval = m_value;
+    if (getType() && getType()->isFloat()) {
+        float fval = static_cast<float>(m_value);
+        dval = static_cast<double>(fval);
+    }
+    uint64_t bits = 0;
+    std::memcpy(&bits, &dval, sizeof(bits));
     std::ostringstream ss;
-    ss << std::fixed << std::setprecision(6) << m_value;
+    ss << "0x" << std::uppercase << std::hex << std::setfill('0') << std::setw(16) << bits;
     return ss.str();
 }
 
@@ -381,6 +389,16 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
                    true);
 
+    // void sp_rt_println_uint(i64)
+    createFunction("sp_rt_println_uint", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // void sp_rt_println_float(float)
+    createFunction("sp_rt_println_float", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
+                   true);
+
     // void sp_rt_println_double(double)
     createFunction("sp_rt_println_double", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getDouble(), "val", 0)},
@@ -399,6 +417,86 @@ void IRModule::initRuntimeDeclarations() {
     // void sp_rt_print_int(i64)
     createFunction("sp_rt_print_int", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_uint(i64)
+    createFunction("sp_rt_print_uint", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_float(float)
+    createFunction("sp_rt_print_float", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_double(double)
+    createFunction("sp_rt_print_double", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_bool(i1)
+    createFunction("sp_rt_print_bool", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt1(), "val", 0)},
+                   true);
+
+    // void sp_rt_print_char(i8)
+    createFunction("sp_rt_print_char", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
+                   true);
+
+    // void sp_rt_println_char(i8)
+    createFunction("sp_rt_println_char", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_read_line()
+    createFunction("sp_rt_read_line", IRType::getPointer(IRType::getInt8()),
+                   {},
+                   true);
+
+    // ptr sp_rt_readln()
+    createFunction("sp_rt_readln", IRType::getPointer(IRType::getInt8()),
+                   {},
+                   true);
+
+    // void sp_rt_eprint_string(ptr)
+    createFunction("sp_rt_eprint_string", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "str", 0)},
+                   true);
+
+    // void sp_rt_eprintln_string(ptr)
+    createFunction("sp_rt_eprintln_string", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "str", 0)},
+                   true);
+
+    // void sp_rt_flush()
+    createFunction("sp_rt_flush", IRType::getVoid(),
+                   {},
+                   true);
+
+    // void sp_rt_eflush()
+    createFunction("sp_rt_eflush", IRType::getVoid(),
+                   {},
+                   true);
+
+    // i64 sp_rt_str_to_int(ptr)
+    createFunction("sp_rt_str_to_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // double sp_rt_str_to_double(ptr)
+    createFunction("sp_rt_str_to_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // float sp_rt_str_to_float(ptr)
+    createFunction("sp_rt_str_to_float", IRType::getFloat(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // i1 sp_rt_str_to_bool(ptr)
+    createFunction("sp_rt_str_to_bool", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
                    true);
 
     // void sp_rt_assert(i1, ptr)
@@ -428,9 +526,25 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s2", 1)},
                    true);
 
+    // i1 sp_rt_str_equals(ptr, ptr)
+    createFunction("sp_rt_str_equals", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s1", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s2", 1)},
+                   true);
+
     // ptr sp_rt_str_from_int(i64)
     createFunction("sp_rt_str_from_int", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_uint(i64)
+    createFunction("sp_rt_str_from_uint", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "val", 0)},
+                   true);
+
+    // ptr sp_rt_str_from_float(float)
+    createFunction("sp_rt_str_from_float", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getFloat(), "val", 0)},
                    true);
 
     // ptr sp_rt_str_from_double(double)
@@ -447,6 +561,214 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_str_from_char", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getInt8(), "val", 0)},
                    true);
+
+    // i64 sp_rt_str_len(ptr)
+    createFunction("sp_rt_str_len", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_upper(ptr)
+    createFunction("sp_rt_str_upper", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_lower(ptr)
+    createFunction("sp_rt_str_lower", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_trim(ptr)
+    createFunction("sp_rt_str_trim", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // i1 sp_rt_str_contains(ptr, ptr)
+    createFunction("sp_rt_str_contains", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "sub", 1)},
+                   true);
+
+    // i1 sp_rt_str_starts_with(ptr, ptr)
+    createFunction("sp_rt_str_starts_with", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "prefix", 1)},
+                   true);
+
+    // i1 sp_rt_str_ends_with(ptr, ptr)
+    createFunction("sp_rt_str_ends_with", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "suffix", 1)},
+                   true);
+
+    // i64 sp_rt_str_index_of(ptr, ptr)
+    createFunction("sp_rt_str_index_of", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "sub", 1)},
+                   true);
+
+    // ptr sp_rt_str_substring(ptr, i64, i64)
+    createFunction("sp_rt_str_substring", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "start", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "end", 2)},
+                   true);
+
+    // ptr sp_rt_str_replace(ptr, ptr, ptr)
+    createFunction("sp_rt_str_replace", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "from", 1),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "to", 2)},
+                   true);
+
+    // i8 sp_rt_str_char_at(ptr, i64)
+    createFunction("sp_rt_str_char_at", IRType::getInt8(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "idx", 1)},
+                   true);
+
+    // ptr sp_rt_str_split(ptr, ptr)
+    createFunction("sp_rt_str_split", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "delim", 1)},
+                   true);
+
+    // ptr sp_rt_str_reverse(ptr)
+    createFunction("sp_rt_str_reverse", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_repeat(ptr, i64)
+    createFunction("sp_rt_str_repeat", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)},
+                   true);
+
+    // i1 sp_rt_str_is_empty(ptr)
+    createFunction("sp_rt_str_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // Math runtime functions
+    createFunction("sp_rt_math_sqrt", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_pow", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "base", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "exp", 1)}, true);
+    createFunction("sp_rt_math_sin", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_cos", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_tan", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_asin", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_acos", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_atan", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_atan2", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "y", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "x", 1)}, true);
+    createFunction("sp_rt_math_floor", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_ceil", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_round", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_abs_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_abs_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "x", 0)}, true);
+    createFunction("sp_rt_math_min_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "b", 1)}, true);
+    createFunction("sp_rt_math_min_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "b", 1)}, true);
+    createFunction("sp_rt_math_max_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "b", 1)}, true);
+    createFunction("sp_rt_math_max_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "b", 1)}, true);
+    createFunction("sp_rt_math_log", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_log10", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_log2", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_exp", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+
+    // File system runtime functions (std.fs)
+    createFunction("sp_rt_fs_read_text", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_write_text", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "content", 1)}, true);
+    createFunction("sp_rt_fs_append_text", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "content", 1)}, true);
+    createFunction("sp_rt_fs_exists", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_delete", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_create_dir", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_list_dir", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_is_file", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_is_dir", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+
+    // Time runtime functions (std.time)
+    createFunction("sp_rt_time_now_ms", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_time_now_secs", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_time_now_ns", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_time_sleep_ms", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 0)}, true);
+    createFunction("sp_rt_time_sleep_secs", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "s", 0)}, true);
+    createFunction("sp_rt_time_format_iso", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "epoch_ms", 0)}, true);
+    createFunction("sp_rt_time_parse_iso", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "iso_str", 0)}, true);
+
+    // Duration runtime functions (std.time)
+    createFunction("sp_rt_duration_from_millis", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 0)}, true);
+    createFunction("sp_rt_duration_from_seconds", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "s", 0)}, true);
+    createFunction("sp_rt_duration_from_minutes", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "m", 0)}, true);
+    createFunction("sp_rt_duration_from_hours", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "h", 0)}, true);
+    createFunction("sp_rt_duration_to_millis", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "d", 0)}, true);
+    createFunction("sp_rt_duration_to_seconds", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "d", 0)}, true);
+
+    // OS runtime functions (std.os)
+    createFunction("sp_rt_os_get_env", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "name", 0)}, true);
+    createFunction("sp_rt_os_set_env", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "name", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "val", 1)}, true);
+    createFunction("sp_rt_os_platform", IRType::getPointer(IRType::getInt8()), {}, true);
+    createFunction("sp_rt_os_arch", IRType::getPointer(IRType::getInt8()), {}, true);
+    createFunction("sp_rt_os_args", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_os_exit", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "code", 0)}, true);
+
+    // Process runtime functions (std.process)
+    createFunction("sp_rt_process_exec", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "cmd", 0)}, true);
+    createFunction("sp_rt_process_spawn", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "cmd", 0)}, true);
+    createFunction("sp_rt_process_run", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "cmd", 0)}, true);
+    createFunction("sp_rt_process_pid", IRType::getInt64(), {}, true);
 
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
@@ -611,6 +933,47 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
                     std::make_shared<ParameterValue>(IRType::getPointer(), "val", 1)},
                    true);
+
+    createFunction("sp_rt_set_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)}, true);
+
+    createFunction("sp_rt_set_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)}, true);
+
+    createFunction("sp_rt_list_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)}, true);
+
+    createFunction("sp_rt_list_contains_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+
+    createFunction("sp_rt_list_remove_at", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)}, true);
+
+    createFunction("sp_rt_list_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)}, true);
+
+    createFunction("sp_rt_map_contains_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)}, true);
+
+    createFunction("sp_rt_map_remove_str", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "key", 1)}, true);
+
+    createFunction("sp_rt_map_remove_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "key", 1)}, true);
+
+    createFunction("sp_rt_map_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)}, true);
+
+    createFunction("sp_rt_map_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)}, true);
+
+    createFunction("sp_rt_array_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0)}, true);
 
     // Higher-order collection functions
     createFunction("sp_rt_array_map", IRType::getPointer(),

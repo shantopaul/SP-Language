@@ -97,4 +97,28 @@ TEST(GoldenLexerTest, TokenizeStdlibMath) {
     assertFileTokenizesWithoutErrors("stdlib/math/math.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibString) {
+    assertFileTokenizesWithoutErrors("stdlib/string/string.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibCollections) {
+    assertFileTokenizesWithoutErrors("stdlib/collections/collections.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibFS) {
+    assertFileTokenizesWithoutErrors("stdlib/fs/fs.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibTime) {
+    assertFileTokenizesWithoutErrors("stdlib/time/time.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibOS) {
+    assertFileTokenizesWithoutErrors("stdlib/os/os.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibProcess) {
+    assertFileTokenizesWithoutErrors("stdlib/process/process.sp");
+}
+
 } // namespace sp::lexer::test
