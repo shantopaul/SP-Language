@@ -1377,5 +1377,65 @@ TEST(ExecutionTest, StdlibStringNativeExecution) {
     EXPECT_NE(output.find("Via String.upper: SHANTO"), std::string::npos);
 }
 
+TEST(ExecutionTest, StdlibMathNativeExecution) {
+    const std::string source = R"sp(
+        import std.math;
+
+        fn main() {
+            println("PI: ${PI}");
+            println("E: ${E}");
+            println("TAU: ${TAU}");
+            println("Math.PI: ${Math.PI}");
+
+            println("sqrt: ${sqrt(16.0)}");
+            println("pow: ${pow(2.0, 4.0)}");
+            int a = -25;
+            println("abs_int: ${abs(a)}");
+            double d = -12.5;
+            println("abs_dbl: ${abs(d)}");
+            println("min_int: ${min(7, 3)}");
+            println("max_int: ${max(7, 3)}");
+            println("min_dbl: ${min(4.5, 9.5)}");
+            println("max_dbl: ${max(4.5, 9.5)}");
+            println("floor: ${floor(5.8)}");
+            println("ceil: ${ceil(5.2)}");
+            println("round: ${round(5.5)}");
+            println("sin0: ${sin(0.0)}");
+            println("cos0: ${cos(0.0)}");
+            println("log2: ${log2(8.0)}");
+            println("log10: ${log10(100.0)}");
+
+            println("Math.sqrt: ${Math.sqrt(49.0)}");
+            println("Math.pow: ${Math.pow(3.0, 2.0)}");
+            int mNeg = -77;
+            println("Math.abs: ${Math.abs(mNeg)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_math");
+    EXPECT_NE(output.find("PI: 3.14159"), std::string::npos);
+    EXPECT_NE(output.find("E: 2.71828"), std::string::npos);
+    EXPECT_NE(output.find("TAU: 6.28318"), std::string::npos);
+    EXPECT_NE(output.find("Math.PI: 3.14159"), std::string::npos);
+    EXPECT_NE(output.find("sqrt: 4"), std::string::npos);
+    EXPECT_NE(output.find("pow: 16"), std::string::npos);
+    EXPECT_NE(output.find("abs_int: 25"), std::string::npos);
+    EXPECT_NE(output.find("abs_dbl: 12.5"), std::string::npos);
+    EXPECT_NE(output.find("min_int: 3"), std::string::npos);
+    EXPECT_NE(output.find("max_int: 7"), std::string::npos);
+    EXPECT_NE(output.find("min_dbl: 4.5"), std::string::npos);
+    EXPECT_NE(output.find("max_dbl: 9.5"), std::string::npos);
+    EXPECT_NE(output.find("floor: 5"), std::string::npos);
+    EXPECT_NE(output.find("ceil: 6"), std::string::npos);
+    EXPECT_NE(output.find("round: 6"), std::string::npos);
+    EXPECT_NE(output.find("sin0: 0"), std::string::npos);
+    EXPECT_NE(output.find("cos0: 1"), std::string::npos);
+    EXPECT_NE(output.find("log2: 3"), std::string::npos);
+    EXPECT_NE(output.find("log10: 2"), std::string::npos);
+    EXPECT_NE(output.find("Math.sqrt: 7"), std::string::npos);
+    EXPECT_NE(output.find("Math.pow: 9"), std::string::npos);
+    EXPECT_NE(output.find("Math.abs: 77"), std::string::npos);
+}
+
 
 

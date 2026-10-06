@@ -273,6 +273,44 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
         builtinLoc
     );
     define(fnLen);
+
+    // Built-in math functions and constants
+    define(std::make_shared<VariableSymbol>("PI", typeCtx.getDouble(), builtinLoc, true));
+    define(std::make_shared<VariableSymbol>("E", typeCtx.getDouble(), builtinLoc, true));
+    define(std::make_shared<VariableSymbol>("TAU", typeCtx.getDouble(), builtinLoc, true));
+
+    define(std::make_shared<FunctionSymbol>("sqrt", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("pow", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("sin", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("cos", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("tan", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("asin", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("acos", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("atan", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("atan2", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("floor", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("ceil", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("round", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+
+    auto fnAbsInt = std::make_shared<FunctionSymbol>("abs", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getInt()), builtinLoc);
+    auto fnAbsDbl = std::make_shared<FunctionSymbol>("abs", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc);
+    fnAbsInt->addOverload(fnAbsDbl);
+    define(fnAbsInt);
+
+    auto fnMinInt = std::make_shared<FunctionSymbol>("min", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, typeCtx.getInt()), builtinLoc);
+    auto fnMinDbl = std::make_shared<FunctionSymbol>("min", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc);
+    fnMinInt->addOverload(fnMinDbl);
+    define(fnMinInt);
+
+    auto fnMaxInt = std::make_shared<FunctionSymbol>("max", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, typeCtx.getInt()), builtinLoc);
+    auto fnMaxDbl = std::make_shared<FunctionSymbol>("max", typeCtx.getFunctionType({typeCtx.getDouble(), typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc);
+    fnMaxInt->addOverload(fnMaxDbl);
+    define(fnMaxInt);
+
+    define(std::make_shared<FunctionSymbol>("log", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("log10", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("log2", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("exp", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
 }
 
 } // namespace sp::sema

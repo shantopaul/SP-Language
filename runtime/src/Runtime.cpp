@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <cmath>
 
 extern "C" {
 
@@ -751,6 +752,94 @@ int64_t sp_rt_list_reduce(void* list, int64_t (*fn)(int64_t, int64_t), int64_t i
         acc = fn ? fn(acc, val) : acc + val;
     }
     return acc;
+}
+
+double sp_rt_math_sqrt(double x) {
+    return std::sqrt(x);
+}
+
+double sp_rt_math_pow(double base, double exp) {
+    return std::pow(base, exp);
+}
+
+double sp_rt_math_sin(double x) {
+    return std::sin(x);
+}
+
+double sp_rt_math_cos(double x) {
+    return std::cos(x);
+}
+
+double sp_rt_math_tan(double x) {
+    return std::tan(x);
+}
+
+double sp_rt_math_asin(double x) {
+    return std::asin(x);
+}
+
+double sp_rt_math_acos(double x) {
+    return std::acos(x);
+}
+
+double sp_rt_math_atan(double x) {
+    return std::atan(x);
+}
+
+double sp_rt_math_atan2(double y, double x) {
+    return std::atan2(y, x);
+}
+
+double sp_rt_math_floor(double x) {
+    return std::floor(x);
+}
+
+double sp_rt_math_ceil(double x) {
+    return std::ceil(x);
+}
+
+double sp_rt_math_round(double x) {
+    return std::round(x);
+}
+
+double sp_rt_math_abs_double(double x) {
+    return std::fabs(x);
+}
+
+int64_t sp_rt_math_abs_int(int64_t x) {
+    return std::abs(x);
+}
+
+double sp_rt_math_min_double(double a, double b) {
+    return std::fmin(a, b);
+}
+
+int64_t sp_rt_math_min_int(int64_t a, int64_t b) {
+    return a < b ? a : b;
+}
+
+double sp_rt_math_max_double(double a, double b) {
+    return std::fmax(a, b);
+}
+
+int64_t sp_rt_math_max_int(int64_t a, int64_t b) {
+    return a > b ? a : b;
+}
+
+double sp_rt_math_log(double x) {
+    return std::log(x);
+}
+
+double sp_rt_math_log10(double x) {
+    return std::log10(x);
+}
+
+double sp_rt_math_log2(double x) {
+    return std::log2(x);
+}
+
+double sp_rt_math_exp(double x) {
+    return std::exp(x);
 }
 
 }

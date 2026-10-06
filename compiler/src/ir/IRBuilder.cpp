@@ -1594,6 +1594,22 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    if (node.getName() == "PI") {
+        m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 3.141592653589793);
+        m_lastExprType = IRType::getDouble();
+        return;
+    }
+    if (node.getName() == "E") {
+        m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 2.718281828459045);
+        m_lastExprType = IRType::getDouble();
+        return;
+    }
+    if (node.getName() == "TAU") {
+        m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 6.283185307179586);
+        m_lastExprType = IRType::getDouble();
+        return;
+    }
+
     if (m_currentClass && m_currentClass->fieldIndexMap.count(node.getName())) {
         auto [thisAlloca, thisType] = lookupVariable("this");
         if (thisAlloca) {
@@ -2331,6 +2347,100 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                         m_currentBlock->addInstruction(callInst);
                         m_lastExprValue = callInst;
                         m_lastExprType = IRType::getPointer();
+                        return;
+                    }
+                }
+            }
+
+            if (targetName == "Math") {
+                if (methodName == "sqrt" || methodName == "sin" || methodName == "cos" || methodName == "tan" ||
+                    methodName == "asin" || methodName == "acos" || methodName == "atan" ||
+                    methodName == "floor" || methodName == "ceil" || methodName == "round" ||
+                    methodName == "log" || methodName == "log10" || methodName == "log2" || methodName == "exp") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        auto val = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+                        std::string fn = "sp_rt_math_" + methodName;
+                        std::string reg = m_currentFunction->nextTempName("math_res");
+                        auto callInst = std::make_shared<CallInst>(IRType::getDouble(), fn, std::vector<IRValuePtr>{val}, reg);
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getDouble();
+                        return;
+                    }
+                }
+                if (methodName == "pow" || methodName == "atan2") {
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[0]->accept(*this);
+                        auto v1 = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+                        node.getArgs()[1]->accept(*this);
+                        auto v2 = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+                        std::string fn = "sp_rt_math_" + methodName;
+                        std::string reg = m_currentFunction->nextTempName("math_res");
+                        auto callInst = std::make_shared<CallInst>(IRType::getDouble(), fn, std::vector<IRValuePtr>{v1, v2}, reg);
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getDouble();
+                        return;
+                    }
+                }
+                if (methodName == "abs") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        auto val = m_lastExprValue;
+                        auto type = m_lastExprType;
+                        auto semaType = m_sema.getNodeType(node.getArgs()[0].get());
+                        bool isFlt = (type && type->isFloatingPoint()) || (semaType && (semaType->isFloat() || semaType->isDouble()));
+                        if (isFlt) {
+                            val = emitCastIfNeeded(val, IRType::getDouble());
+                            std::string reg = m_currentFunction->nextTempName("math_res");
+                            auto callInst = std::make_shared<CallInst>(IRType::getDouble(), "sp_rt_math_abs_double", std::vector<IRValuePtr>{val}, reg);
+                            m_currentBlock->addInstruction(callInst);
+                            m_lastExprValue = callInst;
+                            m_lastExprType = IRType::getDouble();
+                        } else {
+                            val = emitCastIfNeeded(val, IRType::getInt64());
+                            std::string reg = m_currentFunction->nextTempName("math_res");
+                            auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_math_abs_int", std::vector<IRValuePtr>{val}, reg);
+                            m_currentBlock->addInstruction(callInst);
+                            m_lastExprValue = callInst;
+                            m_lastExprType = IRType::getInt64();
+                        }
+                        return;
+                    }
+                }
+                if (methodName == "min" || methodName == "max") {
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[0]->accept(*this);
+                        auto v1 = m_lastExprValue;
+                        auto t1 = m_lastExprType;
+                        auto semaT1 = m_sema.getNodeType(node.getArgs()[0].get());
+                        node.getArgs()[1]->accept(*this);
+                        auto v2 = m_lastExprValue;
+                        auto t2 = m_lastExprType;
+                        auto semaT2 = m_sema.getNodeType(node.getArgs()[1].get());
+                        bool isFlt = (t1 && t1->isFloatingPoint()) || (t2 && t2->isFloatingPoint()) ||
+                                     (semaT1 && (semaT1->isFloat() || semaT1->isDouble())) ||
+                                     (semaT2 && (semaT2->isFloat() || semaT2->isDouble()));
+                        if (isFlt) {
+                            v1 = emitCastIfNeeded(v1, IRType::getDouble());
+                            v2 = emitCastIfNeeded(v2, IRType::getDouble());
+                            std::string fn = (methodName == "min") ? "sp_rt_math_min_double" : "sp_rt_math_max_double";
+                            std::string reg = m_currentFunction->nextTempName("math_res");
+                            auto callInst = std::make_shared<CallInst>(IRType::getDouble(), fn, std::vector<IRValuePtr>{v1, v2}, reg);
+                            m_currentBlock->addInstruction(callInst);
+                            m_lastExprValue = callInst;
+                            m_lastExprType = IRType::getDouble();
+                        } else {
+                            v1 = emitCastIfNeeded(v1, IRType::getInt64());
+                            v2 = emitCastIfNeeded(v2, IRType::getInt64());
+                            std::string fn = (methodName == "min") ? "sp_rt_math_min_int" : "sp_rt_math_max_int";
+                            std::string reg = m_currentFunction->nextTempName("math_res");
+                            auto callInst = std::make_shared<CallInst>(IRType::getInt64(), fn, std::vector<IRValuePtr>{v1, v2}, reg);
+                            m_currentBlock->addInstruction(callInst);
+                            m_lastExprValue = callInst;
+                            m_lastExprType = IRType::getInt64();
+                        }
                         return;
                     }
                 }
@@ -3214,6 +3324,101 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
+    if (calleeName == "sqrt" || calleeName == "sin" || calleeName == "cos" || calleeName == "tan" ||
+        calleeName == "asin" || calleeName == "acos" || calleeName == "atan" ||
+        calleeName == "floor" || calleeName == "ceil" || calleeName == "round" ||
+        calleeName == "log" || calleeName == "log10" || calleeName == "log2" || calleeName == "exp") {
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            auto val = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+            std::string fn = "sp_rt_math_" + calleeName;
+            std::string reg = m_currentFunction->nextTempName("math_res");
+            auto callInst = std::make_shared<CallInst>(IRType::getDouble(), fn, std::vector<IRValuePtr>{val}, reg);
+            m_currentBlock->addInstruction(callInst);
+            m_lastExprValue = callInst;
+            m_lastExprType = IRType::getDouble();
+            return;
+        }
+    }
+
+    if (calleeName == "pow" || calleeName == "atan2") {
+        if (node.getArgs().size() >= 2) {
+            node.getArgs()[0]->accept(*this);
+            auto v1 = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+            node.getArgs()[1]->accept(*this);
+            auto v2 = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+            std::string fn = "sp_rt_math_" + calleeName;
+            std::string reg = m_currentFunction->nextTempName("math_res");
+            auto callInst = std::make_shared<CallInst>(IRType::getDouble(), fn, std::vector<IRValuePtr>{v1, v2}, reg);
+            m_currentBlock->addInstruction(callInst);
+            m_lastExprValue = callInst;
+            m_lastExprType = IRType::getDouble();
+            return;
+        }
+    }
+
+    if (calleeName == "abs") {
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            auto val = m_lastExprValue;
+            auto type = m_lastExprType;
+            auto semaType = m_sema.getNodeType(node.getArgs()[0].get());
+            bool isFlt = (type && type->isFloatingPoint()) || (semaType && (semaType->isFloat() || semaType->isDouble()));
+            if (isFlt) {
+                val = emitCastIfNeeded(val, IRType::getDouble());
+                std::string reg = m_currentFunction->nextTempName("math_res");
+                auto callInst = std::make_shared<CallInst>(IRType::getDouble(), "sp_rt_math_abs_double", std::vector<IRValuePtr>{val}, reg);
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getDouble();
+            } else {
+                val = emitCastIfNeeded(val, IRType::getInt64());
+                std::string reg = m_currentFunction->nextTempName("math_res");
+                auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_math_abs_int", std::vector<IRValuePtr>{val}, reg);
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+            }
+            return;
+        }
+    }
+
+    if (calleeName == "min" || calleeName == "max") {
+        if (node.getArgs().size() >= 2) {
+            node.getArgs()[0]->accept(*this);
+            auto v1 = m_lastExprValue;
+            auto t1 = m_lastExprType;
+            auto semaT1 = m_sema.getNodeType(node.getArgs()[0].get());
+            node.getArgs()[1]->accept(*this);
+            auto v2 = m_lastExprValue;
+            auto t2 = m_lastExprType;
+            auto semaT2 = m_sema.getNodeType(node.getArgs()[1].get());
+            bool isFlt = (t1 && t1->isFloatingPoint()) || (t2 && t2->isFloatingPoint()) ||
+                         (semaT1 && (semaT1->isFloat() || semaT1->isDouble())) ||
+                         (semaT2 && (semaT2->isFloat() || semaT2->isDouble()));
+            if (isFlt) {
+                v1 = emitCastIfNeeded(v1, IRType::getDouble());
+                v2 = emitCastIfNeeded(v2, IRType::getDouble());
+                std::string fn = (calleeName == "min") ? "sp_rt_math_min_double" : "sp_rt_math_max_double";
+                std::string reg = m_currentFunction->nextTempName("math_res");
+                auto callInst = std::make_shared<CallInst>(IRType::getDouble(), fn, std::vector<IRValuePtr>{v1, v2}, reg);
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getDouble();
+            } else {
+                v1 = emitCastIfNeeded(v1, IRType::getInt64());
+                v2 = emitCastIfNeeded(v2, IRType::getInt64());
+                std::string fn = (calleeName == "min") ? "sp_rt_math_min_int" : "sp_rt_math_max_int";
+                std::string reg = m_currentFunction->nextTempName("math_res");
+                auto callInst = std::make_shared<CallInst>(IRType::getInt64(), fn, std::vector<IRValuePtr>{v1, v2}, reg);
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+            }
+            return;
+        }
+    }
+
     // Check if callee is a method on 'this'
     if (m_currentClass && m_currentClass->methodSlotMap.count(calleeName)) {
         int slotIdx = m_currentClass->methodSlotMap.at(calleeName);
@@ -3482,6 +3687,23 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
             m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), val);
             m_lastExprType = IRType::getInt32();
             return;
+        }
+        if (objIdentName == "Math") {
+            if (node.getMember() == "PI") {
+                m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 3.141592653589793);
+                m_lastExprType = IRType::getDouble();
+                return;
+            }
+            if (node.getMember() == "E") {
+                m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 2.718281828459045);
+                m_lastExprType = IRType::getDouble();
+                return;
+            }
+            if (node.getMember() == "TAU") {
+                m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 6.283185307179586);
+                m_lastExprType = IRType::getDouble();
+                return;
+            }
         }
     }
     auto semaType = m_sema.getNodeType(&node.getObject());

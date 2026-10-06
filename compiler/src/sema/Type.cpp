@@ -402,6 +402,36 @@ TypeContext::TypeContext() {
     strCls->addMethod({"substring", getFunctionType({m_stringType, m_int64Type, m_int64Type}, m_stringType), "public", true, false, false});
     strCls->addMethod({"split", getFunctionType({m_stringType, m_stringType}, getArrayType(m_stringType)), "public", true, false, false});
     strCls->addMethod({"reverse", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+
+    auto mathCls = createClassType("Math");
+    mathCls->addField({"PI", m_doubleType, "public", true, true});
+    mathCls->addField({"E", m_doubleType, "public", true, true});
+    mathCls->addField({"TAU", m_doubleType, "public", true, true});
+    mathCls->addMethod({"sqrt", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"pow", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"sin", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"cos", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"tan", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"asin", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"acos", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"atan", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"atan2", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"floor", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"ceil", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"round", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"abs", getFunctionType({m_int32Type}, m_int32Type), "public", true, false, false});
+    mathCls->addMethod({"abs", getFunctionType({m_int64Type}, m_int64Type), "public", true, false, false});
+    mathCls->addMethod({"abs", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"min", getFunctionType({m_int32Type, m_int32Type}, m_int32Type), "public", true, false, false});
+    mathCls->addMethod({"min", getFunctionType({m_int64Type, m_int64Type}, m_int64Type), "public", true, false, false});
+    mathCls->addMethod({"min", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"max", getFunctionType({m_int32Type, m_int32Type}, m_int32Type), "public", true, false, false});
+    mathCls->addMethod({"max", getFunctionType({m_int64Type, m_int64Type}, m_int64Type), "public", true, false, false});
+    mathCls->addMethod({"max", getFunctionType({m_doubleType, m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"log", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"log10", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"log2", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+    mathCls->addMethod({"exp", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

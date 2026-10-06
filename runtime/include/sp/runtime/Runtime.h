@@ -116,5 +116,29 @@ extern "C" {
     void* sp_rt_list_map(void* list, int64_t (*fn)(int64_t));
     void* sp_rt_list_filter(void* list, int64_t (*predicate)(int64_t));
     int64_t sp_rt_list_reduce(void* list, int64_t (*fn)(int64_t, int64_t), int64_t initial);
+
+    // Math functions
+    double sp_rt_math_sqrt(double x);
+    double sp_rt_math_pow(double base, double exp);
+    double sp_rt_math_sin(double x);
+    double sp_rt_math_cos(double x);
+    double sp_rt_math_tan(double x);
+    double sp_rt_math_asin(double x);
+    double sp_rt_math_acos(double x);
+    double sp_rt_math_atan(double x);
+    double sp_rt_math_atan2(double y, double x);
+    double sp_rt_math_floor(double x);
+    double sp_rt_math_ceil(double x);
+    double sp_rt_math_round(double x);
+    double sp_rt_math_abs_double(double x);
+    int64_t sp_rt_math_abs_int(int64_t x);
+    double sp_rt_math_min_double(double a, double b);
+    int64_t sp_rt_math_min_int(int64_t a, int64_t b);
+    double sp_rt_math_max_double(double a, double b);
+    int64_t sp_rt_math_max_int(int64_t a, int64_t b);
+    double sp_rt_math_log(double x);
+    double sp_rt_math_log10(double x);
+    double sp_rt_math_log2(double x);
+    double sp_rt_math_exp(double x);
 }
 

@@ -648,6 +648,58 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
                    true);
 
+    // Math runtime functions
+    createFunction("sp_rt_math_sqrt", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_pow", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "base", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "exp", 1)}, true);
+    createFunction("sp_rt_math_sin", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_cos", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_tan", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_asin", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_acos", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_atan", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_atan2", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "y", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "x", 1)}, true);
+    createFunction("sp_rt_math_floor", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_ceil", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_round", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_abs_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_abs_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "x", 0)}, true);
+    createFunction("sp_rt_math_min_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "b", 1)}, true);
+    createFunction("sp_rt_math_min_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "b", 1)}, true);
+    createFunction("sp_rt_math_max_double", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "b", 1)}, true);
+    createFunction("sp_rt_math_max_int", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "a", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "b", 1)}, true);
+    createFunction("sp_rt_math_log", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_log10", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_log2", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+    createFunction("sp_rt_math_exp", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),
