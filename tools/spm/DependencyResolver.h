@@ -77,10 +77,10 @@ public:
                              const std::string& rootProjectDir = ".",
                              bool includeDev = false);
 
+    static std::string computeChecksum(const std::string& name, const Version& v, const std::string& source);
+
 private:
     std::shared_ptr<IPackageProvider> m_provider;
-
-    static std::string computeChecksum(const std::string& name, const Version& v, const std::string& source);
 };
 
 } // namespace sp::spm

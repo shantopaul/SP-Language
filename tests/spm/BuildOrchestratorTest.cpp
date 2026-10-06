@@ -67,3 +67,46 @@ TEST_F(BuildOrchestratorTest, SearchRegistry) {
     auto emptyResults = BuildOrchestrator::search("non_existent_xyz_999");
     EXPECT_TRUE(emptyResults.empty());
 }
+
+TEST_F(BuildOrchestratorTest, VerifyProjectIntegrityAndTamperDetection) {
+    std::string err;
+    ASSERT_TRUE(scaffoldProject(m_tempDir.string(), "audit_app", false, err)) << err;
+
+    // 1. Verify project without dependencies
+    auto v1 = BuildOrchestrator::verify(m_tempDir.string());
+    EXPECT_TRUE(v1.success) << v1.errorMessage;
+    EXPECT_EQ(v1.packagesVerified, 0);
+
+    // 2. Add dependencies and create lockfile
+    ProjectConfig cfg;
+    ASSERT_TRUE(cfg.loadFromFile((m_tempDir / "sp.toml").string()));
+    cfg.addDependency(Dependency{"sp_math", "^1.0.0", "", ""});
+    ASSERT_TRUE(cfg.saveToFile((m_tempDir / "sp.toml").string()));
+
+    // Verify should fail because sp.lock is missing
+    auto v2 = BuildOrchestrator::verify(m_tempDir.string());
+    EXPECT_FALSE(v2.success);
+
+    // Create valid lockfile
+    Lockfile lock;
+    auto semver = *Version::parse("1.0.0");
+    std::string expectedHash = DependencyResolver::computeChecksum("sp_math", semver, "registry");
+    lock.addPackage(LockedPackage{"sp_math", "1.0.0", "registry", expectedHash, {}});
+    ASSERT_TRUE(lock.saveToFile((m_tempDir / "sp.lock").string()));
+
+    // Verify should now succeed
+    auto v3 = BuildOrchestrator::verify(m_tempDir.string());
+    EXPECT_TRUE(v3.success) << v3.errorMessage;
+    EXPECT_EQ(v3.packagesVerified, 1);
+
+    // 3. Simulate tampering with checksum
+    Lockfile tamperedLock;
+    tamperedLock.addPackage(LockedPackage{"sp_math", "1.0.0", "registry", "deadbeef00000000tamperedhash", {}});
+    ASSERT_TRUE(tamperedLock.saveToFile((m_tempDir / "sp.lock").string()));
+
+    // Verify MUST detect tampering
+    auto v4 = BuildOrchestrator::verify(m_tempDir.string());
+    EXPECT_FALSE(v4.success);
+    EXPECT_NE(v4.errorMessage.find("tampering detected"), std::string::npos);
+}
+
