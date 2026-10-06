@@ -36,14 +36,14 @@
 - [x] [22. Static Members](#22-static-members) ✅
 - [x] [23. Structs](#23-structs) ✅
 - [x] [24. Enums](#24-enums) ✅
-- [25. Generics](#25-generics)
-- [26. Null Safety](#26-null-safety)
-- [27. Error Handling — Try/Catch](#27-error-handling--trycatch)
-- [28. Error Handling — Result Type](#28-error-handling--result-type)
-- [29. Lambda Functions](#29-lambda-functions)
-- [30. Higher-Order Functions](#30-higher-order-functions)
-- [31. Closures](#31-closures)
-- [32. String Methods](#32-string-methods)
+- [x] [25. Generics](#25-generics) ✅
+- [x] [26. Null Safety](#26-null-safety) ✅
+- [x] [27. Error Handling — Try/Catch](#27-error-handling--trycatch) ✅
+- [x] [28. Error Handling — Result Type](#28-error-handling--result-type) ✅
+- [x] [29. Lambda Functions](#29-lambda-functions) ✅
+- [x] [30. Higher-Order Functions](#30-higher-order-functions) ✅
+- [x] [31. Closures](#31-closures) ✅
+- [x] [32. String Methods](#32-string-methods) ✅
 - [33. Method Overloading](#33-method-overloading)
 - [34. Operator Overloading](#34-operator-overloading)
 - [35. Extension Methods](#35-extension-methods)
@@ -1900,7 +1900,7 @@ HTTP 200
 
 ---
 
-## 25. Generics
+## 25. Generics ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2031,7 +2031,7 @@ max("apple", "banana") = banana
 
 ---
 
-## 26. Null Safety
+## 26. Null Safety ✅
 
 ```sp
 class User {
@@ -2102,7 +2102,7 @@ fn main() {
 
 ---
 
-## 27. Error Handling — Try/Catch
+## 27. Error Handling — Try/Catch ✅
 
 ```sp
 fn main() {
@@ -2163,7 +2163,7 @@ fn validateAge(int age) {
 
 ---
 
-## 28. Error Handling — Result Type
+## 28. Error Handling — Result Type ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2225,7 +2225,7 @@ Failed: Invalid number: 'hello'
 
 ---
 
-## 29. Lambda Functions
+## 29. Lambda Functions ✅
 
 ```sp
 fn main() {
@@ -2279,7 +2279,7 @@ fn main() {
 
 ---
 
-## 30. Higher-Order Functions
+## 30. Higher-Order Functions ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2354,7 +2354,7 @@ fn main() {
 
 ---
 
-## 31. Closures
+## 31. Closures ✅
 
 ```sp
 fn makeCounter() -> fn() -> int {
@@ -2387,7 +2387,7 @@ fn main() {
 
 ---
 
-## 32. String Methods
+## 32. String Methods ✅
 
 ```sp
 fn main() {

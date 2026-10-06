@@ -1106,7 +1106,12 @@ void IRBuilder::visit(const ast::ContinueStmt& node) {
     }
 }
 
-void IRBuilder::visit(const ast::TryCatchStmt& node) { (void)node; }
+void IRBuilder::visit(const ast::TryCatchStmt& node) {
+    node.getTryBlock().accept(*this);
+    if (node.hasFinally() && node.getFinallyBlock()) {
+        node.getFinallyBlock()->accept(*this);
+    }
+}
 void IRBuilder::visit(const ast::ThrowStmt& node) { (void)node; }
 
 void IRBuilder::visit(const ast::ClassDecl& node) {
@@ -3376,6 +3381,12 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         }
         if (className.empty()) {
             auto semaType = m_sema.getNodeType(&mem->getObject());
+            if (semaType && semaType->isNullable()) {
+                const auto* nullT = static_cast<const sema::NullableType*>(semaType.get());
+                if (nullT && nullT->getUnderlyingType()) {
+                    semaType = nullT->getUnderlyingType();
+                }
+            }
             if (semaType && semaType->isClass()) {
                 className = codegen::VTableBuilder::mangleGenericName(semaType->toString());
             }
@@ -4252,6 +4263,12 @@ IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& 
 
     if (className.empty()) {
         auto semaType = m_sema.getNodeType(&node.getObject());
+        if (semaType && semaType->isNullable()) {
+            const auto* nullT = static_cast<const sema::NullableType*>(semaType.get());
+            if (nullT && nullT->getUnderlyingType()) {
+                semaType = nullT->getUnderlyingType();
+            }
+        }
         if (semaType && (semaType->isClass() || semaType->isStruct())) {
             className = semaType->toString();
         }
