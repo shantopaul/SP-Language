@@ -1622,3 +1622,42 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
     EXPECT_NE(output.find("d_min_millis: 60000"), std::string::npos);
     EXPECT_NE(output.find("time_static_gt_0: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, StdlibOsNativeExecution) {
+    const std::string source = R"sp(
+        import std.os;
+
+        fn main() {
+            string plat = platform();
+            println("platform_len_gt_0: ${plat.length() > 0}");
+
+            string architecture = arch();
+            println("arch_len_gt_0: ${architecture.length() > 0}");
+
+            string k = "SP_TEST_KEY";
+            string v = "SP_VAL_42";
+            bool sOk = setEnv(k, v);
+            println("set_env_ok: ${sOk}");
+
+            string got = getEnv(k);
+            println("get_env: ${got}");
+
+            string[] myArgs = args();
+            println("args_gte_0: ${myArgs.length() >= 0}");
+
+            println("os_static_plat: ${OS.platform().length() > 0}");
+            println("os_static_arch: ${OS.arch().length() > 0}");
+            println("os_static_get: ${OS.getEnv(k)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_os");
+    EXPECT_NE(output.find("platform_len_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("arch_len_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("set_env_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("get_env: SP_VAL_42"), std::string::npos);
+    EXPECT_NE(output.find("args_gte_0: true"), std::string::npos);
+    EXPECT_NE(output.find("os_static_plat: true"), std::string::npos);
+    EXPECT_NE(output.find("os_static_arch: true"), std::string::npos);
+    EXPECT_NE(output.find("os_static_get: SP_VAL_42"), std::string::npos);
+}

@@ -1121,5 +1121,72 @@ int64_t sp_rt_duration_to_seconds(void* d) {
     return static_cast<SPDurationImpl*>(d)->millis / 1000;
 }
 
+// OS runtime functions (std.os)
+const char* sp_rt_os_get_env(const char* name) {
+    if (!name) return "";
+    const char* val = std::getenv(name);
+    if (!val) return "";
+    char* copy = static_cast<char*>(malloc(std::strlen(val) + 1));
+    std::memcpy(copy, val, std::strlen(val) + 1);
+    return copy;
+}
+
+bool sp_rt_os_set_env(const char* name, const char* val) {
+    if (!name) return false;
+    const char* actual_val = val ? val : "";
+#if defined(_WIN32)
+    return _putenv_s(name, actual_val) == 0;
+#else
+    return setenv(name, actual_val, 1) == 0;
+#endif
+}
+
+const char* sp_rt_os_platform() {
+#if defined(_WIN32)
+    return "windows";
+#elif defined(__APPLE__)
+    return "macos";
+#elif defined(__linux__)
+    return "linux";
+#else
+    return "unknown";
+#endif
+}
+
+const char* sp_rt_os_arch() {
+#if defined(__x86_64__) || defined(_M_X64)
+    return "x64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
+void* sp_rt_os_args() {
+#if defined(_WIN32)
+    int count = __argc > 0 ? __argc : 0;
+    void* arr = sp_rt_array_alloc(static_cast<int64_t>(count), sizeof(int64_t));
+    for (int i = 0; i < count; ++i) {
+        const char* arg_str = (__argv && __argv[i]) ? __argv[i] : "";
+        size_t len = std::strlen(arg_str);
+        char* copy = static_cast<char*>(malloc(len + 1));
+        std::memcpy(copy, arg_str, len + 1);
+        sp_rt_array_set_i64(arr, static_cast<int64_t>(i), reinterpret_cast<int64_t>(copy));
+    }
+    return arr;
+#else
+    return sp_rt_array_alloc(0, sizeof(int64_t));
+#endif
+}
+
+void sp_rt_os_exit(int64_t code) {
+    std::exit(static_cast<int>(code));
+}
+
 }
 

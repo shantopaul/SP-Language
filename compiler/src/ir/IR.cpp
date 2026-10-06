@@ -749,6 +749,18 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_duration_to_seconds", IRType::getInt64(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "d", 0)}, true);
 
+    // OS runtime functions (std.os)
+    createFunction("sp_rt_os_get_env", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "name", 0)}, true);
+    createFunction("sp_rt_os_set_env", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "name", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "val", 1)}, true);
+    createFunction("sp_rt_os_platform", IRType::getPointer(IRType::getInt8()), {}, true);
+    createFunction("sp_rt_os_arch", IRType::getPointer(IRType::getInt8()), {}, true);
+    createFunction("sp_rt_os_args", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_os_exit", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "code", 0)}, true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

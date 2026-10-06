@@ -181,4 +181,12 @@ extern "C" {
     void*       sp_rt_duration_from_hours(int64_t h);
     int64_t     sp_rt_duration_to_millis(void* d);
     int64_t     sp_rt_duration_to_seconds(void* d);
+
+    // OS functions (std.os)
+    const char* sp_rt_os_get_env(const char* name);
+    bool        sp_rt_os_set_env(const char* name, const char* val);
+    const char* sp_rt_os_platform();
+    const char* sp_rt_os_arch();
+    void*       sp_rt_os_args();
+    void        sp_rt_os_exit(int64_t code);
 }

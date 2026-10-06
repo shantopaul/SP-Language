@@ -478,6 +478,15 @@ TypeContext::TypeContext() {
     durationCls->addMethod({"fromHours", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"toMillis", getFunctionType({}, m_int32Type), "public", false, false, false});
     durationCls->addMethod({"toSeconds", getFunctionType({}, m_int32Type), "public", false, false, false});
+
+    auto osCls = createClassType("OS");
+    osCls->addMethod({"getEnv", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    osCls->addMethod({"setEnv", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    osCls->addMethod({"platform", getFunctionType({}, m_stringType), "public", true, false, false});
+    osCls->addMethod({"arch", getFunctionType({}, m_stringType), "public", true, false, false});
+    osCls->addMethod({"args", getFunctionType({}, getArrayType(m_stringType)), "public", true, false, false});
+    osCls->addMethod({"exit", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    osCls->addMethod({"exit", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

@@ -2606,6 +2606,64 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     return;
                 }
             }
+
+            if (targetName == "OS") {
+                if (methodName == "getEnv" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto n = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("os_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_os_get_env", std::vector<IRValuePtr>{n}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if (methodName == "setEnv" && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto n = m_lastExprValue;
+                    node.getArgs()[1]->accept(*this);
+                    auto v = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("os_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_os_set_env", std::vector<IRValuePtr>{n, v}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "platform") {
+                    std::string reg = m_currentFunction->nextTempName("os_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_os_platform", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if (methodName == "arch") {
+                    std::string reg = m_currentFunction->nextTempName("os_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_os_arch", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if (methodName == "args") {
+                    std::string reg = m_currentFunction->nextTempName("os_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_os_args", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer();
+                    return;
+                }
+                if (methodName == "exit" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto code = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_os_exit", std::vector<IRValuePtr>{code});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
         }
 
         // 1b. obj.method(...)
@@ -3825,6 +3883,62 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         m_currentBlock->addInstruction(callInst);
         m_lastExprValue = callInst;
         m_lastExprType = IRType::getInt64();
+        return;
+    }
+
+    if (calleeName == "getEnv" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto n = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("os_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_os_get_env", std::vector<IRValuePtr>{n}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+    if (calleeName == "setEnv" && node.getArgs().size() >= 2) {
+        node.getArgs()[0]->accept(*this);
+        auto n = m_lastExprValue;
+        node.getArgs()[1]->accept(*this);
+        auto v = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("os_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_os_set_env", std::vector<IRValuePtr>{n, v}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+    if (calleeName == "platform") {
+        std::string reg = m_currentFunction->nextTempName("os_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_os_platform", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+    if (calleeName == "arch") {
+        std::string reg = m_currentFunction->nextTempName("os_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_os_arch", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+    if (calleeName == "args") {
+        std::string reg = m_currentFunction->nextTempName("os_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_os_args", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+    if (calleeName == "exit" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto code = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_os_exit", std::vector<IRValuePtr>{code});
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
         return;
     }
 

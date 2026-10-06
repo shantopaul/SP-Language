@@ -331,6 +331,14 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("sleepSeconds", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+
+    // Built-in OS functions (std.os)
+    define(std::make_shared<FunctionSymbol>("getEnv", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("setEnv", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("platform", typeCtx.getFunctionType({}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("arch", typeCtx.getFunctionType({}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("args", typeCtx.getFunctionType({}, typeCtx.getArrayType(typeCtx.getString())), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("exit", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
 }
 
 } // namespace sp::sema
