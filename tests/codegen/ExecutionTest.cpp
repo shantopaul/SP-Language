@@ -1663,18 +1663,26 @@ TEST(ExecutionTest, StdlibOsNativeExecution) {
 }
 
 TEST(ExecutionTest, StdlibProcessNativeExecution) {
-    const std::string source = R"sp(
+#if defined(_WIN32)
+    const std::string okCmd = "cmd.exe /c exit 0";
+    const std::string echoCmd = "cmd.exe /c echo HelloProcess";
+#else
+    const std::string okCmd = "sh -c exit";
+    const std::string echoCmd = "echo HelloProcess";
+#endif
+
+    const std::string source = std::string(R"sp(
         import std.process;
 
         fn main() {
             int curPid = pid();
             println("pid_gt_0: ${curPid > 0}");
 
-            string okCmd = "cmd.exe /c exit 0";
+            string okCmd = ")sp") + okCmd + R"sp(";
             int ret0 = exec(okCmd);
             println("ret_is_0: ${ret0 == 0}");
 
-            string echoCmd = "cmd.exe /c echo HelloProcess";
+            string echoCmd = ")sp" + echoCmd + R"sp(";
             string out = runCommand(echoCmd);
             string targetSub = "HelloProcess";
             bool hasSub = out.contains(targetSub);

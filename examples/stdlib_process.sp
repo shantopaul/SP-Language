@@ -1,3 +1,4 @@
+import std.os;
 import std.process;
 
 fn main() {
@@ -6,20 +7,23 @@ fn main() {
     int myPid = pid();
     println("Current PID: ${myPid}");
 
-    int retCode = exec("cmd.exe /c exit 0");
+    string okCmd = platform() == "windows" ? "cmd.exe /c exit 0" : "sh -c exit";
+    string echoCmd = platform() == "windows" ? "cmd.exe /c echo HelloFromSubprocess" : "echo HelloFromSubprocess";
+
+    int retCode = exec(okCmd);
     println("exec exit code: ${retCode}");
 
-    string output = runCommand("cmd.exe /c echo HelloFromSubprocess");
+    string output = runCommand(echoCmd);
     println("captured output: ${output}");
 
-    int childPid = spawn("cmd.exe /c exit 0");
+    int childPid = spawn(okCmd);
     println("spawn child pid: ${childPid}");
 
     // Static Process class methods
-    int staticCode = Process.exec("cmd.exe /c exit 0");
+    int staticCode = Process.exec(okCmd);
     println("Process.exec: ${staticCode}");
 
-    string staticOut = Process.run("cmd.exe /c echo ProcessStaticRun");
+    string staticOut = Process.run(echoCmd);
     println("Process.run: ${staticOut}");
 
     int pPid = Process.pid();
