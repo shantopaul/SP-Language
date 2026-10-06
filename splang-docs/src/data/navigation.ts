@@ -23,6 +23,7 @@ export const DOCS_NAVIGATION: NavSection[] = [
     title: "Language Tour & Syntax",
     items: [
       { title: "Syntax Overview", href: "/syntax-guide" },
+      { title: "Complete Syntax Guide (1–100)", href: "/syntax-guide/all-examples", badge: "100 Examples" },
       { title: "Variables & Constants", href: "/syntax-guide/variables" },
       { title: "Primitive & Complex Types", href: "/syntax-guide/data-types" },
       { title: "Control Flow & Matching", href: "/syntax-guide/control-flow" },
