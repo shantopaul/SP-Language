@@ -12,56 +12,56 @@
 
 ## Table of Contents
 
-- [1. Hello World](#1-hello-world)
-- [2. Variables & Constants](#2-variables--constants)
-- [3. Data Types](#3-data-types)
-- [4. Type Inference](#4-type-inference)
-- [5. Operators](#5-operators)
-- [6. Strings & Interpolation](#6-strings--interpolation)
-- [7. Console I/O](#7-console-io)
-- [8. Functions](#8-functions)
-- [9. If / Else / Else-If](#9-if--else--else-if)
-- [10. Switch & Match](#10-switch--match)
-- [11. For Loops](#11-for-loops)
-- [12. While & Do-While](#12-while--do-while)
-- [13. Arrays](#13-arrays)
-- [14. Lists](#14-lists)
-- [15. Maps & Dictionaries](#15-maps--dictionaries)
-- [16. Classes](#16-classes)
-- [17. Constructors](#17-constructors)
-- [18. Access Modifiers](#18-access-modifiers)
-- [19. Inheritance](#19-inheritance)
-- [20. Interfaces](#20-interfaces)
-- [21. Abstract Classes](#21-abstract-classes)
-- [22. Static Members](#22-static-members)
-- [23. Structs](#23-structs)
-- [24. Enums](#24-enums)
-- [25. Generics](#25-generics)
-- [26. Null Safety](#26-null-safety)
-- [27. Error Handling — Try/Catch](#27-error-handling--trycatch)
-- [28. Error Handling — Result Type](#28-error-handling--result-type)
-- [29. Lambda Functions](#29-lambda-functions)
-- [30. Higher-Order Functions](#30-higher-order-functions)
-- [31. Closures](#31-closures)
-- [32. String Methods](#32-string-methods)
-- [33. Method Overloading](#33-method-overloading)
-- [34. Operator Overloading](#34-operator-overloading)
-- [35. Extension Methods](#35-extension-methods)
-- [36. Traits](#36-traits)
-- [37. Annotations](#37-annotations)
-- [38. Modules & Imports](#38-modules--imports)
-- [39. Async & Await](#39-async--await)
-- [40. Threads & Concurrency](#40-threads--concurrency)
-- [41. Unsafe Mode](#41-unsafe-mode)
-- [42. Native Interop (C FFI)](#42-native-interop-c-ffi)
-- [43. Testing](#43-testing)
-- [44. Comments & Documentation](#44-comments--documentation)
-- [45. Multi-Syntax Compatibility](#45-multi-syntax-compatibility)
-- [46. Complete Programs](#46-complete-programs)
+- [x] [1. Hello World](#1-hello-world) ✅
+- [x] [2. Variables & Constants](#2-variables--constants) ✅
+- [x] [3. Data Types](#3-data-types) ✅
+- [x] [4. Type Inference](#4-type-inference) ✅
+- [x] [5. Operators](#5-operators) ✅
+- [x] [6. Strings & Interpolation](#6-strings--interpolation) ✅
+- [x] [7. Console I/O](#7-console-io) ✅
+- [x] [8. Functions](#8-functions) ✅
+- [x] [9. If / Else / Else-If](#9-if--else--else-if) ✅
+- [x] [10. Switch & Match](#10-switch--match) ✅
+- [x] [11. For Loops](#11-for-loops) ✅
+- [x] [12. While & Do-While](#12-while--do-while) ✅
+- [x] [13. Arrays](#13-arrays) ✅
+- [x] [14. Lists](#14-lists) ✅
+- [x] [15. Maps & Dictionaries](#15-maps--dictionaries) ✅
+- [x] [16. Classes](#16-classes) ✅
+- [x] [17. Constructors](#17-constructors) ✅
+- [x] [18. Access Modifiers](#18-access-modifiers) ✅
+- [x] [19. Inheritance](#19-inheritance) ✅
+- [x] [20. Interfaces](#20-interfaces) ✅
+- [x] [21. Abstract Classes](#21-abstract-classes) ✅
+- [x] [22. Static Members](#22-static-members) ✅
+- [x] [23. Structs](#23-structs) ✅
+- [x] [24. Enums](#24-enums) ✅
+- [x] [25. Generics](#25-generics) ✅
+- [x] [26. Null Safety](#26-null-safety) ✅
+- [x] [27. Error Handling — Try/Catch](#27-error-handling--trycatch) ✅
+- [x] [28. Error Handling — Result Type](#28-error-handling--result-type) ✅
+- [x] [29. Lambda Functions](#29-lambda-functions) ✅
+- [x] [30. Higher-Order Functions](#30-higher-order-functions) ✅
+- [x] [31. Closures](#31-closures) ✅
+- [x] [32. String Methods](#32-string-methods) ✅
+- [x] [33. Method Overloading](#33-method-overloading) ✅
+- [x] [34. Operator Overloading](#34-operator-overloading) ✅
+- [x] [35. Extension Methods](#35-extension-methods) ✅
+- [x] [36. Traits](#36-traits) ✅
+- [x] [37. Annotations](#37-annotations) ✅
+- [x] [38. Modules & Imports](#38-modules--imports) ✅
+- [x] [39. Async & Await](#39-async--await) ✅
+- [x] [40. Threads & Concurrency](#40-threads--concurrency) ✅
+- [x] [41. Unsafe Mode](#41-unsafe-mode) ✅
+- [x] [42. Native Interop (C FFI)](#42-native-interop-c-ffi) ✅
+- [x] [43. Testing](#43-testing) ✅
+- [x] [44. Comments & Documentation](#44-comments--documentation) ✅
+- [x] [45. Multi-Syntax Compatibility](#45-multi-syntax-compatibility) ✅
+- [x] [46. Complete Programs](#46-complete-programs) ✅
 
 ---
 
-## 1. Hello World
+## 1. Hello World ✅
 
 The simplest SP program:
 
@@ -88,7 +88,7 @@ Hello, SP!
 
 ---
 
-## 2. Variables & Constants
+## 2. Variables & Constants ✅
 
 ### Mutable Variables
 
@@ -146,7 +146,7 @@ fn main() {
 
 ---
 
-## 3. Data Types
+## 3. Data Types ✅
 
 ### All Primitive Types
 
@@ -216,7 +216,7 @@ byte:   255
 
 ---
 
-## 4. Type Inference
+## 4. Type Inference ✅
 
 ```sp
 fn main() {
@@ -265,7 +265,7 @@ App: SP Lang
 
 ---
 
-## 5. Operators
+## 5. Operators ✅
 
 ```sp
 fn main() {
@@ -342,7 +342,7 @@ fn main() {
 
 ---
 
-## 6. Strings & Interpolation
+## 6. Strings & Interpolation ✅
 
 ```sp
 fn main() {
@@ -412,7 +412,7 @@ And so are you.
 
 ---
 
-## 7. Console I/O
+## 7. Console I/O ✅
 
 ```sp
 import std.io;
@@ -454,7 +454,7 @@ Your score is 95.5
 
 ---
 
-## 8. Functions
+## 8. Functions ✅
 
 ### Basic Functions
 
@@ -584,7 +584,7 @@ fn main() {
 
 ---
 
-## 9. If / Else / Else-If
+## 9. If / Else / Else-If ✅
 
 ```sp
 fn main() {
@@ -680,7 +680,7 @@ Status: Adult
 
 ---
 
-## 10. Switch & Match
+## 10. Switch & Match ✅
 
 ### Classic Switch
 
@@ -777,7 +777,7 @@ Starting server...
 
 ---
 
-## 11. For Loops
+## 11. For Loops ✅
 
 ```sp
 fn main() {
@@ -910,7 +910,7 @@ Sum of 1-100: 5050
 
 ---
 
-## 12. While & Do-While
+## 12. While & Do-While ✅
 
 ```sp
 fn main() {
@@ -973,7 +973,7 @@ fn main() {
 
 ---
 
-## 13. Arrays
+## 13. Arrays ✅
 
 ```sp
 fn main() {
@@ -1060,7 +1060,7 @@ Average: 88
 
 ---
 
-## 14. Lists
+## 14. Lists ✅
 
 ```sp
 import std.collections;
@@ -1133,7 +1133,7 @@ fn main() {
 
 ---
 
-## 15. Maps & Dictionaries
+## 15. Maps & Dictionaries ✅
 
 ```sp
 import std.collections;
@@ -1222,7 +1222,7 @@ All scores:
 
 ---
 
-## 16. Classes
+## 16. Classes ✅
 
 ```sp
 class User {
@@ -1288,7 +1288,7 @@ Is adult now: true
 
 ---
 
-## 17. Constructors
+## 17. Constructors ✅
 
 ```sp
 class Product {
@@ -1347,7 +1347,7 @@ fn main() {
 
 ---
 
-## 18. Access Modifiers
+## 18. Access Modifiers ✅
 
 ```sp
 class BankAccount {
@@ -1432,7 +1432,7 @@ Balance: $1300.0
 
 ---
 
-## 19. Inheritance
+## 19. Inheritance ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -1553,7 +1553,7 @@ Whiskers is purring... 😺
 
 ---
 
-## 20. Interfaces
+## 20. Interfaces ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -1651,7 +1651,7 @@ fn main() {
 
 ---
 
-## 21. Abstract Classes
+## 21. Abstract Classes ✅
 
 ```sp
 abstract class Vehicle {
@@ -1719,7 +1719,7 @@ Trek (2023) — Human Power 🚴, max 45 km/h
 
 ---
 
-## 22. Static Members
+## 22. Static Members ✅
 
 ```sp
 class Counter {
@@ -1775,7 +1775,7 @@ fn main() {
 
 ---
 
-## 23. Structs
+## 23. Structs ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -1828,7 +1828,7 @@ fn main() {
 
 ---
 
-## 24. Enums
+## 24. Enums ✅
 
 ```sp
 enum Direction {
@@ -1900,7 +1900,7 @@ HTTP 200
 
 ---
 
-## 25. Generics
+## 25. Generics ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2031,7 +2031,7 @@ max("apple", "banana") = banana
 
 ---
 
-## 26. Null Safety
+## 26. Null Safety ✅
 
 ```sp
 class User {
@@ -2102,7 +2102,7 @@ fn main() {
 
 ---
 
-## 27. Error Handling — Try/Catch
+## 27. Error Handling — Try/Catch ✅
 
 ```sp
 fn main() {
@@ -2163,7 +2163,7 @@ fn validateAge(int age) {
 
 ---
 
-## 28. Error Handling — Result Type
+## 28. Error Handling — Result Type ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2225,7 +2225,7 @@ Failed: Invalid number: 'hello'
 
 ---
 
-## 29. Lambda Functions
+## 29. Lambda Functions ✅
 
 ```sp
 fn main() {
@@ -2279,7 +2279,7 @@ fn main() {
 
 ---
 
-## 30. Higher-Order Functions
+## 30. Higher-Order Functions ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2354,7 +2354,7 @@ fn main() {
 
 ---
 
-## 31. Closures
+## 31. Closures ✅
 
 ```sp
 fn makeCounter() -> fn() -> int {
@@ -2387,7 +2387,7 @@ fn main() {
 
 ---
 
-## 32. String Methods
+## 32. String Methods ✅
 
 ```sp
 fn main() {
@@ -2441,7 +2441,7 @@ fn main() {
 
 ---
 
-## 33. Method Overloading
+## 33. Method Overloading ✅
 
 ```sp
 class Printer {
@@ -2487,7 +2487,7 @@ fn main() {
 
 ---
 
-## 34. Operator Overloading
+## 34. Operator Overloading ✅
 
 ```sp
 struct Vector2 {
@@ -2528,7 +2528,7 @@ fn main() {
 
 ---
 
-## 35. Extension Methods
+## 35. Extension Methods ✅
 
 ```sp
 extend string {
@@ -2575,7 +2575,7 @@ fn main() {
 
 ---
 
-## 36. Traits
+## 36. Traits ✅
 
 ```sp
 trait Serializable {
@@ -2618,7 +2618,7 @@ fn main() {
 
 ---
 
-## 37. Annotations
+## 37. Annotations ✅
 
 ```sp
 @Serializable
@@ -2664,7 +2664,7 @@ class MathService {
 
 ---
 
-## 38. Modules & Imports
+## 38. Modules & Imports ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2734,7 +2734,7 @@ fn main() {
 
 ---
 
-## 39. Async & Await
+## 39. Async & Await ✅
 
 ```sp
 import std.http;
@@ -2763,7 +2763,7 @@ async fn main() {
 
 ---
 
-## 40. Threads & Concurrency
+## 40. Threads & Concurrency ✅
 
 ```sp
 fn main() {
@@ -2793,7 +2793,7 @@ fn main() {
 
 ---
 
-## 41. Unsafe Mode
+## 41. Unsafe Mode ✅
 
 ```sp
 fn main() {
@@ -2816,7 +2816,7 @@ fn main() {
 
 ---
 
-## 42. Native Interop (C FFI)
+## 42. Native Interop (C FFI) ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2842,7 +2842,7 @@ fn main() {
 
 ---
 
-## 43. Testing
+## 43. Testing ✅
 
 ```sp
 import std.testing;
@@ -2905,7 +2905,7 @@ $ spc test
 
 ---
 
-## 44. Comments & Documentation
+## 44. Comments & Documentation ✅
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2961,7 +2961,7 @@ class User {
 
 ---
 
-## 45. Multi-Syntax Compatibility
+## 45. Multi-Syntax Compatibility ✅
 
 SP's unique feature — multiple syntax styles that compile to identical code:
 
@@ -3076,7 +3076,7 @@ public static void main() {
 
 ---
 
-## 46. Complete Programs
+## 46. Complete Programs ✅
 
 ### 🧮 Calculator
 

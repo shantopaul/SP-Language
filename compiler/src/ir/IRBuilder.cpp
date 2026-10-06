@@ -7,6 +7,17 @@
 
 namespace sp::ir {
 
+static IRValuePtr makeDefaultValue(const IRTypePtr& type) {
+    if (!type || type->isVoid()) return nullptr;
+    if (type->isPointer()) {
+        return std::make_shared<ConstantNull>(type);
+    } else if (type->isFloatingPoint()) {
+        return std::make_shared<ConstantFloat>(type, 0.0);
+    } else {
+        return std::make_shared<ConstantInt>(type, 0);
+    }
+}
+
 IRBuilder::IRBuilder(const sema::SemanticAnalyzer& sema)
     : m_sema(sema) {}
 
@@ -466,8 +477,7 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
-                std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -1096,7 +1106,12 @@ void IRBuilder::visit(const ast::ContinueStmt& node) {
     }
 }
 
-void IRBuilder::visit(const ast::TryCatchStmt& node) { (void)node; }
+void IRBuilder::visit(const ast::TryCatchStmt& node) {
+    node.getTryBlock().accept(*this);
+    if (node.hasFinally() && node.getFinallyBlock()) {
+        node.getFinallyBlock()->accept(*this);
+    }
+}
 void IRBuilder::visit(const ast::ThrowStmt& node) { (void)node; }
 
 void IRBuilder::visit(const ast::ClassDecl& node) {
@@ -1269,7 +1284,7 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -1414,8 +1429,7 @@ void IRBuilder::compileSpecializedMethod(
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
-                std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -1483,8 +1497,7 @@ void IRBuilder::compileSpecializedFunction(
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else {
-            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
-                std::make_shared<ConstantInt>(returnType, 0)));
+            m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }
 
@@ -3368,6 +3381,12 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         }
         if (className.empty()) {
             auto semaType = m_sema.getNodeType(&mem->getObject());
+            if (semaType && semaType->isNullable()) {
+                const auto* nullT = static_cast<const sema::NullableType*>(semaType.get());
+                if (nullT && nullT->getUnderlyingType()) {
+                    semaType = nullT->getUnderlyingType();
+                }
+            }
             if (semaType && semaType->isClass()) {
                 className = codegen::VTableBuilder::mangleGenericName(semaType->toString());
             }
@@ -4244,6 +4263,12 @@ IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& 
 
     if (className.empty()) {
         auto semaType = m_sema.getNodeType(&node.getObject());
+        if (semaType && semaType->isNullable()) {
+            const auto* nullT = static_cast<const sema::NullableType*>(semaType.get());
+            if (nullT && nullT->getUnderlyingType()) {
+                semaType = nullT->getUnderlyingType();
+            }
+        }
         if (semaType && (semaType->isClass() || semaType->isStruct())) {
             className = semaType->toString();
         }
