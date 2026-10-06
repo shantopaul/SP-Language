@@ -2445,6 +2445,92 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
             }
+
+            if (targetName == "FS" || targetName == "File") {
+                if (methodName == "readText" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_fs_read_text", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if ((methodName == "writeText" || methodName == "appendText") && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    node.getArgs()[1]->accept(*this);
+                    auto c = m_lastExprValue;
+                    std::string fn = (methodName == "writeText") ? "sp_rt_fs_write_text" : "sp_rt_fs_append_text";
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), fn, std::vector<IRValuePtr>{p, c}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "exists" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_exists", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if ((methodName == "delete" || methodName == "deleteFile") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_delete", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "createDir" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_create_dir", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "listDir" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_fs_list_dir", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer();
+                    return;
+                }
+                if (methodName == "isFile" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_is_file", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "isDir" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string reg = m_currentFunction->nextTempName("fs_res");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_is_dir", std::vector<IRValuePtr>{p}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+            }
         }
 
         // 1b. obj.method(...)
@@ -3497,6 +3583,90 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
             return;
         }
+    }
+
+    if (calleeName == "readText" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_fs_read_text", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+    if ((calleeName == "writeText" || calleeName == "appendText") && node.getArgs().size() >= 2) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        node.getArgs()[1]->accept(*this);
+        auto c = m_lastExprValue;
+        std::string fn = (calleeName == "writeText") ? "sp_rt_fs_write_text" : "sp_rt_fs_append_text";
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), fn, std::vector<IRValuePtr>{p, c}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+    if (calleeName == "exists" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_exists", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+    if ((calleeName == "delete" || calleeName == "deleteFile") && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_delete", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+    if (calleeName == "createDir" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_create_dir", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+    if (calleeName == "listDir" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_fs_list_dir", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+    if (calleeName == "isFile" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_is_file", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+    if (calleeName == "isDir" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string reg = m_currentFunction->nextTempName("fs_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_is_dir", std::vector<IRValuePtr>{p}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt1();
+        return;
     }
 
     // Check if callee is a method on 'this'

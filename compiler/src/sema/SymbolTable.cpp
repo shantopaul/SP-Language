@@ -311,6 +311,18 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("log10", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("log2", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("exp", typeCtx.getFunctionType({typeCtx.getDouble()}, typeCtx.getDouble()), builtinLoc));
+
+    // Built-in filesystem functions (std.fs)
+    define(std::make_shared<FunctionSymbol>("readText", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("writeText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("appendText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("exists", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("deleteFile", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("delete", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("createDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("listDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getArrayType(typeCtx.getString())), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("isFile", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("isDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
 }
 
 } // namespace sp::sema

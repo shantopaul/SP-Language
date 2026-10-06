@@ -153,5 +153,15 @@ extern "C" {
     double sp_rt_math_log10(double x);
     double sp_rt_math_log2(double x);
     double sp_rt_math_exp(double x);
-}
 
+    // File system functions (std.fs)
+    const char* sp_rt_fs_read_text(const char* path);
+    bool        sp_rt_fs_write_text(const char* path, const char* content);
+    bool        sp_rt_fs_append_text(const char* path, const char* content);
+    bool        sp_rt_fs_exists(const char* path);
+    bool        sp_rt_fs_delete(const char* path);
+    bool        sp_rt_fs_create_dir(const char* path);
+    void*       sp_rt_fs_list_dir(const char* path);
+    bool        sp_rt_fs_is_file(const char* path);
+    bool        sp_rt_fs_is_dir(const char* path);
+}

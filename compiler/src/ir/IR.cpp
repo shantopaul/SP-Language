@@ -700,6 +700,28 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_math_exp", IRType::getDouble(),
                    {std::make_shared<ParameterValue>(IRType::getDouble(), "x", 0)}, true);
 
+    // File system runtime functions (std.fs)
+    createFunction("sp_rt_fs_read_text", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_write_text", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "content", 1)}, true);
+    createFunction("sp_rt_fs_append_text", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "content", 1)}, true);
+    createFunction("sp_rt_fs_exists", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_delete", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_create_dir", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_list_dir", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_is_file", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+    createFunction("sp_rt_fs_is_dir", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "path", 0)}, true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

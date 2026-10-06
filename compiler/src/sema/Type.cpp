@@ -432,6 +432,27 @@ TypeContext::TypeContext() {
     mathCls->addMethod({"log10", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
     mathCls->addMethod({"log2", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
     mathCls->addMethod({"exp", getFunctionType({m_doubleType}, m_doubleType), "public", true, false, false});
+
+    auto fsCls = createClassType("FS");
+    fsCls->addMethod({"readText", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    fsCls->addMethod({"writeText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"appendText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"exists", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"delete", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"deleteFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"createDir", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"listDir", getFunctionType({m_stringType}, getArrayType(m_stringType)), "public", true, false, false});
+    fsCls->addMethod({"isFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fsCls->addMethod({"isDir", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+
+    auto fileCls = createClassType("File");
+    fileCls->addMethod({"readText", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    fileCls->addMethod({"writeText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"appendText", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"exists", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"delete", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"deleteFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
+    fileCls->addMethod({"isFile", getFunctionType({m_stringType}, m_boolType), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

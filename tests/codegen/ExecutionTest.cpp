@@ -1518,3 +1518,62 @@ TEST(ExecutionTest, StdlibCollectionsNativeExecution) {
     EXPECT_NE(output.find("set_after_remove_5: has_5=false"), std::string::npos);
     EXPECT_NE(output.find("set_empty_2: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, StdlibFsNativeExecution) {
+    const std::string source = R"sp(
+        import std.fs;
+
+        fn main() {
+            string testFile = "temp_exec_fs.txt";
+            string testDir = "temp_exec_dir";
+            string msg1 = "Hello Filesystem!";
+            string msg2 = " More content.";
+
+            bool wOk = writeText(testFile, msg1);
+            println("w_ok: ${wOk}");
+            println("exists_1: ${exists(testFile)}");
+            println("is_file_1: ${isFile(testFile)}");
+            println("read_1: ${readText(testFile)}");
+
+            bool appOk = appendText(testFile, msg2);
+            println("app_ok: ${appOk}");
+            println("read_2: ${readText(testFile)}");
+
+            bool mkdirOk = createDir(testDir);
+            println("mkdir_ok: ${mkdirOk}");
+            println("dir_exists_1: ${exists(testDir)}");
+            println("is_dir_1: ${isDir(testDir)}");
+
+            string nested = "temp_exec_dir/child.txt";
+            string nestedMsg = "child";
+            writeText(nested, nestedMsg);
+            string[] items = listDir(testDir);
+            println("dir_items_len: ${items.length()}");
+            println("dir_item_0: ${items[0]}");
+
+            bool delF = delete(testFile);
+            bool delD = delete(testDir);
+            println("del_file: ${delF}");
+            println("del_dir: ${delD}");
+            println("exists_after_del: ${exists(testFile)}");
+            println("dir_exists_after_del: ${exists(testDir)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_fs");
+    EXPECT_NE(output.find("w_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("exists_1: true"), std::string::npos);
+    EXPECT_NE(output.find("is_file_1: true"), std::string::npos);
+    EXPECT_NE(output.find("read_1: Hello Filesystem!"), std::string::npos);
+    EXPECT_NE(output.find("app_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("read_2: Hello Filesystem! More content."), std::string::npos);
+    EXPECT_NE(output.find("mkdir_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("dir_exists_1: true"), std::string::npos);
+    EXPECT_NE(output.find("is_dir_1: true"), std::string::npos);
+    EXPECT_NE(output.find("dir_items_len: 1"), std::string::npos);
+    EXPECT_NE(output.find("dir_item_0: child.txt"), std::string::npos);
+    EXPECT_NE(output.find("del_file: true"), std::string::npos);
+    EXPECT_NE(output.find("del_dir: true"), std::string::npos);
+    EXPECT_NE(output.find("exists_after_del: false"), std::string::npos);
+    EXPECT_NE(output.find("dir_exists_after_del: false"), std::string::npos);
+}

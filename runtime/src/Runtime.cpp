@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 
 extern "C" {
 
@@ -911,6 +913,96 @@ double sp_rt_math_log2(double x) {
 
 double sp_rt_math_exp(double x) {
     return std::exp(x);
+}
+
+// File system functions (std.fs)
+const char* sp_rt_fs_read_text(const char* path) {
+    if (!path) return "";
+    std::ifstream file(path, std::ios::in | std::ios::binary);
+    if (!file.is_open()) {
+        return "";
+    }
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    char* copy = static_cast<char*>(malloc(content.size() + 1));
+    std::memcpy(copy, content.c_str(), content.size() + 1);
+    return copy;
+}
+
+bool sp_rt_fs_write_text(const char* path, const char* content) {
+    if (!path) return false;
+    std::ofstream file(path, std::ios::out | std::ios::trunc | std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    if (content) {
+        file.write(content, std::strlen(content));
+    }
+    return file.good();
+}
+
+bool sp_rt_fs_append_text(const char* path, const char* content) {
+    if (!path) return false;
+    std::ofstream file(path, std::ios::out | std::ios::app | std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    if (content) {
+        file.write(content, std::strlen(content));
+    }
+    return file.good();
+}
+
+bool sp_rt_fs_exists(const char* path) {
+    if (!path) return false;
+    std::error_code ec;
+    return std::filesystem::exists(path, ec);
+}
+
+bool sp_rt_fs_delete(const char* path) {
+    if (!path) return false;
+    std::error_code ec;
+    return std::filesystem::remove_all(path, ec) > 0;
+}
+
+bool sp_rt_fs_create_dir(const char* path) {
+    if (!path) return false;
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    return !ec;
+}
+
+void* sp_rt_fs_list_dir(const char* path) {
+    if (!path) {
+        return sp_rt_array_alloc(0, sizeof(int64_t));
+    }
+    std::vector<std::string> entries;
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(path, ec)) {
+        entries.push_back(entry.path().filename().string());
+    }
+    if (ec) {
+        return sp_rt_array_alloc(0, sizeof(int64_t));
+    }
+    std::sort(entries.begin(), entries.end());
+    void* arr = sp_rt_array_alloc(entries.size(), sizeof(int64_t));
+    for (size_t i = 0; i < entries.size(); ++i) {
+        char* copy = static_cast<char*>(malloc(entries[i].size() + 1));
+        std::memcpy(copy, entries[i].c_str(), entries[i].size() + 1);
+        sp_rt_array_set_i64(arr, i, reinterpret_cast<int64_t>(copy));
+    }
+    return arr;
+}
+
+bool sp_rt_fs_is_file(const char* path) {
+    if (!path) return false;
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec);
+}
+
+bool sp_rt_fs_is_dir(const char* path) {
+    if (!path) return false;
+    std::error_code ec;
+    return std::filesystem::is_directory(path, ec);
 }
 
 }
