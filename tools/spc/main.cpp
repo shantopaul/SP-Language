@@ -10,6 +10,7 @@
 #include "sp/ir/IRPrinter.h"
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/runtime/Runtime.h"
+#include "fmt/Formatter.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -256,6 +257,69 @@ int main(int argc, char* argv[]) {
             return exitCode;
         }
 
+        return 0;
+    }
+
+    if (command == "fmt") {
+        bool writeInPlace = false;
+        bool checkMode = false;
+        int indentWidth = 4;
+        std::string filename;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if (arg == "-w" || arg == "--write") {
+                writeInPlace = true;
+            } else if (arg == "--check") {
+                checkMode = true;
+            } else if (arg == "--indent" && i + 1 < argc) {
+                indentWidth = std::stoi(argv[++i]);
+            } else if (!arg.starts_with("-")) {
+                if (filename.empty()) {
+                    filename = arg;
+                }
+            }
+        }
+
+        if (filename.empty()) {
+            std::cerr << "error: 'spc fmt' requires an SP source file\n"
+                      << "Usage: spc fmt <file.sp> [-w/--write] [--check] [--indent <N>]\n";
+            return 1;
+        }
+
+        std::string source = readFile(filename);
+        if (source.empty() && fs::exists(filename) && fs::file_size(filename) > 0) {
+            std::cerr << "error: could not read file " << filename << "\n";
+            return 1;
+        }
+
+        sp::fmt::FormatOptions opts;
+        opts.indentWidth = indentWidth;
+        sp::fmt::Formatter formatter(opts);
+
+        if (checkMode) {
+            bool formatted = formatter.isFormatted(source);
+            if (!formatted) {
+                std::cout << filename << " is not formatted.\n";
+                return 1;
+            }
+            std::cout << filename << " is properly formatted.\n";
+            return 0;
+        }
+
+        std::string formattedCode = formatter.format(source);
+        if (writeInPlace) {
+            std::ofstream out(filename);
+            if (!out.is_open()) {
+                std::cerr << "error: failed to write to " << filename << "\n";
+                return 1;
+            }
+            out << formattedCode;
+            std::cout << "Formatted " << filename << "\n";
+            return 0;
+        }
+
+        std::cout << formattedCode;
         return 0;
     }
 
