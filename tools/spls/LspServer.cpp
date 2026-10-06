@@ -249,7 +249,7 @@ JsonValue LspServer::handleInitialize(const JsonValue&, const JsonValue&) {
 
     JsonValue serverInfo = JsonValue::object();
     serverInfo["name"] = "spls";
-    serverInfo["version"] = "0.9.0-alpha";
+    serverInfo["version"] = "1.0.0";
     result["serverInfo"] = serverInfo;
 
     return result;

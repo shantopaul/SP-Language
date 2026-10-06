@@ -10,6 +10,7 @@ namespace sp::codegen {
 struct CodegenOptions {
     std::string targetTriple;
     std::string dataLayout;
+    std::string optLevel; // e.g. "-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"
     bool releaseMode{false};
     bool debugSymbols{false};
     std::string clangPath;

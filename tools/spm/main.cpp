@@ -2,6 +2,7 @@
 #include "DependencyResolver.h"
 #include "Lockfile.h"
 #include "BuildOrchestrator.h"
+#include "sp/Version.h"
 #include <iostream>
 #include <string_view>
 #include <vector>
@@ -13,8 +14,10 @@ namespace fs = std::filesystem;
 namespace {
 
 void printVersion() {
-    std::cout << "spm (SP Package Manager) version 0.8.0-alpha\n"
-              << "Copyright (c) 2026 Shanto Paul\n";
+    std::cout << "spm (SP Package Manager) version " << sp::SP_VERSION_STRING << "\n"
+              << "Copyright (c) 2026 Shanto Paul\n"
+              << "Registry: " << sp::SP_REGISTRY_URL << "\n"
+              << "Docs:     " << sp::SP_DOCS_URL << "\n";
 }
 
 void printHelp() {

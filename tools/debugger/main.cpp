@@ -1,4 +1,5 @@
 #include "DapServer.h"
+#include "sp/Version.h"
 #include <iostream>
 #include <string_view>
 
@@ -11,7 +12,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         std::string_view arg = argv[1];
         if (arg == "--version" || arg == "-v") {
-            std::cout << "spd (SP Debugger Adapter) version 0.9.0-alpha\n"
+            std::cout << "spd (SP Debugger Adapter) version " << sp::SP_VERSION_STRING << "\n"
                       << "Copyright (c) 2026 Shanto Paul\n";
             return 0;
         }
