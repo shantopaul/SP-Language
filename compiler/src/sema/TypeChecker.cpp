@@ -770,6 +770,17 @@ void TypeChecker::visit(const ast::TernaryExpr& node) {
 }
 
 void TypeChecker::visit(const ast::AssignExpr& node) {
+    if (const auto* id = dynamic_cast<const ast::IdentifierExpr*>(&node.getTarget())) {
+        auto sym = m_symbolTable.lookup(id->getName());
+        if (sym && (sym->getKind() == SymbolKind::Constant ||
+                    (std::dynamic_pointer_cast<VariableSymbol>(sym) && std::dynamic_pointer_cast<VariableSymbol>(sym)->isConst()))) {
+            m_diagnostics.reportError("E1005", "Cannot assign to constant '" + id->getName() + "'", node.getLocation(),
+                                      "Constants are immutable and cannot be reassigned");
+            m_currentExprType = m_typeCtx.getError();
+            return;
+        }
+    }
+
     auto targetType = checkExpr(node.getTarget());
     auto valueType = checkExpr(node.getValue());
 

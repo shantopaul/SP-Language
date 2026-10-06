@@ -297,3 +297,17 @@ TEST(TypeCheckerTest, GenericFunctionsAndCollectionIndexingChecking) {
     EXPECT_TRUE(analyzeSource(source, diag));
     EXPECT_FALSE(diag.hasErrors());
 }
+
+TEST(TypeCheckerTest, CannotAssignToConstantReportsE1005) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        fn main() {
+            const int MAX_USERS = 1000;
+            MAX_USERS = 2000;
+        }
+    )";
+    EXPECT_FALSE(analyzeSource(source, diag));
+    EXPECT_TRUE(diag.hasErrors());
+    EXPECT_GE(diag.errorCount(), 1);
+}
+
