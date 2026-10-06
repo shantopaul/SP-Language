@@ -1300,3 +1300,32 @@ TEST(ExecutionTest, ArraysComprehensiveNativeExecution) {
     EXPECT_NE(output.find("Average: 88"), std::string::npos);
 }
 
+TEST(ExecutionTest, StdlibIONativeExecution) {
+    const std::string source = R"sp(
+        import std.io;
+
+        fn main() {
+            println("=== Stdlib IO Test ===");
+            print("Direct print: ");
+            println(42);
+            println(3.14);
+            println(true);
+
+            eprintln("[STDERR] Test diagnostic message");
+
+            IO.println("Via IO.println");
+            IO.print("Via IO.print\n");
+            IO.flush();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_io");
+    EXPECT_NE(output.find("=== Stdlib IO Test ==="), std::string::npos);
+    EXPECT_NE(output.find("Direct print: 42"), std::string::npos);
+    EXPECT_NE(output.find("3.14"), std::string::npos);
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("Via IO.println"), std::string::npos);
+    EXPECT_NE(output.find("Via IO.print"), std::string::npos);
+}
+
+

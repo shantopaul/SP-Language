@@ -28,6 +28,11 @@ extern "C" {
     const char* sp_rt_read_line();
     const char* sp_rt_readln();
 
+    void sp_rt_eprint_string(const char* str);
+    void sp_rt_eprintln_string(const char* str);
+    void sp_rt_flush();
+    void sp_rt_eflush();
+
     int64_t     sp_rt_str_to_int(const char* s);
     double      sp_rt_str_to_double(const char* s);
     float       sp_rt_str_to_float(const char* s);

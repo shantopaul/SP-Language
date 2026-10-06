@@ -196,6 +196,52 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     );
     define(fnReadLine);
 
+    // eprint(string) -> void, eprint(any) -> void
+    auto fnEprintStr = std::make_shared<FunctionSymbol>(
+        "eprint",
+        typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintStr);
+
+    auto fnEprintAny = std::make_shared<FunctionSymbol>(
+        "eprint",
+        typeCtx.getFunctionType({typeCtx.getAny()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintAny);
+
+    // eprintln(string) -> void, eprintln(any) -> void
+    auto fnEprintlnStr = std::make_shared<FunctionSymbol>(
+        "eprintln",
+        typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintlnStr);
+
+    auto fnEprintlnAny = std::make_shared<FunctionSymbol>(
+        "eprintln",
+        typeCtx.getFunctionType({typeCtx.getAny()}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEprintlnAny);
+
+    // flush() -> void
+    auto fnFlush = std::make_shared<FunctionSymbol>(
+        "flush",
+        typeCtx.getFunctionType({}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnFlush);
+
+    // eflush() -> void
+    auto fnEflush = std::make_shared<FunctionSymbol>(
+        "eflush",
+        typeCtx.getFunctionType({}, typeCtx.getVoid()),
+        builtinLoc
+    );
+    define(fnEflush);
+
     // assert(bool) -> void
     auto fnAssert = std::make_shared<FunctionSymbol>(
         "assert",

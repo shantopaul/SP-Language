@@ -2120,6 +2120,84 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
             }
+
+            if (targetName == "IO" || targetName == "Console") {
+                if (methodName == "println") {
+                    if (node.getArgs().empty()) {
+                        auto emptyStr = m_module->getOrCreateStringLiteral("");
+                        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_string", std::vector<IRValuePtr>{emptyStr});
+                        m_currentBlock->addInstruction(callInst);
+                    } else {
+                        node.getArgs()[0]->accept(*this);
+                        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_println_string", std::vector<IRValuePtr>{m_lastExprValue});
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "print") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_print_string", std::vector<IRValuePtr>{m_lastExprValue});
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "eprintln") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eprintln_string", std::vector<IRValuePtr>{m_lastExprValue});
+                        m_currentBlock->addInstruction(callInst);
+                    } else {
+                        auto emptyStr = m_module->getOrCreateStringLiteral("");
+                        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eprintln_string", std::vector<IRValuePtr>{emptyStr});
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "eprint") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eprint_string", std::vector<IRValuePtr>{m_lastExprValue});
+                        m_currentBlock->addInstruction(callInst);
+                    }
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "readLine" || methodName == "readln") {
+                    std::string resName = m_currentFunction ? m_currentFunction->nextTempName("readline") : "%readline";
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getPointer(IRType::getInt8()),
+                        "sp_rt_read_line",
+                        std::vector<IRValuePtr>{},
+                        resName
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+                if (methodName == "flush") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_flush", std::vector<IRValuePtr>{});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "eflush") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eflush", std::vector<IRValuePtr>{});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
         }
 
         // 1b. obj.method(...)
@@ -2862,6 +2940,48 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         m_currentBlock->addInstruction(call);
         m_lastExprValue = call;
         m_lastExprType = IRType::getPointer(IRType::getInt8());
+        return;
+    }
+
+    if (calleeName == "eprintln") {
+        if (node.getArgs().empty()) {
+            auto emptyStr = m_module->getOrCreateStringLiteral("");
+            auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eprintln_string", std::vector<IRValuePtr>{emptyStr});
+            m_currentBlock->addInstruction(call);
+        } else {
+            node.getArgs()[0]->accept(*this);
+            auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eprintln_string", std::vector<IRValuePtr>{m_lastExprValue});
+            m_currentBlock->addInstruction(call);
+        }
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
+        return;
+    }
+
+    if (calleeName == "eprint") {
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eprint_string", std::vector<IRValuePtr>{m_lastExprValue});
+            m_currentBlock->addInstruction(call);
+        }
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
+        return;
+    }
+
+    if (calleeName == "flush") {
+        auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_flush", std::vector<IRValuePtr>{});
+        m_currentBlock->addInstruction(call);
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
+        return;
+    }
+
+    if (calleeName == "eflush") {
+        auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_eflush", std::vector<IRValuePtr>{});
+        m_currentBlock->addInstruction(call);
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
         return;
     }
 

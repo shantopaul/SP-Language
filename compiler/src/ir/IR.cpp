@@ -459,6 +459,26 @@ void IRModule::initRuntimeDeclarations() {
                    {},
                    true);
 
+    // void sp_rt_eprint_string(ptr)
+    createFunction("sp_rt_eprint_string", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "str", 0)},
+                   true);
+
+    // void sp_rt_eprintln_string(ptr)
+    createFunction("sp_rt_eprintln_string", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "str", 0)},
+                   true);
+
+    // void sp_rt_flush()
+    createFunction("sp_rt_flush", IRType::getVoid(),
+                   {},
+                   true);
+
+    // void sp_rt_eflush()
+    createFunction("sp_rt_eflush", IRType::getVoid(),
+                   {},
+                   true);
+
     // i64 sp_rt_str_to_int(ptr)
     createFunction("sp_rt_str_to_int", IRType::getInt64(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},

@@ -122,6 +122,32 @@ const char* sp_rt_readln() {
     return sp_rt_read_line();
 }
 
+void sp_rt_eprint_string(const char* str) {
+    if (str) {
+        std::cerr << str;
+    } else {
+        std::cerr << "null";
+    }
+    std::cerr.flush();
+}
+
+void sp_rt_eprintln_string(const char* str) {
+    if (str) {
+        std::cerr << str << "\n";
+    } else {
+        std::cerr << "null\n";
+    }
+    std::cerr.flush();
+}
+
+void sp_rt_flush() {
+    std::cout.flush();
+}
+
+void sp_rt_eflush() {
+    std::cerr.flush();
+}
+
 int64_t sp_rt_str_to_int(const char* s) {
     if (!s) return 0;
     try {

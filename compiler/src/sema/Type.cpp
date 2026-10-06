@@ -370,6 +370,26 @@ TypeContext::TypeContext() {
     m_anyType = std::make_shared<PrimitiveType>(TypeKind::Any, "any");
     m_unknownType = std::make_shared<PrimitiveType>(TypeKind::Unknown, "unknown");
     m_errorType = std::make_shared<PrimitiveType>(TypeKind::Error, "<type-error>");
+
+    auto ioCls = createClassType("IO");
+    ioCls->addMethod({"println", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"print", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"eprintln", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"eprint", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"readLine", getFunctionType({}, m_stringType), "public", true, false, false});
+    ioCls->addMethod({"readln", getFunctionType({}, m_stringType), "public", true, false, false});
+    ioCls->addMethod({"flush", getFunctionType({}, m_voidType), "public", true, false, false});
+    ioCls->addMethod({"eflush", getFunctionType({}, m_voidType), "public", true, false, false});
+
+    auto consoleCls = createClassType("Console");
+    consoleCls->addMethod({"println", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"print", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"eprintln", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"eprint", getFunctionType({m_stringType}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"readLine", getFunctionType({}, m_stringType), "public", true, false, false});
+    consoleCls->addMethod({"readln", getFunctionType({}, m_stringType), "public", true, false, false});
+    consoleCls->addMethod({"flush", getFunctionType({}, m_voidType), "public", true, false, false});
+    consoleCls->addMethod({"eflush", getFunctionType({}, m_voidType), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {
