@@ -47,6 +47,7 @@ add_executable(sp_tests
     spm/LockfileTest.cpp
     spm/BuildOrchestratorTest.cpp
     fmt/FormatterTest.cpp
+    test/TestRunnerTest.cpp
 )
 
 target_include_directories(sp_tests
@@ -60,6 +61,7 @@ target_link_libraries(sp_tests
         sp_runtime
         spm_core
         sp_fmt
+        sp_test_runner
         GTest::gtest_main
 )
 

@@ -11,6 +11,7 @@
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/runtime/Runtime.h"
 #include "fmt/Formatter.h"
+#include "test/TestRunner.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -321,6 +322,27 @@ int main(int argc, char* argv[]) {
 
         std::cout << formattedCode;
         return 0;
+    }
+
+    if (command == "test") {
+        std::string targetPath = ".";
+        std::string filter;
+        bool verbose = false;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if ((arg == "--filter" || arg == "-f") && i + 1 < argc) {
+                filter = argv[++i];
+            } else if (arg == "--verbose" || arg == "-v") {
+                verbose = true;
+            } else if (!arg.starts_with("-")) {
+                targetPath = arg;
+            }
+        }
+
+        sp::testing::TestRunner runner(verbose);
+        auto suite = runner.runAll(targetPath, filter);
+        return suite.isSuccess() ? 0 : 1;
     }
 
     diagEngine.reportError("E1000", "Unknown command: " + std::string(command),

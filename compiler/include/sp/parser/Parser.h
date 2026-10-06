@@ -92,6 +92,7 @@ private:
     ast::ASTNodePtr parseInterfaceDecl(std::string visibility = "");
     ast::ASTNodePtr parseStructDecl(std::string visibility = "");
     ast::ASTNodePtr parseEnumDecl(std::string visibility = "");
+    ast::ASTNodePtr parseTestDecl();
 
     std::string parseType();
     std::vector<ast::Parameter> parseParameters();

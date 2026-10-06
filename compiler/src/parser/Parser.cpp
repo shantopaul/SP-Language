@@ -985,6 +985,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     if (match(lexer::TokenType::KeywordInterface)) return parseInterfaceDecl(visibility);
     if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility);
     if (match(lexer::TokenType::KeywordEnum)) return parseEnumDecl(visibility);
+    if (match(lexer::TokenType::KeywordTest)) return parseTestDecl();
 
     // Variable declarations with visibility or const/var
     if (match(lexer::TokenType::KeywordConst)) return parseVarDecl(true, false);
@@ -1327,6 +1328,59 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of enum body");
     return std::make_unique<ast::EnumDecl>(name, std::move(variants), visibility, loc);
+}
+
+ast::ASTNodePtr Parser::parseTestDecl() {
+    diagnostics::SourceLocation loc = previous().location;
+    std::string testName;
+
+    if (match(lexer::TokenType::StringLiteral)) {
+        testName = previous().lexeme;
+        if (testName.size() >= 2 && testName.front() == '"' && testName.back() == '"') {
+            testName = testName.substr(1, testName.size() - 2);
+        }
+    } else if (match(lexer::TokenType::Identifier)) {
+        testName = previous().lexeme;
+    } else {
+        errorAt(peek(), "Expected test name string literal or identifier after 'test'");
+        testName = "anonymous_test";
+    }
+
+    if (match(lexer::TokenType::OpenParen)) {
+        consume(lexer::TokenType::CloseParen, "Expected ')' after test declaration parameters");
+    }
+
+    std::unique_ptr<ast::BlockStmt> body;
+    if (check(lexer::TokenType::OpenBrace)) {
+        body = parseBlock();
+    } else {
+        errorAt(peek(), "Expected '{' to start test body");
+        body = std::make_unique<ast::BlockStmt>(std::vector<ast::StmtPtr>{}, loc);
+    }
+
+    std::string funcName = "__sp_test_";
+    for (char c : testName) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            funcName += c;
+        } else {
+            funcName += '_';
+        }
+    }
+
+    return std::make_unique<ast::FunctionDecl>(
+        funcName,
+        std::vector<std::string>{},
+        std::vector<ast::Parameter>{},
+        "void",
+        std::move(body),
+        nullptr,
+        "public",
+        false, // static
+        false, // override
+        false, // abstract
+        false, // async
+        loc
+    );
 }
 
 std::string Parser::parseType() {
