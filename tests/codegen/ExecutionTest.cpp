@@ -1115,6 +1115,80 @@ TEST(ExecutionTest, SwitchAndMatchNativeExecution) {
     EXPECT_NE(output.find("☀️ Beach time!"), std::string::npos);
 }
 
+TEST(ExecutionTest, ForLoopsComprehensiveNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            println("=== Classic For ===");
+            for (int i = 1; i <= 5; i++) {
+                println("Count: ${i}");
+            }
+
+            println("\n=== Range Loop ===");
+            for (i in 0..5) {
+                print("${i} ");
+            }
+            println("");
+
+            println("\n=== For-Each ===");
+            let fruits = ["Apple", "Banana", "Cherry", "Date"];
+
+            for (string fruit in fruits) {
+                println("🍎 ${fruit}");
+            }
+
+            println("\n=== Multiplication Table (1-5) ===");
+            for (int i = 1; i <= 5; i++) {
+                for (int j = 1; j <= 5; j++) {
+                    print("${i * j}\t");
+                }
+                println("");
+            }
+
+            println("\n=== Break at 5 ===");
+            for (int i = 1; i <= 10; i++) {
+                if (i == 5) break;
+                print("${i} ");
+            }
+            println("");
+
+            println("\n=== Skip even numbers ===");
+            for (int i = 1; i <= 10; i++) {
+                if (i % 2 == 0) continue;
+                print("${i} ");
+            }
+            println("");
+
+            println("\n=== Countdown ===");
+            for (int i = 5; i >= 1; i--) {
+                println("${i}...");
+            }
+            println("🚀 Liftoff!");
+
+            int sum = 0;
+            for (int i = 1; i <= 100; i++) {
+                sum += i;
+            }
+            println("\nSum of 1-100: ${sum}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_for_loops");
+    EXPECT_NE(output.find("Count: 1"), std::string::npos);
+    EXPECT_NE(output.find("Count: 5"), std::string::npos);
+    EXPECT_NE(output.find("0 1 2 3 4"), std::string::npos);
+    EXPECT_NE(output.find("🍎 Apple"), std::string::npos);
+    EXPECT_NE(output.find("🍎 Date"), std::string::npos);
+    EXPECT_NE(output.find("1\t2\t3\t4\t5"), std::string::npos);
+    EXPECT_NE(output.find("5\t10\t15\t20\t25"), std::string::npos);
+    EXPECT_NE(output.find("1 2 3 4"), std::string::npos);
+    EXPECT_NE(output.find("1 3 5 7 9"), std::string::npos);
+    EXPECT_NE(output.find("5..."), std::string::npos);
+    EXPECT_NE(output.find("1..."), std::string::npos);
+    EXPECT_NE(output.find("🚀 Liftoff!"), std::string::npos);
+    EXPECT_NE(output.find("Sum of 1-100: 5050"), std::string::npos);
+}
+
+
 
 
 

@@ -126,6 +126,18 @@ void TypeChecker::visit(const ast::BinaryExpr& node) {
         }
     }
 
+    // Range operator: ..
+    if (op == lexer::TokenType::DotDot) {
+        if (!leftType->isInteger() || !rightType->isInteger()) {
+            m_diagnostics.reportError("E1001", "Range operator '..' requires integer operands, got '" +
+                                      leftType->toString() + "' and '" + rightType->toString() + "'", node.getLocation());
+            m_currentExprType = m_typeCtx.getError();
+            return;
+        }
+        m_currentExprType = m_typeCtx.getArrayType(m_typeCtx.getInt());
+        return;
+    }
+
     // Arithmetic operators: +, -, *, /, %
     if (op == lexer::TokenType::Plus || op == lexer::TokenType::Minus ||
         op == lexer::TokenType::Star || op == lexer::TokenType::Slash || op == lexer::TokenType::Percent) {

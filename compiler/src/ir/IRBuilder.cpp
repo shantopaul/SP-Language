@@ -689,6 +689,71 @@ void IRBuilder::visit(const ast::ForStmt& node) {
 }
 
 void IRBuilder::visit(const ast::ForInStmt& node) {
+    if (const auto* bin = dynamic_cast<const ast::BinaryExpr*>(&node.getIterable())) {
+        if (bin->getOp() == lexer::TokenType::DotDot) {
+            bin->getLeft().accept(*this);
+            IRValuePtr startVal = m_lastExprValue;
+            bin->getRight().accept(*this);
+            IRValuePtr endVal = m_lastExprValue;
+            if (!startVal || !endVal) return;
+
+            startVal = emitCastIfNeeded(startVal, IRType::getInt32());
+            endVal = emitCastIfNeeded(endVal, IRType::getInt32());
+
+            std::string varReg = "%" + node.getVarName() + "_" + std::to_string(m_varCounter++);
+            auto varAlloca = std::make_shared<AllocaInst>(IRType::getInt32(), varReg);
+            m_currentFunction->getEntryBlock()->addInstruction(varAlloca);
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(startVal, varAlloca));
+
+            auto condBB = createBlock("range_cond");
+            auto bodyBB = createBlock("range_body");
+            auto stepBB = createBlock("range_step");
+            auto endBB = createBlock("range_end");
+
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(condBB->getName()));
+
+            // Condition: i < end
+            setInsertPoint(condBB);
+            auto curVal = std::make_shared<LoadInst>(IRType::getInt32(), varAlloca, m_currentFunction->nextTempName("range_cur"));
+            condBB->addInstruction(curVal);
+            auto cmpInst = std::make_shared<CompareInst>(IROpcode::ICmpSlt, curVal, endVal, m_currentFunction->nextTempName("range_cmp"));
+            condBB->addInstruction(cmpInst);
+            condBB->addInstruction(std::make_shared<CondBranchInst>(cmpInst, bodyBB->getName(), endBB->getName()));
+
+            // Body
+            setInsertPoint(bodyBB);
+            pushScope();
+            declareVariable(node.getVarName(), varAlloca, IRType::getInt32());
+
+            m_breakStack.push_back(endBB->getName());
+            m_continueStack.push_back(stepBB->getName());
+
+            node.getBody().accept(*this);
+
+            if (!m_currentBlock->hasTerminator()) {
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(stepBB->getName()));
+            }
+
+            m_breakStack.pop_back();
+            m_continueStack.pop_back();
+            popScope();
+
+            // Step: i++
+            setInsertPoint(stepBB);
+            auto stepVal = std::make_shared<LoadInst>(IRType::getInt32(), varAlloca, m_currentFunction->nextTempName("range_step_load"));
+            stepBB->addInstruction(stepVal);
+            auto nextVal = std::make_shared<BinaryInst>(
+                IROpcode::Add, stepVal, std::make_shared<ConstantInt>(IRType::getInt32(), 1),
+                m_currentFunction->nextTempName("range_next"));
+            stepBB->addInstruction(nextVal);
+            stepBB->addInstruction(std::make_shared<StoreInst>(nextVal, varAlloca));
+            stepBB->addInstruction(std::make_shared<BranchInst>(condBB->getName()));
+
+            setInsertPoint(endBB);
+            return;
+        }
+    }
+
     node.getIterable().accept(*this);
     IRValuePtr collVal = m_lastExprValue;
     if (!collVal) return;
