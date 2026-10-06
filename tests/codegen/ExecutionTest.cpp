@@ -1188,8 +1188,58 @@ TEST(ExecutionTest, ForLoopsComprehensiveNativeExecution) {
     EXPECT_NE(output.find("Sum of 1-100: 5050"), std::string::npos);
 }
 
+TEST(ExecutionTest, WhileAndDoWhileNativeExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            println("=== While Loop ===");
+            int count = 1;
+            while (count <= 5) {
+                println("Count: ${count}");
+                count++;
+            }
 
+            println("\n=== Do-While Loop ===");
+            int n = 1;
+            do {
+                println("n = ${n}");
+                n *= 2;
+            } while (n <= 16);
 
+            int power = 1;
+            int exponent = 0;
+            while (power <= 1000) {
+                power *= 2;
+                exponent++;
+            }
+            println("\n2^${exponent} = ${power} (first power of 2 > 1000)");
 
+            println("\n=== Collatz Sequence (start: 27) ===");
+            int num = 27;
+            int steps = 0;
+            print("${num}");
+            while (num != 1) {
+                if (num % 2 == 0) {
+                    num = num / 2;
+                } else {
+                    num = num * 3 + 1;
+                }
+                print(" -> ${num}");
+                steps++;
+            }
+            println("\nReached 1 in ${steps} steps");
+        }
+    )sp";
 
-
+    std::string output = runSPProgram(source, "exec_while_loops");
+    EXPECT_NE(output.find("=== While Loop ==="), std::string::npos);
+    EXPECT_NE(output.find("Count: 1"), std::string::npos);
+    EXPECT_NE(output.find("Count: 5"), std::string::npos);
+    EXPECT_NE(output.find("=== Do-While Loop ==="), std::string::npos);
+    EXPECT_NE(output.find("n = 1"), std::string::npos);
+    EXPECT_NE(output.find("n = 16"), std::string::npos);
+    EXPECT_NE(output.find("2^10 = 1024 (first power of 2 > 1000)"), std::string::npos);
+    EXPECT_NE(output.find("=== Collatz Sequence (start: 27) ==="), std::string::npos);
+    EXPECT_NE(output.find("27 -> 82"), std::string::npos);
+    EXPECT_NE(output.find("-> 1"), std::string::npos);
+    EXPECT_NE(output.find("Reached 1 in 111 steps"), std::string::npos);
+}
