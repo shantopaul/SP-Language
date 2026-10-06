@@ -12,22 +12,22 @@
 
 ## Table of Contents
 
-- [1. Hello World](#1-hello-world)
-- [2. Variables & Constants](#2-variables--constants)
-- [3. Data Types](#3-data-types)
-- [4. Type Inference](#4-type-inference)
-- [5. Operators](#5-operators)
-- [6. Strings & Interpolation](#6-strings--interpolation)
-- [7. Console I/O](#7-console-io)
-- [8. Functions](#8-functions)
-- [9. If / Else / Else-If](#9-if--else--else-if)
-- [10. Switch & Match](#10-switch--match)
-- [11. For Loops](#11-for-loops)
-- [12. While & Do-While](#12-while--do-while)
-- [13. Arrays](#13-arrays)
-- [14. Lists](#14-lists)
-- [15. Maps & Dictionaries](#15-maps--dictionaries)
-- [16. Classes](#16-classes)
+- [x] [1. Hello World](#1-hello-world) ✅
+- [x] [2. Variables & Constants](#2-variables--constants) ✅
+- [x] [3. Data Types](#3-data-types) ✅
+- [x] [4. Type Inference](#4-type-inference) ✅
+- [x] [5. Operators](#5-operators) ✅
+- [x] [6. Strings & Interpolation](#6-strings--interpolation) ✅
+- [x] [7. Console I/O](#7-console-io) ✅
+- [x] [8. Functions](#8-functions) ✅
+- [x] [9. If / Else / Else-If](#9-if--else--else-if) ✅
+- [x] [10. Switch & Match](#10-switch--match) ✅
+- [x] [11. For Loops](#11-for-loops) ✅
+- [x] [12. While & Do-While](#12-while--do-while) ✅
+- [x] [13. Arrays](#13-arrays) ✅
+- [x] [14. Lists](#14-lists) ✅
+- [x] [15. Maps & Dictionaries](#15-maps--dictionaries) ✅
+- [x] [16. Classes](#16-classes) ✅
 - [17. Constructors](#17-constructors)
 - [18. Access Modifiers](#18-access-modifiers)
 - [19. Inheritance](#19-inheritance)
@@ -61,7 +61,7 @@
 
 ---
 
-## 1. Hello World
+## 1. Hello World ✅
 
 The simplest SP program:
 
@@ -88,7 +88,7 @@ Hello, SP!
 
 ---
 
-## 2. Variables & Constants
+## 2. Variables & Constants ✅
 
 ### Mutable Variables
 
@@ -146,7 +146,7 @@ fn main() {
 
 ---
 
-## 3. Data Types
+## 3. Data Types ✅
 
 ### All Primitive Types
 
@@ -216,7 +216,7 @@ byte:   255
 
 ---
 
-## 4. Type Inference
+## 4. Type Inference ✅
 
 ```sp
 fn main() {
@@ -265,7 +265,7 @@ App: SP Lang
 
 ---
 
-## 5. Operators
+## 5. Operators ✅
 
 ```sp
 fn main() {
@@ -342,7 +342,7 @@ fn main() {
 
 ---
 
-## 6. Strings & Interpolation
+## 6. Strings & Interpolation ✅
 
 ```sp
 fn main() {
@@ -412,7 +412,7 @@ And so are you.
 
 ---
 
-## 7. Console I/O
+## 7. Console I/O ✅
 
 ```sp
 import std.io;
@@ -454,7 +454,7 @@ Your score is 95.5
 
 ---
 
-## 8. Functions
+## 8. Functions ✅
 
 ### Basic Functions
 
@@ -584,7 +584,7 @@ fn main() {
 
 ---
 
-## 9. If / Else / Else-If
+## 9. If / Else / Else-If ✅
 
 ```sp
 fn main() {
@@ -680,7 +680,7 @@ Status: Adult
 
 ---
 
-## 10. Switch & Match
+## 10. Switch & Match ✅
 
 ### Classic Switch
 
@@ -777,7 +777,7 @@ Starting server...
 
 ---
 
-## 11. For Loops
+## 11. For Loops ✅
 
 ```sp
 fn main() {
@@ -910,7 +910,7 @@ Sum of 1-100: 5050
 
 ---
 
-## 12. While & Do-While
+## 12. While & Do-While ✅
 
 ```sp
 fn main() {
@@ -973,7 +973,7 @@ fn main() {
 
 ---
 
-## 13. Arrays
+## 13. Arrays ✅
 
 ```sp
 fn main() {
@@ -1060,7 +1060,7 @@ Average: 88
 
 ---
 
-## 14. Lists
+## 14. Lists ✅
 
 ```sp
 import std.collections;
@@ -1133,7 +1133,7 @@ fn main() {
 
 ---
 
-## 15. Maps & Dictionaries
+## 15. Maps & Dictionaries ✅
 
 ```sp
 import std.collections;
@@ -1222,7 +1222,7 @@ All scores:
 
 ---
 
-## 16. Classes
+## 16. Classes ✅
 
 ```sp
 class User {
