@@ -19,7 +19,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 &nbsp;
-[![Version](https://img.shields.io/badge/version-0.0.0_alpha-orange?style=for-the-badge)](#-roadmap)
+[![Version](https://img.shields.io/badge/version-1.0.0_stable-green?style=for-the-badge)](#-roadmap)
 &nbsp;
 [![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](#-tech-stack)
 &nbsp;
@@ -34,6 +34,10 @@
 <br>
 
 [Why SP?](#-why-sp) · [Quick Start](#-quick-start) · [Language Guide](#-language-guide) · [Architecture](#-compiler-architecture) · [Roadmap](#-roadmap) · [Docs](#-documentation) · [Contributing](#-contributing)
+
+<br>
+
+🌐 **Official Website:** [https://splang.shantopaul.com](https://splang.shantopaul.com) &nbsp;|&nbsp; 📖 **Documentation:** [https://docs.splang.shantopaul.com](https://docs.splang.shantopaul.com) &nbsp;|&nbsp; 📦 **Package Registry:** [https://registry.splang.shantopaul.com](https://registry.splang.shantopaul.com)
 
 <br>
 
@@ -855,16 +859,16 @@ Parser    + AST     Codegen    + OOP    Collections           Mgr     Server    
 
 | Version | Milestone | Key Deliverables | Status |
 |:--------|:----------|:-----------------|:------:|
-| `0.1` | **Lexer + Parser** | Tokenizer, AST, recursive descent parser | 🟡 Next |
-| `0.2` | **Semantic Analysis** | Symbol table, type checker, error codes | ⬜ |
-| `0.3` | **LLVM Compiler** | Native code generation, `spc build/run` | ⬜ |
-| `0.4` | **Object System** | Classes, inheritance, interfaces, constructors | ⬜ |
-| `0.5` | **Generics + Collections** | `Box<T>`, `List<T>`, `Map<K,V>`, lambdas | ⬜ |
-| `0.6` | **Standard Library** | io, fs, math, string, collections, time | ⬜ |
-| `0.7` | **Package Manager** | `spm` with dependency resolution, `sp.lock` | ⬜ |
-| `0.8` | **Language Server** | LSP, VS Code extension, `spc fmt` | ⬜ |
-| `0.9` | **Release Candidate** | Stability, benchmarks, documentation | ⬜ |
-| `1.0` | **🎉 Stable Release** | Production-ready, cross-platform, full docs | ⬜ |
+| `0.1` | **Lexer + Parser** | Tokenizer, AST, recursive descent parser | ✅ Done |
+| `0.2` | **Semantic Analysis** | Symbol table, type checker, error codes | ✅ Done |
+| `0.3` | **LLVM Compiler** | Native code generation, `spc build/run` | ✅ Done |
+| `0.4` | **Object System** | Classes, inheritance, interfaces, constructors | ✅ Done |
+| `0.5` | **Generics + Collections** | `Box<T>`, `List<T>`, `Map<K,V>`, lambdas | ✅ Done |
+| `0.6` | **Standard Library** | io, fs, math, string, collections, time | ✅ Done |
+| `0.7` | **Package Manager** | `spm` with dependency resolution, `sp.lock` | ✅ Done |
+| `0.8` | **Language Server** | LSP, VS Code extension, `spc fmt` | ✅ Done |
+| `0.9` | **Release Candidate** | Stability, benchmarks, documentation | ✅ Done |
+| `1.0` | **🎉 Stable Release** | Production-ready, cross-platform, full docs | ✅ Done |
 
 **Post 1.0:** Async/await · Ownership model · Traits · WebAssembly · FFI bridges · Reflection · GUI framework
 
