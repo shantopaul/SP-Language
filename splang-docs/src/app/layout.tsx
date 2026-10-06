@@ -1,6 +1,19 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { DocsLayoutClient } from "@/components/layout/DocsLayoutClient";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-jetbrains-mono",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://docs.splang.shantopaul.com"),
@@ -32,8 +45,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark scroll-smooth">
-      <body className="antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+    <html lang="en" className={`dark scroll-smooth ${inter.variable} ${jetbrainsMono.variable}`}>
+      <body className="font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
         <DocsLayoutClient>{children}</DocsLayoutClient>
       </body>
     </html>
