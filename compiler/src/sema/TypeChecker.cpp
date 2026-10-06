@@ -511,6 +511,14 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 m_currentExprType = m_typeCtx.getChar();
                 return;
             }
+            if (methodName == "split") {
+                m_currentExprType = m_typeCtx.getArrayType(m_typeCtx.getString());
+                return;
+            }
+            if (methodName == "reverse" || methodName == "repeat") {
+                m_currentExprType = m_typeCtx.getString();
+                return;
+            }
         }
 
         if (objType->isArray()) {

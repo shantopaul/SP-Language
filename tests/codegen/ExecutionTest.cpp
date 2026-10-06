@@ -1328,4 +1328,54 @@ TEST(ExecutionTest, StdlibIONativeExecution) {
     EXPECT_NE(output.find("Via IO.print"), std::string::npos);
 }
 
+TEST(ExecutionTest, StdlibStringNativeExecution) {
+    const std::string source = R"sp(
+        import std.string;
+
+        fn main() {
+            string text = "  Hello, SP!  ";
+            string trimmed = text.trim();
+            println("Trimmed: '${trimmed}'");
+            println("Upper: '${trimmed.upper()}'");
+            println("Lower: '${trimmed.lower()}'");
+            println("Length: ${text.length()}");
+
+            string spSub = "SP";
+            println("Contains SP: ${trimmed.contains(spSub)}");
+            string rep = trimmed.replace("SP", "World");
+            println("Replaced: '${rep}'");
+
+            string csv = "one,two,three";
+            string delim = ",";
+            string[] items = csv.split(delim);
+            println("Split count: ${items.length()}");
+            println("First: ${items[0]}");
+            println("Last: ${items[2]}");
+
+            string word = "Language";
+            println("Reversed: ${word.reverse()}");
+            string pad = "AB";
+            println("Repeat: ${pad.repeat(3)}");
+
+            string author = "shanto";
+            println("Via String.upper: ${String.upper(author)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_string");
+    EXPECT_NE(output.find("Trimmed: 'Hello, SP!'"), std::string::npos);
+    EXPECT_NE(output.find("Upper: 'HELLO, SP!'"), std::string::npos);
+    EXPECT_NE(output.find("Lower: 'hello, sp!'"), std::string::npos);
+    EXPECT_NE(output.find("Length: 14"), std::string::npos);
+    EXPECT_NE(output.find("Contains SP: true"), std::string::npos);
+    EXPECT_NE(output.find("Replaced: 'Hello, World!'"), std::string::npos);
+    EXPECT_NE(output.find("Split count: 3"), std::string::npos);
+    EXPECT_NE(output.find("First: one"), std::string::npos);
+    EXPECT_NE(output.find("Last: three"), std::string::npos);
+    EXPECT_NE(output.find("Reversed: egaugnaL"), std::string::npos);
+    EXPECT_NE(output.find("Repeat: ABABAB"), std::string::npos);
+    EXPECT_NE(output.find("Via String.upper: SHANTO"), std::string::npos);
+}
+
+
 

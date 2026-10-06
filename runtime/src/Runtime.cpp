@@ -6,6 +6,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -375,6 +376,62 @@ const char* sp_rt_str_replace(const char* s, const char* from, const char* to) {
 char sp_rt_str_char_at(const char* s, int64_t idx) {
     if (!s || idx < 0 || static_cast<size_t>(idx) >= std::strlen(s)) return '\0';
     return s[idx];
+}
+
+void* sp_rt_str_split(const char* s, const char* delim) {
+    if (!s) {
+        return sp_rt_array_alloc(0, sizeof(int64_t));
+    }
+    std::string str(s);
+    std::string d(delim ? delim : "");
+    std::vector<std::string> parts;
+    if (d.empty()) {
+        for (char c : str) {
+            parts.push_back(std::string(1, c));
+        }
+    } else {
+        size_t start = 0;
+        size_t pos = str.find(d);
+        while (pos != std::string::npos) {
+            parts.push_back(str.substr(start, pos - start));
+            start = pos + d.length();
+            pos = str.find(d, start);
+        }
+        parts.push_back(str.substr(start));
+    }
+    void* arr = sp_rt_array_alloc(parts.size(), sizeof(int64_t));
+    for (size_t i = 0; i < parts.size(); ++i) {
+        char* copy = static_cast<char*>(malloc(parts[i].size() + 1));
+        std::memcpy(copy, parts[i].c_str(), parts[i].size() + 1);
+        sp_rt_array_set_i64(arr, i, reinterpret_cast<int64_t>(copy));
+    }
+    return arr;
+}
+
+const char* sp_rt_str_reverse(const char* s) {
+    if (!s) return "";
+    std::string str(s);
+    std::reverse(str.begin(), str.end());
+    char* copy = static_cast<char*>(malloc(str.size() + 1));
+    std::memcpy(copy, str.c_str(), str.size() + 1);
+    return copy;
+}
+
+const char* sp_rt_str_repeat(const char* s, int64_t count) {
+    if (!s || count <= 0) return "";
+    std::string str(s);
+    std::string res;
+    res.reserve(str.size() * count);
+    for (int64_t i = 0; i < count; ++i) {
+        res += str;
+    }
+    char* copy = static_cast<char*>(malloc(res.size() + 1));
+    std::memcpy(copy, res.c_str(), res.size() + 1);
+    return copy;
+}
+
+bool sp_rt_str_is_empty(const char* s) {
+    return !s || *s == '\0';
 }
 
 void sp_rt_assert(bool cond, const char* msg) {

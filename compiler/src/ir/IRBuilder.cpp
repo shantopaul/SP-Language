@@ -2198,6 +2198,143 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     return;
                 }
             }
+
+            if (targetName == "String") {
+                if (methodName == "upper" || methodName == "lower" || methodName == "trim" || methodName == "reverse") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        std::string fnName = (methodName == "upper") ? "sp_rt_str_upper" :
+                                             (methodName == "lower") ? "sp_rt_str_lower" :
+                                             (methodName == "trim") ? "sp_rt_str_trim" : "sp_rt_str_reverse";
+                        std::string resReg = m_currentFunction->nextTempName("str_res");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getPointer(IRType::getInt8()),
+                            fnName,
+                            std::vector<IRValuePtr>{m_lastExprValue},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getPointer(IRType::getInt8());
+                        return;
+                    }
+                }
+                if (methodName == "length") {
+                    if (!node.getArgs().empty()) {
+                        node.getArgs()[0]->accept(*this);
+                        std::string resReg = m_currentFunction->nextTempName("str_len");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt64(),
+                            "sp_rt_str_len",
+                            std::vector<IRValuePtr>{m_lastExprValue},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getInt64();
+                        return;
+                    }
+                }
+                if (methodName == "contains") {
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[0]->accept(*this);
+                        auto sVal = m_lastExprValue;
+                        node.getArgs()[1]->accept(*this);
+                        auto subVal = m_lastExprValue;
+                        std::string resReg = m_currentFunction->nextTempName("str_has");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt1(),
+                            "sp_rt_str_contains",
+                            std::vector<IRValuePtr>{sVal, subVal},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getInt1();
+                        return;
+                    }
+                }
+                if (methodName == "indexOf") {
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[0]->accept(*this);
+                        auto sVal = m_lastExprValue;
+                        node.getArgs()[1]->accept(*this);
+                        auto subVal = m_lastExprValue;
+                        std::string resReg = m_currentFunction->nextTempName("str_idx");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getInt64(),
+                            "sp_rt_str_index_of",
+                            std::vector<IRValuePtr>{sVal, subVal},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getInt64();
+                        return;
+                    }
+                }
+                if (methodName == "replace") {
+                    if (node.getArgs().size() >= 3) {
+                        node.getArgs()[0]->accept(*this);
+                        auto sVal = m_lastExprValue;
+                        node.getArgs()[1]->accept(*this);
+                        auto fromVal = m_lastExprValue;
+                        node.getArgs()[2]->accept(*this);
+                        auto toVal = m_lastExprValue;
+                        std::string resReg = m_currentFunction->nextTempName("str_rep");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getPointer(IRType::getInt8()),
+                            "sp_rt_str_replace",
+                            std::vector<IRValuePtr>{sVal, fromVal, toVal},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getPointer(IRType::getInt8());
+                        return;
+                    }
+                }
+                if (methodName == "substring") {
+                    if (node.getArgs().size() >= 3) {
+                        node.getArgs()[0]->accept(*this);
+                        auto sVal = m_lastExprValue;
+                        node.getArgs()[1]->accept(*this);
+                        auto startVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                        node.getArgs()[2]->accept(*this);
+                        auto endVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                        std::string resReg = m_currentFunction->nextTempName("str_sub");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getPointer(IRType::getInt8()),
+                            "sp_rt_str_substring",
+                            std::vector<IRValuePtr>{sVal, startVal, endVal},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getPointer(IRType::getInt8());
+                        return;
+                    }
+                }
+                if (methodName == "split") {
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[0]->accept(*this);
+                        auto sVal = m_lastExprValue;
+                        node.getArgs()[1]->accept(*this);
+                        auto delimVal = m_lastExprValue;
+                        std::string resReg = m_currentFunction->nextTempName("str_split");
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getPointer(),
+                            "sp_rt_str_split",
+                            std::vector<IRValuePtr>{sVal, delimVal},
+                            resReg
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                        m_lastExprValue = callInst;
+                        m_lastExprType = IRType::getPointer();
+                        return;
+                    }
+                }
+            }
         }
 
         // 1b. obj.method(...)
@@ -2381,6 +2518,69 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = IRType::getInt8();
                     return;
                 }
+            }
+            if (methodName == "split") {
+                IRValuePtr delimVal = nullptr;
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    delimVal = m_lastExprValue;
+                } else {
+                    delimVal = m_module->getOrCreateStringLiteral("");
+                }
+                std::string splitReg = m_currentFunction->nextTempName("ssplit");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getPointer(),
+                    "sp_rt_str_split",
+                    std::vector<IRValuePtr>{objVal, delimVal},
+                    splitReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+            if (methodName == "reverse") {
+                std::string revReg = m_currentFunction->nextTempName("srev");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getPointer(IRType::getInt8()),
+                    "sp_rt_str_reverse",
+                    std::vector<IRValuePtr>{objVal},
+                    revReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getPointer(IRType::getInt8());
+                return;
+            }
+            if (methodName == "repeat") {
+                if (!node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto countVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string repReg = m_currentFunction->nextTempName("srepeat");
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getPointer(IRType::getInt8()),
+                        "sp_rt_str_repeat",
+                        std::vector<IRValuePtr>{objVal, countVal},
+                        repReg
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getPointer(IRType::getInt8());
+                    return;
+                }
+            }
+            if (methodName == "isEmpty") {
+                std::string emptyReg = m_currentFunction->nextTempName("sempty");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt1(),
+                    "sp_rt_str_is_empty",
+                    std::vector<IRValuePtr>{objVal},
+                    emptyReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt1();
+                return;
             }
         }
 

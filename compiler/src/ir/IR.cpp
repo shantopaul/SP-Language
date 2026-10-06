@@ -626,6 +626,28 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getInt64(), "idx", 1)},
                    true);
 
+    // ptr sp_rt_str_split(ptr, ptr)
+    createFunction("sp_rt_str_split", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "delim", 1)},
+                   true);
+
+    // ptr sp_rt_str_reverse(ptr)
+    createFunction("sp_rt_str_reverse", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
+    // ptr sp_rt_str_repeat(ptr, i64)
+    createFunction("sp_rt_str_repeat", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)},
+                   true);
+
+    // i1 sp_rt_str_is_empty(ptr)
+    createFunction("sp_rt_str_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s", 0)},
+                   true);
+
     // Native Array primitives
     // ptr sp_rt_array_alloc(i64, i64)
     createFunction("sp_rt_array_alloc", IRType::getPointer(),

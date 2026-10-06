@@ -1089,12 +1089,16 @@ ast::ASTNodePtr Parser::parseModuleDecl() {
     diagnostics::SourceLocation loc = previous().location;
     std::string moduleName;
 
-    const lexer::Token& part = consume(lexer::TokenType::Identifier, "Expected module identifier");
+    const lexer::Token& part = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        ? advance()
+        : consume(lexer::TokenType::Identifier, "Expected module identifier");
     moduleName += part.lexeme;
 
     while (match(lexer::TokenType::Dot)) {
         moduleName += ".";
-        const lexer::Token& subPart = consume(lexer::TokenType::Identifier, "Expected identifier after '.' in module name");
+        const lexer::Token& subPart = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+            ? advance()
+            : consume(lexer::TokenType::Identifier, "Expected identifier after '.' in module name");
         moduleName += subPart.lexeme;
     }
 
@@ -1107,7 +1111,9 @@ ast::ASTNodePtr Parser::parseImportDecl() {
     std::string importPath;
     bool isWildcard = false;
 
-    const lexer::Token& part = consume(lexer::TokenType::Identifier, "Expected import path");
+    const lexer::Token& part = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        ? advance()
+        : consume(lexer::TokenType::Identifier, "Expected import path");
     importPath += part.lexeme;
 
     while (match(lexer::TokenType::Dot)) {
@@ -1116,7 +1122,9 @@ ast::ASTNodePtr Parser::parseImportDecl() {
             break;
         }
         importPath += ".";
-        const lexer::Token& subPart = consume(lexer::TokenType::Identifier, "Expected identifier after '.' in import path");
+        const lexer::Token& subPart = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+            ? advance()
+            : consume(lexer::TokenType::Identifier, "Expected identifier after '.' in import path");
         importPath += subPart.lexeme;
     }
 

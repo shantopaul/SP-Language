@@ -390,6 +390,18 @@ TypeContext::TypeContext() {
     consoleCls->addMethod({"readln", getFunctionType({}, m_stringType), "public", true, false, false});
     consoleCls->addMethod({"flush", getFunctionType({}, m_voidType), "public", true, false, false});
     consoleCls->addMethod({"eflush", getFunctionType({}, m_voidType), "public", true, false, false});
+
+    auto strCls = createClassType("String");
+    strCls->addMethod({"length", getFunctionType({m_stringType}, m_int64Type), "public", true, false, false});
+    strCls->addMethod({"upper", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"lower", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"trim", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"contains", getFunctionType({m_stringType, m_stringType}, m_boolType), "public", true, false, false});
+    strCls->addMethod({"indexOf", getFunctionType({m_stringType, m_stringType}, m_int64Type), "public", true, false, false});
+    strCls->addMethod({"replace", getFunctionType({m_stringType, m_stringType, m_stringType}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"substring", getFunctionType({m_stringType, m_int64Type, m_int64Type}, m_stringType), "public", true, false, false});
+    strCls->addMethod({"split", getFunctionType({m_stringType, m_stringType}, getArrayType(m_stringType)), "public", true, false, false});
+    strCls->addMethod({"reverse", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

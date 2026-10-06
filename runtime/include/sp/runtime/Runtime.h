@@ -58,6 +58,10 @@ extern "C" {
     const char* sp_rt_str_substring(const char* s, int64_t start, int64_t end);
     const char* sp_rt_str_replace(const char* s, const char* from, const char* to);
     char        sp_rt_str_char_at(const char* s, int64_t idx);
+    void*       sp_rt_str_split(const char* s, const char* delim);
+    const char* sp_rt_str_reverse(const char* s);
+    const char* sp_rt_str_repeat(const char* s, int64_t count);
+    bool        sp_rt_str_is_empty(const char* s);
 
     // Diagnostics and assertions
     void sp_rt_assert(bool cond, const char* msg);
