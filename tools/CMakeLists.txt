@@ -47,3 +47,18 @@ add_executable(spm
 )
 target_link_libraries(spm PRIVATE spm_core)
 target_compile_features(spm PRIVATE cxx_std_20)
+
+# SP Language Server Library (sp_lsp_server)
+add_library(sp_lsp_server
+    spls/LspServer.cpp
+)
+target_include_directories(sp_lsp_server PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sp_lsp_server PUBLIC sp_compiler sp_fmt sp_doc_generator)
+target_compile_features(sp_lsp_server PRIVATE cxx_std_20)
+
+# SP Language Server Executable (spls)
+add_executable(spls
+    spls/main.cpp
+)
+target_link_libraries(spls PRIVATE sp_lsp_server)
+target_compile_features(spls PRIVATE cxx_std_20)
