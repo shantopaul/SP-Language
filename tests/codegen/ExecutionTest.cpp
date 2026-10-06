@@ -650,4 +650,35 @@ TEST(ExecutionTest, AllPrimitiveTypesNativeExecution) {
     EXPECT_NE(output.find("byte:   255"), std::string::npos);
 }
 
+TEST(ExecutionTest, TypeInferenceNativeExecution) {
+    const std::string source = R"(
+        fn main() {
+            var age = 21;
+            var name = "Shanto";
+            var price = 99.99;
+            var active = true;
+
+            age = 22;
+            name = "Shanto Paul";
+
+            let count = 100;
+            let message = "Hello";
+
+            const PI = 3.14159;
+            const APP = "SP Lang";
+
+            println("Age: ${age}");
+            println("Name: ${name}");
+            println("PI: ${PI}");
+            println("App: ${APP}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_type_inference");
+    EXPECT_NE(output.find("Age: 22"), std::string::npos);
+    EXPECT_NE(output.find("Name: Shanto Paul"), std::string::npos);
+    EXPECT_NE(output.find("PI: 3.14159"), std::string::npos);
+    EXPECT_NE(output.find("App: SP Lang"), std::string::npos);
+}
+
 
