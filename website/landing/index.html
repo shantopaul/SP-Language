@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SP Programming Language — Modern, Fast, Ergonomic</title>
+  <meta name="description" content="Official website for the SP Programming Language. Native LLVM performance, multi-syntax flexibility, package manager, and full IDE tooling.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <style>
+    :root {
+      --bg: #090d16;
+      --bg-card: #111827;
+      --border: #1f2937;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --primary: #38bdf8;
+      --primary-dark: #0284c7;
+      --accent: #10b981;
+      --accent-purple: #a855f7;
+      --code-bg: #0d1117;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { background: var(--bg); color: var(--text); line-height: 1.6; }
+    header { border-bottom: 1px solid var(--border); background: rgba(9, 13, 22, 0.85); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; }
+    .nav-container { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; }
+    .logo { display: flex; align-items: center; gap: 0.6rem; font-weight: 800; font-size: 1.35rem; color: var(--text); text-decoration: none; }
+    .logo-badge { background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.85rem; font-weight: bold; }
+    nav ul { display: flex; list-style: none; gap: 1.5rem; align-items: center; }
+    nav a { color: var(--text-muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: color 0.2s; }
+    nav a:hover { color: var(--primary); }
+    .btn-nav { background: var(--primary); color: #000; padding: 0.45rem 1rem; border-radius: 6px; font-weight: 600; text-decoration: none; transition: background 0.2s; }
+    .btn-nav:hover { background: #7dd3fc; }
+
+    /* Hero */
+    .hero { max-width: 1200px; margin: 0 auto; padding: 4.5rem 1.5rem 3rem; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 3rem; align-items: center; }
+    .badge-v1 { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: var(--primary); padding: 0.35rem 0.9rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 600; margin-bottom: 1.25rem; }
+    .hero h1 { font-size: 3.25rem; font-weight: 900; line-height: 1.15; margin-bottom: 1.25rem; background: linear-gradient(135deg, #ffffff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 1.2rem; color: var(--text-muted); margin-bottom: 2rem; max-width: 540px; }
+    .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+    .btn-primary { background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; font-weight: 700; padding: 0.75rem 1.75rem; border-radius: 8px; text-decoration: none; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35); transition: transform 0.15s; }
+    .btn-primary:hover { transform: translateY(-2px); }
+    .btn-secondary { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); font-weight: 600; padding: 0.75rem 1.75rem; border-radius: 8px; text-decoration: none; transition: border-color 0.2s; }
+    .btn-secondary:hover { border-color: var(--primary); }
+
+    /* Install Box */
+    .install-box { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 0.9rem; color: var(--primary); max-width: 520px; }
+    .install-copy { cursor: pointer; color: var(--text-muted); background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+    .install-copy:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+    /* Code Card */
+    .code-window { background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+    .code-header { background: #161b22; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+    .code-dots { display: flex; gap: 6px; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .dot-red { background: #ef4444; } .dot-yellow { background: #f59e0b; } .dot-green { background: #10b981; }
+    .code-title { font-size: 0.8rem; color: var(--text-muted); font-family: monospace; }
+    pre { padding: 1.25rem; overflow-x: auto; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 0.88rem; line-height: 1.6; }
+    .kw { color: #f43f5e; font-weight: bold; }
+    .type { color: #38bdf8; }
+    .fn { color: #a855f7; }
+    .str { color: #10b981; }
+    .com { color: #6b7280; font-style: italic; }
+
+    /* Features Grid */
+    .features { max-width: 1200px; margin: 4rem auto; padding: 0 1.5rem; }
+    .section-head { text-align: center; margin-bottom: 3rem; }
+    .section-head h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.5rem; }
+    .section-head p { color: var(--text-muted); font-size: 1.1rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.75rem; transition: transform 0.2s, border-color 0.2s; }
+    .card:hover { transform: translateY(-3px); border-color: rgba(56, 189, 248, 0.4); }
+    .card-icon { font-size: 2rem; margin-bottom: 1rem; }
+    .card h3 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .card p { color: var(--text-muted); font-size: 0.95rem; }
+
+    /* Benchmark Table */
+    .benchmarks { max-width: 900px; margin: 4rem auto; padding: 0 1.5rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; background: var(--bg-card); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+    th, td { padding: 0.9rem 1.2rem; text-align: left; }
+    th { background: #161b22; color: var(--text); font-weight: 700; border-bottom: 1px solid var(--border); }
+    td { border-bottom: 1px solid var(--border); color: var(--text-muted); }
+    tr:last-child td { border-bottom: none; }
+    .highlight-sp { color: var(--primary); font-weight: bold; }
+    .speedup-badge { background: rgba(16, 185, 129, 0.15); color: var(--accent); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700; font-size: 0.85rem; }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--border); background: #070a10; padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-top: 5rem; }
+    footer a { color: var(--primary); text-decoration: none; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 2.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="nav-container">
+      <a href="https://splang.shantopaul.com" class="logo">
+        <span>⚡ SP</span>
+        <span class="logo-badge">v1.0.0</span>
+      </a>
+      <nav>
+        <ul>
+          <li><a href="https://docs.splang.shantopaul.com">Documentation</a></li>
+          <li><a href="https://docs.splang.shantopaul.com/#syntax">Syntax Guide</a></li>
+          <li><a href="https://registry.splang.shantopaul.com">Package Registry</a></li>
+          <li><a href="https://github.com/shantopaul/SP-Language" target="_blank">GitHub</a></li>
+          <li><a href="https://docs.splang.shantopaul.com" class="btn-nav">Get Started</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <div class="badge-v1">🚀 SP 1.0.0 Production Release Now Available</div>
+        <h1>The High-Performance Language for the Modern Web & Systems</h1>
+        <p>SP blends native LLVM machine speed with expressive, familiar syntax. Built-in package manager, Language Server, debugger, and zero-cost abstractions.</p>
+        
+        <div class="hero-actions">
+          <a href="https://docs.splang.shantopaul.com" class="btn-primary">Read the Docs</a>
+          <a href="https://registry.splang.shantopaul.com" class="btn-secondary">Explore Packages</a>
+        </div>
+
+        <div class="install-box">
+          <code>irm https://splang.shantopaul.com/install.ps1 | iex</code>
+          <button class="install-copy" onclick="navigator.clipboard.writeText('irm https://splang.shantopaul.com/install.ps1 | iex'); this.innerText='Copied!'">Copy</button>
+        </div>
+      </div>
+
+      <div class="code-window">
+        <div class="code-header">
+          <div class="code-dots">
+            <div class="dot dot-red"></div>
+            <div class="dot dot-yellow"></div>
+            <div class="dot dot-green"></div>
+          </div>
+          <div class="code-title">main.sp</div>
+        </div>
+        <pre><code><span class="kw">class</span> <span class="type">Greeter</span>&lt;<span class="type">T</span>&gt; {
+    <span class="kw">public</span> <span class="type">string</span> greeting;
+    
+    <span class="kw">public constructor</span>(greeting: <span class="type">string</span>) {
+        <span class="kw">this</span>.greeting = greeting;
+    }
+
+    <span class="kw">public fn</span> <span class="fn">welcome</span>(user: <span class="type">T</span>) {
+        <span class="fn">println</span>(<span class="str">"${this.greeting}, ${user}!"</span>);
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() -&gt; <span class="type">int</span> {
+    <span class="kw">let</span> app = <span class="kw">new</span> <span class="type">Greeter</span>&lt;<span class="type">string</span>&gt;(<span class="str">"Hello"</span>);
+    app.<span class="fn">welcome</span>(<span class="str">"SP 1.0 World"</span>);
+    <span class="kw">return</span> 0;
+}</code></pre>
+      </div>
+    </section>
+
+    <section class="features">
+      <div class="section-head">
+        <h2>Why Developers Love SP</h2>
+        <p>Architected from the ground up for developer productivity and maximum execution speed.</p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>Native LLVM Performance</h3>
+          <p>Compiles directly to optimized machine code using the LLVM 17+ backend. Up to 36x faster than Python with near-C execution efficiency.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🧩</div>
+          <h3>Multi-Syntax Flexibility</h3>
+          <p>Write SP using modern functional syntax, classical C++/Java OOP style, or concise Python-like blocks. Write code the way you think.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">📦</div>
+          <h3>Package Manager & Registry</h3>
+          <p>Integrated SPM package manager with SemVer resolution, lockfile checksum verification, and registry publishing out of the box.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🛠️</div>
+          <h3>First-Class Developer Tools</h3>
+          <p>Shipped with native formatter (<code>spc fmt</code>), test runner (<code>spc test</code>), documentation generator (<code>spc doc</code>), LSP server, and DAP debugger.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🛡️</div>
+          <h3>Memory Safe by Default</h3>
+          <p>Safe navigation (<code>?.</code>), null-coalescing (<code>??</code>), and strong static typing guarantee resilience against runtime crashes.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🌐</div>
+          <h3>Cross-Platform</h3>
+          <p>Native compilation support across Windows (x86_64), Linux (x86_64), and macOS (arm64 Apple Silicon & x86_64).</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="benchmarks">
+      <div class="section-head">
+        <h2>Performance Benchmarks</h2>
+        <p>Real-world benchmark measurements compiled with <code>-O3</code>.</p>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Benchmark Workload</th>
+            <th>SP (-O3)</th>
+            <th>C (clang -O3)</th>
+            <th>Python 3</th>
+            <th>SP Speedup</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Recursive Fibonacci (35)</strong></td>
+            <td class="highlight-sp">39.86 ms</td>
+            <td>31.09 ms</td>
+            <td>1,455.06 ms</td>
+            <td><span class="speedup-badge">36.5x faster</span></td>
+          </tr>
+          <tr>
+            <td><strong>Matrix Multiplication (64x64)</strong></td>
+            <td class="highlight-sp">13.43 ms</td>
+            <td>7.81 ms</td>
+            <td>52.22 ms</td>
+            <td><span class="speedup-badge">3.9x faster</span></td>
+          </tr>
+          <tr>
+            <td><strong>Prime Sieve (100,000)</strong></td>
+            <td class="highlight-sp">14.23 ms</td>
+            <td>8.80 ms</td>
+            <td>92.42 ms</td>
+            <td><span class="speedup-badge">6.5x faster</span></td>
+          </tr>
+          <tr>
+            <td><strong>Quicksort (32 elements)</strong></td>
+            <td class="highlight-sp">12.49 ms</td>
+            <td>7.33 ms</td>
+            <td>31.05 ms</td>
+            <td><span class="speedup-badge">2.5x faster</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Shanto Paul. Released under the MIT License.</p>
+    <p style="margin-top: 0.5rem;">
+      <a href="https://splang.shantopaul.com">Home</a> &bull;
+      <a href="https://docs.splang.shantopaul.com">Docs</a> &bull;
+      <a href="https://registry.splang.shantopaul.com">Registry</a> &bull;
+      <a href="https://github.com/shantopaul/SP-Language">GitHub</a>
+    </p>
+  </footer>
+
+</body>
+</html>
