@@ -50,6 +50,7 @@ add_executable(sp_tests
     test/TestRunnerTest.cpp
     doc/DocGeneratorTest.cpp
     spls/LspServerTest.cpp
+    debugger/DapServerTest.cpp
 )
 
 target_include_directories(sp_tests
@@ -66,6 +67,7 @@ target_link_libraries(sp_tests
         sp_test_runner
         sp_doc_generator
         sp_lsp_server
+        sp_debugger
         GTest::gtest_main
 )
 

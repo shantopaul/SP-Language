@@ -62,3 +62,20 @@ add_executable(spls
 )
 target_link_libraries(spls PRIVATE sp_lsp_server)
 target_compile_features(spls PRIVATE cxx_std_20)
+
+# SP Debug Adapter Library (sp_debugger)
+add_library(sp_debugger
+    debugger/DebugSession.cpp
+    debugger/DapServer.cpp
+)
+target_include_directories(sp_debugger PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sp_debugger PUBLIC sp_compiler)
+target_compile_features(sp_debugger PRIVATE cxx_std_20)
+
+# SP Debug Adapter Executable (spd)
+add_executable(spd
+    debugger/main.cpp
+)
+target_link_libraries(spd PRIVATE sp_debugger)
+target_compile_features(spd PRIVATE cxx_std_20)
+
