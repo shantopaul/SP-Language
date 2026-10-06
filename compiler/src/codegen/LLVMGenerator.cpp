@@ -215,6 +215,10 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     // 4. Construct compilation command
     std::ostringstream cmd;
     cmd << "\"" << clang << "\" ";
+    cmd << "-std=c++20 ";
+#if !defined(_WIN32)
+    cmd << "-pthread ";
+#endif
     cmd << "\"" << tempLLPath << "\" ";
 
     if (fs::exists(rtSrc)) {

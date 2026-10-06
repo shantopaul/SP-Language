@@ -47,8 +47,11 @@ public:
     // Runs tests across discovered files
     TestSuiteResult runAll(const std::string& targetPath = ".", const std::string& filter = "");
 
+    [[nodiscard]] bool isVerbose() const { return m_verbose; }
+    void setVerbose(bool v) { m_verbose = v; }
+
 private:
-    bool m_verbose{false};
+    [[maybe_unused]] bool m_verbose{false};
 
     static std::string readFile(const std::string& path);
 };

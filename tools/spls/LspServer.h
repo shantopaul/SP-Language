@@ -45,13 +45,14 @@ public:
     static bool parseHeader(std::istream& in, size_t& contentLength);
 
     [[nodiscard]] bool isRunning() const { return m_running; }
+    [[nodiscard]] bool isInitialized() const { return m_initialized; }
     void stop() { m_running = false; }
 
 private:
     std::istream& m_in;
     std::ostream& m_out;
     bool m_running{true};
-    bool m_initialized{false};
+    [[maybe_unused]] bool m_initialized{false};
     std::map<std::string, std::string> m_documents; // uri -> text
 
     void sendNotification(const std::string& method, const JsonValue& params);
