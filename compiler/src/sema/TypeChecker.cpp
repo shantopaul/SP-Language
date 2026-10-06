@@ -275,7 +275,19 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
     std::vector<std::shared_ptr<FunctionSymbol>> viable;
     for (const auto& candidate : candidates) {
         const auto& paramTypes = candidate->getFunctionType()->getParamTypes();
-        if (paramTypes.size() != argTypes.size()) continue;
+        const auto* astDecl = candidate->getASTDecl();
+        size_t minParams = paramTypes.size();
+        size_t maxParams = paramTypes.size();
+        if (astDecl) {
+            minParams = 0;
+            for (const auto& p : astDecl->getParams()) {
+                if (!p.hasDefaultValue()) {
+                    minParams++;
+                }
+            }
+        }
+
+        if (argTypes.size() < minParams || argTypes.size() > maxParams) continue;
 
         bool match = true;
         for (size_t i = 0; i < argTypes.size(); ++i) {
@@ -300,9 +312,10 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
         return nullptr;
     }
 
-    // If multiple match, prefer exact matches
+    // If multiple match, prefer exact matches with identical arg count
     for (const auto& candidate : viable) {
         const auto& paramTypes = candidate->getFunctionType()->getParamTypes();
+        if (paramTypes.size() != argTypes.size()) continue;
         bool exact = true;
         for (size_t i = 0; i < argTypes.size(); ++i) {
             if (!argTypes[i]->equals(*paramTypes[i])) {
@@ -1339,7 +1352,19 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
         }
     } else if (node.isShortForm()) {
         auto shortType = checkExpr(*node.getShortBody());
-        if (!shortType->isAssignableTo(*returnType)) {
+        if (returnType->isVoid() && (node.getReturnType().empty() || node.getReturnType() == "void")) {
+            returnType = shortType;
+            const_cast<ast::FunctionDecl&>(node).setReturnType(shortType->toString());
+            auto syms = m_symbolTable.lookupFunctions(node.getName());
+            for (auto& s : syms) {
+                if (s->getASTDecl() == &node) {
+                    std::vector<TypePtr> pTypes = s->getFunctionType()->getParamTypes();
+                    auto newFnType = m_typeCtx.getFunctionType(std::move(pTypes), shortType);
+                    s->setFunctionType(newFnType);
+                    break;
+                }
+            }
+        } else if (!shortType->isAssignableTo(*returnType)) {
             m_diagnostics.reportError("E1005", "Short function body return type mismatch: expected '" +
                                       returnType->toString() + "', got '" + shortType->toString() + "'", node.getLocation());
         }
@@ -1436,6 +1461,16 @@ void TypeChecker::visit(const ast::ImportDecl& /*node*/) {
 }
 
 void TypeChecker::visit(const ast::Program& node) {
+    // Pre-pass: Infer return types of short-form functions
+    for (const auto& decl : node.getDeclarations()) {
+        if (decl && decl->getKind() == ast::ASTNodeKind::FunctionDecl) {
+            const auto& fn = static_cast<const ast::FunctionDecl&>(*decl);
+            if (fn.isShortForm() && (fn.getReturnType().empty() || fn.getReturnType() == "void")) {
+                visit(fn);
+            }
+        }
+    }
+
     for (const auto& decl : node.getDeclarations()) {
         if (decl) {
             switch (decl->getKind()) {

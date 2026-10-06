@@ -320,15 +320,22 @@ void IRBuilder::visit(const ast::Program& node) {
         }
     }
 
-    // Index generic classes and functions for monomorphization
+    // Index functions and generic classes/functions
     for (const auto& decl : node.getDeclarations()) {
         if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(decl.get())) {
             if (cls->isGeneric()) {
                 m_genericClasses[cls->getName()] = cls;
             }
         } else if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(decl.get())) {
+            m_astFunctions[fn->getName()] = fn;
             if (fn->isGeneric()) {
                 m_genericFunctions[fn->getName()] = fn;
+            }
+        } else if (const auto* block = dynamic_cast<const ast::BlockStmt*>(decl.get())) {
+            for (const auto& inner : block->getStatements()) {
+                if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(inner.get())) {
+                    m_astFunctions[fn->getName()] = fn;
+                }
             }
         }
     }
@@ -2741,8 +2748,23 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         loweredArgs.push_back(m_lastExprValue);
     }
 
-    IRTypePtr returnType = IRType::getInt32();
     auto* targetFunc = m_module->getFunction(calleeName);
+    if (m_astFunctions.count(calleeName)) {
+        const auto* fnDecl = m_astFunctions.at(calleeName);
+        const auto& params = fnDecl->getParams();
+        for (size_t i = loweredArgs.size(); i < params.size(); ++i) {
+            if (params[i].hasDefaultValue()) {
+                params[i].getDefaultValue()->accept(*this);
+                IRValuePtr defVal = m_lastExprValue;
+                if (targetFunc && i < targetFunc->getParams().size()) {
+                    defVal = emitCastIfNeeded(defVal, targetFunc->getParams()[i]->getType());
+                }
+                loweredArgs.push_back(defVal);
+            }
+        }
+    }
+
+    IRTypePtr returnType = IRType::getInt32();
     if (targetFunc) {
         returnType = targetFunc->getReturnType();
     }

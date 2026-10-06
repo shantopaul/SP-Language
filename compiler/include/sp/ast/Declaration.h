@@ -72,6 +72,7 @@ public:
     [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
     [[nodiscard]] const std::vector<Parameter>& getParams() const noexcept { return m_params; }
     [[nodiscard]] const std::string& getReturnType() const noexcept { return m_returnType; }
+    void setReturnType(std::string returnType) noexcept { m_returnType = std::move(returnType); }
     [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const BlockStmt* getBody() const noexcept { return m_body.get(); }
     [[nodiscard]] std::unique_ptr<BlockStmt>& getBodyPtr() noexcept { return m_body; }

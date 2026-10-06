@@ -1101,7 +1101,9 @@ ast::ASTNodePtr Parser::parseImportDecl() {
 
 ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract) {
     diagnostics::SourceLocation loc = previous().location;
-    const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected function name");
+    const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        ? advance()
+        : consume(lexer::TokenType::Identifier, "Expected function name");
     std::string name = nameTok.lexeme;
 
     std::vector<std::string> typeParams;

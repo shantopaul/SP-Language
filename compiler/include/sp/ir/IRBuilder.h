@@ -122,6 +122,7 @@ private:
     const codegen::ClassLayout* m_currentClass{nullptr};
     std::unordered_map<std::string, const ast::ClassDecl*> m_genericClasses;
     std::unordered_map<std::string, const ast::FunctionDecl*> m_genericFunctions;
+    std::unordered_map<std::string, const ast::FunctionDecl*> m_astFunctions;
 };
 
 } // namespace sp::ir
