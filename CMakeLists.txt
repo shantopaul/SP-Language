@@ -84,3 +84,11 @@ install(DIRECTORY compiler/include/
 install(DIRECTORY runtime/src/
     DESTINATION share/sp/runtime
 )
+
+install(DIRECTORY stdlib/
+    DESTINATION share/sp/stdlib
+)
+
+install(DIRECTORY stdlib/
+    DESTINATION stdlib
+)

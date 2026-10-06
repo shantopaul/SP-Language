@@ -86,4 +86,28 @@ TEST(GoldenSemanticTest, AnalyzeStdlibMath) {
     assertFileAnalyzesCleanly("stdlib/math/math.sp");
 }
 
+TEST(GoldenSemanticTest, AnalyzeStdlibString) {
+    assertFileAnalyzesCleanly("stdlib/string/string.sp");
+}
+
+TEST(GoldenSemanticTest, AnalyzeStdlibCollections) {
+    assertFileAnalyzesCleanly("stdlib/collections/collections.sp");
+}
+
+TEST(GoldenSemanticTest, AnalyzeStdlibFS) {
+    assertFileAnalyzesCleanly("stdlib/fs/fs.sp");
+}
+
+TEST(GoldenSemanticTest, AnalyzeStdlibTime) {
+    assertFileAnalyzesCleanly("stdlib/time/time.sp");
+}
+
+TEST(GoldenSemanticTest, AnalyzeStdlibOS) {
+    assertFileAnalyzesCleanly("stdlib/os/os.sp");
+}
+
+TEST(GoldenSemanticTest, AnalyzeStdlibProcess) {
+    assertFileAnalyzesCleanly("stdlib/process/process.sp");
+}
+
 } // namespace sp::sema::test

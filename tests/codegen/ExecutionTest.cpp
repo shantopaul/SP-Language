@@ -1704,3 +1704,70 @@ TEST(ExecutionTest, StdlibProcessNativeExecution) {
     EXPECT_NE(output.find("static_out_contains: true"), std::string::npos);
     EXPECT_NE(output.find("static_pid_gt_0: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, StdlibFullIntegrationNativeExecution) {
+    const std::string source = R"sp(
+        import std.io;
+        import std.string;
+        import std.math;
+        import std.collections;
+        import std.fs;
+        import std.time;
+        import std.os;
+        import std.process;
+
+        fn main() {
+            // 1. std.io
+            println("Full Stdlib Integration Verified!");
+
+            // 2. std.string
+            string raw = "  sp language  ";
+            string clean = raw.trim().upper();
+            println("clean_str: '${clean}'");
+
+            // 3. std.math
+            double sq = sqrt(64.0);
+            println("math_sqrt: ${sq}");
+
+            // 4. std.collections
+            List<int> nums = new List<int>();
+            nums.push(10);
+            nums.push(20);
+            nums.push(30);
+            println("list_len: ${nums.length()}");
+
+            Map<string, int> ages = new Map<string, int>();
+            string name = "Antigravity";
+            ages.set(name, 25);
+            println("map_val: ${ages.get(name)}");
+
+            // 5. std.fs
+            string dummyPath = "non_existent_test_file.sp";
+            println("fs_exists: ${exists(dummyPath)}");
+
+            // 6. std.time
+            int t = now();
+            println("time_now_gt_0: ${t > 0}");
+
+            // 7. std.os
+            string curPlatform = platform();
+            string curArch = arch();
+            println("os_info: ${curPlatform.length() > 0 && curArch.length() > 0}");
+
+            // 8. std.process
+            int currentPid = pid();
+            println("proc_pid_gt_0: ${currentPid > 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdlib_full_integration");
+    EXPECT_NE(output.find("Full Stdlib Integration Verified!"), std::string::npos);
+    EXPECT_NE(output.find("clean_str: 'SP LANGUAGE'"), std::string::npos);
+    EXPECT_NE(output.find("math_sqrt: 8"), std::string::npos);
+    EXPECT_NE(output.find("list_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("map_val: 25"), std::string::npos);
+    EXPECT_NE(output.find("fs_exists: false"), std::string::npos);
+    EXPECT_NE(output.find("time_now_gt_0: true"), std::string::npos);
+    EXPECT_NE(output.find("os_info: true"), std::string::npos);
+    EXPECT_NE(output.find("proc_pid_gt_0: true"), std::string::npos);
+}

@@ -88,4 +88,28 @@ TEST(GoldenParserTest, ParseStdlibMath) {
     assertFileParsesCleanly("stdlib/math/math.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibString) {
+    assertFileParsesCleanly("stdlib/string/string.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibCollections) {
+    assertFileParsesCleanly("stdlib/collections/collections.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibFS) {
+    assertFileParsesCleanly("stdlib/fs/fs.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibTime) {
+    assertFileParsesCleanly("stdlib/time/time.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibOS) {
+    assertFileParsesCleanly("stdlib/os/os.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibProcess) {
+    assertFileParsesCleanly("stdlib/process/process.sp");
+}
+
 } // namespace sp::parser::test
