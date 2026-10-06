@@ -41,7 +41,7 @@ if (Test-Path "K:\AndroidDev\tools\sdk\ndk\28.2.13676358\toolchains\llvm\prebuil
 }
 
 & $cmakeCmd -B "$scriptRoot\build" -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-& $cmakeCmd --build "$scriptRoot\build" --target spc
+& $cmakeCmd --build "$scriptRoot\build" --target spc spm
 
 # 2. Install to target directory
 Write-Host "`n[2/4] Installing SP toolchain into $InstallDir..." -ForegroundColor Green
@@ -72,14 +72,17 @@ $env:Path = "$env:Path;$spBinDir"
 # 4. Verify Installation
 Write-Host "`n[4/4] Verifying Installation..." -ForegroundColor Green
 $spcExe = "$spBinDir\spc.exe"
-if (Test-Path $spcExe) {
+$spmExe = "$spBinDir\spm.exe"
+if ((Test-Path $spcExe) -and (Test-Path $spmExe)) {
     & $spcExe --version
+    & $spmExe --version
     Write-Host "`n==========================================================" -ForegroundColor Green
     Write-Host "  Installation Complete!                                  " -ForegroundColor Green
     Write-Host "  You can now open any terminal and type:                 " -ForegroundColor Green
     Write-Host "      spc run main.sp                                     " -ForegroundColor White
     Write-Host "      spc build main.sp -o myapp.exe                      " -ForegroundColor White
+    Write-Host "      spm init myproject                                  " -ForegroundColor White
     Write-Host "==========================================================" -ForegroundColor Green
 } else {
-    Write-Error "spc.exe not found in $spBinDir after installation."
+    Write-Error "spc.exe or spm.exe not found in $spBinDir after installation."
 }
