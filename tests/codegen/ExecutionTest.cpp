@@ -552,3 +552,51 @@ TEST(ExecutionTest, StandardSetCollectionNativeExecution) {
     EXPECT_NE(output.find("1"), std::string::npos);
 }
 
+TEST(ExecutionTest, VariablesConstantsAndInterpolationNativeExecution) {
+    const std::string source = R"(
+        main() {
+            // Explicit types
+            int age = 21;
+            string name = "Shanto";
+            double salary = 75000.50;
+            float score = 95.5;
+            bool isActive = true;
+            char grade = 'A';
+
+            println("Name: ${name}");
+            println("Age: ${age}");
+            println("Salary: ${salary}");
+            println("Score: ${score}");
+            println("Active: ${isActive}");
+            println("Grade: ${grade}");
+
+            // Variables can be reassigned
+            age = 22;
+            name = "Shanto Paul";
+            println("Updated: ${name}, age ${age}");
+
+            // Constants
+            const int MAX_USERS = 1000;
+            const double TAX_RATE = 0.15;
+            const string APP_NAME = "MyApp";
+
+            println("App: ${APP_NAME}");
+            println("Max Users: ${MAX_USERS}");
+            println("Tax Rate: ${TAX_RATE}");
+        }
+    )";
+
+    std::string output = runSPProgram(source, "exec_var_const");
+    EXPECT_NE(output.find("Name: Shanto"), std::string::npos);
+    EXPECT_NE(output.find("Age: 21"), std::string::npos);
+    EXPECT_NE(output.find("Salary: 75000.5"), std::string::npos);
+    EXPECT_NE(output.find("Score: 95.5"), std::string::npos);
+    EXPECT_NE(output.find("Active: true"), std::string::npos);
+    EXPECT_NE(output.find("Grade: A"), std::string::npos);
+    EXPECT_NE(output.find("Updated: Shanto Paul, age 22"), std::string::npos);
+    EXPECT_NE(output.find("App: MyApp"), std::string::npos);
+    EXPECT_NE(output.find("Max Users: 1000"), std::string::npos);
+    EXPECT_NE(output.find("Tax Rate: 0.15"), std::string::npos);
+}
+
+

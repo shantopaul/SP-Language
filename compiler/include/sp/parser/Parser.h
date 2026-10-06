@@ -63,6 +63,7 @@ private:
     [[nodiscard]] Precedence getPrecedence(lexer::TokenType type) const noexcept;
 
     ast::ExprPtr parseGroupedOrLambda();
+    ast::ExprPtr parseStringLiteral();
     ast::ExprPtr parseArrayLiteral();
     ast::ExprPtr parseMapLiteral();
     ast::ExprPtr parseNewExpr();

@@ -1,4 +1,5 @@
 #include "sp/parser/Parser.h"
+#include "sp/lexer/Lexer.h"
 #include <iostream>
 
 namespace sp::parser {
@@ -238,7 +239,7 @@ ast::ExprPtr Parser::parsePrefix() {
         return std::make_unique<ast::LiteralExpr>(ast::LiteralKind::Float, previous().lexeme, previous().location);
     }
     if (match(lexer::TokenType::StringLiteral)) {
-        return std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, previous().lexeme, previous().location);
+        return parseStringLiteral();
     }
     if (match(lexer::TokenType::CharLiteral)) {
         return std::make_unique<ast::LiteralExpr>(ast::LiteralKind::Char, previous().lexeme, previous().location);
@@ -450,6 +451,72 @@ ast::ExprPtr Parser::parseGroupedOrLambda() {
     ast::ExprPtr expr = parseExpression();
     consume(lexer::TokenType::CloseParen, "Expected ')' after expression");
     return expr;
+}
+
+ast::ExprPtr Parser::parseStringLiteral() {
+    const std::string& str = previous().lexeme;
+    diagnostics::SourceLocation loc = previous().location;
+
+    if (str.find("${") == std::string::npos) {
+        return std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, str, loc);
+    }
+
+    std::vector<ast::ExprPtr> parts;
+    size_t lastPos = 0;
+
+    while (lastPos < str.size()) {
+        size_t start = str.find("${", lastPos);
+        if (start == std::string::npos) {
+            std::string text = str.substr(lastPos);
+            if (!text.empty() || parts.empty()) {
+                parts.push_back(std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, text, loc));
+            }
+            break;
+        }
+
+        if (start > lastPos) {
+            std::string prefix = str.substr(lastPos, start - lastPos);
+            parts.push_back(std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, prefix, loc));
+        }
+
+        size_t end = str.find('}', start + 2);
+        if (end == std::string::npos) {
+            parts.push_back(std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, str.substr(start), loc));
+            break;
+        }
+
+        std::string exprCode = str.substr(start + 2, end - (start + 2));
+        lexer::Lexer subLexer(exprCode);
+        std::vector<lexer::Token> subTokens = subLexer.tokenizeAll();
+        Parser subParser(subTokens, m_filename, m_diagnostics);
+        ast::ExprPtr parsedExpr = subParser.parseExpression();
+        if (parsedExpr) {
+            parts.push_back(std::move(parsedExpr));
+        }
+
+        lastPos = end + 1;
+    }
+
+    if (parts.empty()) {
+        return std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, "", loc);
+    }
+
+    size_t startIndex = 0;
+    ast::ExprPtr result = nullptr;
+    auto* firstLit = dynamic_cast<ast::LiteralExpr*>(parts[0].get());
+    if (firstLit && firstLit->getLiteralKind() == ast::LiteralKind::String) {
+        result = std::move(parts[0]);
+        startIndex = 1;
+    } else {
+        result = std::make_unique<ast::LiteralExpr>(ast::LiteralKind::String, "", loc);
+        startIndex = 0;
+    }
+
+    for (size_t i = startIndex; i < parts.size(); ++i) {
+        result = std::make_unique<ast::BinaryExpr>(std::move(result), lexer::TokenType::Plus, std::move(parts[i]), loc);
+    }
+
+    return result;
 }
 
 ast::ExprPtr Parser::parseArrayLiteral() {
@@ -907,6 +974,42 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         }
         consume(lexer::TokenType::CloseBrace, "Expected '}' after extern block");
         return std::make_unique<ast::BlockStmt>(std::move(externDecls), loc);
+    }
+
+    // Short-form function: main() { ... } or func() -> int { ... } without fn keyword
+    if (check(lexer::TokenType::Identifier) && checkNext(lexer::TokenType::OpenParen)) {
+        size_t lookahead = m_current + 1;
+        int parenDepth = 1;
+        lookahead++;
+        while (lookahead < m_tokens.size() && parenDepth > 0) {
+            if (m_tokens[lookahead].is(lexer::TokenType::OpenParen)) parenDepth++;
+            else if (m_tokens[lookahead].is(lexer::TokenType::CloseParen)) parenDepth--;
+            lookahead++;
+        }
+        if (lookahead < m_tokens.size()) {
+            if (m_tokens[lookahead].is(lexer::TokenType::OpenBrace) ||
+                m_tokens[lookahead].is(lexer::TokenType::Arrow) ||
+                m_tokens[lookahead].is(lexer::TokenType::FatArrow)) {
+                const lexer::Token& nameTok = advance();
+                diagnostics::SourceLocation loc = nameTok.location;
+                std::vector<ast::Parameter> params = parseParameters();
+                std::string returnType = "void";
+                if (match(lexer::TokenType::Arrow)) {
+                    returnType = parseType();
+                }
+                std::unique_ptr<ast::BlockStmt> body = nullptr;
+                std::unique_ptr<ast::ExpressionNode> exprBody = nullptr;
+                if (match(lexer::TokenType::FatArrow)) {
+                    exprBody = parseExpression();
+                    consume(lexer::TokenType::Semicolon, "Expected ';' after expression body");
+                } else {
+                    body = parseBlock();
+                }
+                return std::make_unique<ast::FunctionDecl>(
+                    nameTok.lexeme, std::move(params), returnType,
+                    std::move(body), std::move(exprBody), visibility, isStatic, isOverride, isAbstract, false, loc);
+            }
+        }
     }
 
     // Syntax Compatibility: Java/C++ style declarations (type identifier (...) or type identifier = ...;)
