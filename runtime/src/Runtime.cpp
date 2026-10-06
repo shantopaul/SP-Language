@@ -1196,6 +1196,11 @@ void sp_rt_os_exit(int64_t code) {
 int64_t sp_rt_process_exec(const char* cmd) {
     if (!cmd) return -1;
     int ret = std::system(cmd);
+#if !defined(_WIN32)
+    if (WIFEXITED(ret)) {
+        return static_cast<int64_t>(WEXITSTATUS(ret));
+    }
+#endif
     return static_cast<int64_t>(ret);
 }
 
