@@ -197,12 +197,15 @@ class User extends Entity implements Printable {
 
     <section id="benchmarks">
       <h2>7. Performance Benchmarks</h2>
-      <p>SP compiles straight to machine code through LLVM with <code>-O3</code> optimizations. Benchmark comparisons:</p>
+      <p>SP compiles straight to native machine code through LLVM with <code>-O3</code> optimizations. Measurements across 7 languages:</p>
       <ul>
-        <li><strong>Recursive Fibonacci (35):</strong> SP: 39.86 ms | C: 31.09 ms | Python: 1,455.06 ms (<strong>36.5x faster than Python</strong>)</li>
-        <li><strong>Matrix Multiplication (64x64):</strong> SP: 13.43 ms | C: 7.81 ms | Python: 52.22 ms (<strong>3.9x faster than Python</strong>)</li>
-        <li><strong>Prime Sieve (100,000):</strong> SP: 14.23 ms | C: 8.80 ms | Python: 92.42 ms (<strong>6.5x faster than Python</strong>)</li>
+        <li><strong>Recursive Fibonacci (35):</strong> SP: 39.62 ms | C: 29.67 ms | C++: 37.87 ms | Rust: 29.30 ms | Java: 102.54 ms | Node: 144.29 ms | Python: 1,402.38 ms (<strong>35.4x faster than Python</strong>)</li>
+        <li><strong>Matrix Multiplication (64x64):</strong> SP: 12.83 ms | C: 7.43 ms | C++: 14.93 ms | Rust: 7.49 ms | Java: 72.96 ms | Node: 50.86 ms | Python: 53.69 ms (<strong>4.2x faster than Python</strong>)</li>
+        <li><strong>Prime Sieve (100,000):</strong> SP: 14.18 ms | C: 9.24 ms | C++: 15.81 ms | Rust: 10.06 ms | Java: 73.25 ms | Node: 48.88 ms | Python: 90.57 ms (<strong>6.4x faster than Python</strong>)</li>
+        <li><strong>Mandelbrot (500 iters):</strong> SP: 13.41 ms | C: 7.60 ms | C++: 14.67 ms | Rust: 8.42 ms | Java: 69.74 ms | Node: 47.43 ms | Python: 70.71 ms (<strong>5.3x faster than Python</strong>)</li>
+        <li><strong>Quicksort (32 elements):</strong> SP: 12.79 ms | C: 6.34 ms | C++: 12.64 ms | Rust: 7.40 ms | Java: 70.94 ms | Node: 45.34 ms | Python: 31.13 ms (<strong>2.4x faster than Python</strong>)</li>
       </ul>
+      <p>For complete methodologies, compiler flags, and memory analysis, see <a href="https://github.com/shantopaul/SP-Language/blob/main/docs/BENCHMARKS.md" style="color: var(--primary);">docs/BENCHMARKS.md</a>.</p>
     </section>
   </main>
 

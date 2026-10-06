@@ -215,40 +215,65 @@
         <thead>
           <tr>
             <th>Benchmark Workload</th>
-            <th>SP (-O3)</th>
-            <th>C (clang -O3)</th>
+            <th>SP 1.0 (-O3)</th>
+            <th>C / C++ (-O3)</th>
+            <th>Rust (-O)</th>
+            <th>Java 21</th>
+            <th>Node.js</th>
             <th>Python 3</th>
-            <th>SP Speedup</th>
+            <th>SP vs Python</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Recursive Fibonacci (35)</strong></td>
-            <td class="highlight-sp">39.86 ms</td>
-            <td>31.09 ms</td>
-            <td>1,455.06 ms</td>
-            <td><span class="speedup-badge">36.5x faster</span></td>
+            <td class="highlight-sp">39.62 ms</td>
+            <td>29.67 ms / 37.87 ms</td>
+            <td>29.30 ms</td>
+            <td>102.54 ms</td>
+            <td>144.29 ms</td>
+            <td>1,402.38 ms</td>
+            <td><span class="speedup-badge">35.4x faster</span></td>
           </tr>
           <tr>
-            <td><strong>Matrix Multiplication (64x64)</strong></td>
-            <td class="highlight-sp">13.43 ms</td>
-            <td>7.81 ms</td>
-            <td>52.22 ms</td>
-            <td><span class="speedup-badge">3.9x faster</span></td>
+            <td><strong>Matrix Multiply (64x64)</strong></td>
+            <td class="highlight-sp">12.83 ms</td>
+            <td>7.43 ms / 14.93 ms</td>
+            <td>7.49 ms</td>
+            <td>72.96 ms</td>
+            <td>50.86 ms</td>
+            <td>53.69 ms</td>
+            <td><span class="speedup-badge">4.2x faster</span></td>
           </tr>
           <tr>
             <td><strong>Prime Sieve (100,000)</strong></td>
-            <td class="highlight-sp">14.23 ms</td>
-            <td>8.80 ms</td>
-            <td>92.42 ms</td>
-            <td><span class="speedup-badge">6.5x faster</span></td>
+            <td class="highlight-sp">14.18 ms</td>
+            <td>9.24 ms / 15.81 ms</td>
+            <td>10.06 ms</td>
+            <td>73.25 ms</td>
+            <td>48.88 ms</td>
+            <td>90.57 ms</td>
+            <td><span class="speedup-badge">6.4x faster</span></td>
+          </tr>
+          <tr>
+            <td><strong>Mandelbrot (500 iters)</strong></td>
+            <td class="highlight-sp">13.41 ms</td>
+            <td>7.60 ms / 14.67 ms</td>
+            <td>8.42 ms</td>
+            <td>69.74 ms</td>
+            <td>47.43 ms</td>
+            <td>70.71 ms</td>
+            <td><span class="speedup-badge">5.3x faster</span></td>
           </tr>
           <tr>
             <td><strong>Quicksort (32 elements)</strong></td>
-            <td class="highlight-sp">12.49 ms</td>
-            <td>7.33 ms</td>
-            <td>31.05 ms</td>
-            <td><span class="speedup-badge">2.5x faster</span></td>
+            <td class="highlight-sp">12.79 ms</td>
+            <td>6.34 ms / 12.64 ms</td>
+            <td>7.40 ms</td>
+            <td>70.94 ms</td>
+            <td>45.34 ms</td>
+            <td>31.13 ms</td>
+            <td><span class="speedup-badge">2.4x faster</span></td>
           </tr>
         </tbody>
       </table>
