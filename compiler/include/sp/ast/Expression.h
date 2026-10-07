@@ -269,4 +269,19 @@ private:
     std::vector<ExprPtr> m_args;
 };
 
+class TryExpr : public ExpressionNode {
+public:
+    TryExpr(ExprPtr expr, diagnostics::SourceLocation loc)
+        : ExpressionNode(ASTNodeKind::TryExpr, std::move(loc)),
+          m_expr(std::move(expr)) {}
+
+    [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
+    [[nodiscard]] const ExprPtr& getExprPtr() const noexcept { return m_expr; }
+
+    void accept(ASTVisitor& visitor) const override;
+
+private:
+    ExprPtr m_expr;
+};
+
 } // namespace sp::ast

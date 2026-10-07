@@ -76,6 +76,7 @@ std::string_view tokenTypeToString(TokenType type) noexcept {
         case TokenType::Comment: return "Comment";
         case TokenType::DocComment: return "DocComment";
         case TokenType::At: return "@";
+        case TokenType::Hash: return "#";
 
         case TokenType::KeywordVoid: return "void";
         case TokenType::KeywordInt: return "int";

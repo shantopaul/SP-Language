@@ -28,6 +28,7 @@ public:
     void visit(const TernaryExpr& node) override;
     void visit(const AssignExpr& node) override;
     void visit(const NewExpr& node) override;
+    void visit(const TryExpr& node) override;
 
     // Statements
     void visit(const BlockStmt& node) override;

@@ -416,4 +416,146 @@ TEST(ParserTest, GenericClassAndFunctionDeclarations) {
     EXPECT_EQ(callExpr->getTypeArgs()[0], "int");
 }
 
+TEST(ParserTest, TaggedUnionEnumDeclaration) {
+    std::string_view src = R"(
+        enum Result<T, E> {
+            Ok(T),
+            Err(E)
+        }
+
+        enum Option<T> {
+            Some(T),
+            None
+        }
+
+        enum Status {
+            Ready,
+            Active(int),
+            Failed(string)
+        }
+    )";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 3);
+
+    auto* resEnum = dynamic_cast<ast::EnumDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(resEnum, nullptr);
+    EXPECT_EQ(resEnum->getName(), "Result");
+    EXPECT_TRUE(resEnum->isGeneric());
+    ASSERT_EQ(resEnum->getTypeParams().size(), 2);
+    EXPECT_EQ(resEnum->getTypeParams()[0], "T");
+    EXPECT_EQ(resEnum->getTypeParams()[1], "E");
+    ASSERT_EQ(resEnum->getVariants().size(), 2);
+    EXPECT_EQ(resEnum->getVariants()[0].getName(), "Ok");
+    EXPECT_TRUE(resEnum->getVariants()[0].hasPayload());
+    EXPECT_EQ(resEnum->getVariants()[0].getPayloadTypes()[0], "T");
+    EXPECT_EQ(resEnum->getVariants()[1].getName(), "Err");
+    EXPECT_TRUE(resEnum->getVariants()[1].hasPayload());
+    EXPECT_EQ(resEnum->getVariants()[1].getPayloadTypes()[0], "E");
+
+    auto* optEnum = dynamic_cast<ast::EnumDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(optEnum, nullptr);
+    EXPECT_EQ(optEnum->getName(), "Option");
+    EXPECT_TRUE(optEnum->isGeneric());
+    ASSERT_EQ(optEnum->getVariants().size(), 2);
+    EXPECT_TRUE(optEnum->getVariants()[0].hasPayload());
+    EXPECT_FALSE(optEnum->getVariants()[1].hasPayload());
+
+    auto* statusEnum = dynamic_cast<ast::EnumDecl*>(program->getDeclarations()[2].get());
+    ASSERT_NE(statusEnum, nullptr);
+    EXPECT_EQ(statusEnum->getName(), "Status");
+    EXPECT_FALSE(statusEnum->isGeneric());
+    ASSERT_EQ(statusEnum->getVariants().size(), 3);
+    EXPECT_FALSE(statusEnum->getVariants()[0].hasPayload());
+    EXPECT_TRUE(statusEnum->getVariants()[1].hasPayload());
+    EXPECT_TRUE(statusEnum->getVariants()[2].hasPayload());
+}
+
+TEST(ParserTest, TryOperatorExpression) {
+    // 1. Basic try operator: expr?
+    ast::ExprPtr expr1 = parseExpr("readData()?");
+    ASSERT_NE(expr1, nullptr);
+    EXPECT_EQ(expr1->getKind(), ast::ASTNodeKind::TryExpr);
+    auto* try1 = dynamic_cast<ast::TryExpr*>(expr1.get());
+    ASSERT_NE(try1, nullptr);
+    EXPECT_EQ(try1->getExpr().getKind(), ast::ASTNodeKind::CallExpr);
+
+    // 2. Try operator in binary expression: expr? + 10
+    ast::ExprPtr expr2 = parseExpr("stepOk()? + 10");
+    ASSERT_NE(expr2, nullptr);
+    EXPECT_EQ(expr2->getKind(), ast::ASTNodeKind::BinaryExpr);
+    auto* bin2 = dynamic_cast<ast::BinaryExpr*>(expr2.get());
+    EXPECT_EQ(bin2->getLeft().getKind(), ast::ASTNodeKind::TryExpr);
+    EXPECT_EQ(bin2->getOp(), lexer::TokenType::Plus);
+
+    // 3. Ternary disambiguation: cond ? a? : b
+    ast::ExprPtr expr3 = parseExpr("isValid ? getData()? : fallback");
+    ASSERT_NE(expr3, nullptr);
+    EXPECT_EQ(expr3->getKind(), ast::ASTNodeKind::TernaryExpr);
+    auto* tern3 = dynamic_cast<ast::TernaryExpr*>(expr3.get());
+    EXPECT_EQ(tern3->getCondition().getKind(), ast::ASTNodeKind::IdentifierExpr);
+    EXPECT_EQ(tern3->getThenExpr().getKind(), ast::ASTNodeKind::TryExpr);
+    EXPECT_EQ(tern3->getElseExpr().getKind(), ast::ASTNodeKind::IdentifierExpr);
+}
+
+TEST(ParserTest, ReprCStructDeclaration) {
+    const std::string src = R"sp(
+        #[repr(C)]
+        struct Point {
+            x: int32;
+            y: int32;
+        }
+
+        struct RegularStruct {
+            val: int64;
+        }
+    )sp";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 2);
+
+    auto* pt = dynamic_cast<ast::StructDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(pt, nullptr);
+    EXPECT_EQ(pt->getName(), "Point");
+    EXPECT_TRUE(pt->isReprC());
+    EXPECT_EQ(pt->getFields().size(), 2);
+
+    auto* reg = dynamic_cast<ast::StructDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(reg, nullptr);
+    EXPECT_EQ(reg->getName(), "RegularStruct");
+    EXPECT_FALSE(reg->isReprC());
+}
+
+TEST(ParserTest, UnsafeBlocksAndRawPointers) {
+    const std::string src = R"sp(
+        unsafe fn mutatePtr(p: ptr<int32>) {
+            *p = 42;
+        }
+
+        fn main() {
+            var x: int32 = 10;
+            unsafe {
+                var p: ptr<int32> = &x;
+                p[0] = 99;
+            }
+        }
+    )sp";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 2);
+
+    auto* fnDecl = dynamic_cast<ast::FunctionDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(fnDecl, nullptr);
+    EXPECT_EQ(fnDecl->getName(), "mutatePtr");
+    EXPECT_TRUE(fnDecl->isUnsafe());
+    EXPECT_EQ(fnDecl->getParams()[0].getType(), "ptr<int32>");
+
+    auto* mainDecl = dynamic_cast<ast::FunctionDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(mainDecl, nullptr);
+    EXPECT_FALSE(mainDecl->isUnsafe());
+}
+
 } // namespace sp::parser::test

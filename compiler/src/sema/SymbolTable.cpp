@@ -324,6 +324,19 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("isFile", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("isDir", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getBool()), builtinLoc));
 
+    auto resultStrIO = typeCtx.resolveType("Result<string, IOError>");
+    auto resultBoolIO = typeCtx.resolveType("Result<bool, IOError>");
+    if (resultStrIO) {
+        define(std::make_shared<FunctionSymbol>("tryReadText", typeCtx.getFunctionType({typeCtx.getString()}, resultStrIO), builtinLoc));
+        define(std::make_shared<FunctionSymbol>("tryReadLine", typeCtx.getFunctionType({}, resultStrIO), builtinLoc));
+    }
+    if (resultBoolIO) {
+        define(std::make_shared<FunctionSymbol>("tryWriteText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, resultBoolIO), builtinLoc));
+        define(std::make_shared<FunctionSymbol>("tryAppendText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, resultBoolIO), builtinLoc));
+        define(std::make_shared<FunctionSymbol>("tryDelete", typeCtx.getFunctionType({typeCtx.getString()}, resultBoolIO), builtinLoc));
+        define(std::make_shared<FunctionSymbol>("tryCreateDir", typeCtx.getFunctionType({typeCtx.getString()}, resultBoolIO), builtinLoc));
+    }
+
     // Built-in time functions (std.time)
     define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));

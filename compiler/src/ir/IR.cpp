@@ -146,6 +146,9 @@ std::string ConstantString::toString() const {
 }
 
 std::string ConstantNull::toString() const {
+    if (getType() && getType()->isStruct()) {
+        return "zeroinitializer";
+    }
     return "null";
 }
 

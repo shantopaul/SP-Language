@@ -42,6 +42,7 @@ public:
     void visit(const ast::TernaryExpr& node) override;
     void visit(const ast::AssignExpr& node) override;
     void visit(const ast::NewExpr& node) override;
+    void visit(const ast::TryExpr& node) override;
 
     // Statements
     void visit(const ast::BlockStmt& node) override;
@@ -90,6 +91,7 @@ private:
     std::shared_ptr<ClassType> m_currentEnclosingClass{nullptr};
     int m_loopDepth{0};
     int m_switchDepth{0};
+    bool m_inUnsafeContext{false};
 
     std::unordered_map<const ast::ExpressionNode*, TypePtr> m_nodeTypes;
 };

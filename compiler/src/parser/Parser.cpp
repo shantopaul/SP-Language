@@ -40,6 +40,7 @@ const lexer::Token& Parser::advance() noexcept {
 
 bool Parser::check(lexer::TokenType type) const noexcept {
     if (isAtEnd()) return false;
+    if (type == lexer::TokenType::Greater && m_pendingGreater > 0) return true;
     return peek().is(type);
 }
 
@@ -49,6 +50,22 @@ bool Parser::checkNext(lexer::TokenType type) const noexcept {
 }
 
 bool Parser::match(lexer::TokenType type) noexcept {
+    if (type == lexer::TokenType::Greater) {
+        if (m_pendingGreater > 0) {
+            m_pendingGreater--;
+            advance();
+            return true;
+        }
+        if (check(lexer::TokenType::Greater)) {
+            advance();
+            return true;
+        }
+        if (check(lexer::TokenType::GreaterGreater)) {
+            m_pendingGreater = 1;
+            return true;
+        }
+        return false;
+    }
     if (check(type)) {
         advance();
         return true;
@@ -58,8 +75,7 @@ bool Parser::match(lexer::TokenType type) noexcept {
 
 bool Parser::matchAny(std::initializer_list<lexer::TokenType> types) noexcept {
     for (auto type : types) {
-        if (check(type)) {
-            advance();
+        if (match(type)) {
             return true;
         }
     }
@@ -67,8 +83,8 @@ bool Parser::matchAny(std::initializer_list<lexer::TokenType> types) noexcept {
 }
 
 const lexer::Token& Parser::consume(lexer::TokenType type, std::string_view message, std::string_view hint) {
-    if (check(type)) {
-        return advance();
+    if (match(type)) {
+        return previous();
     }
     errorAt(peek(), message, hint);
     static const lexer::Token errorTok(lexer::TokenType::Invalid, "", diagnostics::SourceLocation("<err>", 0, 0));
@@ -141,6 +157,90 @@ bool Parser::isGenericCall(size_t startPos) const noexcept {
     return false;
 }
 
+bool Parser::isTernaryQuestion() const noexcept {
+    return isTernaryQuestionAt(m_current);
+}
+
+bool Parser::isTernaryQuestionAt(size_t pos) const noexcept {
+    if (pos >= m_tokens.size() || !m_tokens[pos].is(lexer::TokenType::Question)) {
+        return false;
+    }
+
+    size_t next = pos + 1;
+    if (next >= m_tokens.size()) {
+        return false;
+    }
+
+    const auto& nextTok = m_tokens[next];
+    if (nextTok.is(lexer::TokenType::Colon) ||
+        nextTok.is(lexer::TokenType::Semicolon) ||
+        nextTok.is(lexer::TokenType::Comma) ||
+        nextTok.is(lexer::TokenType::CloseParen) ||
+        nextTok.is(lexer::TokenType::CloseBracket) ||
+        nextTok.is(lexer::TokenType::CloseBrace) ||
+        nextTok.is(lexer::TokenType::FatArrow) ||
+        nextTok.is(lexer::TokenType::EndOfFile)) {
+        return false;
+    }
+
+    int parenDepth = 0;
+    int bracketDepth = 0;
+    int braceDepth = 0;
+    int ternaryDepth = 0;
+
+    for (size_t i = next; i < m_tokens.size(); ++i) {
+        const auto& tok = m_tokens[i];
+        if (tok.is(lexer::TokenType::OpenParen)) {
+            parenDepth++;
+        } else if (tok.is(lexer::TokenType::CloseParen)) {
+            if (parenDepth == 0) return false;
+            parenDepth--;
+        } else if (tok.is(lexer::TokenType::OpenBracket)) {
+            bracketDepth++;
+        } else if (tok.is(lexer::TokenType::CloseBracket)) {
+            if (bracketDepth == 0) return false;
+            bracketDepth--;
+        } else if (tok.is(lexer::TokenType::OpenBrace)) {
+            braceDepth++;
+        } else if (tok.is(lexer::TokenType::CloseBrace)) {
+            if (braceDepth == 0) return false;
+            braceDepth--;
+        } else if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
+            if (tok.is(lexer::TokenType::Semicolon) ||
+                tok.is(lexer::TokenType::Comma) ||
+                tok.is(lexer::TokenType::FatArrow) ||
+                tok.is(lexer::TokenType::EndOfFile) ||
+                tok.is(lexer::TokenType::KeywordReturn) ||
+                tok.is(lexer::TokenType::KeywordLet) ||
+                tok.is(lexer::TokenType::KeywordVar) ||
+                tok.is(lexer::TokenType::KeywordConst) ||
+                tok.is(lexer::TokenType::KeywordFn)) {
+                return false;
+            }
+            if (tok.is(lexer::TokenType::Question)) {
+                if (i + 1 < m_tokens.size()) {
+                    const auto& afterQ = m_tokens[i + 1];
+                    if (!afterQ.is(lexer::TokenType::Colon) &&
+                        !afterQ.is(lexer::TokenType::Semicolon) &&
+                        !afterQ.is(lexer::TokenType::Comma) &&
+                        !afterQ.is(lexer::TokenType::CloseParen) &&
+                        !afterQ.is(lexer::TokenType::CloseBracket) &&
+                        !afterQ.is(lexer::TokenType::CloseBrace)) {
+                        ternaryDepth++;
+                    }
+                }
+            } else if (tok.is(lexer::TokenType::Colon)) {
+                if (ternaryDepth == 0) {
+                    return true;
+                }
+                ternaryDepth--;
+            }
+        }
+    }
+
+    return false;
+}
+
 Precedence Parser::getPrecedence(lexer::TokenType type) const noexcept {
     switch (type) {
         case lexer::TokenType::Equal:
@@ -152,7 +252,7 @@ Precedence Parser::getPrecedence(lexer::TokenType type) const noexcept {
             return Precedence::Assignment;
 
         case lexer::TokenType::Question:
-            return Precedence::Ternary;
+            return isTernaryQuestion() ? Precedence::Ternary : Precedence::Call;
 
         case lexer::TokenType::QuestionQuestion:
             return Precedence::NullCoalescing;
@@ -305,9 +405,10 @@ ast::ExprPtr Parser::parsePrefix() {
         return parseNewExpr();
     }
 
-    // Prefix unary operators (!, -, +, ~, ++, --)
+    // Prefix unary operators (!, -, +, ~, ++, --, *, &)
     if (matchAny({lexer::TokenType::Bang, lexer::TokenType::Minus, lexer::TokenType::Plus,
-                  lexer::TokenType::Tilde, lexer::TokenType::PlusPlus, lexer::TokenType::MinusMinus})) {
+                  lexer::TokenType::Tilde, lexer::TokenType::PlusPlus, lexer::TokenType::MinusMinus,
+                  lexer::TokenType::Star, lexer::TokenType::Amp})) {
         lexer::TokenType op = previous().type;
         diagnostics::SourceLocation loc = previous().location;
         ast::ExprPtr operand = parseExpression(Precedence::Unary);
@@ -377,8 +478,11 @@ ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
         return std::make_unique<ast::MemberExpr>(std::move(left), memberTok.lexeme, isSafeNav, loc);
     }
 
-    // Ternary Operator: condition ? thenExpr : elseExpr
+    // Ternary Operator: condition ? thenExpr : elseExpr, or Postfix Try: expr?
     if (opTok.is(lexer::TokenType::Question)) {
+        if (!isTernaryQuestionAt(m_current - 1)) {
+            return std::make_unique<ast::TryExpr>(std::move(left), loc);
+        }
         ast::ExprPtr thenExpr = parseExpression();
         consume(lexer::TokenType::Colon, "Expected ':' in ternary operator");
         ast::ExprPtr elseExpr = parseExpression(Precedence::Ternary);
@@ -665,9 +769,17 @@ ast::StmtPtr Parser::parseStatement() {
         auto ed = parseEnumDecl("");
         return std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(ed.release()));
     }
+    if (match(lexer::TokenType::KeywordUnsafe)) {
+        if (check(lexer::TokenType::OpenBrace)) {
+            auto block = parseBlock();
+            if (block) block->setUnsafe(true);
+            return block;
+        }
+    }
 
     // Check for variable declaration with explicit or user-defined type: int x = 10; or Person p = ...;
     bool couldBeTypeDecl = isTypeKeyword(peek().type) ||
+                           check(lexer::TokenType::Star) ||
                            (check(lexer::TokenType::Identifier) &&
                             (checkNext(lexer::TokenType::Identifier) ||
                              checkNext(lexer::TokenType::Less) ||
@@ -970,11 +1082,27 @@ ast::StmtPtr Parser::parseExprStatement() {
 }
 
 ast::ASTNodePtr Parser::parseDeclaration() {
+    bool isReprC = false;
+    if (match(lexer::TokenType::Hash)) {
+        consume(lexer::TokenType::OpenBracket, "Expected '[' after '#'");
+        const lexer::Token& attrName = consume(lexer::TokenType::Identifier, "Expected attribute name");
+        if (attrName.lexeme == "repr") {
+            consume(lexer::TokenType::OpenParen, "Expected '(' after 'repr'");
+            const lexer::Token& reprArg = consume(lexer::TokenType::Identifier, "Expected repr argument (e.g. C)");
+            if (reprArg.lexeme == "C") {
+                isReprC = true;
+            }
+            consume(lexer::TokenType::CloseParen, "Expected ')' after repr argument");
+        }
+        consume(lexer::TokenType::CloseBracket, "Expected ']' after attribute");
+    }
+
     std::string visibility;
     bool isStatic = false;
     bool isOverride = false;
     bool isAbstract = false;
     bool isWeak = false;
+    bool isUnsafe = false;
 
     // Modifiers
     while (true) {
@@ -986,15 +1114,22 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         if (match(lexer::TokenType::KeywordOverride)) { isOverride = true; continue; }
         if (match(lexer::TokenType::KeywordAbstract)) { isAbstract = true; continue; }
         if (match(lexer::TokenType::KeywordWeak)) { isWeak = true; continue; }
+        if (match(lexer::TokenType::KeywordUnsafe)) { isUnsafe = true; continue; }
         break;
+    }
+
+    if (isUnsafe && check(lexer::TokenType::OpenBrace)) {
+        auto block = parseBlock();
+        if (block) block->setUnsafe(true);
+        return block;
     }
 
     if (match(lexer::TokenType::KeywordModule)) return parseModuleDecl();
     if (match(lexer::TokenType::KeywordImport)) return parseImportDecl();
-    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract);
+    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract, isUnsafe);
     if (match(lexer::TokenType::KeywordClass)) return parseClassDecl(visibility, isAbstract);
     if (match(lexer::TokenType::KeywordInterface)) return parseInterfaceDecl(visibility);
-    if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility);
+    if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility, isReprC);
     if (match(lexer::TokenType::KeywordEnum)) return parseEnumDecl(visibility);
     if (match(lexer::TokenType::KeywordTest)) return parseTestDecl();
 
@@ -1149,7 +1284,7 @@ ast::ASTNodePtr Parser::parseImportDecl() {
     return std::make_unique<ast::ImportDecl>(importPath, isWildcard, loc);
 }
 
-ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract) {
+ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract, bool isUnsafe) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
         ? advance()
@@ -1187,10 +1322,12 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
         errorAt(peek(), "Expected '{' or '=>' for function body");
     }
 
-    return std::make_unique<ast::FunctionDecl>(
+    auto fnDecl = std::make_unique<ast::FunctionDecl>(
         name, std::move(typeParams), std::move(params), returnType,
         std::move(body), std::move(shortBody),
         visibility, isStatic, isOverride, isAbstract, false, loc);
+    fnDecl->setUnsafe(isUnsafe);
+    return fnDecl;
 }
 
 ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) {
@@ -1292,7 +1429,7 @@ ast::ASTNodePtr Parser::parseInterfaceDecl(std::string visibility) {
     return std::make_unique<ast::InterfaceDecl>(name, std::move(methods), visibility, loc);
 }
 
-ast::ASTNodePtr Parser::parseStructDecl(std::string visibility) {
+ast::ASTNodePtr Parser::parseStructDecl(std::string visibility, bool isReprC) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected struct name");
     std::string name = nameTok.lexeme;
@@ -1317,12 +1454,16 @@ ast::ASTNodePtr Parser::parseStructDecl(std::string visibility) {
             fieldLoc = fTok.location;
         }
 
-        consume(lexer::TokenType::Semicolon, "Expected ';' after struct field");
+        if (!match(lexer::TokenType::Semicolon) && !match(lexer::TokenType::Comma)) {
+            if (!check(lexer::TokenType::CloseBrace) && !isAtEnd()) {
+                advance();
+            }
+        }
         fields.push_back(std::make_unique<ast::VarDeclStmt>(type, fieldName, nullptr, false, false, fieldLoc));
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of struct body");
-    return std::make_unique<ast::StructDecl>(name, std::move(fields), visibility, loc);
+    return std::make_unique<ast::StructDecl>(name, std::move(fields), visibility, isReprC, loc);
 }
 
 ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
@@ -1330,19 +1471,38 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected enum name");
     std::string name = nameTok.lexeme;
 
+    std::vector<std::string> typeParams;
+    if (match(lexer::TokenType::Less)) {
+        do {
+            const lexer::Token& paramTok = consume(lexer::TokenType::Identifier, "Expected type parameter name");
+            typeParams.push_back(paramTok.lexeme);
+        } while (match(lexer::TokenType::Comma));
+        consume(lexer::TokenType::Greater, "Expected '>' after generic type parameters");
+    }
+
     consume(lexer::TokenType::OpenBrace, "Expected '{' to start enum body");
 
     std::vector<ast::EnumVariant> variants;
 
     while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
         const lexer::Token& varTok = consume(lexer::TokenType::Identifier, "Expected enum variant identifier");
-        ast::ExprPtr val = nullptr;
+        std::vector<std::string> payloadTypes;
 
+        if (match(lexer::TokenType::OpenParen)) {
+            if (!check(lexer::TokenType::CloseParen)) {
+                do {
+                    payloadTypes.push_back(parseType());
+                } while (match(lexer::TokenType::Comma));
+            }
+            consume(lexer::TokenType::CloseParen, "Expected ')' after enum variant payload types");
+        }
+
+        ast::ExprPtr val = nullptr;
         if (match(lexer::TokenType::Equal)) {
             val = parseExpression();
         }
 
-        variants.emplace_back(varTok.lexeme, std::move(val));
+        variants.emplace_back(varTok.lexeme, std::move(val), std::move(payloadTypes));
 
         if (!match(lexer::TokenType::Comma)) {
             break;
@@ -1350,7 +1510,7 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of enum body");
-    return std::make_unique<ast::EnumDecl>(name, std::move(variants), visibility, loc);
+    return std::make_unique<ast::EnumDecl>(name, std::move(typeParams), std::move(variants), visibility, loc);
 }
 
 ast::ASTNodePtr Parser::parseTestDecl() {
@@ -1407,6 +1567,10 @@ ast::ASTNodePtr Parser::parseTestDecl() {
 }
 
 std::string Parser::parseType() {
+    if (match(lexer::TokenType::Star)) {
+        return "ptr<" + parseType() + ">";
+    }
+
     std::string type;
     if (isTypeKeyword(peek().type)) {
         type = advance().lexeme;
@@ -1414,10 +1578,11 @@ std::string Parser::parseType() {
         type = previous().lexeme;
     } else {
         errorAt(peek(), "Expected type name");
+        if (!isAtEnd()) advance();
         return "unknown";
     }
 
-    // Generic type parameters: List<int>, Map<string, User>
+    // Generic type parameters: List<int>, Map<string, User>, ptr<ptr<T>>
     if (match(lexer::TokenType::Less)) {
         type += "<";
         do {
@@ -1426,9 +1591,15 @@ std::string Parser::parseType() {
                 type += ", ";
                 advance();
             }
-        } while (!isAtEnd() && !check(lexer::TokenType::Greater));
-        consume(lexer::TokenType::Greater, "Expected '>' after generic type arguments");
-        type += ">";
+        } while (!isAtEnd() && !check(lexer::TokenType::Greater) && !check(lexer::TokenType::GreaterGreater));
+
+        if (match(lexer::TokenType::Greater)) {
+            type += ">";
+        } else {
+            errorAt(peek(), "Expected '>' after generic type arguments");
+            if (!isAtEnd()) advance();
+            type += ">";
+        }
     }
 
     // Array type: int[]

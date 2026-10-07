@@ -119,6 +119,11 @@ void EscapeAnalysis::collectIdentifiers(const ast::ExpressionNode* expr, std::ve
             collectIdentifiers(&un->getOperand(), outNames);
             break;
         }
+        case ast::ASTNodeKind::TryExpr: {
+            const auto* tr = static_cast<const ast::TryExpr*>(expr);
+            collectIdentifiers(&tr->getExpr(), outNames);
+            break;
+        }
         case ast::ASTNodeKind::TernaryExpr: {
             const auto* tern = static_cast<const ast::TernaryExpr*>(expr);
             collectIdentifiers(&tern->getCondition(), outNames);
@@ -295,6 +300,10 @@ void EscapeAnalysis::visit(const ast::NewExpr& node) {
     for (const auto& arg : node.getArgs()) {
         if (arg) arg->accept(*this);
     }
+}
+
+void EscapeAnalysis::visit(const ast::TryExpr& node) {
+    node.getExpr().accept(*this);
 }
 
 void EscapeAnalysis::visit(const ast::BlockStmt& node) {

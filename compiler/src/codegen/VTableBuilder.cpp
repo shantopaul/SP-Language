@@ -16,9 +16,24 @@ ir::IRTypePtr VTableBuilder::mapType(const std::string& typeName) const {
     if (typeName == "float") return ir::IRType::getFloat();
     if (typeName == "double") return ir::IRType::getDouble();
     if (typeName == "string") return ir::IRType::getPointer(ir::IRType::getInt8());
+    if (typeName == "ptr" || typeName.rfind("ptr<", 0) == 0) return ir::IRType::getPointer();
+
+    if (typeName == "Result" || typeName.rfind("Result<", 0) == 0) {
+        return ir::IRType::getStruct("struct.Result", {ir::IRType::getInt32(), ir::IRType::getInt64()});
+    }
+    if (typeName == "Option" || typeName.rfind("Option<", 0) == 0) {
+        return ir::IRType::getStruct("struct.Option", {ir::IRType::getInt32(), ir::IRType::getInt64()});
+    }
 
     auto userType = m_sema.getTypeContext().findUserType(typeName);
     if (userType && userType->isEnum()) {
+        auto en = std::static_pointer_cast<sema::EnumType>(userType);
+        if (en && en->isTaggedUnion()) {
+            std::string name = en->getName();
+            if (name.rfind("Result", 0) == 0) name = "Result";
+            else if (name.rfind("Option", 0) == 0) name = "Option";
+            return ir::IRType::getStruct("struct." + name, {ir::IRType::getInt32(), ir::IRType::getInt64()});
+        }
         return ir::IRType::getInt32();
     }
 
@@ -72,6 +87,68 @@ void VTableBuilder::buildProgramLayouts(const ast::Program& program, ir::IRModul
         if (decl->getKind() == ast::ASTNodeKind::StructDecl) {
             const auto& structDecl = static_cast<const ast::StructDecl&>(*decl);
             buildStructLayout(structDecl, irModule);
+        }
+    }
+
+    // 3b. Build layouts for tagged union enums (Result, Option, custom tagged unions)
+    auto buildTaggedUnionLayout = [&](const std::string& name) {
+        if (name.empty()) return;
+        if (name.rfind("Result", 0) == 0 && name != "Result") {
+            if (m_layouts.count("Result")) {
+                m_layouts[name] = m_layouts["Result"];
+            }
+            return;
+        }
+        if (name.rfind("Option", 0) == 0 && name != "Option") {
+            if (m_layouts.count("Option")) {
+                m_layouts[name] = m_layouts["Option"];
+            }
+            return;
+        }
+        if (m_layouts.find(name) != m_layouts.end()) return;
+
+        std::string validName = mangleGenericName(name);
+        ClassLayout layout;
+        layout.name = name;
+        layout.hasVTable = false;
+        FieldLayoutInfo f0{.name = "tag", .typeName = "int32", .irType = ir::IRType::getInt32(), .index = 0, .className = name};
+        FieldLayoutInfo f1{.name = "payload", .typeName = "int64", .irType = ir::IRType::getInt64(), .index = 1, .className = name};
+        layout.fields.push_back(f0);
+        layout.fields.push_back(f1);
+        layout.fieldIndexMap["tag"] = 0;
+        layout.fieldIndexMap["payload"] = 1;
+        layout.objectSize = 16;
+        layout.structType = ir::IRType::getStruct("struct." + validName, {ir::IRType::getInt32(), ir::IRType::getInt64()});
+        irModule.addStructType("struct." + validName, {ir::IRType::getInt32(), ir::IRType::getInt64()});
+        m_layouts[name] = layout;
+        m_layouts[validName] = layout;
+    };
+
+    buildTaggedUnionLayout("Result");
+    buildTaggedUnionLayout("Option");
+
+    for (const auto& decl : program.getDeclarations()) {
+        if (!decl) continue;
+        if (decl->getKind() == ast::ASTNodeKind::EnumDecl) {
+            const auto& ed = static_cast<const ast::EnumDecl&>(*decl);
+            bool hasPayload = false;
+            for (const auto& v : ed.getVariants()) {
+                if (v.hasPayload()) { hasPayload = true; break; }
+            }
+            if (hasPayload) {
+                buildTaggedUnionLayout(ed.getName());
+            }
+        }
+    }
+
+    for (const auto& [typeName, userType] : m_sema.getTypeContext().getUserTypes()) {
+        if (userType && userType->isEnum()) {
+            auto en = std::static_pointer_cast<sema::EnumType>(userType);
+            if (en && en->isTaggedUnion()) {
+                buildTaggedUnionLayout(en->getName());
+                std::string mangled = mangleGenericName(en->getName());
+                buildTaggedUnionLayout(mangled);
+            }
         }
     }
 }
@@ -211,6 +288,7 @@ void VTableBuilder::buildStructLayout(const ast::StructDecl& structDecl, ir::IRM
     ClassLayout layout;
     layout.name = structName;
     layout.hasVTable = false;
+    layout.isReprC = structDecl.isReprC();
 
     std::vector<ir::IRTypePtr> elementTypes;
     uint32_t currentFieldIndex = 0;
@@ -343,6 +421,14 @@ const ClassLayout* VTableBuilder::getClassLayout(const std::string& className) c
     auto it2 = m_layouts.find(mangled);
     if (it2 != m_layouts.end()) {
         return &it2->second;
+    }
+    size_t lt = className.find('<');
+    if (lt != std::string::npos) {
+        std::string base = className.substr(0, lt);
+        auto it3 = m_layouts.find(base);
+        if (it3 != m_layouts.end()) {
+            return &it3->second;
+        }
     }
     return nullptr;
 }

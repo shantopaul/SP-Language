@@ -147,3 +147,39 @@ TEST(TypeTest, TypeStringResolution) {
     EXPECT_TRUE(resolvedMap->isMap());
     EXPECT_EQ(resolvedMap->toString(), "Map<string, int>");
 }
+
+TEST(TypeTest, ResultAndOptionTypeResolutionAndVariance) {
+    TypeContext ctx;
+
+    auto resIntStr = ctx.resolveType("Result<int, string>");
+    ASSERT_NE(resIntStr, nullptr);
+    EXPECT_TRUE(resIntStr->isEnum());
+    EXPECT_EQ(resIntStr->toString(), "Result<int, string>");
+
+    auto optInt = ctx.resolveType("Option<int>");
+    ASSERT_NE(optInt, nullptr);
+    EXPECT_TRUE(optInt->isEnum());
+    EXPECT_EQ(optInt->toString(), "Option<int>");
+
+    auto enumRes = std::static_pointer_cast<EnumType>(resIntStr);
+    EXPECT_TRUE(enumRes->isTaggedUnion());
+    EXPECT_TRUE(enumRes->hasVariant("Ok"));
+    EXPECT_TRUE(enumRes->hasVariant("Err"));
+    EXPECT_TRUE(enumRes->hasPayload("Ok"));
+    EXPECT_TRUE(enumRes->hasPayload("Err"));
+
+    auto enumOpt = std::static_pointer_cast<EnumType>(optInt);
+    EXPECT_TRUE(enumOpt->isTaggedUnion());
+    EXPECT_TRUE(enumOpt->hasVariant("Some"));
+    EXPECT_TRUE(enumOpt->hasVariant("None"));
+    EXPECT_TRUE(enumOpt->hasPayload("Some"));
+    EXPECT_FALSE(enumOpt->hasPayload("None"));
+
+    // Variance: Result<int, any> is assignable to Result<int, string>
+    auto resIntAny = ctx.resolveType("Result<int, any>");
+    EXPECT_TRUE(resIntAny->isAssignableTo(*resIntStr));
+
+    // Variance: Option<any> is assignable to Option<int>
+    auto optAny = ctx.resolveType("Option<any>");
+    EXPECT_TRUE(optAny->isAssignableTo(*optInt));
+}

@@ -85,6 +85,8 @@ public:
     [[nodiscard]] bool isOverride() const noexcept { return m_isOverride; }
     [[nodiscard]] bool isAbstract() const noexcept { return m_isAbstract; }
     [[nodiscard]] bool isAsync() const noexcept { return m_isAsync; }
+    [[nodiscard]] bool isUnsafe() const noexcept { return m_isUnsafe; }
+    void setUnsafe(bool unsafe) noexcept { m_isUnsafe = unsafe; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -100,6 +102,7 @@ private:
     bool m_isOverride;
     bool m_isAbstract;
     bool m_isAsync;
+    bool m_isUnsafe{false};
 };
 
 class ClassDecl : public StatementNode {
@@ -183,16 +186,31 @@ public:
     StructDecl(std::string name,
                std::vector<std::unique_ptr<VarDeclStmt>> fields,
                std::string visibility,
+               diagnostics::SourceLocation loc,
+               bool isReprC = false)
+        : StatementNode(ASTNodeKind::StructDecl, std::move(loc)),
+          m_name(std::move(name)),
+          m_fields(std::move(fields)),
+          m_visibility(std::move(visibility)),
+          m_isReprC(isReprC) {}
+
+    StructDecl(std::string name,
+               std::vector<std::unique_ptr<VarDeclStmt>> fields,
+               std::string visibility,
+               bool isReprC,
                diagnostics::SourceLocation loc)
         : StatementNode(ASTNodeKind::StructDecl, std::move(loc)),
           m_name(std::move(name)),
           m_fields(std::move(fields)),
-          m_visibility(std::move(visibility)) {}
+          m_visibility(std::move(visibility)),
+          m_isReprC(isReprC) {}
 
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
     [[nodiscard]] const std::vector<std::unique_ptr<VarDeclStmt>>& getFields() const noexcept { return m_fields; }
     [[nodiscard]] std::vector<std::unique_ptr<VarDeclStmt>>& getFields() noexcept { return m_fields; }
     [[nodiscard]] const std::string& getVisibility() const noexcept { return m_visibility; }
+    [[nodiscard]] bool isReprC() const noexcept { return m_isReprC; }
+    void setReprC(bool reprC) noexcept { m_isReprC = reprC; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -200,35 +218,50 @@ private:
     std::string m_name;
     std::vector<std::unique_ptr<VarDeclStmt>> m_fields;
     std::string m_visibility;
+    bool m_isReprC{false};
 };
 
 class EnumVariant {
 public:
-    EnumVariant(std::string name, ExprPtr value = nullptr)
-        : m_name(std::move(name)), m_value(std::move(value)) {}
+    EnumVariant(std::string name, ExprPtr value = nullptr, std::vector<std::string> payloadTypes = {})
+        : m_name(std::move(name)), m_value(std::move(value)), m_payloadTypes(std::move(payloadTypes)) {}
 
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
     [[nodiscard]] bool hasValue() const noexcept { return m_value != nullptr; }
     [[nodiscard]] const ExpressionNode* getValue() const noexcept { return m_value.get(); }
     [[nodiscard]] ExprPtr& getValuePtr() noexcept { return m_value; }
+    [[nodiscard]] bool hasPayload() const noexcept { return !m_payloadTypes.empty(); }
+    [[nodiscard]] const std::vector<std::string>& getPayloadTypes() const noexcept { return m_payloadTypes; }
+    [[nodiscard]] std::vector<std::string>& getPayloadTypes() noexcept { return m_payloadTypes; }
 
 private:
     std::string m_name;
     ExprPtr m_value;
+    std::vector<std::string> m_payloadTypes;
 };
 
 class EnumDecl : public StatementNode {
 public:
     EnumDecl(std::string name,
+             std::vector<std::string> typeParams,
              std::vector<EnumVariant> variants,
              std::string visibility,
              diagnostics::SourceLocation loc)
         : StatementNode(ASTNodeKind::EnumDecl, std::move(loc)),
           m_name(std::move(name)),
+          m_typeParams(std::move(typeParams)),
           m_variants(std::move(variants)),
           m_visibility(std::move(visibility)) {}
 
+    EnumDecl(std::string name,
+             std::vector<EnumVariant> variants,
+             std::string visibility,
+             diagnostics::SourceLocation loc)
+        : EnumDecl(std::move(name), {}, std::move(variants), std::move(visibility), std::move(loc)) {}
+
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
+    [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
     [[nodiscard]] const std::vector<EnumVariant>& getVariants() const noexcept { return m_variants; }
     [[nodiscard]] std::vector<EnumVariant>& getVariants() noexcept { return m_variants; }
     [[nodiscard]] const std::string& getVisibility() const noexcept { return m_visibility; }
@@ -237,6 +270,7 @@ public:
 
 private:
     std::string m_name;
+    std::vector<std::string> m_typeParams;
     std::vector<EnumVariant> m_variants;
     std::string m_visibility;
 };

@@ -124,6 +124,8 @@ void NameResolver::resolveEnumDeclPass1(const ast::EnumDecl& decl) {
     }
 
     auto enumType = m_typeCtx.createEnumType(name);
+    enumType->setTypeParams(decl.getTypeParams());
+    enumType->setASTDecl(&decl);
     auto enumSym = std::make_shared<EnumSymbol>(name, enumType, decl.getLocation(), decl.getVisibility());
     m_symbolTable.define(enumSym);
 }
@@ -425,6 +427,7 @@ void NameResolver::resolveEnumMembers(const ast::EnumDecl& decl) {
     if (!userType || !userType->isEnum()) return;
     auto enumType = std::static_pointer_cast<EnumType>(userType);
 
+    m_activeTypeParams = decl.getTypeParams();
     int64_t nextVal = 0;
     for (const auto& variant : decl.getVariants()) {
         if (enumType->hasVariant(variant.getName())) {
@@ -442,9 +445,20 @@ void NameResolver::resolveEnumMembers(const ast::EnumDecl& decl) {
             }
         }
 
-        enumType->addVariant(variant.getName(), nextVal);
+        std::vector<std::string> payloadNames;
+        std::vector<TypePtr> payloadTypes;
+        if (variant.hasPayload()) {
+            for (const auto& pTypeStr : variant.getPayloadTypes()) {
+                payloadNames.push_back(pTypeStr);
+                auto pType = resolveTypeWithDiagnostic(pTypeStr, decl.getLocation());
+                payloadTypes.push_back(pType ? pType : m_typeCtx.getError());
+            }
+        }
+
+        enumType->addVariant(variant.getName(), nextVal, payloadNames, payloadTypes);
         nextVal++;
     }
+    m_activeTypeParams.clear();
 }
 
 TypePtr NameResolver::resolveTypeWithDiagnostic(const std::string& typeStr, const diagnostics::SourceLocation& loc) {

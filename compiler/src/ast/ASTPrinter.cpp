@@ -160,6 +160,13 @@ void ASTPrinter::visit(const NewExpr& node) {
     m_indent--;
 }
 
+void ASTPrinter::visit(const TryExpr& node) {
+    line("TryExpr(?):");
+    m_indent++;
+    node.getExpr().accept(*this);
+    m_indent--;
+}
+
 void ASTPrinter::visit(const BlockStmt& node) {
     line("BlockStmt (" + std::to_string(node.getStatements().size()) + " statements):");
     m_indent++;

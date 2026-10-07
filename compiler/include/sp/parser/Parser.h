@@ -38,6 +38,7 @@ public:
 private:
     const std::vector<lexer::Token>& m_tokens;
     size_t m_current{0};
+    mutable int m_pendingGreater{0};
     std::string m_filename;
     diagnostics::DiagnosticEngine* m_diagnostics{nullptr};
 
@@ -60,6 +61,8 @@ private:
     ast::ExprPtr parsePrefix();
     ast::ExprPtr parseInfix(ast::ExprPtr left);
     [[nodiscard]] bool isGenericCall(size_t startPos) const noexcept;
+    [[nodiscard]] bool isTernaryQuestion() const noexcept;
+    [[nodiscard]] bool isTernaryQuestionAt(size_t pos) const noexcept;
     [[nodiscard]] Precedence getPrecedence(lexer::TokenType type) const noexcept;
 
     ast::ExprPtr parseGroupedOrLambda();
@@ -87,10 +90,10 @@ private:
     // Declarations & Compatibility
     ast::ASTNodePtr parseModuleDecl();
     ast::ASTNodePtr parseImportDecl();
-    ast::ASTNodePtr parseFunctionDecl(std::string visibility = "", bool isStatic = false, bool isOverride = false, bool isAbstract = false);
+    ast::ASTNodePtr parseFunctionDecl(std::string visibility = "", bool isStatic = false, bool isOverride = false, bool isAbstract = false, bool isUnsafe = false);
     ast::ASTNodePtr parseClassDecl(std::string visibility = "", bool isAbstract = false);
     ast::ASTNodePtr parseInterfaceDecl(std::string visibility = "");
-    ast::ASTNodePtr parseStructDecl(std::string visibility = "");
+    ast::ASTNodePtr parseStructDecl(std::string visibility = "", bool isReprC = false);
     ast::ASTNodePtr parseEnumDecl(std::string visibility = "");
     ast::ASTNodePtr parseTestDecl();
 

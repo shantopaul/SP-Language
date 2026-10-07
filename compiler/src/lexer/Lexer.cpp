@@ -112,6 +112,7 @@ Token Lexer::nextToken() {
             case ':': return makeToken(TokenType::Colon);
             case ',': return makeToken(TokenType::Comma);
             case '@': return makeToken(TokenType::At);
+            case '#': return makeToken(TokenType::Hash);
             case '~': return makeToken(TokenType::Tilde);
             case '^': return makeToken(TokenType::Caret);
 

@@ -96,6 +96,11 @@ void TypeChecker::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    if (name == "None") {
+        m_currentExprType = m_typeCtx.resolveType("Option<any>");
+        return;
+    }
+
     auto primType = m_typeCtx.resolveType(name);
     if (primType && !primType->isError()) {
         m_currentExprType = primType;
@@ -267,6 +272,27 @@ void TypeChecker::visit(const ast::UnaryExpr& node) {
             }
             m_currentExprType = operandType;
             break;
+        case lexer::TokenType::Star: // Pointer dereference *ptr
+            if (!m_inUnsafeContext) {
+                m_diagnostics.reportError("E1001", "Raw pointer dereference requires 'unsafe' block or function", node.getLocation());
+            }
+            if (operandType->isPointer()) {
+                const auto& ptrT = static_cast<const PointerType&>(*operandType);
+                m_currentExprType = ptrT.getPointeeType() ? ptrT.getPointeeType() : m_typeCtx.getAny();
+            } else if (operandType->isAny() || operandType->isUnknown()) {
+                m_currentExprType = m_typeCtx.getAny();
+            } else {
+                m_diagnostics.reportError("E1001", "Cannot dereference non-pointer type '" + operandType->toString() + "'", node.getLocation());
+                m_currentExprType = m_typeCtx.getError();
+                return;
+            }
+            break;
+        case lexer::TokenType::Amp: // Address-of &var
+            if (!m_inUnsafeContext) {
+                m_diagnostics.reportError("E1001", "Taking address of variable requires 'unsafe' block or function", node.getLocation());
+            }
+            m_currentExprType = m_typeCtx.getPointerType(operandType);
+            break;
         default:
             m_currentExprType = operandType;
             break;
@@ -420,6 +446,27 @@ void TypeChecker::visit(const ast::CallExpr& node) {
         if (sym && sym->getType() && sym->getType()->isFunction()) {
             auto fnType = std::static_pointer_cast<FunctionType>(sym->getType());
             m_currentExprType = fnType->getReturnType();
+            return;
+        }
+
+        // Check global helper calls: Ok(val), Err(err), Some(val), None()
+        if (fnName == "Ok" && argTypes.size() == 1) {
+            std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+            m_currentExprType = m_typeCtx.resolveType("Result<" + tName + ", any>");
+            return;
+        }
+        if (fnName == "Err" && argTypes.size() == 1) {
+            std::string eName = argTypes[0] ? argTypes[0]->toString() : "any";
+            m_currentExprType = m_typeCtx.resolveType("Result<any, " + eName + ">");
+            return;
+        }
+        if (fnName == "Some" && argTypes.size() == 1) {
+            std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+            m_currentExprType = m_typeCtx.resolveType("Option<" + tName + ">");
+            return;
+        }
+        if (fnName == "None" && argTypes.empty()) {
+            m_currentExprType = m_typeCtx.resolveType("Option<any>");
             return;
         }
 
@@ -605,6 +652,98 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
+        if (objType->isEnum()) {
+            auto enumType = std::static_pointer_cast<EnumType>(objType);
+            std::string enumName = enumType->getName();
+
+            // Variant constructors on enum type: Result.Ok(val), Result.Err(err)
+            if (enumName == "Result" || enumName.rfind("Result<", 0) == 0) {
+                if (methodName == "Ok" && argTypes.size() == 1) {
+                    std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+                    m_currentExprType = m_typeCtx.resolveType("Result<" + tName + ", any>");
+                    return;
+                }
+                if (methodName == "Err" && argTypes.size() == 1) {
+                    std::string eName = argTypes[0] ? argTypes[0]->toString() : "any";
+                    m_currentExprType = m_typeCtx.resolveType("Result<any, " + eName + ">");
+                    return;
+                }
+                if (methodName == "isOk" || methodName == "isErr") {
+                    m_currentExprType = m_typeCtx.getBool();
+                    return;
+                }
+                if (methodName == "unwrap") {
+                    if (enumName.rfind("Result<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 2) {
+                            auto tType = m_typeCtx.resolveType(args[0]);
+                            m_currentExprType = tType ? tType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+                if (methodName == "unwrapErr") {
+                    if (enumName.rfind("Result<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 2) {
+                            auto eType = m_typeCtx.resolveType(args[1]);
+                            m_currentExprType = eType ? eType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+                if (methodName == "unwrapOr") {
+                    if (enumName.rfind("Result<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 2) {
+                            auto tType = m_typeCtx.resolveType(args[0]);
+                            m_currentExprType = tType ? tType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+            }
+
+            if (enumName == "Option" || enumName.rfind("Option<", 0) == 0) {
+                if (methodName == "Some" && argTypes.size() == 1) {
+                    std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+                    m_currentExprType = m_typeCtx.resolveType("Option<" + tName + ">");
+                    return;
+                }
+                if (methodName == "None" && argTypes.empty()) {
+                    m_currentExprType = m_typeCtx.resolveType("Option<any>");
+                    return;
+                }
+                if (methodName == "isSome" || methodName == "isNone") {
+                    m_currentExprType = m_typeCtx.getBool();
+                    return;
+                }
+                if (methodName == "unwrap" || methodName == "unwrapOr") {
+                    if (enumName.rfind("Option<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 1) {
+                            auto tType = m_typeCtx.resolveType(args[0]);
+                            m_currentExprType = tType ? tType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+            }
+
+            if (enumType->hasVariant(methodName)) {
+                m_currentExprType = enumType;
+                return;
+            }
+        }
+
         m_diagnostics.reportError("E1003", "Type '" + objType->toString() + "' has no method named '" + methodName + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
         return;
@@ -697,12 +836,84 @@ void TypeChecker::visit(const ast::MemberExpr& node) {
 
     if (objType->isEnum()) {
         auto enumType = std::static_pointer_cast<EnumType>(objType);
+        std::string enumName = enumType->getName();
+
+        if (member == "tag") {
+            m_currentExprType = m_typeCtx.getInt();
+            return;
+        }
+        if (member == "payload") {
+            m_currentExprType = m_typeCtx.getAny();
+            return;
+        }
+
+        if (enumName == "Result" || enumName.rfind("Result<", 0) == 0) {
+            if (member == "isOk" || member == "isErr") {
+                m_currentExprType = m_typeCtx.getFunctionType({}, m_typeCtx.getBool());
+                return;
+            }
+            if (member == "unwrap") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Result<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 2) tType = m_typeCtx.resolveType(args[0]);
+                }
+                m_currentExprType = m_typeCtx.getFunctionType({}, tType ? tType : m_typeCtx.getAny());
+                return;
+            }
+            if (member == "unwrapErr") {
+                TypePtr eType = m_typeCtx.getAny();
+                if (enumName.rfind("Result<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 2) eType = m_typeCtx.resolveType(args[1]);
+                }
+                m_currentExprType = m_typeCtx.getFunctionType({}, eType ? eType : m_typeCtx.getAny());
+                return;
+            }
+            if (member == "unwrapOr") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Result<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 2) tType = m_typeCtx.resolveType(args[0]);
+                }
+                TypePtr unwrapped = tType ? tType : m_typeCtx.getAny();
+                m_currentExprType = m_typeCtx.getFunctionType({unwrapped}, unwrapped);
+                return;
+            }
+        }
+
+        if (enumName == "Option" || enumName.rfind("Option<", 0) == 0) {
+            if (member == "isSome" || member == "isNone") {
+                m_currentExprType = m_typeCtx.getFunctionType({}, m_typeCtx.getBool());
+                return;
+            }
+            if (member == "unwrap") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Option<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 1) tType = m_typeCtx.resolveType(args[0]);
+                }
+                m_currentExprType = m_typeCtx.getFunctionType({}, tType ? tType : m_typeCtx.getAny());
+                return;
+            }
+            if (member == "unwrapOr") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Option<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 1) tType = m_typeCtx.resolveType(args[0]);
+                }
+                TypePtr unwrapped = tType ? tType : m_typeCtx.getAny();
+                m_currentExprType = m_typeCtx.getFunctionType({unwrapped}, unwrapped);
+                return;
+            }
+        }
+
         if (enumType->hasVariant(member)) {
             m_currentExprType = enumType;
             return;
         }
 
-        m_diagnostics.reportError("E1002", "Enum '" + enumType->getName() + "' has no variant named '" + member + "'", node.getLocation());
+        m_diagnostics.reportError("E1002", "Enum '" + enumType->getName() + "' has no variant or member named '" + member + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
         return;
     }
@@ -744,6 +955,18 @@ void TypeChecker::visit(const ast::MemberExpr& node) {
 void TypeChecker::visit(const ast::IndexExpr& node) {
     auto objType = checkExpr(node.getObject());
     auto indexType = checkExpr(node.getIndex());
+
+    if (objType->isPointer()) {
+        if (!m_inUnsafeContext) {
+            m_diagnostics.reportError("E1001", "Raw pointer indexing requires 'unsafe' block or function", node.getLocation());
+        }
+        if (!indexType->isInteger()) {
+            m_diagnostics.reportError("E1001", "Pointer offset must be an integer, got '" + indexType->toString() + "'", node.getLocation());
+        }
+        const auto& ptrT = static_cast<const PointerType&>(*objType);
+        m_currentExprType = ptrT.getPointeeType() ? ptrT.getPointeeType() : m_typeCtx.getAny();
+        return;
+    }
 
     if (objType->isArray()) {
         if (!indexType->isInteger()) {
@@ -1042,13 +1265,68 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     m_currentExprType = clsType;
 }
 
+void TypeChecker::visit(const ast::TryExpr& node) {
+    auto operandType = checkExpr(node.getExpr());
+    if (operandType->isError()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
+
+    std::string opTypeName = operandType->toString();
+    bool isResult = (opTypeName == "Result" || opTypeName.rfind("Result<", 0) == 0);
+    bool isOption = (opTypeName == "Option" || opTypeName.rfind("Option<", 0) == 0);
+
+    if (!isResult && !isOption) {
+        m_diagnostics.reportError("E1001", "The '?' operator can only be applied to 'Result' or 'Option' types, found '" + opTypeName + "'", node.getLocation());
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
+
+    // Verify enclosing function return type
+    if (m_currentFunctionReturnType) {
+        std::string retTypeName = m_currentFunctionReturnType->toString();
+        if (isResult) {
+            if (retTypeName != "Result" && retTypeName.rfind("Result<", 0) != 0) {
+                m_diagnostics.reportError("E1001", "The '?' operator on Result can only be used in a function returning Result, found return type '" + retTypeName + "'", node.getLocation());
+            }
+        } else if (isOption) {
+            if (retTypeName != "Option" && retTypeName.rfind("Option<", 0) != 0) {
+                m_diagnostics.reportError("E1001", "The '?' operator on Option can only be used in a function returning Option, found return type '" + retTypeName + "'", node.getLocation());
+            }
+        }
+    }
+
+    // Extract unwrapped payload type T
+    TypePtr unwrappedType = m_typeCtx.getAny();
+    if (isResult && opTypeName.rfind("Result<", 0) == 0) {
+        auto args = TypeContext::splitTypeArgs(opTypeName.substr(7, opTypeName.size() - 8));
+        if (args.size() >= 1) {
+            auto t = m_typeCtx.resolveType(args[0]);
+            if (t) unwrappedType = t;
+        }
+    } else if (isOption && opTypeName.rfind("Option<", 0) == 0) {
+        auto args = TypeContext::splitTypeArgs(opTypeName.substr(7, opTypeName.size() - 8));
+        if (args.size() >= 1) {
+            auto t = m_typeCtx.resolveType(args[0]);
+            if (t) unwrappedType = t;
+        }
+    }
+
+    m_currentExprType = unwrappedType;
+}
+
 // Statements
 void TypeChecker::visit(const ast::BlockStmt& node) {
+    bool prevUnsafe = m_inUnsafeContext;
+    if (node.isUnsafe()) {
+        m_inUnsafeContext = true;
+    }
     m_symbolTable.enterScope(ScopeKind::Block);
     for (const auto& stmtPtr : node.getStatements()) {
         if (stmtPtr) checkStmt(*stmtPtr);
     }
     m_symbolTable.exitScope();
+    m_inUnsafeContext = prevUnsafe;
 }
 
 void TypeChecker::visit(const ast::ExprStmt& node) {
@@ -1374,6 +1652,11 @@ bool TypeChecker::hasGuaranteedReturn(const ast::StatementNode& stmt) {
 }
 
 void TypeChecker::visit(const ast::FunctionDecl& node) {
+    bool prevUnsafe = m_inUnsafeContext;
+    if (node.isUnsafe()) {
+        m_inUnsafeContext = true;
+    }
+
     TypePtr returnType = m_typeCtx.getVoid();
     if (!node.getReturnType().empty()) {
         auto r = m_typeCtx.resolveType(node.getReturnType());
@@ -1464,6 +1747,7 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
 
     m_symbolTable.exitScope();
     m_currentFunctionReturnType = prevReturnType;
+    m_inUnsafeContext = prevUnsafe;
 }
 
 void TypeChecker::verifyInterfaceImplementations(const ast::ClassDecl& decl, const std::shared_ptr<ClassType>& clsType) {

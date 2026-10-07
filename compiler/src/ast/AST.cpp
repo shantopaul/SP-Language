@@ -19,6 +19,7 @@ void LambdaExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 void TernaryExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 void AssignExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 void NewExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
+void TryExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 
 // Statements accept
 void BlockStmt::accept(ASTVisitor& visitor) const { visitor.visit(*this); }

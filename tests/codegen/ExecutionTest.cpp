@@ -2166,3 +2166,222 @@ TEST(ExecutionTest, CollectionStressAndScalingNativeExecution) {
     EXPECT_NE(output.find("stress_map_1999: 3998"), std::string::npos);
     EXPECT_NE(output.find("stress_map_has_500: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, ResultAndOptionZeroAllocTaggedUnionExecution) {
+    const std::string source = R"sp(
+        fn divide(int a, int b) -> Result<int, string> {
+            if (b == 0) {
+                return Result.Err("division by zero");
+            }
+            return Result.Ok(a / b);
+        }
+
+        fn findPositive(int n) -> Option<int> {
+            if (n > 0) {
+                return Option.Some(n * 2);
+            }
+            return Option.None();
+        }
+
+        fn main() {
+            var okRes = divide(20, 4);
+            println("okRes.isOk: ${okRes.isOk()}");
+            println("okRes.unwrap: ${okRes.unwrap()}");
+
+            var errRes = divide(10, 0);
+            println("errRes.isErr: ${errRes.isErr()}");
+            println("errRes.unwrapErr: ${errRes.unwrapErr()}");
+            println("errRes.unwrapOr: ${errRes.unwrapOr(999)}");
+
+            var someOpt = findPositive(5);
+            println("someOpt.isSome: ${someOpt.isSome()}");
+            println("someOpt.unwrap: ${someOpt.unwrap()}");
+
+            var noneOpt = findPositive(-3);
+            println("noneOpt.isNone: ${noneOpt.isNone()}");
+            println("noneOpt.unwrapOr: ${noneOpt.unwrapOr(-1)}");
+
+            var directOk = Ok(42);
+            println("directOk.unwrap: ${directOk.unwrap()}");
+
+            var directSome = Some(77);
+            println("directSome.unwrap: ${directSome.unwrap()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_option");
+    EXPECT_NE(output.find("okRes.isOk: true"), std::string::npos);
+    EXPECT_NE(output.find("okRes.unwrap: 5"), std::string::npos);
+    EXPECT_NE(output.find("errRes.isErr: true"), std::string::npos);
+    EXPECT_NE(output.find("errRes.unwrapErr: division by zero"), std::string::npos);
+    EXPECT_NE(output.find("errRes.unwrapOr: 999"), std::string::npos);
+    EXPECT_NE(output.find("someOpt.isSome: true"), std::string::npos);
+    EXPECT_NE(output.find("someOpt.unwrap: 10"), std::string::npos);
+    EXPECT_NE(output.find("noneOpt.isNone: true"), std::string::npos);
+    EXPECT_NE(output.find("noneOpt.unwrapOr: -1"), std::string::npos);
+    EXPECT_NE(output.find("directOk.unwrap: 42"), std::string::npos);
+    EXPECT_NE(output.find("directSome.unwrap: 77"), std::string::npos);
+}
+
+TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
+    const std::string source = R"sp(
+        fn stepOk(x: int): Result<int, string> {
+            return Ok(x * 2);
+        }
+
+        fn stepFail(msg: string): Result<int, string> {
+            return Err(msg);
+        }
+
+        fn pipelineOk(a: int, b: int): Result<int, string> {
+            var v1 = stepOk(a)?;
+            var v2 = stepOk(b)?;
+            return Ok(v1 + v2);
+        }
+
+        fn pipelineFail(a: int): Result<int, string> {
+            var v1 = stepOk(a)?;
+            var v2 = stepFail("pipeline broke")?;
+            return Ok(v1 + v2);
+        }
+
+        fn optDouble(x: int): Option<int> {
+            if (x > 0) {
+                return Some(x * 2);
+            }
+            return None;
+        }
+
+        fn pipelineOpt(x: int, y: int): Option<int> {
+            var a = optDouble(x)?;
+            var b = optDouble(y)?;
+            return Some(a + b);
+        }
+
+        fn main() {
+            var res1 = pipelineOk(10, 5);
+            println("pipelineOk.isOk: ${res1.isOk()}");
+            println("pipelineOk.unwrap: ${res1.unwrap()}");
+
+            var res2 = pipelineFail(20);
+            println("pipelineFail.isErr: ${res2.isErr()}");
+            println("pipelineFail.unwrapErr: ${res2.unwrapErr()}");
+
+            var opt1 = pipelineOpt(3, 7);
+            println("opt1.isSome: ${opt1.isSome()}");
+            println("opt1.unwrap: ${opt1.unwrap()}");
+
+            var opt2 = pipelineOpt(3, -1);
+            println("opt2.isNone: ${opt2.isNone()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_try_operator");
+    EXPECT_NE(output.find("pipelineOk.isOk: true"), std::string::npos);
+    EXPECT_NE(output.find("pipelineOk.unwrap: 30"), std::string::npos);
+    EXPECT_NE(output.find("pipelineFail.isErr: true"), std::string::npos);
+    EXPECT_NE(output.find("pipelineFail.unwrapErr: pipeline broke"), std::string::npos);
+    EXPECT_NE(output.find("opt1.isSome: true"), std::string::npos);
+    EXPECT_NE(output.find("opt1.unwrap: 20"), std::string::npos);
+    EXPECT_NE(output.find("opt2.isNone: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, RawPointersAndUnsafeBlocksNativeExecution) {
+    const std::string source = R"sp(
+        #[repr(C)]
+        struct Point {
+            x: int;
+            y: int;
+        }
+
+        unsafe fn addThroughPointer(p: ptr<int>, val: int) {
+            *p = *p + val;
+        }
+
+        fn main() {
+            var num: int = 50;
+
+            unsafe {
+                var pNum: ptr<int> = &num;
+                println("initial *pNum: ${*pNum}");
+
+                *pNum = 100;
+                println("after *pNum=100: ${num}");
+
+                addThroughPointer(pNum, 25);
+                println("after addThroughPointer: ${num}");
+
+                pNum[0] = 200;
+                println("after pNum[0]=200: ${pNum[0]}");
+            }
+
+            println("final num: ${num}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_raw_pointers");
+    EXPECT_NE(output.find("initial *pNum: 50"), std::string::npos);
+    EXPECT_NE(output.find("after *pNum=100: 100"), std::string::npos);
+    EXPECT_NE(output.find("after addThroughPointer: 125"), std::string::npos);
+    EXPECT_NE(output.find("after pNum[0]=200: 200"), std::string::npos);
+    EXPECT_NE(output.find("final num: 200"), std::string::npos);
+}
+
+TEST(ExecutionTest, ExternCFunctionCallsNativeExecution) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn abs(n: int): int;
+        }
+
+        fn main() {
+            var val: int = -42;
+            var res: int = abs(val);
+            println("abs(-42) = ${res}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_extern_c");
+    EXPECT_NE(output.find("abs(-42) = 42"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdlibFsAndIoResultErrorHandlingNativeExecution) {
+    const std::string source = R"sp(
+        import std.fs;
+
+        fn readFileContent(path: string) -> Result<string, IOError> {
+            let content: string = tryReadText(path)?;
+            return Result.Ok(content);
+        }
+
+        fn main() {
+            string testFile = "temp_fs_result_test.txt";
+            string testContent = "SP 1.4 Result Handling!";
+
+            // 1. Reading non-existent file returns Err(NotFound)
+            let errRes: Result<string, IOError> = readFileContent("non_existent_file_xyz.txt");
+            println("err_is_err: ${errRes.isErr()}");
+
+            // 2. Writing text returns Ok
+            let writeRes: Result<bool, IOError> = tryWriteText(testFile, testContent);
+            println("write_is_ok: ${writeRes.isOk()}");
+
+            // 3. Reading with try operator ? on existing file
+            let okRes: Result<string, IOError> = readFileContent(testFile);
+            println("read_is_ok: ${okRes.isOk()}");
+            println("read_content: ${okRes.unwrap()}");
+
+            // Clean up
+            let delRes: Result<bool, IOError> = tryDelete(testFile);
+            println("del_is_ok: ${delRes.isOk()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_fs_result");
+    EXPECT_NE(output.find("err_is_err: true"), std::string::npos);
+    EXPECT_NE(output.find("write_is_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("read_is_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("read_content: SP 1.4 Result Handling!"), std::string::npos);
+    EXPECT_NE(output.find("del_is_ok: true"), std::string::npos);
+}
+
+
