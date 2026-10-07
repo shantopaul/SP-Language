@@ -69,7 +69,35 @@ extern "C" {
 
     // Object and dynamic memory management
     void* sp_rt_alloc(uint64_t size);
-    void sp_rt_free(void* ptr);
+    void  sp_rt_free(void* ptr);
+
+    // Phase 11: Deterministic ARC and Object Lifecycle Management
+    typedef void (*SPDestructorFn)(void*);
+
+    void*       sp_rt_arc_alloc(uint64_t size, SPDestructorFn dtor);
+    void*       sp_rt_retain(void* ptr);
+    void        sp_rt_release(void* ptr);
+    uint32_t    sp_rt_strong_count(void* ptr);
+    uint32_t    sp_rt_weak_count(void* ptr);
+
+    // Phase 11: Weak References (Cycle-breaking)
+    void*       sp_rt_weak_create(void* strong_ptr);
+    void*       sp_rt_weak_retain(void* weak_ptr);
+    void        sp_rt_weak_release(void* weak_ptr);
+    void*       sp_rt_weak_upgrade(void* weak_ptr);
+
+    // Phase 11: Memory Arena Subsystem (std.mem.Arena)
+    void*       sp_rt_arena_create(uint64_t initial_capacity);
+    void*       sp_rt_arena_alloc(void* arena, uint64_t size, uint64_t alignment);
+    void        sp_rt_arena_reset(void* arena);
+    void        sp_rt_arena_destroy(void* arena);
+    uint64_t    sp_rt_arena_allocated(void* arena);
+    uint64_t    sp_rt_arena_allocated_bytes(void* arena);
+
+    // Phase 11: Memory Diagnostics & Active Tracking
+    uint64_t    sp_rt_mem_allocated_bytes();
+    uint64_t    sp_rt_mem_active_arc_objects();
+    uint64_t    sp_rt_mem_live_objects();
 
     // Native Array primitives
     void* sp_rt_array_alloc(int64_t length, int64_t element_size);

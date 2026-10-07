@@ -520,6 +520,85 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
                    true);
 
+    // ptr sp_rt_arc_alloc(i64, ptr)
+    createFunction("sp_rt_arc_alloc", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "size", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "dtor", 1)},
+                   true);
+
+    // void sp_rt_retain(ptr)
+    createFunction("sp_rt_retain", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
+
+    // void sp_rt_release(ptr)
+    createFunction("sp_rt_release", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
+
+    // i32 sp_rt_strong_count(ptr)
+    createFunction("sp_rt_strong_count", IRType::getInt32(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
+
+    // i32 sp_rt_weak_count(ptr)
+    createFunction("sp_rt_weak_count", IRType::getInt32(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
+
+    // ptr sp_rt_weak_create(ptr)
+    createFunction("sp_rt_weak_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "ptr", 0)},
+                   true);
+
+    // void sp_rt_weak_retain(ptr)
+    createFunction("sp_rt_weak_retain", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "weak_ref", 0)},
+                   true);
+
+    // void sp_rt_weak_release(ptr)
+    createFunction("sp_rt_weak_release", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "weak_ref", 0)},
+                   true);
+
+    // ptr sp_rt_weak_upgrade(ptr)
+    createFunction("sp_rt_weak_upgrade", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "weak_ref", 0)},
+                   true);
+
+    // ptr sp_rt_arena_create(i64)
+    createFunction("sp_rt_arena_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "initialCapacity", 0)},
+                   true);
+
+    // ptr sp_rt_arena_alloc(ptr, i64, i64)
+    createFunction("sp_rt_arena_alloc", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "size", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "alignment", 2)},
+                   true);
+
+    // void sp_rt_arena_reset(ptr)
+    createFunction("sp_rt_arena_reset", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0)},
+                   true);
+
+    // void sp_rt_arena_destroy(ptr)
+    createFunction("sp_rt_arena_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0)},
+                   true);
+
+    // i64 sp_rt_arena_allocated_bytes(ptr)
+    createFunction("sp_rt_arena_allocated_bytes", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0)},
+                   true);
+
+    // i64 sp_rt_mem_allocated_bytes()
+    createFunction("sp_rt_mem_allocated_bytes", IRType::getInt64(), {}, true);
+
+    // i64 sp_rt_mem_live_objects()
+    createFunction("sp_rt_mem_live_objects", IRType::getInt64(), {}, true);
+
     // ptr sp_rt_str_concat(ptr, ptr)
     createFunction("sp_rt_str_concat", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s1", 0),

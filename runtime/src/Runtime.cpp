@@ -15,6 +15,8 @@
 #include <chrono>
 #include <thread>
 #include <ctime>
+#include <atomic>
+#include <cassert>
 #if defined(_WIN32) || defined(_WIN64)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -462,6 +464,9 @@ void sp_rt_panic(const char* msg) {
     std::abort();
 }
 
+static std::atomic<uint64_t> g_allocated_bytes{0};
+static std::atomic<uint64_t> g_active_arc_objects{0};
+
 void* sp_rt_alloc(uint64_t size) {
     if (size == 0) size = 1;
     void* ptr = std::calloc(1, static_cast<size_t>(size));
@@ -469,6 +474,7 @@ void* sp_rt_alloc(uint64_t size) {
         std::cerr << "Out of memory in sp_rt_alloc\n";
         std::abort();
     }
+    g_allocated_bytes.fetch_add(size, std::memory_order_relaxed);
     return ptr;
 }
 
@@ -476,6 +482,251 @@ void sp_rt_free(void* ptr) {
     if (ptr) {
         std::free(ptr);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11: Deterministic ARC and Object Lifecycle Management
+// ---------------------------------------------------------------------------
+
+constexpr uint32_t SP_ARC_MAGIC = 0x53504152; // 'SPAR'
+
+struct SPObjectHeader {
+    uint32_t magic;
+    std::atomic<uint32_t> strong_count;
+    std::atomic<uint32_t> weak_count;
+    uint32_t allocated_size;
+    SPDestructorFn destructor;
+};
+
+void* sp_rt_arc_alloc(uint64_t size, SPDestructorFn dtor) {
+    if (size == 0) size = 1;
+    size_t total_size = sizeof(SPObjectHeader) + static_cast<size_t>(size);
+    auto* header = static_cast<SPObjectHeader*>(std::malloc(total_size));
+    if (!header) {
+        std::cerr << "Out of memory in sp_rt_arc_alloc\n";
+        std::abort();
+    }
+
+    header->magic = SP_ARC_MAGIC;
+    header->strong_count.store(1, std::memory_order_relaxed);
+    header->weak_count.store(1, std::memory_order_relaxed); // Strong refs hold 1 weak ref
+    header->allocated_size = static_cast<uint32_t>(size);
+    header->destructor = dtor;
+
+    g_allocated_bytes.fetch_add(total_size, std::memory_order_relaxed);
+    g_active_arc_objects.fetch_add(1, std::memory_order_relaxed);
+
+    void* payload = reinterpret_cast<uint8_t*>(header) + sizeof(SPObjectHeader);
+    std::memset(payload, 0, static_cast<size_t>(size));
+    return payload;
+}
+
+static inline SPObjectHeader* get_arc_header(void* ptr) {
+    if (!ptr) return nullptr;
+    auto* header = reinterpret_cast<SPObjectHeader*>(reinterpret_cast<uint8_t*>(ptr) - sizeof(SPObjectHeader));
+    return (header->magic == SP_ARC_MAGIC) ? header : nullptr;
+}
+
+void* sp_rt_retain(void* ptr) {
+    auto* header = get_arc_header(ptr);
+    if (header) {
+        header->strong_count.fetch_add(1, std::memory_order_relaxed);
+    }
+    return ptr;
+}
+
+void sp_rt_release(void* ptr) {
+    auto* header = get_arc_header(ptr);
+    if (!header) return;
+
+    if (header->strong_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        // Last strong reference released: invoke destructor
+        if (header->destructor) {
+            header->destructor(ptr);
+        }
+        g_active_arc_objects.fetch_sub(1, std::memory_order_relaxed);
+
+        // Release the weak reference held on behalf of all strong references
+        sp_rt_weak_release(header);
+    }
+}
+
+uint32_t sp_rt_strong_count(void* ptr) {
+    auto* header = get_arc_header(ptr);
+    return header ? header->strong_count.load(std::memory_order_relaxed) : 0;
+}
+
+uint32_t sp_rt_weak_count(void* ptr) {
+    auto* header = get_arc_header(ptr);
+    return header ? header->weak_count.load(std::memory_order_relaxed) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11: Weak References (Cycle-breaking)
+// ---------------------------------------------------------------------------
+
+void* sp_rt_weak_create(void* strong_ptr) {
+    auto* header = get_arc_header(strong_ptr);
+    if (!header) return nullptr;
+
+    header->weak_count.fetch_add(1, std::memory_order_relaxed);
+    return header;
+}
+
+void* sp_rt_weak_retain(void* weak_ptr) {
+    if (!weak_ptr) return nullptr;
+    auto* header = static_cast<SPObjectHeader*>(weak_ptr);
+    if (header->magic == SP_ARC_MAGIC) {
+        header->weak_count.fetch_add(1, std::memory_order_relaxed);
+    }
+    return weak_ptr;
+}
+
+void sp_rt_weak_release(void* weak_ptr) {
+    if (!weak_ptr) return;
+    auto* header = static_cast<SPObjectHeader*>(weak_ptr);
+    if (header->magic != SP_ARC_MAGIC) return;
+
+    if (header->weak_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        // Last weak reference dropped: free the memory block
+        size_t total_size = sizeof(SPObjectHeader) + header->allocated_size;
+        g_allocated_bytes.fetch_sub(total_size, std::memory_order_relaxed);
+        header->magic = 0; // invalidate
+        std::free(header);
+    }
+}
+
+void* sp_rt_weak_upgrade(void* weak_ptr) {
+    if (!weak_ptr) return nullptr;
+    auto* header = static_cast<SPObjectHeader*>(weak_ptr);
+    if (header->magic != SP_ARC_MAGIC) return nullptr;
+
+    uint32_t count = header->strong_count.load(std::memory_order_relaxed);
+    while (count != 0) {
+        if (header->strong_count.compare_exchange_weak(count, count + 1,
+                                                      std::memory_order_acquire,
+                                                      std::memory_order_relaxed)) {
+            return reinterpret_cast<uint8_t*>(header) + sizeof(SPObjectHeader);
+        }
+    }
+    return nullptr; // Strong object has already been destroyed
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11: Memory Arena Subsystem (std.mem.Arena)
+// ---------------------------------------------------------------------------
+
+struct SPArenaBlock {
+    uint8_t* buffer;
+    uint64_t capacity;
+    uint64_t offset;
+    SPArenaBlock* next;
+};
+
+struct SPArena {
+    SPArenaBlock* head;
+    SPArenaBlock* current;
+    uint64_t default_block_size;
+    uint64_t total_allocated;
+};
+
+void* sp_rt_arena_create(uint64_t initial_capacity) {
+    if (initial_capacity == 0) initial_capacity = 64 * 1024; // 64 KB default
+
+    auto* arena = new SPArena();
+    arena->default_block_size = initial_capacity;
+    arena->total_allocated = 0;
+
+    auto* block = new SPArenaBlock();
+    block->capacity = initial_capacity;
+    block->offset = 0;
+    block->next = nullptr;
+    block->buffer = static_cast<uint8_t*>(std::malloc(initial_capacity));
+
+    arena->head = block;
+    arena->current = block;
+
+    g_allocated_bytes.fetch_add(sizeof(SPArena) + sizeof(SPArenaBlock) + initial_capacity, std::memory_order_relaxed);
+    return arena;
+}
+
+void* sp_rt_arena_alloc(void* arena_ptr, uint64_t size, uint64_t alignment) {
+    if (!arena_ptr || size == 0) return nullptr;
+    if (alignment == 0) alignment = 8;
+
+    auto* arena = static_cast<SPArena*>(arena_ptr);
+    auto* cur = arena->current;
+
+    // Calculate aligned offset
+    uint64_t aligned_offset = (cur->offset + (alignment - 1)) & ~(alignment - 1);
+    if (aligned_offset + size <= cur->capacity) {
+        cur->offset = aligned_offset + size;
+        arena->total_allocated += size;
+        return cur->buffer + aligned_offset;
+    }
+
+    // Need new block
+    uint64_t new_cap = std::max(arena->default_block_size, size + alignment);
+    auto* new_block = new SPArenaBlock();
+    new_block->capacity = new_cap;
+    new_block->offset = size;
+    new_block->next = nullptr;
+    new_block->buffer = static_cast<uint8_t*>(std::malloc(new_cap));
+
+    cur->next = new_block;
+    arena->current = new_block;
+    arena->total_allocated += size;
+
+    g_allocated_bytes.fetch_add(sizeof(SPArenaBlock) + new_cap, std::memory_order_relaxed);
+    return new_block->buffer;
+}
+
+void sp_rt_arena_reset(void* arena_ptr) {
+    if (!arena_ptr) return;
+    auto* arena = static_cast<SPArena*>(arena_ptr);
+    auto* blk = arena->head;
+    while (blk) {
+        blk->offset = 0;
+        blk = blk->next;
+    }
+    arena->current = arena->head;
+    arena->total_allocated = 0;
+}
+
+void sp_rt_arena_destroy(void* arena_ptr) {
+    if (!arena_ptr) return;
+    auto* arena = static_cast<SPArena*>(arena_ptr);
+    auto* blk = arena->head;
+    while (blk) {
+        auto* next = blk->next;
+        g_allocated_bytes.fetch_sub(sizeof(SPArenaBlock) + blk->capacity, std::memory_order_relaxed);
+        std::free(blk->buffer);
+        delete blk;
+        blk = next;
+    }
+    g_allocated_bytes.fetch_sub(sizeof(SPArena), std::memory_order_relaxed);
+    delete arena;
+}
+
+uint64_t sp_rt_arena_allocated(void* arena_ptr) {
+    if (!arena_ptr) return 0;
+    return static_cast<SPArena*>(arena_ptr)->total_allocated;
+}
+
+uint64_t sp_rt_arena_allocated_bytes(void* arena_ptr) {
+    return sp_rt_arena_allocated(arena_ptr);
+}
+
+uint64_t sp_rt_mem_allocated_bytes() {
+    return g_allocated_bytes.load(std::memory_order_relaxed);
+}
+
+uint64_t sp_rt_mem_active_arc_objects() {
+    return g_active_arc_objects.load(std::memory_order_relaxed);
+}
+
+uint64_t sp_rt_mem_live_objects() {
+    return sp_rt_mem_active_arc_objects();
 }
 
 // Internal structures

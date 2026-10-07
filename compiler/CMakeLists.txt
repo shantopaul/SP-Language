@@ -13,12 +13,17 @@ add_library(sp_compiler
     src/sema/NameResolver.cpp
     src/sema/TypeChecker.cpp
     src/sema/SemanticAnalyzer.cpp
+    src/sema/EscapeAnalysis.cpp
     src/ir/IR.cpp
     src/ir/IRPrinter.cpp
     src/ir/IRBuilder.cpp
     src/codegen/VTableBuilder.cpp
     src/codegen/ClassGenerator.cpp
     src/codegen/LLVMGenerator.cpp
+    src/codegen/ObjectEmitter.cpp
+    src/codegen/LinkerDriver.cpp
+    src/codegen/DebugInfoGenerator.cpp
+    src/codegen/LLVMOptimizer.cpp
 )
 
 target_include_directories(sp_compiler

@@ -42,9 +42,41 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
 
 void IRBuilder::pushScope() {
     m_scopes.emplace_back();
+    m_refCountedScopes.emplace_back();
+}
+
+void IRBuilder::emitScopeDrops(size_t scopeIndex) {
+    if (scopeIndex >= m_refCountedScopes.size()) return;
+    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+
+    const auto& vars = m_refCountedScopes[scopeIndex];
+    for (auto it = vars.rbegin(); it != vars.rend(); ++it) {
+        const auto& [name, allocaPtr] = *it;
+        std::string dropReg = m_currentFunction->nextTempName("drop_" + name);
+        auto loadInst = std::make_shared<LoadInst>(IRType::getPointer(), allocaPtr, dropReg);
+        m_currentBlock->addInstruction(loadInst);
+
+        auto releaseCall = std::make_shared<CallInst>(
+            IRType::getVoid(),
+            "sp_rt_release",
+            std::vector<IRValuePtr>{loadInst}
+        );
+        m_currentBlock->addInstruction(releaseCall);
+    }
+}
+
+void IRBuilder::emitAllFunctionDrops() {
+    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+    for (int i = static_cast<int>(m_refCountedScopes.size()) - 1; i >= 0; --i) {
+        emitScopeDrops(static_cast<size_t>(i));
+    }
 }
 
 void IRBuilder::popScope() {
+    if (!m_refCountedScopes.empty()) {
+        emitScopeDrops(m_refCountedScopes.size() - 1);
+        m_refCountedScopes.pop_back();
+    }
     if (!m_scopes.empty()) {
         m_scopes.pop_back();
     }
@@ -168,7 +200,9 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType, co
         return val;
     }
     std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str") : "%str";
-    if (valType->isInt1()) {
+    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
+    if (valType->isInt1() || (semaType && semaType->getKind() == sema::TypeKind::Bool)) {
+        val = emitCastIfNeeded(val, IRType::getInt1());
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_from_bool",
                                                std::vector<IRValuePtr>{val},
@@ -176,8 +210,6 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType, co
         if (m_currentBlock) m_currentBlock->addInstruction(call);
         return call;
     }
-
-    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
     if (semaType && semaType->isChar()) {
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_from_char",
@@ -533,6 +565,36 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
     auto allocaInst = std::make_shared<AllocaInst>(valType, varReg);
     m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
     declareVariable(node.getName(), allocaInst, valType);
+
+    bool isRefCounted = false;
+    if (valType && valType->isPointer()) {
+        if (m_vtableBuilder && !node.getType().empty()) {
+            const auto* l = m_vtableBuilder->getClassLayout(node.getType());
+            if (l && l->hasVTable) {
+                isRefCounted = true;
+            }
+        }
+        if (!isRefCounted && node.hasInitializer()) {
+            auto semaType = m_sema.getNodeType(node.getInitializer());
+            if (semaType && semaType->isReferenceType()) {
+                isRefCounted = true;
+            } else if (dynamic_cast<const ast::NewExpr*>(node.getInitializer())) {
+                isRefCounted = true;
+            }
+        }
+    }
+
+    if (isRefCounted && !m_refCountedScopes.empty()) {
+        m_refCountedScopes.back().push_back({node.getName(), allocaInst});
+        if (initVal && !dynamic_cast<const ast::NewExpr*>(node.getInitializer())) {
+            auto retainCall = std::make_shared<CallInst>(
+                IRType::getVoid(),
+                "sp_rt_retain",
+                std::vector<IRValuePtr>{initVal}
+            );
+            m_currentBlock->addInstruction(retainCall);
+        }
+    }
 
     if (initVal) {
         initVal = emitCastIfNeeded(initVal, valType);
@@ -1081,8 +1143,30 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
         node.getValue()->accept(*this);
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, m_currentFunction->getReturnType());
+
+        bool isRefRet = false;
+        if (retVal && retVal->getType()->isPointer()) {
+            auto semaType = m_sema.getNodeType(node.getValue());
+            if (semaType && semaType->isReferenceType()) {
+                isRefRet = true;
+            } else if (dynamic_cast<const ast::NewExpr*>(node.getValue())) {
+                isRefRet = true;
+            }
+        }
+
+        if (isRefRet) {
+            auto retainCall = std::make_shared<CallInst>(
+                IRType::getVoid(),
+                "sp_rt_retain",
+                std::vector<IRValuePtr>{retVal}
+            );
+            m_currentBlock->addInstruction(retainCall);
+        }
+
+        emitAllFunctionDrops();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     } else {
+        emitAllFunctionDrops();
         if (m_currentFunction->getName() == "main") {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
@@ -1095,6 +1179,9 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
 void IRBuilder::visit(const ast::BreakStmt& node) {
     (void)node;
     if (!m_breakStack.empty()) {
+        if (!m_refCountedScopes.empty()) {
+            emitScopeDrops(m_refCountedScopes.size() - 1);
+        }
         m_currentBlock->addInstruction(std::make_shared<BranchInst>(m_breakStack.back()));
     }
 }
@@ -1102,6 +1189,9 @@ void IRBuilder::visit(const ast::BreakStmt& node) {
 void IRBuilder::visit(const ast::ContinueStmt& node) {
     (void)node;
     if (!m_continueStack.empty()) {
+        if (!m_refCountedScopes.empty()) {
+            emitScopeDrops(m_refCountedScopes.size() - 1);
+        }
         m_currentBlock->addInstruction(std::make_shared<BranchInst>(m_continueStack.back()));
     }
 }
@@ -1819,7 +1909,43 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
     }
 
     rhsVal = emitCastIfNeeded(rhsVal, valType);
-    m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, targetPtr));
+
+    bool isRefAssignment = false;
+    if (valType && valType->isPointer()) {
+        auto semaType = m_sema.getNodeType(&node.getValue());
+        if (semaType && semaType->isReferenceType()) {
+            isRefAssignment = true;
+        } else if (dynamic_cast<const ast::NewExpr*>(&node.getValue())) {
+            isRefAssignment = true;
+        }
+    }
+
+    if (isRefAssignment) {
+        if (!dynamic_cast<const ast::NewExpr*>(&node.getValue())) {
+            auto retainCall = std::make_shared<CallInst>(
+                IRType::getVoid(),
+                "sp_rt_retain",
+                std::vector<IRValuePtr>{rhsVal}
+            );
+            m_currentBlock->addInstruction(retainCall);
+        }
+
+        std::string oldValReg = m_currentFunction->nextTempName("old_obj");
+        auto loadOld = std::make_shared<LoadInst>(IRType::getPointer(), targetPtr, oldValReg);
+        m_currentBlock->addInstruction(loadOld);
+
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, targetPtr));
+
+        auto releaseCall = std::make_shared<CallInst>(
+            IRType::getVoid(),
+            "sp_rt_release",
+            std::vector<IRValuePtr>{loadOld}
+        );
+        m_currentBlock->addInstruction(releaseCall);
+    } else {
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, targetPtr));
+    }
+
     m_lastExprValue = rhsVal;
     m_lastExprType = valType;
 }
@@ -1880,6 +2006,19 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
             m_lastExprType = IRType::getInt1();
             return;
         }
+    }
+
+    // Logical operations on booleans stay as i1 without integer promotion
+    if (node.getOp() == lexer::TokenType::AmpAmp || node.getOp() == lexer::TokenType::PipePipe) {
+        lhs = emitCastIfNeeded(lhs, IRType::getInt1());
+        rhs = emitCastIfNeeded(rhs, IRType::getInt1());
+        std::string resName = m_currentFunction->nextTempName("b");
+        auto op = (node.getOp() == lexer::TokenType::AmpAmp) ? IROpcode::And : IROpcode::Or;
+        auto resultInst = std::make_shared<BinaryInst>(op, lhs, rhs, resName);
+        if (m_currentBlock) m_currentBlock->addInstruction(resultInst);
+        m_lastExprValue = resultInst;
+        m_lastExprType = IRType::getInt1();
+        return;
     }
 
     // Type promotion / widening
@@ -2749,6 +2888,77 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 auto callInst = std::make_shared<CallInst>(
                     IRType::getInt64(),
                     "sp_rt_duration_to_seconds",
+                    std::vector<IRValuePtr>{objVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+        }
+
+        if (semaObjType && semaObjType->isClass() && semaObjType->toString() == "Arena") {
+            if (methodName == "alloc" && !node.getArgs().empty()) {
+                node.getArgs()[0]->accept(*this);
+                auto szVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                auto alignVal = std::make_shared<ConstantInt>(IRType::getInt64(), 8);
+                std::string reg = m_currentFunction->nextTempName("arena_ptr");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_arena_alloc",
+                    std::vector<IRValuePtr>{objVal, szVal, alignVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+            if (methodName == "allocAligned" && node.getArgs().size() >= 2) {
+                node.getArgs()[0]->accept(*this);
+                auto szVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                node.getArgs()[1]->accept(*this);
+                auto alignVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                std::string reg = m_currentFunction->nextTempName("arena_ptr");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_arena_alloc",
+                    std::vector<IRValuePtr>{objVal, szVal, alignVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+            if (methodName == "reset") {
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_arena_reset",
+                    std::vector<IRValuePtr>{objVal}
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = nullptr;
+                m_lastExprType = IRType::getVoid();
+                return;
+            }
+            if (methodName == "destroy") {
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_arena_destroy",
+                    std::vector<IRValuePtr>{objVal}
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = nullptr;
+                m_lastExprType = IRType::getVoid();
+                return;
+            }
+            if (methodName == "allocatedBytes") {
+                std::string reg = m_currentFunction->nextTempName("arena_bytes");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_arena_allocated_bytes",
                     std::vector<IRValuePtr>{objVal},
                     reg
                 );
@@ -4046,6 +4256,23 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
+    if (calleeName == "totalAllocatedBytes") {
+        std::string reg = m_currentFunction->nextTempName("mem_bytes");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_mem_allocated_bytes", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if (calleeName == "totalLiveObjects") {
+        std::string reg = m_currentFunction->nextTempName("mem_objs");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_mem_live_objects", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+
     // Check if callee is a method on 'this'
     if (m_currentClass && m_currentClass->methodSlotMap.count(calleeName)) {
         int slotIdx = m_currentClass->methodSlotMap.at(calleeName);
@@ -4708,6 +4935,27 @@ void IRBuilder::visit(const ast::NewExpr& node) {
         return;
     }
 
+    if (typeName == "Arena") {
+        IRValuePtr capVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            capVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        } else {
+            capVal = std::make_shared<ConstantInt>(IRType::getInt64(), 65536);
+        }
+        std::string arenaReg = m_currentFunction->nextTempName("arena");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_arena_create",
+            std::vector<IRValuePtr>{capVal},
+            arenaReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
     if (node.isGeneric()) {
         typeName = node.getTypeName();
         for (const auto& arg : node.getTypeArgs()) {
@@ -4722,14 +4970,24 @@ void IRBuilder::visit(const ast::NewExpr& node) {
         return;
     }
 
-    // 1. Allocate object on heap via sp_rt_alloc
+    // 1. Allocate object on heap via sp_rt_arc_alloc
     uint64_t size = layout->objectSize > 0 ? layout->objectSize : 8;
     auto sizeVal = std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(size));
-    std::string rawPtrReg = m_currentFunction->nextTempName("obj_raw");
+
+    std::string effectiveName = layout ? layout->name : typeName;
+    std::string dtorName = effectiveName + "_destructor";
+    IRValuePtr dtorPtr = nullptr;
+    if (m_module->getFunction(dtorName)) {
+        dtorPtr = std::make_shared<GlobalVariable>(IRType::getInt8(), "@" + dtorName);
+    } else {
+        dtorPtr = std::make_shared<ConstantNull>();
+    }
+
+    std::string rawPtrReg = m_currentFunction->nextTempName("obj_arc");
     auto allocCall = std::make_shared<CallInst>(
         IRType::getPointer(),
-        "sp_rt_alloc",
-        std::vector<IRValuePtr>{sizeVal},
+        "sp_rt_arc_alloc",
+        std::vector<IRValuePtr>{sizeVal, dtorPtr},
         rawPtrReg
     );
     m_currentBlock->addInstruction(allocCall);
@@ -4751,7 +5009,6 @@ void IRBuilder::visit(const ast::NewExpr& node) {
     }
 
     // 3. Call constructor @ClassName_ClassName(ptr %raw, args...)
-    std::string effectiveName = layout ? layout->name : typeName;
     std::string ctorName = effectiveName + "_" + effectiveName;
     auto* ctorFunc = m_module->getFunction(ctorName);
 

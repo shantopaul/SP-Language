@@ -35,12 +35,17 @@ add_executable(sp_tests
     sema/SymbolTableTest.cpp
     sema/TypeCheckerTest.cpp
     sema/GoldenSemanticTest.cpp
+    sema/EscapeAnalysisTest.cpp
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
     codegen/LLVMGeneratorTest.cpp
     codegen/ExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
+    codegen/ObjectEmitterTest.cpp
+    codegen/LinkerDriverTest.cpp
+    codegen/DebugInfoGeneratorTest.cpp
+    codegen/LLVMOptimizerTest.cpp
     runtime/RuntimeTest.cpp
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp

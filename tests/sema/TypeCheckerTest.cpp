@@ -324,4 +324,33 @@ TEST(TypeCheckerTest, CannotAssignToInferredConstantReportsE1005) {
     EXPECT_GE(diag.errorCount(), 1);
 }
 
+TEST(TypeCheckerTest, WeakReferenceAllowedOnClassTypes) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        class Node {
+            weak Node parent;
+            Node child;
+        }
+
+        fn main() {
+            var n = new Node();
+            weak Node p = n;
+        }
+    )";
+    EXPECT_TRUE(analyzeSource(source, diag));
+    EXPECT_FALSE(diag.hasErrors());
+}
+
+TEST(TypeCheckerTest, WeakReferenceForbiddenOnValueTypesReportsE1015) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        fn main() {
+            weak int count = 0;
+        }
+    )";
+    EXPECT_FALSE(analyzeSource(source, diag));
+    EXPECT_TRUE(diag.hasErrors());
+    EXPECT_GE(diag.errorCount(), 1);
+}
+
 

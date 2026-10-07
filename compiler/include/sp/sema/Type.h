@@ -80,6 +80,8 @@ public:
     [[nodiscard]] bool isInterface() const noexcept { return m_kind == TypeKind::Interface; }
     [[nodiscard]] bool isStruct() const noexcept { return m_kind == TypeKind::Struct; }
     [[nodiscard]] bool isEnum() const noexcept { return m_kind == TypeKind::Enum; }
+    [[nodiscard]] bool isReferenceType() const noexcept { return m_kind == TypeKind::Class || m_kind == TypeKind::Interface; }
+    [[nodiscard]] bool isValueType() const noexcept { return !isReferenceType(); }
     [[nodiscard]] bool isAny() const noexcept { return m_kind == TypeKind::Any; }
     [[nodiscard]] bool isError() const noexcept { return m_kind == TypeKind::Error; }
     [[nodiscard]] bool isUnknown() const noexcept { return m_kind == TypeKind::Unknown; }
@@ -182,6 +184,7 @@ struct MemberField {
     std::string visibility; // "public", "private", "protected", "internal"
     bool isStatic{false};
     bool isConst{false};
+    bool isWeak{false};
 };
 
 // Method descriptor for Nominal types

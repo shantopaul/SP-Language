@@ -55,6 +55,7 @@ std::string_view tokenTypeToString(TokenType type) noexcept {
         case TokenType::KeywordExtends: return "extends";
         case TokenType::KeywordImplements: return "implements";
         case TokenType::KeywordWith: return "with";
+        case TokenType::KeywordWeak: return "weak";
 
         case TokenType::KeywordAsync: return "async";
         case TokenType::KeywordAwait: return "await";

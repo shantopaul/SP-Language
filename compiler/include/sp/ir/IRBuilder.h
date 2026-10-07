@@ -105,6 +105,11 @@ private:
 
     // Scoped variable symbol tables: (alloca pointer, value type)
     std::vector<std::unordered_map<std::string, std::pair<IRValuePtr, IRTypePtr>>> m_scopes;
+    // Scoped reference-counted variables: (name, allocaPtr) in declaration order for RAII drop emission
+    std::vector<std::vector<std::pair<std::string, IRValuePtr>>> m_refCountedScopes;
+
+    void emitScopeDrops(size_t scopeIndex);
+    void emitAllFunctionDrops();
 
     // Loop control flow targets for break / continue
     std::vector<std::string> m_breakStack;

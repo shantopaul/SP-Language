@@ -503,6 +503,7 @@ TokenType Lexer::lookupKeyword(std::string_view text) noexcept {
         {"extends", TokenType::KeywordExtends},
         {"implements", TokenType::KeywordImplements},
         {"with", TokenType::KeywordWith},
+        {"weak", TokenType::KeywordWeak},
 
         // Concurrency & Systems
         {"async", TokenType::KeywordAsync},

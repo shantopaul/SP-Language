@@ -63,6 +63,7 @@ enum class TokenType {
     KeywordExtends,
     KeywordImplements,
     KeywordWith,
+    KeywordWeak,
 
     // Keywords - Concurrency & Systems
     KeywordAsync,

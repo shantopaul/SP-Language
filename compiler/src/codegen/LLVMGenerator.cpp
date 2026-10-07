@@ -1,4 +1,8 @@
 #include "sp/codegen/LLVMGenerator.h"
+#include "sp/codegen/ObjectEmitter.h"
+#include "sp/codegen/LinkerDriver.h"
+#include "sp/codegen/DebugInfoGenerator.h"
+#include "sp/codegen/LLVMOptimizer.h"
 #include "sp/ir/IRPrinter.h"
 #include <fstream>
 #include <sstream>
@@ -153,6 +157,14 @@ std::string LLVMGenerator::findRuntimeIncludePath() {
     return "runtime/include";
 }
 
+std::string LLVMGenerator::findRuntimeLibPath() {
+    const char* envLib = std::getenv("SP_RUNTIME_LIB");
+    if (envLib && fs::exists(envLib)) {
+        return envLib;
+    }
+    return LinkerDriver::findPrecompiledRuntimeLib();
+}
+
 std::string LLVMGenerator::generateLLVMIR(const ir::IRModule& module) {
     std::ostringstream ss;
     ss << "; ModuleID = '" << module.getName() << "'\n";
@@ -195,7 +207,66 @@ bool LLVMGenerator::emitLLVMIRToFile(const ir::IRModule& module, const std::stri
     return out.good();
 }
 
+bool LLVMGenerator::emitObjectFile(const ir::IRModule& module, const std::string& outputObjPath) {
+    std::string ir = generateLLVMIR(module);
+
+    if (m_options.debugSymbols) {
+        DebugInfoGenerator dbg(module.getName() + ".sp", "src");
+        ir = dbg.injectDebugInfo(ir);
+    }
+
+    if (!m_options.optLevel.empty() && m_options.optLevel != "-O0") {
+        OptimizerOptions optOpts;
+        optOpts.level = LLVMOptimizer::parseOptLevel(m_options.optLevel);
+        LLVMOptimizer opt(optOpts);
+        opt.optimizeIRInPlace(ir);
+    } else if (m_options.releaseMode) {
+        OptimizerOptions optOpts;
+        optOpts.level = OptLevel::O3;
+        LLVMOptimizer opt(optOpts);
+        opt.optimizeIRInPlace(ir);
+    }
+
+    ObjectEmitterOptions emitOpts;
+    emitOpts.targetTriple = m_options.targetTriple;
+    emitOpts.dataLayout = m_options.dataLayout;
+    emitOpts.optLevel = m_options.optLevel.empty() ? (m_options.releaseMode ? "-O3" : "-O0") : m_options.optLevel;
+    emitOpts.debugSymbols = m_options.debugSymbols;
+
+    ObjectEmitter emitter(emitOpts);
+    bool ok = emitter.emitObjectFromIR(ir, outputObjPath);
+    if (!ok) {
+        m_lastError = emitter.getLastError();
+    }
+    return ok;
+}
+
 bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::string& outputExePath) {
+    // Phase 12 Fast Path: Direct Object Emission + LinkerDriver with precompiled runtime library
+    if (m_options.useDirectLinker) {
+        std::string rtLib = m_options.runtimeLibPath.empty() ? findRuntimeLibPath() : m_options.runtimeLibPath;
+        if (!rtLib.empty() && fs::exists(rtLib)) {
+            std::string tempObj = outputExePath + ObjectEmitter::getObjectFileExtension(m_options.targetTriple);
+            if (emitObjectFile(module, tempObj)) {
+                LinkerDriverOptions linkOpts;
+                linkOpts.targetTriple = m_options.targetTriple;
+                linkOpts.runtimeLibPath = rtLib;
+                linkOpts.linkerPath = m_options.customLinkerPath;
+
+                LinkerDriver linker(linkOpts);
+                bool linked = linker.linkSingle(tempObj, outputExePath);
+                std::error_code ec;
+                fs::remove(tempObj, ec);
+
+                if (linked && fs::exists(outputExePath)) {
+                    return true;
+                }
+                m_lastError = linker.getLastError();
+            }
+        }
+    }
+
+    // Fallback: Legacy Clang driver compilation with Runtime.cpp
     // 1. Emit LLVM IR to a temporary file
     std::string tempLLPath = outputExePath + ".tmp.ll";
     if (!emitLLVMIRToFile(module, tempLLPath)) {

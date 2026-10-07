@@ -13,9 +13,13 @@ struct CodegenOptions {
     std::string optLevel; // e.g. "-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"
     bool releaseMode{false};
     bool debugSymbols{false};
+    bool useDirectLinker{true};
+    bool emitObjectOnly{false};
     std::string clangPath;
     std::string runtimeSourcePath;
     std::string runtimeIncludePath;
+    std::string runtimeLibPath;
+    std::string customLinkerPath;
 };
 
 class LLVMGenerator {
@@ -28,6 +32,9 @@ public:
     // Write LLVM IR text directly to file
     bool emitLLVMIRToFile(const ir::IRModule& module, const std::string& filePath);
 
+    // Compile an SP IR module directly to a relocatable native object file (.o / .obj)
+    bool emitObjectFile(const ir::IRModule& module, const std::string& outputObjPath);
+
     // Compile an SP IR module directly to a native standalone executable (.exe / ELF)
     bool compileToExecutable(const ir::IRModule& module, const std::string& outputExePath);
 
@@ -39,6 +46,9 @@ public:
 
     // Locate SP Runtime include directory
     [[nodiscard]] static std::string findRuntimeIncludePath();
+
+    // Locate precompiled SP Runtime static library (libsp_runtime.a)
+    [[nodiscard]] static std::string findRuntimeLibPath();
 
     // Host platform triple detection
     [[nodiscard]] static std::string getHostTargetTriple();

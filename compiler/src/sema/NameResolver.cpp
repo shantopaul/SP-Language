@@ -275,8 +275,23 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
                 .type = fieldType,
                 .visibility = varDecl.getVisibility().empty() ? "public" : varDecl.getVisibility(),
                 .isStatic = varDecl.isStatic(),
-                .isConst = varDecl.isConst()
+                .isConst = varDecl.isConst(),
+                .isWeak = varDecl.isWeak()
             };
+
+            if (varDecl.isWeak() && !fieldType->isError()) {
+                bool isRef = fieldType->isReferenceType() || fieldType->isAny();
+                if (fieldType->isNullable()) {
+                    auto nullUnderlying = std::static_pointer_cast<NullableType>(fieldType)->getUnderlyingType();
+                    if (nullUnderlying && (nullUnderlying->isReferenceType() || nullUnderlying->isAny())) {
+                        isRef = true;
+                    }
+                }
+                if (!isRef) {
+                    m_diagnostics.reportError("E1015", "Modifier 'weak' can only be applied to reference types, found '" + fieldType->toString() + "'", varDecl.getLocation());
+                }
+            }
+
             clsType->addField(std::move(field));
         } else if (memberNode->getKind() == ast::ASTNodeKind::FunctionDecl) {
             const auto& fnDecl = static_cast<const ast::FunctionDecl&>(*memberNode);
