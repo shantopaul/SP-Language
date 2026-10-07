@@ -110,4 +110,8 @@ TEST(GoldenSemanticTest, AnalyzeStdlibProcess) {
     assertFileAnalyzesCleanly("stdlib/process/process.sp");
 }
 
+TEST(GoldenSemanticTest, AnalyzeStdlibMem) {
+    assertFileAnalyzesCleanly("stdlib/mem/mem.sp");
+}
+
 } // namespace sp::sema::test

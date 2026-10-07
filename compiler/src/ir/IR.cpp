@@ -566,6 +566,38 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "weak_ref", 0)},
                    true);
 
+    // ptr sp_rt_arena_create(i64)
+    createFunction("sp_rt_arena_create", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "initialCapacity", 0)},
+                   true);
+
+    // ptr sp_rt_arena_alloc(i64, i64)
+    createFunction("sp_rt_arena_alloc", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "size", 1)},
+                   true);
+
+    // void sp_rt_arena_reset(i64)
+    createFunction("sp_rt_arena_reset", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0)},
+                   true);
+
+    // void sp_rt_arena_destroy(i64)
+    createFunction("sp_rt_arena_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0)},
+                   true);
+
+    // i64 sp_rt_arena_allocated_bytes(i64)
+    createFunction("sp_rt_arena_allocated_bytes", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0)},
+                   true);
+
+    // i64 sp_rt_mem_allocated_bytes()
+    createFunction("sp_rt_mem_allocated_bytes", IRType::getInt64(), {}, true);
+
+    // i64 sp_rt_mem_live_objects()
+    createFunction("sp_rt_mem_live_objects", IRType::getInt64(), {}, true);
+
     // ptr sp_rt_str_concat(ptr, ptr)
     createFunction("sp_rt_str_concat", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "s1", 0),
