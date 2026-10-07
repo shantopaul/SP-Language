@@ -610,6 +610,15 @@ ast::StmtPtr Parser::parseStatement() {
     if (check(lexer::TokenType::OpenBrace)) {
         return parseBlock();
     }
+    if (match(lexer::TokenType::KeywordWeak)) {
+        if (match(lexer::TokenType::KeywordVar) || match(lexer::TokenType::KeywordLet)) {
+            return parseVarDecl(false, true, true);
+        }
+        if (match(lexer::TokenType::KeywordConst)) {
+            return parseVarDecl(true, false, true);
+        }
+        return parseVarDecl(false, false, true);
+    }
     if (match(lexer::TokenType::KeywordVar)) {
         return parseVarDecl(false, true);
     }
@@ -684,7 +693,7 @@ ast::StmtPtr Parser::parseStatement() {
     return parseExprStatement();
 }
 
-ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar) {
+ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar, bool isWeak) {
     diagnostics::SourceLocation loc = previous().location;
     std::string type;
 
@@ -708,7 +717,7 @@ ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar) {
     }
 
     consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
-    return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), isConst, isVar, loc);
+    return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), isConst, isVar, loc, "public", false, isWeak);
 }
 
 ast::StmtPtr Parser::parseIfStatement() {
@@ -965,6 +974,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     bool isStatic = false;
     bool isOverride = false;
     bool isAbstract = false;
+    bool isWeak = false;
 
     // Modifiers
     while (true) {
@@ -975,6 +985,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         if (match(lexer::TokenType::KeywordStatic)) { isStatic = true; continue; }
         if (match(lexer::TokenType::KeywordOverride)) { isOverride = true; continue; }
         if (match(lexer::TokenType::KeywordAbstract)) { isAbstract = true; continue; }
+        if (match(lexer::TokenType::KeywordWeak)) { isWeak = true; continue; }
         break;
     }
 
@@ -988,9 +999,9 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     if (match(lexer::TokenType::KeywordTest)) return parseTestDecl();
 
     // Variable declarations with visibility or const/var
-    if (match(lexer::TokenType::KeywordConst)) return parseVarDecl(true, false);
-    if (match(lexer::TokenType::KeywordVar)) return parseVarDecl(false, true);
-    if (match(lexer::TokenType::KeywordLet)) return parseVarDecl(false, true);
+    if (match(lexer::TokenType::KeywordConst)) return parseVarDecl(true, false, isWeak);
+    if (match(lexer::TokenType::KeywordVar)) return parseVarDecl(false, true, isWeak);
+    if (match(lexer::TokenType::KeywordLet)) return parseVarDecl(false, true, isWeak);
 
     // Extern block: extern "C" { ... }
     if (match(lexer::TokenType::KeywordExtern)) {
@@ -1082,7 +1093,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                     init = parseExpression();
                 }
                 consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
-                return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc, visibility, isStatic);
+                return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc, visibility, isStatic, isWeak);
             }
         }
         m_current = saved; // Not a declaration, rewind

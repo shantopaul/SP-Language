@@ -1101,6 +1101,19 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
         }
     }
 
+    if (node.isWeak() && varType && !varType->isError()) {
+        bool isRef = varType->isReferenceType() || varType->isAny();
+        if (varType->isNullable()) {
+            auto nullUnderlying = std::static_pointer_cast<NullableType>(varType)->getUnderlyingType();
+            if (nullUnderlying && (nullUnderlying->isReferenceType() || nullUnderlying->isAny())) {
+                isRef = true;
+            }
+        }
+        if (!isRef) {
+            m_diagnostics.reportError("E1015", "Modifier 'weak' can only be applied to reference types (classes or interfaces), but found value type '" + varType->toString() + "'", node.getLocation());
+        }
+    }
+
     auto sym = std::make_shared<VariableSymbol>(name, varType, node.getLocation(), node.isConst());
     if (!m_symbolTable.define(sym)) {
         m_diagnostics.reportError("E1004", "Duplicate declaration of variable '" + name + "' in this scope", node.getLocation());

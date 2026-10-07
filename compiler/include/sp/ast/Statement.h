@@ -47,10 +47,10 @@ private:
 
 class VarDeclStmt : public StatementNode {
 public:
-    VarDeclStmt(std::string type, std::string name, ExprPtr init, bool isConst, bool isVar, diagnostics::SourceLocation loc, std::string visibility = "public", bool isStatic = false)
+    VarDeclStmt(std::string type, std::string name, ExprPtr init, bool isConst, bool isVar, diagnostics::SourceLocation loc, std::string visibility = "public", bool isStatic = false, bool isWeak = false)
         : StatementNode(ASTNodeKind::VarDeclStmt, std::move(loc)),
           m_type(std::move(type)), m_name(std::move(name)), m_init(std::move(init)),
-          m_isConst(isConst), m_isVar(isVar), m_visibility(std::move(visibility)), m_isStatic(isStatic) {}
+          m_isConst(isConst), m_isVar(isVar), m_visibility(std::move(visibility)), m_isStatic(isStatic), m_isWeak(isWeak) {}
 
     [[nodiscard]] const std::string& getType() const noexcept { return m_type; }
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
@@ -61,6 +61,8 @@ public:
     [[nodiscard]] bool isVar() const noexcept { return m_isVar; }
     [[nodiscard]] const std::string& getVisibility() const noexcept { return m_visibility; }
     [[nodiscard]] bool isStatic() const noexcept { return m_isStatic; }
+    [[nodiscard]] bool isWeak() const noexcept { return m_isWeak; }
+    void setWeak(bool weak) noexcept { m_isWeak = weak; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -72,6 +74,7 @@ private:
     bool m_isVar;
     std::string m_visibility;
     bool m_isStatic{false};
+    bool m_isWeak{false};
 };
 
 class IfStmt : public StatementNode {

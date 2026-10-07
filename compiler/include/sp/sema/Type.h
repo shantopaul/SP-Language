@@ -184,6 +184,7 @@ struct MemberField {
     std::string visibility; // "public", "private", "protected", "internal"
     bool isStatic{false};
     bool isConst{false};
+    bool isWeak{false};
 };
 
 // Method descriptor for Nominal types

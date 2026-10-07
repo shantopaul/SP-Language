@@ -69,7 +69,7 @@ private:
     ast::ExprPtr parseNewExpr();
 
     // Statement Parsing
-    ast::StmtPtr parseVarDecl(bool isConst = false, bool isVar = false);
+    ast::StmtPtr parseVarDecl(bool isConst = false, bool isVar = false, bool isWeak = false);
     ast::StmtPtr parseIfStatement();
     ast::StmtPtr parseWhileStatement();
     ast::StmtPtr parseDoWhileStatement();
