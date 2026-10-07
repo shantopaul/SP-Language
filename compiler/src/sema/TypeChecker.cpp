@@ -923,9 +923,20 @@ void TypeChecker::visit(const ast::AssignExpr& node) {
 void TypeChecker::visit(const ast::NewExpr& node) {
     const std::string& typeName = node.getTypeName();
 
+    auto resolveArgOrAny = [&](const std::string& argStr) -> TypePtr {
+        auto t = m_typeCtx.resolveType(argStr);
+        if (t) return t;
+        if (m_currentEnclosingClass) {
+            for (const auto& tp : m_currentEnclosingClass->getTypeParams()) {
+                if (tp == argStr) return m_typeCtx.getAny();
+            }
+        }
+        return nullptr;
+    };
+
     // Check built-in collections instantiation: new List<T>() or new Map<K, V>()
     if (typeName == "Array") {
-        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
         for (const auto& argPtr : node.getArgs()) {
             checkExpr(*argPtr);
@@ -934,7 +945,7 @@ void TypeChecker::visit(const ast::NewExpr& node) {
         return;
     }
     if (typeName == "List") {
-        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
         for (const auto& argPtr : node.getArgs()) {
             checkExpr(*argPtr);
@@ -943,9 +954,9 @@ void TypeChecker::visit(const ast::NewExpr& node) {
         return;
     }
     if (typeName == "Map") {
-        TypePtr k = node.getTypeArgs().size() > 0 ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getString();
-        TypePtr v = node.getTypeArgs().size() > 1 ? m_typeCtx.resolveType(node.getTypeArgs()[1]) : m_typeCtx.getAny();
-        if (!k) k = m_typeCtx.getString();
+        TypePtr k = node.getTypeArgs().size() > 0 ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getString();
+        TypePtr v = node.getTypeArgs().size() > 1 ? resolveArgOrAny(node.getTypeArgs()[1]) : m_typeCtx.getAny();
+        if (!k) k = m_typeCtx.getAny();
         if (!v) v = m_typeCtx.getAny();
         for (const auto& argPtr : node.getArgs()) {
             checkExpr(*argPtr);
@@ -954,7 +965,7 @@ void TypeChecker::visit(const ast::NewExpr& node) {
         return;
     }
     if (typeName == "Set") {
-        TypePtr elem = node.isGeneric() ? m_typeCtx.resolveType(node.getTypeArgs()[0]) : m_typeCtx.getAny();
+        TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
         for (const auto& argPtr : node.getArgs()) {
             checkExpr(*argPtr);
@@ -1342,17 +1353,19 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
         if (r) {
             returnType = r;
         } else {
-            bool isTypeParam = false;
-            for (const auto& tp : node.getTypeParams()) {
-                if (tp == node.getReturnType()) { isTypeParam = true; break; }
-            }
-            if (!isTypeParam && m_currentEnclosingClass) {
+            std::vector<std::string> activeParams = node.getTypeParams();
+            if (m_currentEnclosingClass) {
                 for (const auto& tp : m_currentEnclosingClass->getTypeParams()) {
-                    if (tp == node.getReturnType()) { isTypeParam = true; break; }
+                    activeParams.push_back(tp);
                 }
             }
-            if (isTypeParam) {
-                returnType = m_typeCtx.getAny();
+            if (!activeParams.empty()) {
+                std::vector<std::string> anyArgs(activeParams.size(), "any");
+                std::string subStr = TypeContext::substituteType(node.getReturnType(), activeParams, anyArgs);
+                auto subR = m_typeCtx.resolveType(subStr);
+                if (subR) {
+                    returnType = subR;
+                }
             }
         }
     }
@@ -1364,6 +1377,19 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
 
     for (const auto& param : node.getParams()) {
         auto pType = m_typeCtx.resolveType(param.getType());
+        if (!pType) {
+            std::vector<std::string> activeParams = node.getTypeParams();
+            if (m_currentEnclosingClass) {
+                for (const auto& tp : m_currentEnclosingClass->getTypeParams()) {
+                    activeParams.push_back(tp);
+                }
+            }
+            if (!activeParams.empty()) {
+                std::vector<std::string> anyArgs(activeParams.size(), "any");
+                std::string subStr = TypeContext::substituteType(param.getType(), activeParams, anyArgs);
+                pType = m_typeCtx.resolveType(subStr);
+            }
+        }
         if (!pType) pType = m_typeCtx.getAny();
 
         auto paramSym = std::make_shared<VariableSymbol>(param.getName(), pType, node.getLocation(), false, true);

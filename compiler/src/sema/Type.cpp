@@ -777,8 +777,8 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         listCls->addMethod({"pop", getFunctionType({}, elem), "public", false, false, false});
         listCls->addMethod({"get", getFunctionType({m_int64Type}, elem), "public", false, false, false});
         listCls->addMethod({"set", getFunctionType({m_int64Type, elem}, m_voidType), "public", false, false, false});
-        listCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
-        listCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
+        listCls->addMethod({"size", getFunctionType({}, m_int32Type), "public", false, false, false});
+        listCls->addMethod({"length", getFunctionType({}, m_int32Type), "public", false, false, false});
         listCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
         listCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
         listCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
@@ -814,8 +814,8 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         setCls->addMethod({"contains", getFunctionType({elem ? elem : m_int64Type}, m_boolType), "public", false, false, false});
         setCls->addMethod({"remove", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
         setCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
-        setCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
-        setCls->addMethod({"length", getFunctionType({}, m_int64Type), "public", false, false, false});
+        setCls->addMethod({"size", getFunctionType({}, m_int32Type), "public", false, false, false});
+        setCls->addMethod({"length", getFunctionType({}, m_int32Type), "public", false, false, false});
         setCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
         return setCls;
     }

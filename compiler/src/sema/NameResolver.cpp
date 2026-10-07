@@ -451,11 +451,10 @@ TypePtr NameResolver::resolveTypeWithDiagnostic(const std::string& typeStr, cons
     if (typeStr.empty()) return m_typeCtx.getVoid();
 
     if (!m_activeTypeParams.empty()) {
-        for (const auto& tp : m_activeTypeParams) {
-            if (typeStr == tp) {
-                return m_typeCtx.getAny();
-            }
-        }
+        std::vector<std::string> anyArgs(m_activeTypeParams.size(), "any");
+        std::string subStr = TypeContext::substituteType(typeStr, m_activeTypeParams, anyArgs);
+        auto type = m_typeCtx.resolveType(subStr);
+        if (type) return type;
     }
 
     auto type = m_typeCtx.resolveType(typeStr);
