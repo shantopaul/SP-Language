@@ -2166,3 +2166,59 @@ TEST(ExecutionTest, CollectionStressAndScalingNativeExecution) {
     EXPECT_NE(output.find("stress_map_1999: 3998"), std::string::npos);
     EXPECT_NE(output.find("stress_map_has_500: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, ResultAndOptionZeroAllocTaggedUnionExecution) {
+    const std::string source = R"sp(
+        fn divide(int a, int b) -> Result<int, string> {
+            if (b == 0) {
+                return Result.Err("division by zero");
+            }
+            return Result.Ok(a / b);
+        }
+
+        fn findPositive(int n) -> Option<int> {
+            if (n > 0) {
+                return Option.Some(n * 2);
+            }
+            return Option.None();
+        }
+
+        fn main() {
+            var okRes = divide(20, 4);
+            println("okRes.isOk: ${okRes.isOk()}");
+            println("okRes.unwrap: ${okRes.unwrap()}");
+
+            var errRes = divide(10, 0);
+            println("errRes.isErr: ${errRes.isErr()}");
+            println("errRes.unwrapErr: ${errRes.unwrapErr()}");
+            println("errRes.unwrapOr: ${errRes.unwrapOr(999)}");
+
+            var someOpt = findPositive(5);
+            println("someOpt.isSome: ${someOpt.isSome()}");
+            println("someOpt.unwrap: ${someOpt.unwrap()}");
+
+            var noneOpt = findPositive(-3);
+            println("noneOpt.isNone: ${noneOpt.isNone()}");
+            println("noneOpt.unwrapOr: ${noneOpt.unwrapOr(-1)}");
+
+            var directOk = Ok(42);
+            println("directOk.unwrap: ${directOk.unwrap()}");
+
+            var directSome = Some(77);
+            println("directSome.unwrap: ${directSome.unwrap()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_option");
+    EXPECT_NE(output.find("okRes.isOk: true"), std::string::npos);
+    EXPECT_NE(output.find("okRes.unwrap: 5"), std::string::npos);
+    EXPECT_NE(output.find("errRes.isErr: true"), std::string::npos);
+    EXPECT_NE(output.find("errRes.unwrapErr: division by zero"), std::string::npos);
+    EXPECT_NE(output.find("errRes.unwrapOr: 999"), std::string::npos);
+    EXPECT_NE(output.find("someOpt.isSome: true"), std::string::npos);
+    EXPECT_NE(output.find("someOpt.unwrap: 10"), std::string::npos);
+    EXPECT_NE(output.find("noneOpt.isNone: true"), std::string::npos);
+    EXPECT_NE(output.find("noneOpt.unwrapOr: -1"), std::string::npos);
+    EXPECT_NE(output.find("directOk.unwrap: 42"), std::string::npos);
+    EXPECT_NE(output.find("directSome.unwrap: 77"), std::string::npos);
+}

@@ -96,6 +96,11 @@ void TypeChecker::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    if (name == "None") {
+        m_currentExprType = m_typeCtx.resolveType("Option<any>");
+        return;
+    }
+
     auto primType = m_typeCtx.resolveType(name);
     if (primType && !primType->isError()) {
         m_currentExprType = primType;
