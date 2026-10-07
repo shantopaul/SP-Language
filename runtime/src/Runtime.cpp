@@ -1261,6 +1261,244 @@ bool sp_rt_array_is_empty(void* arr) {
     return sp_rt_array_length(arr) == 0;
 }
 
+// Native Stack<T> primitives
+void* sp_rt_stack_alloc() {
+    return sp_rt_list_alloc(8, 16);
+}
+
+void sp_rt_stack_push(void* stack, int64_t val) {
+    sp_rt_list_push_i64(stack, val);
+}
+
+int64_t sp_rt_stack_pop(void* stack) {
+    if (!stack || sp_rt_list_size(stack) == 0) {
+        sp_rt_panic("IllegalStateException: stack is empty");
+    }
+    return sp_rt_list_pop_i64(stack);
+}
+
+int64_t sp_rt_stack_peek(void* stack) {
+    if (!stack || sp_rt_list_size(stack) == 0) {
+        sp_rt_panic("IllegalStateException: stack is empty");
+    }
+    return sp_rt_list_get_i64(stack, sp_rt_list_size(stack) - 1);
+}
+
+int64_t sp_rt_stack_size(void* stack) {
+    return sp_rt_list_size(stack);
+}
+
+bool sp_rt_stack_is_empty(void* stack) {
+    return sp_rt_list_is_empty(stack);
+}
+
+void sp_rt_stack_clear(void* stack) {
+    sp_rt_list_clear(stack);
+}
+
+// Native Queue<T> primitives
+struct SPQueueImpl {
+    int64_t* items;
+    int64_t head;
+    int64_t count;
+    int64_t capacity;
+};
+
+void* sp_rt_queue_alloc() {
+    auto* q = new SPQueueImpl();
+    q->capacity = 16;
+    q->head = 0;
+    q->count = 0;
+    q->items = static_cast<int64_t*>(sp_rt_alloc(q->capacity * sizeof(int64_t)));
+    return q;
+}
+
+void sp_rt_queue_enqueue(void* queue, int64_t val) {
+    if (!queue) sp_rt_panic("NullPointerException: queue is null");
+    auto* q = static_cast<SPQueueImpl*>(queue);
+    if (q->head + q->count >= q->capacity) {
+        if (q->head > 0) {
+            std::memmove(q->items, q->items + q->head, q->count * sizeof(int64_t));
+            q->head = 0;
+        } else {
+            int64_t new_cap = q->capacity * 2;
+            auto* new_items = static_cast<int64_t*>(sp_rt_alloc(new_cap * sizeof(int64_t)));
+            std::memcpy(new_items, q->items, q->count * sizeof(int64_t));
+            sp_rt_free(q->items);
+            q->items = new_items;
+            q->capacity = new_cap;
+        }
+    }
+    q->items[q->head + q->count] = val;
+    q->count++;
+}
+
+int64_t sp_rt_queue_dequeue(void* queue) {
+    if (!queue) sp_rt_panic("NullPointerException: queue is null");
+    auto* q = static_cast<SPQueueImpl*>(queue);
+    if (q->count == 0) {
+        sp_rt_panic("IllegalStateException: queue is empty");
+    }
+    int64_t val = q->items[q->head];
+    q->head++;
+    q->count--;
+    return val;
+}
+
+int64_t sp_rt_queue_peek(void* queue) {
+    if (!queue) sp_rt_panic("NullPointerException: queue is null");
+    auto* q = static_cast<SPQueueImpl*>(queue);
+    if (q->count == 0) {
+        sp_rt_panic("IllegalStateException: queue is empty");
+    }
+    return q->items[q->head];
+}
+
+int64_t sp_rt_queue_size(void* queue) {
+    if (!queue) return 0;
+    return static_cast<SPQueueImpl*>(queue)->count;
+}
+
+bool sp_rt_queue_is_empty(void* queue) {
+    if (!queue) return true;
+    return static_cast<SPQueueImpl*>(queue)->count == 0;
+}
+
+void sp_rt_queue_clear(void* queue) {
+    if (!queue) return;
+    auto* q = static_cast<SPQueueImpl*>(queue);
+    q->head = 0;
+    q->count = 0;
+}
+
+// Native PriorityQueue<T> primitives (binary min-heap)
+struct SPPQImpl {
+    int64_t* items;
+    int64_t* priorities;
+    int64_t count;
+    int64_t capacity;
+};
+
+void* sp_rt_pq_alloc() {
+    auto* pq = new SPPQImpl();
+    pq->capacity = 16;
+    pq->count = 0;
+    pq->items = static_cast<int64_t*>(sp_rt_alloc(pq->capacity * sizeof(int64_t)));
+    pq->priorities = static_cast<int64_t*>(sp_rt_alloc(pq->capacity * sizeof(int64_t)));
+    return pq;
+}
+
+static void sp_pq_swap(SPPQImpl* pq, int64_t i, int64_t j) {
+    int64_t t_item = pq->items[i];
+    int64_t t_prio = pq->priorities[i];
+    pq->items[i] = pq->items[j];
+    pq->priorities[i] = pq->priorities[j];
+    pq->items[j] = t_item;
+    pq->priorities[j] = t_prio;
+}
+
+static void sp_pq_sift_up(SPPQImpl* pq, int64_t idx) {
+    while (idx > 0) {
+        int64_t parent = (idx - 1) / 2;
+        if (pq->priorities[idx] < pq->priorities[parent]) {
+            sp_pq_swap(pq, idx, parent);
+            idx = parent;
+        } else {
+            break;
+        }
+    }
+}
+
+static void sp_pq_sift_down(SPPQImpl* pq, int64_t idx) {
+    while (true) {
+        int64_t left = 2 * idx + 1;
+        int64_t right = 2 * idx + 2;
+        int64_t smallest = idx;
+        if (left < pq->count && pq->priorities[left] < pq->priorities[smallest]) {
+            smallest = left;
+        }
+        if (right < pq->count && pq->priorities[right] < pq->priorities[smallest]) {
+            smallest = right;
+        }
+        if (smallest != idx) {
+            sp_pq_swap(pq, idx, smallest);
+            idx = smallest;
+        } else {
+            break;
+        }
+    }
+}
+
+void sp_rt_pq_push(void* pq_ptr, int64_t val, int64_t priority) {
+    if (!pq_ptr) sp_rt_panic("NullPointerException: priority queue is null");
+    auto* pq = static_cast<SPPQImpl*>(pq_ptr);
+    if (pq->count >= pq->capacity) {
+        int64_t new_cap = pq->capacity * 2;
+        auto* new_items = static_cast<int64_t*>(sp_rt_alloc(new_cap * sizeof(int64_t)));
+        auto* new_prios = static_cast<int64_t*>(sp_rt_alloc(new_cap * sizeof(int64_t)));
+        std::memcpy(new_items, pq->items, pq->count * sizeof(int64_t));
+        std::memcpy(new_prios, pq->priorities, pq->count * sizeof(int64_t));
+        sp_rt_free(pq->items);
+        sp_rt_free(pq->priorities);
+        pq->items = new_items;
+        pq->priorities = new_prios;
+        pq->capacity = new_cap;
+    }
+    pq->items[pq->count] = val;
+    pq->priorities[pq->count] = priority;
+    pq->count++;
+    sp_pq_sift_up(pq, pq->count - 1);
+}
+
+int64_t sp_rt_pq_pop(void* pq_ptr) {
+    if (!pq_ptr) sp_rt_panic("NullPointerException: priority queue is null");
+    auto* pq = static_cast<SPPQImpl*>(pq_ptr);
+    if (pq->count == 0) {
+        sp_rt_panic("IllegalStateException: priority queue is empty");
+    }
+    int64_t root = pq->items[0];
+    pq->count--;
+    if (pq->count > 0) {
+        pq->items[0] = pq->items[pq->count];
+        pq->priorities[0] = pq->priorities[pq->count];
+        sp_pq_sift_down(pq, 0);
+    }
+    return root;
+}
+
+int64_t sp_rt_pq_peek(void* pq_ptr) {
+    if (!pq_ptr) sp_rt_panic("NullPointerException: priority queue is null");
+    auto* pq = static_cast<SPPQImpl*>(pq_ptr);
+    if (pq->count == 0) {
+        sp_rt_panic("IllegalStateException: priority queue is empty");
+    }
+    return pq->items[0];
+}
+
+int64_t sp_rt_pq_peek_priority(void* pq_ptr) {
+    if (!pq_ptr) sp_rt_panic("NullPointerException: priority queue is null");
+    auto* pq = static_cast<SPPQImpl*>(pq_ptr);
+    if (pq->count == 0) {
+        sp_rt_panic("IllegalStateException: priority queue is empty");
+    }
+    return pq->priorities[0];
+}
+
+int64_t sp_rt_pq_size(void* pq_ptr) {
+    if (!pq_ptr) return 0;
+    return static_cast<SPPQImpl*>(pq_ptr)->count;
+}
+
+bool sp_rt_pq_is_empty(void* pq_ptr) {
+    if (!pq_ptr) return true;
+    return static_cast<SPPQImpl*>(pq_ptr)->count == 0;
+}
+
+void sp_rt_pq_clear(void* pq_ptr) {
+    if (!pq_ptr) return;
+    static_cast<SPPQImpl*>(pq_ptr)->count = 0;
+}
+
 // Higher-order collection functions
 void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t)) {
     if (!arr) return nullptr;

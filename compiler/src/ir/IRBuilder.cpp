@@ -3212,13 +3212,21 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
         }
 
-        if (semaObjType && (semaObjType->isArray() || semaObjType->isMap() ||
-                            (semaObjType->isClass() && (semaObjType->toString().rfind("List", 0) == 0 || semaObjType->toString().rfind("Map", 0) == 0 || semaObjType->toString().rfind("Set", 0) == 0)))) {
-            bool isSet = semaObjType->toString().rfind("Set", 0) == 0;
+        bool isList = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("List", 0) == 0;
+        bool isMap = semaObjType && (semaObjType->isMap() || (semaObjType->isClass() && semaObjType->toString().rfind("Map", 0) == 0));
+        bool isSet = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("Set", 0) == 0;
+        bool isStack = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("Stack", 0) == 0;
+        bool isQueue = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("Queue", 0) == 0;
+        bool isPQ = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("PriorityQueue", 0) == 0;
+
+        if (semaObjType && (semaObjType->isArray() || isList || isMap || isSet || isStack || isQueue || isPQ)) {
             if (methodName == "length" || methodName == "size") {
                 std::string fnName = isSet ? "sp_rt_set_size"
+                                     : isStack ? "sp_rt_stack_size"
+                                     : isQueue ? "sp_rt_queue_size"
+                                     : isPQ ? "sp_rt_pq_size"
                                      : semaObjType->isArray() ? "sp_rt_array_length"
-                                     : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_size"
+                                     : isMap ? "sp_rt_map_size"
                                      : "sp_rt_list_size";
                 std::string lenReg = m_currentFunction->nextTempName("len");
                 auto callInst = std::make_shared<CallInst>(
@@ -3228,13 +3236,16 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     lenReg
                 );
                 m_currentBlock->addInstruction(callInst);
-                m_lastExprValue = callInst;
-                m_lastExprType = IRType::getInt64();
+                m_lastExprValue = emitCastIfNeeded(callInst, IRType::getInt32());
+                m_lastExprType = IRType::getInt32();
                 return;
             } else if (methodName == "isEmpty") {
                 std::string fnName = isSet ? "sp_rt_set_is_empty"
+                                     : isStack ? "sp_rt_stack_is_empty"
+                                     : isQueue ? "sp_rt_queue_is_empty"
+                                     : isPQ ? "sp_rt_pq_is_empty"
                                      : semaObjType->isArray() ? "sp_rt_array_is_empty"
-                                     : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_is_empty"
+                                     : isMap ? "sp_rt_map_is_empty"
                                      : "sp_rt_list_is_empty";
                 std::string emptyReg = m_currentFunction->nextTempName("is_empty");
                 auto callInst = std::make_shared<CallInst>(
@@ -3249,7 +3260,10 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 return;
             } else if (methodName == "clear") {
                 std::string fnName = isSet ? "sp_rt_set_clear"
-                                     : (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) ? "sp_rt_map_clear"
+                                     : isStack ? "sp_rt_stack_clear"
+                                     : isQueue ? "sp_rt_queue_clear"
+                                     : isPQ ? "sp_rt_pq_clear"
+                                     : isMap ? "sp_rt_map_clear"
                                      : "sp_rt_list_clear";
                 auto callInst = std::make_shared<CallInst>(
                     IRType::getVoid(),
@@ -3274,7 +3288,22 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = IRType::getVoid();
                     return;
                 }
-            } else if (methodName == "push" || methodName == "add") {
+            } else if (methodName == "push" || methodName == "add" || methodName == "enqueue") {
+                if (isPQ && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto itemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    node.getArgs()[1]->accept(*this);
+                    auto prioVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getVoid(),
+                        "sp_rt_pq_push",
+                        std::vector<IRValuePtr>{objVal, itemVal, prioVal}
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     if (isSet) {
@@ -3294,6 +3323,22 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                             );
                             m_currentBlock->addInstruction(callInst);
                         }
+                    } else if (isStack) {
+                        auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getVoid(),
+                            "sp_rt_stack_push",
+                            std::vector<IRValuePtr>{objVal, elemVal}
+                        );
+                        m_currentBlock->addInstruction(callInst);
+                    } else if (isQueue) {
+                        auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                        auto callInst = std::make_shared<CallInst>(
+                            IRType::getVoid(),
+                            "sp_rt_queue_enqueue",
+                            std::vector<IRValuePtr>{objVal, elemVal}
+                        );
+                        m_currentBlock->addInstruction(callInst);
                     } else {
                         auto elemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
                         auto callInst = std::make_shared<CallInst>(
@@ -3405,17 +3450,52 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = IRType::getVoid();
                     return;
                 }
-            } else if (methodName == "pop") {
+            } else if (methodName == "pop" || methodName == "dequeue") {
                 std::string popReg = m_currentFunction->nextTempName("pop_val");
+                std::string fnName = isPQ ? "sp_rt_pq_pop"
+                                     : isQueue ? "sp_rt_queue_dequeue"
+                                     : isStack ? "sp_rt_stack_pop"
+                                     : "sp_rt_list_pop_i64";
                 auto callInst = std::make_shared<CallInst>(
                     IRType::getInt64(),
-                    "sp_rt_list_pop_i64",
+                    fnName,
                     std::vector<IRValuePtr>{objVal},
                     popReg
                 );
                 m_currentBlock->addInstruction(callInst);
-                m_lastExprValue = callInst;
-                m_lastExprType = IRType::getInt64();
+                auto semaCallType = m_sema.getNodeType(&node);
+                IRTypePtr retIRType = semaCallType ? mapType(semaCallType->toString()) : IRType::getInt64();
+                m_lastExprValue = emitCastIfNeeded(callInst, retIRType);
+                m_lastExprType = retIRType;
+                return;
+            } else if (methodName == "peek") {
+                std::string peekReg = m_currentFunction->nextTempName("peek_val");
+                std::string fnName = isPQ ? "sp_rt_pq_peek"
+                                     : isQueue ? "sp_rt_queue_peek"
+                                     : "sp_rt_stack_peek";
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    fnName,
+                    std::vector<IRValuePtr>{objVal},
+                    peekReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                auto semaCallType = m_sema.getNodeType(&node);
+                IRTypePtr retIRType = semaCallType ? mapType(semaCallType->toString()) : IRType::getInt64();
+                m_lastExprValue = emitCastIfNeeded(callInst, retIRType);
+                m_lastExprType = retIRType;
+                return;
+            } else if (methodName == "peekPriority") {
+                std::string prioReg = m_currentFunction->nextTempName("prio_val");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_pq_peek_priority",
+                    std::vector<IRValuePtr>{objVal},
+                    prioReg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = emitCastIfNeeded(callInst, IRType::getInt32());
+                m_lastExprType = IRType::getInt32();
                 return;
             } else if (methodName == "get") {
                 if (!node.getArgs().empty()) {
@@ -4919,6 +4999,48 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             "sp_rt_set_alloc",
             std::vector<IRValuePtr>{},
             setReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Stack") {
+        std::string reg = m_currentFunction->nextTempName("stack");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_stack_alloc",
+            std::vector<IRValuePtr>{},
+            reg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Queue") {
+        std::string reg = m_currentFunction->nextTempName("queue");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_queue_alloc",
+            std::vector<IRValuePtr>{},
+            reg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "PriorityQueue") {
+        std::string reg = m_currentFunction->nextTempName("pq");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_pq_alloc",
+            std::vector<IRValuePtr>{},
+            reg
         );
         m_currentBlock->addInstruction(allocCall);
         m_lastExprValue = allocCall;

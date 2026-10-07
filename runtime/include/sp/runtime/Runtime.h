@@ -149,6 +149,34 @@ extern "C" {
 
     bool sp_rt_array_is_empty(void* arr);
 
+    // Native Stack<T> primitives
+    void* sp_rt_stack_alloc();
+    void sp_rt_stack_push(void* stack, int64_t val);
+    int64_t sp_rt_stack_pop(void* stack);
+    int64_t sp_rt_stack_peek(void* stack);
+    int64_t sp_rt_stack_size(void* stack);
+    bool sp_rt_stack_is_empty(void* stack);
+    void sp_rt_stack_clear(void* stack);
+
+    // Native Queue<T> primitives
+    void* sp_rt_queue_alloc();
+    void sp_rt_queue_enqueue(void* queue, int64_t val);
+    int64_t sp_rt_queue_dequeue(void* queue);
+    int64_t sp_rt_queue_peek(void* queue);
+    int64_t sp_rt_queue_size(void* queue);
+    bool sp_rt_queue_is_empty(void* queue);
+    void sp_rt_queue_clear(void* queue);
+
+    // Native PriorityQueue<T> primitives
+    void* sp_rt_pq_alloc();
+    void sp_rt_pq_push(void* pq, int64_t val, int64_t priority);
+    int64_t sp_rt_pq_pop(void* pq);
+    int64_t sp_rt_pq_peek(void* pq);
+    int64_t sp_rt_pq_peek_priority(void* pq);
+    int64_t sp_rt_pq_size(void* pq);
+    bool sp_rt_pq_is_empty(void* pq);
+    void sp_rt_pq_clear(void* pq);
+
     // Higher-order collection functions
     void* sp_rt_array_map(void* arr, int64_t (*fn)(int64_t));
     void* sp_rt_array_filter(void* arr, int64_t (*predicate)(int64_t));

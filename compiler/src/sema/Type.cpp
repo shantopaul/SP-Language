@@ -820,6 +820,70 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         return setCls;
     }
 
+    // Check Stack<T>
+    if (s.rfind("Stack<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "Stack<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto stackCls = createClassType(specName);
+        stackCls->addMethod({"push", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        stackCls->addMethod({"pop", getFunctionType({}, elem ? elem : m_int64Type), "public", false, false, false});
+        stackCls->addMethod({"peek", getFunctionType({}, elem ? elem : m_int64Type), "public", false, false, false});
+        stackCls->addMethod({"size", getFunctionType({}, m_int32Type), "public", false, false, false});
+        stackCls->addMethod({"length", getFunctionType({}, m_int32Type), "public", false, false, false});
+        stackCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        stackCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
+        return stackCls;
+    }
+
+    // Check Queue<T>
+    if (s.rfind("Queue<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "Queue<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto queueCls = createClassType(specName);
+        queueCls->addMethod({"enqueue", getFunctionType({elem ? elem : m_int64Type}, m_voidType), "public", false, false, false});
+        queueCls->addMethod({"dequeue", getFunctionType({}, elem ? elem : m_int64Type), "public", false, false, false});
+        queueCls->addMethod({"peek", getFunctionType({}, elem ? elem : m_int64Type), "public", false, false, false});
+        queueCls->addMethod({"size", getFunctionType({}, m_int32Type), "public", false, false, false});
+        queueCls->addMethod({"length", getFunctionType({}, m_int32Type), "public", false, false, false});
+        queueCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        queueCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
+        return queueCls;
+    }
+
+    // Check PriorityQueue<T>
+    if (s.rfind("PriorityQueue<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        std::string specName = "PriorityQueue<" + (elem ? elem->toString() : "any") + ">";
+        auto existing = findUserType(specName);
+        if (existing && existing->isClass()) {
+            return existing;
+        }
+        auto pqCls = createClassType(specName);
+        pqCls->addMethod({"push", getFunctionType({elem ? elem : m_int64Type, m_int32Type}, m_voidType), "public", false, false, false});
+        pqCls->addMethod({"pop", getFunctionType({}, elem ? elem : m_int64Type), "public", false, false, false});
+        pqCls->addMethod({"peek", getFunctionType({}, elem ? elem : m_int64Type), "public", false, false, false});
+        pqCls->addMethod({"peekPriority", getFunctionType({}, m_int32Type), "public", false, false, false});
+        pqCls->addMethod({"size", getFunctionType({}, m_int32Type), "public", false, false, false});
+        pqCls->addMethod({"length", getFunctionType({}, m_int32Type), "public", false, false, false});
+        pqCls->addMethod({"isEmpty", getFunctionType({}, m_boolType), "public", false, false, false});
+        pqCls->addMethod({"clear", getFunctionType({}, m_voidType), "public", false, false, false});
+        return pqCls;
+    }
+
     // Check primitive types
     if (s == "void") return m_voidType;
     if (s == "null") return m_nullType;
