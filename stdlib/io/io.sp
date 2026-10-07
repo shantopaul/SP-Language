@@ -1,5 +1,14 @@
 module std.io;
 
+public enum IOError {
+    NotFound,
+    PermissionDenied,
+    AlreadyExists,
+    InvalidInput,
+    UnexpectedEOF,
+    Other,
+}
+
 extern "C" {
     fn sp_rt_println_string(string str);
     fn sp_rt_println_int(int val);
@@ -60,6 +69,11 @@ public fn readln() -> string {
     return sp_rt_read_line();
 }
 
+public fn tryReadLine() -> Result<string, IOError> {
+    string line = sp_rt_read_line();
+    return Result.Ok(line);
+}
+
 public fn eprint(string message) {
     sp_rt_eprint_string(message);
 }
@@ -87,6 +101,11 @@ public class IO {
 
     public static fn readLine() -> string {
         return sp_rt_read_line();
+    }
+
+    public static fn tryReadLine() -> Result<string, IOError> {
+        string line = sp_rt_read_line();
+        return Result.Ok(line);
     }
 
     public static fn eprintln(string message) {

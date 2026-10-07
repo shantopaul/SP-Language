@@ -2344,3 +2344,44 @@ TEST(ExecutionTest, ExternCFunctionCallsNativeExecution) {
     EXPECT_NE(output.find("abs(-42) = 42"), std::string::npos);
 }
 
+TEST(ExecutionTest, StdlibFsAndIoResultErrorHandlingNativeExecution) {
+    const std::string source = R"sp(
+        import std.fs;
+
+        fn readFileContent(path: string) -> Result<string, IOError> {
+            let content: string = tryReadText(path)?;
+            return Result.Ok(content);
+        }
+
+        fn main() {
+            string testFile = "temp_fs_result_test.txt";
+            string testContent = "SP 1.4 Result Handling!";
+
+            // 1. Reading non-existent file returns Err(NotFound)
+            let errRes: Result<string, IOError> = readFileContent("non_existent_file_xyz.txt");
+            println("err_is_err: ${errRes.isErr()}");
+
+            // 2. Writing text returns Ok
+            let writeRes: Result<bool, IOError> = tryWriteText(testFile, testContent);
+            println("write_is_ok: ${writeRes.isOk()}");
+
+            // 3. Reading with try operator ? on existing file
+            let okRes: Result<string, IOError> = readFileContent(testFile);
+            println("read_is_ok: ${okRes.isOk()}");
+            println("read_content: ${okRes.unwrap()}");
+
+            // Clean up
+            let delRes: Result<bool, IOError> = tryDelete(testFile);
+            println("del_is_ok: ${delRes.isOk()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_fs_result");
+    EXPECT_NE(output.find("err_is_err: true"), std::string::npos);
+    EXPECT_NE(output.find("write_is_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("read_is_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("read_content: SP 1.4 Result Handling!"), std::string::npos);
+    EXPECT_NE(output.find("del_is_ok: true"), std::string::npos);
+}
+
+

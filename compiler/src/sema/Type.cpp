@@ -568,6 +568,32 @@ TypeContext::TypeContext() {
     optionEnum->setTaggedUnion(true);
     optionEnum->addVariant("Some", 0, {"T"}, {m_anyType});
     optionEnum->addVariant("None", 1, {}, {});
+
+    // Built-in IOError enum
+    auto ioErrorEnum = createEnumType("IOError");
+    ioErrorEnum->addVariant("NotFound", 0);
+    ioErrorEnum->addVariant("PermissionDenied", 1);
+    ioErrorEnum->addVariant("AlreadyExists", 2);
+    ioErrorEnum->addVariant("InvalidInput", 3);
+    ioErrorEnum->addVariant("UnexpectedEOF", 4);
+    ioErrorEnum->addVariant("Other", 5);
+
+    auto resultStrIO = specializeEnumType(resultEnum, {"string", "IOError"});
+    auto resultBoolIO = specializeEnumType(resultEnum, {"bool", "IOError"});
+    if (resultStrIO && resultBoolIO) {
+        fsCls->addMethod({"tryReadText", getFunctionType({m_stringType}, resultStrIO), "public", true, false, false});
+        fsCls->addMethod({"tryWriteText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
+        fsCls->addMethod({"tryAppendText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
+        fsCls->addMethod({"tryDelete", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
+        fsCls->addMethod({"tryCreateDir", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
+
+        fileCls->addMethod({"tryReadText", getFunctionType({m_stringType}, resultStrIO), "public", true, false, false});
+        fileCls->addMethod({"tryWriteText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
+        fileCls->addMethod({"tryAppendText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
+        fileCls->addMethod({"tryDelete", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
+
+        ioCls->addMethod({"tryReadLine", getFunctionType({}, resultStrIO), "public", true, false, false});
+    }
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

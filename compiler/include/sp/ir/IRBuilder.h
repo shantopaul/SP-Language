@@ -99,6 +99,7 @@ private:
     IRValuePtr emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType);
     IRValuePtr convertToStringValue(IRValuePtr val, IRTypePtr valType, const ast::ExpressionNode* exprNode = nullptr);
     IRValuePtr emitCreateTaggedUnion(const std::string& typeName, int32_t tag, IRValuePtr payloadVal);
+    void emitPopulateTaggedUnion(IRValuePtr slotPtr, const std::string& typeName, int32_t tag, IRValuePtr payloadVal);
 
     [[maybe_unused]] const sema::SemanticAnalyzer& m_sema;
     std::unique_ptr<IRModule> m_module;

@@ -18,19 +18,15 @@ static IRValuePtr makeDefaultValue(const IRTypePtr& type) {
     }
 }
 
-IRValuePtr IRBuilder::emitCreateTaggedUnion(const std::string& typeName, int32_t tag, IRValuePtr payloadVal) {
+void IRBuilder::emitPopulateTaggedUnion(IRValuePtr slotPtr, const std::string& typeName, int32_t tag, IRValuePtr payloadVal) {
     std::string structName = typeName;
     if (structName.rfind("Result", 0) == 0) structName = "Result";
     else if (structName.rfind("Option", 0) == 0) structName = "Option";
     auto structType = ir::IRType::getStruct("struct." + structName, {IRType::getInt32(), IRType::getInt64()});
 
-    std::string allocaReg = m_currentFunction->nextTempName("tu_alloca");
-    auto allocaInst = std::make_shared<AllocaInst>(structType, allocaReg);
-    m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
-
     auto tagPtr = std::make_shared<GetElementPtrInst>(
         structType,
-        allocaInst,
+        slotPtr,
         std::vector<IRValuePtr>{
             std::make_shared<ConstantInt>(IRType::getInt32(), 0),
             std::make_shared<ConstantInt>(IRType::getInt32(), 0)
@@ -51,7 +47,7 @@ IRValuePtr IRBuilder::emitCreateTaggedUnion(const std::string& typeName, int32_t
     }
     auto payloadPtr = std::make_shared<GetElementPtrInst>(
         structType,
-        allocaInst,
+        slotPtr,
         std::vector<IRValuePtr>{
             std::make_shared<ConstantInt>(IRType::getInt32(), 0),
             std::make_shared<ConstantInt>(IRType::getInt32(), 1)
@@ -60,7 +56,19 @@ IRValuePtr IRBuilder::emitCreateTaggedUnion(const std::string& typeName, int32_t
     );
     m_currentBlock->addInstruction(payloadPtr);
     m_currentBlock->addInstruction(std::make_shared<StoreInst>(payloadI64, payloadPtr));
+}
 
+IRValuePtr IRBuilder::emitCreateTaggedUnion(const std::string& typeName, int32_t tag, IRValuePtr payloadVal) {
+    std::string structName = typeName;
+    if (structName.rfind("Result", 0) == 0) structName = "Result";
+    else if (structName.rfind("Option", 0) == 0) structName = "Option";
+    auto structType = ir::IRType::getStruct("struct." + structName, {IRType::getInt32(), IRType::getInt64()});
+
+    std::string allocaReg = m_currentFunction->nextTempName("tu_alloca");
+    auto allocaInst = std::make_shared<AllocaInst>(structType, allocaReg);
+    m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
+
+    emitPopulateTaggedUnion(allocaInst, structName, tag, payloadVal);
     return allocaInst;
 }
 
@@ -2556,6 +2564,19 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = IRType::getPointer(IRType::getInt8());
                     return;
                 }
+                if (methodName == "tryReadLine") {
+                    std::string resName = m_currentFunction ? m_currentFunction->nextTempName("readline") : "%readline";
+                    auto callInst = std::make_shared<CallInst>(
+                        IRType::getPointer(IRType::getInt8()),
+                        "sp_rt_read_line",
+                        std::vector<IRValuePtr>{},
+                        resName
+                    );
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = emitCreateTaggedUnion("Result", 0, callInst);
+                    m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+                    return;
+                }
                 if (methodName == "flush") {
                     auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_flush", std::vector<IRValuePtr>{});
                     m_currentBlock->addInstruction(callInst);
@@ -2814,6 +2835,83 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = IRType::getPointer(IRType::getInt8());
                     return;
                 }
+                if (methodName == "tryReadText" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string existsReg = m_currentFunction->nextTempName("fs_exists");
+                    auto existsCall = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_exists", std::vector<IRValuePtr>{p}, existsReg);
+                    m_currentBlock->addInstruction(existsCall);
+
+                    auto thenBB = m_currentFunction->createBasicBlock("try_read_ok");
+                    auto elseBB = m_currentFunction->createBasicBlock("try_read_err");
+                    auto mergeBB = m_currentFunction->createBasicBlock("try_read_end");
+
+                    auto branchInst = std::make_shared<CondBranchInst>(existsCall, thenBB->getName(), elseBB->getName());
+                    m_currentBlock->addInstruction(branchInst);
+
+                    auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+                    auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_read_slot"));
+                    m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+                    // Success block
+                    setInsertPoint(thenBB);
+                    std::string readReg = m_currentFunction->nextTempName("fs_res");
+                    auto readCall = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_fs_read_text", std::vector<IRValuePtr>{p}, readReg);
+                    thenBB->addInstruction(readCall);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 0, readCall);
+                    thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Err block (IOError.NotFound = 0)
+                    setInsertPoint(elseBB);
+                    auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+                    elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Merge block
+                    setInsertPoint(mergeBB);
+                    m_lastExprValue = resultSlot;
+                    m_lastExprType = structType;
+                    return;
+                }
+                if ((methodName == "tryWriteText" || methodName == "tryAppendText") && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    node.getArgs()[1]->accept(*this);
+                    auto c = m_lastExprValue;
+                    std::string fn = (methodName == "tryWriteText") ? "sp_rt_fs_write_text" : "sp_rt_fs_append_text";
+                    std::string writeReg = m_currentFunction->nextTempName("fs_res");
+                    auto writeCall = std::make_shared<CallInst>(IRType::getInt1(), fn, std::vector<IRValuePtr>{p, c}, writeReg);
+                    m_currentBlock->addInstruction(writeCall);
+
+                    auto thenBB = m_currentFunction->createBasicBlock("try_write_ok");
+                    auto elseBB = m_currentFunction->createBasicBlock("try_write_err");
+                    auto mergeBB = m_currentFunction->createBasicBlock("try_write_end");
+
+                    auto branchInst = std::make_shared<CondBranchInst>(writeCall, thenBB->getName(), elseBB->getName());
+                    m_currentBlock->addInstruction(branchInst);
+
+                    auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+                    auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_write_slot"));
+                    m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+                    // Success block
+                    setInsertPoint(thenBB);
+                    auto trueVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 0, trueVal);
+                    thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Err block (IOError.PermissionDenied = 1)
+                    setInsertPoint(elseBB);
+                    auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+                    elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Merge block
+                    setInsertPoint(mergeBB);
+                    m_lastExprValue = resultSlot;
+                    m_lastExprType = structType;
+                    return;
+                }
                 if ((methodName == "writeText" || methodName == "appendText") && node.getArgs().size() >= 2) {
                     node.getArgs()[0]->accept(*this);
                     auto p = m_lastExprValue;
@@ -2847,6 +2945,42 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = IRType::getInt1();
                     return;
                 }
+                if ((methodName == "tryDelete" || methodName == "tryDeleteFile") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string delReg = m_currentFunction->nextTempName("fs_res");
+                    auto delCall = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_delete", std::vector<IRValuePtr>{p}, delReg);
+                    m_currentBlock->addInstruction(delCall);
+
+                    auto thenBB = m_currentFunction->createBasicBlock("try_del_ok");
+                    auto elseBB = m_currentFunction->createBasicBlock("try_del_err");
+                    auto mergeBB = m_currentFunction->createBasicBlock("try_del_end");
+
+                    auto branchInst = std::make_shared<CondBranchInst>(delCall, thenBB->getName(), elseBB->getName());
+                    m_currentBlock->addInstruction(branchInst);
+
+                    auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+                    auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_del_slot"));
+                    m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+                    // Success block
+                    setInsertPoint(thenBB);
+                    auto trueVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 0, trueVal);
+                    thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Err block (IOError.NotFound = 0)
+                    setInsertPoint(elseBB);
+                    auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+                    elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Merge block
+                    setInsertPoint(mergeBB);
+                    m_lastExprValue = resultSlot;
+                    m_lastExprType = structType;
+                    return;
+                }
                 if (methodName == "createDir" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     auto p = m_lastExprValue;
@@ -2855,6 +2989,42 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_currentBlock->addInstruction(callInst);
                     m_lastExprValue = callInst;
                     m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "tryCreateDir" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto p = m_lastExprValue;
+                    std::string mkdirReg = m_currentFunction->nextTempName("fs_res");
+                    auto mkdirCall = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_create_dir", std::vector<IRValuePtr>{p}, mkdirReg);
+                    m_currentBlock->addInstruction(mkdirCall);
+
+                    auto thenBB = m_currentFunction->createBasicBlock("try_mkdir_ok");
+                    auto elseBB = m_currentFunction->createBasicBlock("try_mkdir_err");
+                    auto mergeBB = m_currentFunction->createBasicBlock("try_mkdir_end");
+
+                    auto branchInst = std::make_shared<CondBranchInst>(mkdirCall, thenBB->getName(), elseBB->getName());
+                    m_currentBlock->addInstruction(branchInst);
+
+                    auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+                    auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_mkdir_slot"));
+                    m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+                    // Success block
+                    setInsertPoint(thenBB);
+                    auto trueVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 0, trueVal);
+                    thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Err block (IOError.PermissionDenied = 1)
+                    setInsertPoint(elseBB);
+                    auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+                    elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+                    // Merge block
+                    setInsertPoint(mergeBB);
+                    m_lastExprValue = resultSlot;
+                    m_lastExprType = structType;
                     return;
                 }
                 if (methodName == "listDir" && !node.getArgs().empty()) {
@@ -4553,6 +4723,168 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
             return;
         }
+    }
+
+    if (calleeName == "tryReadText" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string existsReg = m_currentFunction->nextTempName("fs_exists");
+        auto existsCall = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_exists", std::vector<IRValuePtr>{p}, existsReg);
+        m_currentBlock->addInstruction(existsCall);
+
+        auto thenBB = m_currentFunction->createBasicBlock("try_read_ok");
+        auto elseBB = m_currentFunction->createBasicBlock("try_read_err");
+        auto mergeBB = m_currentFunction->createBasicBlock("try_read_end");
+
+        auto branchInst = std::make_shared<CondBranchInst>(existsCall, thenBB->getName(), elseBB->getName());
+        m_currentBlock->addInstruction(branchInst);
+
+        auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+        auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_read_slot"));
+        m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+        // Success block
+        setInsertPoint(thenBB);
+        std::string readReg = m_currentFunction->nextTempName("fs_res");
+        auto readCall = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_fs_read_text", std::vector<IRValuePtr>{p}, readReg);
+        thenBB->addInstruction(readCall);
+        emitPopulateTaggedUnion(resultSlot, "Result", 0, readCall);
+        thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Err block (IOError.NotFound = 0)
+        setInsertPoint(elseBB);
+        auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+        elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Merge block
+        setInsertPoint(mergeBB);
+        m_lastExprValue = resultSlot;
+        m_lastExprType = structType;
+        return;
+    }
+
+    if ((calleeName == "tryWriteText" || calleeName == "tryAppendText") && node.getArgs().size() >= 2) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        node.getArgs()[1]->accept(*this);
+        auto c = m_lastExprValue;
+        std::string fn = (calleeName == "tryWriteText") ? "sp_rt_fs_write_text" : "sp_rt_fs_append_text";
+        std::string writeReg = m_currentFunction->nextTempName("fs_res");
+        auto writeCall = std::make_shared<CallInst>(IRType::getInt1(), fn, std::vector<IRValuePtr>{p, c}, writeReg);
+        m_currentBlock->addInstruction(writeCall);
+
+        auto thenBB = m_currentFunction->createBasicBlock("try_write_ok");
+        auto elseBB = m_currentFunction->createBasicBlock("try_write_err");
+        auto mergeBB = m_currentFunction->createBasicBlock("try_write_end");
+
+        auto branchInst = std::make_shared<CondBranchInst>(writeCall, thenBB->getName(), elseBB->getName());
+        m_currentBlock->addInstruction(branchInst);
+
+        auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+        auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_write_slot"));
+        m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+        // Success block
+        setInsertPoint(thenBB);
+        auto trueVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+        emitPopulateTaggedUnion(resultSlot, "Result", 0, trueVal);
+        thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Err block (IOError.PermissionDenied = 1)
+        setInsertPoint(elseBB);
+        auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+        emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+        elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Merge block
+        setInsertPoint(mergeBB);
+        m_lastExprValue = resultSlot;
+        m_lastExprType = structType;
+        return;
+    }
+
+    if ((calleeName == "tryDelete" || calleeName == "tryDeleteFile") && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string delReg = m_currentFunction->nextTempName("fs_res");
+        auto delCall = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_delete", std::vector<IRValuePtr>{p}, delReg);
+        m_currentBlock->addInstruction(delCall);
+
+        auto thenBB = m_currentFunction->createBasicBlock("try_del_ok");
+        auto elseBB = m_currentFunction->createBasicBlock("try_del_err");
+        auto mergeBB = m_currentFunction->createBasicBlock("try_del_end");
+
+        auto branchInst = std::make_shared<CondBranchInst>(delCall, thenBB->getName(), elseBB->getName());
+        m_currentBlock->addInstruction(branchInst);
+
+        auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+        auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_del_slot"));
+        m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+        // Success block
+        setInsertPoint(thenBB);
+        auto trueVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+        emitPopulateTaggedUnion(resultSlot, "Result", 0, trueVal);
+        thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Err block (IOError.NotFound = 0)
+        setInsertPoint(elseBB);
+        auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+        elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Merge block
+        setInsertPoint(mergeBB);
+        m_lastExprValue = resultSlot;
+        m_lastExprType = structType;
+        return;
+    }
+
+    if (calleeName == "tryCreateDir" && !node.getArgs().empty()) {
+        node.getArgs()[0]->accept(*this);
+        auto p = m_lastExprValue;
+        std::string mkdirReg = m_currentFunction->nextTempName("fs_res");
+        auto mkdirCall = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_fs_create_dir", std::vector<IRValuePtr>{p}, mkdirReg);
+        m_currentBlock->addInstruction(mkdirCall);
+
+        auto thenBB = m_currentFunction->createBasicBlock("try_mkdir_ok");
+        auto elseBB = m_currentFunction->createBasicBlock("try_mkdir_err");
+        auto mergeBB = m_currentFunction->createBasicBlock("try_mkdir_end");
+
+        auto branchInst = std::make_shared<CondBranchInst>(mkdirCall, thenBB->getName(), elseBB->getName());
+        m_currentBlock->addInstruction(branchInst);
+
+        auto structType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+        auto resultSlot = std::make_shared<AllocaInst>(structType, m_currentFunction->nextTempName("try_mkdir_slot"));
+        m_currentFunction->getEntryBlock()->addInstruction(resultSlot);
+
+        // Success block
+        setInsertPoint(thenBB);
+        auto trueVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+        emitPopulateTaggedUnion(resultSlot, "Result", 0, trueVal);
+        thenBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Err block (IOError.PermissionDenied = 1)
+        setInsertPoint(elseBB);
+        auto errCodeVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+        emitPopulateTaggedUnion(resultSlot, "Result", 1, errCodeVal);
+        elseBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+        // Merge block
+        setInsertPoint(mergeBB);
+        m_lastExprValue = resultSlot;
+        m_lastExprType = structType;
+        return;
+    }
+
+    if (calleeName == "tryReadLine") {
+        std::string reg = m_currentFunction->nextTempName("line_res");
+        auto callInst = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()), "sp_rt_read_line", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = emitCreateTaggedUnion("Result", 0, callInst);
+        m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
+        return;
     }
 
     if (calleeName == "readText" && !node.getArgs().empty()) {
