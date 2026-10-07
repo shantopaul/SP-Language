@@ -10,7 +10,8 @@ export const metadata = {
 };
 
 export default function VsCodeExtensionPage() {
-  const installCmd = `code --install-extension https://dl.splang.shantopaul.com/sp-vscode.vsix`;
+  const winCmd = `irm https://dl.splang.shantopaul.com/sp-vscode.vsix -OutFile "$env:TEMP\\sp-vscode.vsix"; code --install-extension "$env:TEMP\\sp-vscode.vsix"`;
+  const unixCmd = `curl -fsSL https://dl.splang.shantopaul.com/sp-vscode.vsix -o /tmp/sp-vscode.vsix && code --install-extension /tmp/sp-vscode.vsix`;
 
   return (
     <div className="space-y-6">
@@ -26,9 +27,16 @@ export default function VsCodeExtensionPage() {
         The official SP Language Support extension delivers full syntax highlighting, TextMate grammar, language server integration, and snippets for Visual Studio Code.
       </p>
 
-      <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-slate-200">Option 1: Install via Terminal</h2>
-        <CodeBlock code={installCmd} language="bash" />
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-slate-200">Option 1: Install via Terminal (One-Liner)</h2>
+        <div className="space-y-1">
+          <p className="text-xs text-slate-400">Windows (PowerShell):</p>
+          <CodeBlock code={winCmd} language="powershell" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs text-slate-400">Linux / macOS (Bash):</p>
+          <CodeBlock code={unixCmd} language="bash" />
+        </div>
       </div>
 
       <div className="space-y-2 pt-2">
