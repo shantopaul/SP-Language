@@ -40,9 +40,9 @@ export const CURRENT_RELEASE: ReleaseInfo = {
       arch: "x64 (64-bit)",
       filename: "sp-1.0.0-windows-x64.zip",
       format: ".zip",
-      size: "3.85 MB",
-      sha256: "37916cd8eca92e73fbd7c7c3bcc70f4efe0573f0b4fbad0ebe1b7e093cefee9c",
-      url: "/downloads/sp-1.0.0-windows-x64.zip",
+      size: "2.62 MB",
+      sha256: "691FDE6F305520FEE2E4CE589B0C5BB264367EEC0A8CEFD56BBE44D42DE9DE75",
+      url: "https://dl.splang.shantopaul.com/sp-1.0.0-windows-x64.zip",
       primary: true,
     },
     {

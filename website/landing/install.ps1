@@ -56,17 +56,21 @@ foreach ($dir in $directories) {
 Write-Host "`n[2/5] Deploying SP Language Core Components..." -ForegroundColor Green
 
 $repoRoot = $PSScriptRoot
-if ($repoRoot -ne "" -and -not (Test-Path (Join-Path $repoRoot "build\bin\spc.exe"))) {
-    $parent = Split-Path $repoRoot -Parent
-    if (Test-Path (Join-Path $parent "build\bin\spc.exe")) {
-        $repoRoot = $parent
-    } elseif (Test-Path (Join-Path (Split-Path $parent -Parent) "build\bin\spc.exe")) {
-        $repoRoot = Split-Path $parent -Parent
+$isLocalRepo = $false
+if (-not [string]::IsNullOrEmpty($repoRoot)) {
+    if (-not (Test-Path (Join-Path $repoRoot "build\bin\spc.exe"))) {
+        $parent = Split-Path $repoRoot -Parent
+        if (Test-Path (Join-Path $parent "build\bin\spc.exe")) {
+            $repoRoot = $parent
+        } elseif (Test-Path (Join-Path (Split-Path $parent -Parent) "build\bin\spc.exe")) {
+            $repoRoot = Split-Path $parent -Parent
+        }
+    }
+    $localBuildBin = Join-Path $repoRoot "build\bin"
+    if (Test-Path (Join-Path $localBuildBin "spc.exe")) {
+        $isLocalRepo = $true
     }
 }
-
-$localBuildBin = if ($repoRoot -ne "") { Join-Path $repoRoot "build\bin" } else { "" }
-$isLocalRepo = ($localBuildBin -ne "" -and (Test-Path (Join-Path $localBuildBin "spc.exe")))
 
 if ($isLocalRepo) {
     Write-Host "  -> Installing from local repository build artifacts..." -ForegroundColor Cyan
@@ -109,9 +113,9 @@ if ($isLocalRepo) {
     $TempZip = Join-Path $env:TEMP $ZipName
     
     $Urls = @(
-        "https://downloads.splang.shantopaul.com/$ZipName",
-        "https://splang.shantopaul.com/downloads/$ZipName",
         "https://dl.splang.shantopaul.com/$ZipName",
+        "https://splang.shantopaul.com/downloads/$ZipName",
+        "https://downloads.splang.shantopaul.com/$ZipName",
         "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$ZipName"
     )
     

@@ -56,8 +56,13 @@ foreach ($dir in $directories) {
 Write-Host "`n[2/5] Deploying SP Language Core Components..." -ForegroundColor Green
 
 $repoRoot = $PSScriptRoot
-$localBuildBin = Join-Path $repoRoot "build\bin"
-$isLocalRepo = ($repoRoot -ne "" -and (Test-Path (Join-Path $localBuildBin "spc.exe")))
+$isLocalRepo = $false
+if (-not [string]::IsNullOrEmpty($repoRoot)) {
+    $localBuildBin = Join-Path $repoRoot "build\bin"
+    if (Test-Path (Join-Path $localBuildBin "spc.exe")) {
+        $isLocalRepo = $true
+    }
+}
 
 if ($isLocalRepo) {
     Write-Host "  -> Installing from local repository build artifacts..." -ForegroundColor Cyan
@@ -100,9 +105,9 @@ if ($isLocalRepo) {
     $TempZip = Join-Path $env:TEMP $ZipName
     
     $Urls = @(
-        "https://downloads.splang.shantopaul.com/$ZipName",
-        "https://splang.shantopaul.com/downloads/$ZipName",
         "https://dl.splang.shantopaul.com/$ZipName",
+        "https://splang.shantopaul.com/downloads/$ZipName",
+        "https://downloads.splang.shantopaul.com/$ZipName",
         "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$ZipName"
     )
     
