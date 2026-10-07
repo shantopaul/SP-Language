@@ -1556,6 +1556,10 @@ void IRBuilder::compileSpecializedFunction(
     auto func = m_module->createFunction(mangledName, returnType, params);
     auto* prevFunc = m_currentFunction;
     auto* prevBlock = m_currentBlock;
+    auto prevScopes = std::move(m_scopes);
+    auto prevRefScopes = std::move(m_refCountedScopes);
+    m_scopes.clear();
+    m_refCountedScopes.clear();
 
     m_currentFunction = func;
     auto entryBB = func->createBasicBlock("entry");
@@ -1592,6 +1596,8 @@ void IRBuilder::compileSpecializedFunction(
     }
 
     popScope();
+    m_scopes = std::move(prevScopes);
+    m_refCountedScopes = std::move(prevRefScopes);
     m_currentFunction = prevFunc;
     m_currentBlock = prevBlock;
 }

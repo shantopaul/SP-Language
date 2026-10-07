@@ -7,8 +7,6 @@
 #include <vector>
 #include <string>
 #include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -735,19 +733,57 @@ struct SPArrayHeader {
     int64_t capacity;
 };
 
+// ---------------------------------------------------------------------------
+// Phase 13: Pure Native Collection Primitives (Zero C++ STL)
+// ---------------------------------------------------------------------------
+
 struct SPListImpl {
     int64_t element_size;
-    std::vector<int64_t> items;
+    int64_t length;
+    int64_t capacity;
+    int64_t* items;
+};
+
+static inline uint32_t sp_fnv1a(const char* s) {
+    uint32_t h = 2166136261u;
+    while (s && *s) {
+        h ^= static_cast<uint8_t>(*s++);
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static inline uint32_t sp_hash_int(int64_t key) {
+    uint64_t k = static_cast<uint64_t>(key) * 11400714819323198485ULL;
+    return static_cast<uint32_t>(k ^ (k >> 32));
+}
+
+struct SPMapStrEntry {
+    char* key;
+    int64_t val;
+    uint32_t hash;
+    bool occupied;
+};
+
+struct SPMapIntEntry {
+    int64_t key;
+    int64_t val;
+    uint32_t hash;
+    bool occupied;
 };
 
 struct SPMapImpl {
-    std::unordered_map<std::string, int64_t> str_map;
-    std::unordered_map<int64_t, int64_t> int_map;
+    SPMapStrEntry* str_entries;
+    int64_t str_capacity;
+    int64_t str_count;
+
+    SPMapIntEntry* int_entries;
+    int64_t int_capacity;
+    int64_t int_count;
 };
 
 struct SPSetImpl {
-    std::unordered_set<std::string> str_set;
-    std::unordered_set<int64_t> int_set;
+    SPMapImpl map;
 };
 
 // Native Array primitives
@@ -806,26 +842,39 @@ void sp_rt_array_set_f64(void* arr, int64_t index, double val) {
 
 // Native List<T> primitives
 void* sp_rt_list_alloc(int64_t element_size, int64_t initial_capacity) {
-    (void)initial_capacity;
     auto* list = new SPListImpl();
     list->element_size = element_size > 0 ? element_size : 8;
+    list->capacity = initial_capacity > 0 ? initial_capacity : 8;
+    list->length = 0;
+    list->items = static_cast<int64_t*>(sp_rt_alloc(list->capacity * sizeof(int64_t)));
     return list;
 }
 
 int64_t sp_rt_list_size(void* list) {
     if (!list) return 0;
-    return static_cast<int64_t>(static_cast<SPListImpl*>(list)->items.size());
+    return static_cast<SPListImpl*>(list)->length;
 }
 
 void sp_rt_list_push_i64(void* list, int64_t val) {
     if (!list) sp_rt_panic("NullPointerException: list is null");
-    static_cast<SPListImpl*>(list)->items.push_back(val);
+    auto* impl = static_cast<SPListImpl*>(list);
+    if (impl->length >= impl->capacity) {
+        int64_t new_cap = impl->capacity < 8 ? 8 : impl->capacity * 2;
+        auto* new_items = static_cast<int64_t*>(sp_rt_alloc(new_cap * sizeof(int64_t)));
+        if (impl->length > 0 && impl->items) {
+            std::memcpy(new_items, impl->items, impl->length * sizeof(int64_t));
+            sp_rt_free(impl->items);
+        }
+        impl->items = new_items;
+        impl->capacity = new_cap;
+    }
+    impl->items[impl->length++] = val;
 }
 
 int64_t sp_rt_list_get_i64(void* list, int64_t index) {
     if (!list) sp_rt_panic("NullPointerException: list is null");
     auto* impl = static_cast<SPListImpl*>(list);
-    if (index < 0 || static_cast<size_t>(index) >= impl->items.size()) {
+    if (index < 0 || index >= impl->length) {
         sp_rt_panic("IndexOutOfBoundsException: index out of bounds in list.get");
     }
     return impl->items[index];
@@ -834,7 +883,7 @@ int64_t sp_rt_list_get_i64(void* list, int64_t index) {
 void sp_rt_list_set_i64(void* list, int64_t index, int64_t val) {
     if (!list) sp_rt_panic("NullPointerException: list is null");
     auto* impl = static_cast<SPListImpl*>(list);
-    if (index < 0 || static_cast<size_t>(index) >= impl->items.size()) {
+    if (index < 0 || index >= impl->length) {
         sp_rt_panic("IndexOutOfBoundsException: index out of bounds in list.set");
     }
     impl->items[index] = val;
@@ -843,165 +892,368 @@ void sp_rt_list_set_i64(void* list, int64_t index, int64_t val) {
 int64_t sp_rt_list_pop_i64(void* list) {
     if (!list) sp_rt_panic("NullPointerException: list is null");
     auto* impl = static_cast<SPListImpl*>(list);
-    if (impl->items.empty()) {
+    if (impl->length <= 0) {
         sp_rt_panic("NoSuchElementException: cannot pop from empty list");
     }
-    int64_t val = impl->items.back();
-    impl->items.pop_back();
-    return val;
+    return impl->items[--impl->length];
 }
 
 void sp_rt_list_clear(void* list) {
     if (!list) return;
-    static_cast<SPListImpl*>(list)->items.clear();
+    static_cast<SPListImpl*>(list)->length = 0;
 }
 
 bool sp_rt_list_contains_i64(void* list, int64_t val) {
     if (!list) return false;
-    auto& items = static_cast<SPListImpl*>(list)->items;
-    return std::find(items.begin(), items.end(), val) != items.end();
+    auto* impl = static_cast<SPListImpl*>(list);
+    for (int64_t i = 0; i < impl->length; ++i) {
+        if (impl->items[i] == val) return true;
+    }
+    return false;
 }
 
 void sp_rt_list_remove_at(void* list, int64_t index) {
     if (!list) return;
     auto* impl = static_cast<SPListImpl*>(list);
-    if (index >= 0 && static_cast<size_t>(index) < impl->items.size()) {
-        impl->items.erase(impl->items.begin() + index);
+    if (index >= 0 && index < impl->length) {
+        if (index < impl->length - 1) {
+            std::memmove(&impl->items[index], &impl->items[index + 1],
+                         (impl->length - index - 1) * sizeof(int64_t));
+        }
+        impl->length--;
     }
 }
 
 bool sp_rt_list_is_empty(void* list) {
     if (!list) return true;
-    return static_cast<SPListImpl*>(list)->items.empty();
+    return static_cast<SPListImpl*>(list)->length == 0;
 }
 
 // Native Map<K, V> primitives
 void* sp_rt_map_alloc() {
-    return new SPMapImpl();
+    auto* map = new SPMapImpl();
+    map->str_capacity = 16;
+    map->str_count = 0;
+    map->str_entries = static_cast<SPMapStrEntry*>(sp_rt_alloc(16 * sizeof(SPMapStrEntry)));
+
+    map->int_capacity = 16;
+    map->int_count = 0;
+    map->int_entries = static_cast<SPMapIntEntry*>(sp_rt_alloc(16 * sizeof(SPMapIntEntry)));
+    return map;
 }
 
 int64_t sp_rt_map_size(void* map) {
     if (!map) return 0;
     auto* impl = static_cast<SPMapImpl*>(map);
-    return static_cast<int64_t>(impl->str_map.size() + impl->int_map.size());
+    return impl->str_count + impl->int_count;
+}
+
+static void sp_map_rehash_str(SPMapImpl* impl, int64_t new_cap) {
+    auto* old_entries = impl->str_entries;
+    int64_t old_cap = impl->str_capacity;
+
+    impl->str_entries = static_cast<SPMapStrEntry*>(sp_rt_alloc(new_cap * sizeof(SPMapStrEntry)));
+    impl->str_capacity = new_cap;
+    impl->str_count = 0;
+
+    for (int64_t i = 0; i < old_cap; ++i) {
+        if (old_entries[i].occupied) {
+            uint32_t h = old_entries[i].hash;
+            int64_t idx = h & (new_cap - 1);
+            while (impl->str_entries[idx].occupied) {
+                idx = (idx + 1) & (new_cap - 1);
+            }
+            impl->str_entries[idx] = old_entries[i];
+            impl->str_count++;
+        }
+    }
+    sp_rt_free(old_entries);
 }
 
 void sp_rt_map_set_str(void* map, const char* key, int64_t val) {
     if (!map) sp_rt_panic("NullPointerException: map is null");
     if (!key) return;
-    static_cast<SPMapImpl*>(map)->str_map[key] = val;
+    auto* impl = static_cast<SPMapImpl*>(map);
+
+    if (impl->str_count * 10 >= impl->str_capacity * 7) {
+        sp_map_rehash_str(impl, impl->str_capacity * 2);
+    }
+
+    uint32_t h = sp_fnv1a(key);
+    int64_t idx = h & (impl->str_capacity - 1);
+    while (impl->str_entries[idx].occupied) {
+        if (impl->str_entries[idx].hash == h && std::strcmp(impl->str_entries[idx].key, key) == 0) {
+            impl->str_entries[idx].val = val;
+            return;
+        }
+        idx = (idx + 1) & (impl->str_capacity - 1);
+    }
+
+    size_t len = std::strlen(key);
+    char* copy = static_cast<char*>(sp_rt_alloc(len + 1));
+    std::memcpy(copy, key, len + 1);
+
+    impl->str_entries[idx].key = copy;
+    impl->str_entries[idx].val = val;
+    impl->str_entries[idx].hash = h;
+    impl->str_entries[idx].occupied = true;
+    impl->str_count++;
 }
 
 int64_t sp_rt_map_get_str(void* map, const char* key) {
     if (!map) sp_rt_panic("NullPointerException: map is null");
     if (!key) return 0;
-    auto& m = static_cast<SPMapImpl*>(map)->str_map;
-    auto it = m.find(key);
-    return it != m.end() ? it->second : 0;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->str_entries || impl->str_capacity == 0) return 0;
+
+    uint32_t h = sp_fnv1a(key);
+    int64_t idx = h & (impl->str_capacity - 1);
+    while (impl->str_entries[idx].occupied) {
+        if (impl->str_entries[idx].hash == h && std::strcmp(impl->str_entries[idx].key, key) == 0) {
+            return impl->str_entries[idx].val;
+        }
+        idx = (idx + 1) & (impl->str_capacity - 1);
+    }
+    return 0;
 }
 
 bool sp_rt_map_contains_str(void* map, const char* key) {
     if (!map || !key) return false;
-    auto& m = static_cast<SPMapImpl*>(map)->str_map;
-    return m.find(key) != m.end();
-}
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->str_entries || impl->str_capacity == 0) return false;
 
-void sp_rt_map_set_i64(void* map, int64_t key, int64_t val) {
-    if (!map) sp_rt_panic("NullPointerException: map is null");
-    static_cast<SPMapImpl*>(map)->int_map[key] = val;
-}
-
-int64_t sp_rt_map_get_i64(void* map, int64_t key) {
-    if (!map) sp_rt_panic("NullPointerException: map is null");
-    auto& m = static_cast<SPMapImpl*>(map)->int_map;
-    auto it = m.find(key);
-    return it != m.end() ? it->second : 0;
-}
-
-bool sp_rt_map_contains_i64(void* map, int64_t key) {
-    if (!map) return false;
-    auto& m = static_cast<SPMapImpl*>(map)->int_map;
-    return m.find(key) != m.end();
+    uint32_t h = sp_fnv1a(key);
+    int64_t idx = h & (impl->str_capacity - 1);
+    while (impl->str_entries[idx].occupied) {
+        if (impl->str_entries[idx].hash == h && std::strcmp(impl->str_entries[idx].key, key) == 0) {
+            return true;
+        }
+        idx = (idx + 1) & (impl->str_capacity - 1);
+    }
+    return false;
 }
 
 void sp_rt_map_remove_str(void* map, const char* key) {
     if (!map || !key) return;
-    static_cast<SPMapImpl*>(map)->str_map.erase(key);
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->str_entries || impl->str_capacity == 0) return;
+
+    uint32_t h = sp_fnv1a(key);
+    int64_t idx = h & (impl->str_capacity - 1);
+    while (impl->str_entries[idx].occupied) {
+        if (impl->str_entries[idx].hash == h && std::strcmp(impl->str_entries[idx].key, key) == 0) {
+            sp_rt_free(impl->str_entries[idx].key);
+            impl->str_count--;
+
+            int64_t i = idx;
+            int64_t j = (i + 1) & (impl->str_capacity - 1);
+            while (impl->str_entries[j].occupied) {
+                int64_t k = impl->str_entries[j].hash & (impl->str_capacity - 1);
+                bool should_move = (i <= j) ? (k <= i || k > j) : (k <= i && k > j);
+                if (should_move) {
+                    impl->str_entries[i] = impl->str_entries[j];
+                    i = j;
+                }
+                j = (j + 1) & (impl->str_capacity - 1);
+            }
+            impl->str_entries[i].occupied = false;
+            impl->str_entries[i].key = nullptr;
+            impl->str_entries[i].val = 0;
+            impl->str_entries[i].hash = 0;
+            return;
+        }
+        idx = (idx + 1) & (impl->str_capacity - 1);
+    }
+}
+
+static void sp_map_rehash_int(SPMapImpl* impl, int64_t new_cap) {
+    auto* old_entries = impl->int_entries;
+    int64_t old_cap = impl->int_capacity;
+
+    impl->int_entries = static_cast<SPMapIntEntry*>(sp_rt_alloc(new_cap * sizeof(SPMapIntEntry)));
+    impl->int_capacity = new_cap;
+    impl->int_count = 0;
+
+    for (int64_t i = 0; i < old_cap; ++i) {
+        if (old_entries[i].occupied) {
+            uint32_t h = old_entries[i].hash;
+            int64_t idx = h & (new_cap - 1);
+            while (impl->int_entries[idx].occupied) {
+                idx = (idx + 1) & (new_cap - 1);
+            }
+            impl->int_entries[idx] = old_entries[i];
+            impl->int_count++;
+        }
+    }
+    sp_rt_free(old_entries);
+}
+
+void sp_rt_map_set_i64(void* map, int64_t key, int64_t val) {
+    if (!map) sp_rt_panic("NullPointerException: map is null");
+    auto* impl = static_cast<SPMapImpl*>(map);
+
+    if (impl->int_count * 10 >= impl->int_capacity * 7) {
+        sp_map_rehash_int(impl, impl->int_capacity * 2);
+    }
+
+    uint32_t h = sp_hash_int(key);
+    int64_t idx = h & (impl->int_capacity - 1);
+    while (impl->int_entries[idx].occupied) {
+        if (impl->int_entries[idx].hash == h && impl->int_entries[idx].key == key) {
+            impl->int_entries[idx].val = val;
+            return;
+        }
+        idx = (idx + 1) & (impl->int_capacity - 1);
+    }
+
+    impl->int_entries[idx].key = key;
+    impl->int_entries[idx].val = val;
+    impl->int_entries[idx].hash = h;
+    impl->int_entries[idx].occupied = true;
+    impl->int_count++;
+}
+
+int64_t sp_rt_map_get_i64(void* map, int64_t key) {
+    if (!map) sp_rt_panic("NullPointerException: map is null");
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->int_entries || impl->int_capacity == 0) return 0;
+
+    uint32_t h = sp_hash_int(key);
+    int64_t idx = h & (impl->int_capacity - 1);
+    while (impl->int_entries[idx].occupied) {
+        if (impl->int_entries[idx].hash == h && impl->int_entries[idx].key == key) {
+            return impl->int_entries[idx].val;
+        }
+        idx = (idx + 1) & (impl->int_capacity - 1);
+    }
+    return 0;
+}
+
+bool sp_rt_map_contains_i64(void* map, int64_t key) {
+    if (!map) return false;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->int_entries || impl->int_capacity == 0) return false;
+
+    uint32_t h = sp_hash_int(key);
+    int64_t idx = h & (impl->int_capacity - 1);
+    while (impl->int_entries[idx].occupied) {
+        if (impl->int_entries[idx].hash == h && impl->int_entries[idx].key == key) {
+            return true;
+        }
+        idx = (idx + 1) & (impl->int_capacity - 1);
+    }
+    return false;
 }
 
 void sp_rt_map_remove_i64(void* map, int64_t key) {
     if (!map) return;
-    static_cast<SPMapImpl*>(map)->int_map.erase(key);
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->int_entries || impl->int_capacity == 0) return;
+
+    uint32_t h = sp_hash_int(key);
+    int64_t idx = h & (impl->int_capacity - 1);
+    while (impl->int_entries[idx].occupied) {
+        if (impl->int_entries[idx].hash == h && impl->int_entries[idx].key == key) {
+            impl->int_count--;
+
+            int64_t i = idx;
+            int64_t j = (i + 1) & (impl->int_capacity - 1);
+            while (impl->int_entries[j].occupied) {
+                int64_t k = impl->int_entries[j].hash & (impl->int_capacity - 1);
+                bool should_move = (i <= j) ? (k <= i || k > j) : (k <= i && k > j);
+                if (should_move) {
+                    impl->int_entries[i] = impl->int_entries[j];
+                    i = j;
+                }
+                j = (j + 1) & (impl->int_capacity - 1);
+            }
+            impl->int_entries[i].occupied = false;
+            impl->int_entries[i].key = 0;
+            impl->int_entries[i].val = 0;
+            impl->int_entries[i].hash = 0;
+            return;
+        }
+        idx = (idx + 1) & (impl->int_capacity - 1);
+    }
 }
 
 void sp_rt_map_clear(void* map) {
     if (!map) return;
     auto* impl = static_cast<SPMapImpl*>(map);
-    impl->str_map.clear();
-    impl->int_map.clear();
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            sp_rt_free(impl->str_entries[i].key);
+        }
+    }
+    std::memset(impl->str_entries, 0, impl->str_capacity * sizeof(SPMapStrEntry));
+    impl->str_count = 0;
+
+    std::memset(impl->int_entries, 0, impl->int_capacity * sizeof(SPMapIntEntry));
+    impl->int_count = 0;
 }
 
 bool sp_rt_map_is_empty(void* map) {
     if (!map) return true;
     auto* impl = static_cast<SPMapImpl*>(map);
-    return impl->str_map.empty() && impl->int_map.empty();
+    return (impl->str_count + impl->int_count) == 0;
 }
 
 // Native Set<T> primitives
 void* sp_rt_set_alloc() {
-    return new SPSetImpl();
+    auto* set = new SPSetImpl();
+    set->map.str_capacity = 16;
+    set->map.str_count = 0;
+    set->map.str_entries = static_cast<SPMapStrEntry*>(sp_rt_alloc(16 * sizeof(SPMapStrEntry)));
+
+    set->map.int_capacity = 16;
+    set->map.int_count = 0;
+    set->map.int_entries = static_cast<SPMapIntEntry*>(sp_rt_alloc(16 * sizeof(SPMapIntEntry)));
+    return set;
 }
 
 int64_t sp_rt_set_size(void* set) {
     if (!set) return 0;
-    auto* impl = static_cast<SPSetImpl*>(set);
-    return static_cast<int64_t>(impl->str_set.size() + impl->int_set.size());
+    return sp_rt_map_size(&static_cast<SPSetImpl*>(set)->map);
 }
 
 void sp_rt_set_add_i64(void* set, int64_t val) {
     if (!set) sp_rt_panic("NullPointerException: set is null");
-    static_cast<SPSetImpl*>(set)->int_set.insert(val);
+    sp_rt_map_set_i64(&static_cast<SPSetImpl*>(set)->map, val, 1);
 }
 
 void sp_rt_set_add_str(void* set, const char* val) {
     if (!set) sp_rt_panic("NullPointerException: set is null");
-    if (!val) return;
-    static_cast<SPSetImpl*>(set)->str_set.insert(val);
+    sp_rt_map_set_str(&static_cast<SPSetImpl*>(set)->map, val, 1);
 }
 
 bool sp_rt_set_contains_i64(void* set, int64_t val) {
     if (!set) return false;
-    auto& s = static_cast<SPSetImpl*>(set)->int_set;
-    return s.find(val) != s.end();
+    return sp_rt_map_contains_i64(&static_cast<SPSetImpl*>(set)->map, val);
 }
 
 bool sp_rt_set_contains_str(void* set, const char* val) {
     if (!set || !val) return false;
-    auto& s = static_cast<SPSetImpl*>(set)->str_set;
-    return s.find(val) != s.end();
+    return sp_rt_map_contains_str(&static_cast<SPSetImpl*>(set)->map, val);
 }
 
 void sp_rt_set_remove_i64(void* set, int64_t val) {
     if (!set) return;
-    static_cast<SPSetImpl*>(set)->int_set.erase(val);
+    sp_rt_map_remove_i64(&static_cast<SPSetImpl*>(set)->map, val);
 }
 
 void sp_rt_set_remove_str(void* set, const char* val) {
     if (!set || !val) return;
-    static_cast<SPSetImpl*>(set)->str_set.erase(val);
+    sp_rt_map_remove_str(&static_cast<SPSetImpl*>(set)->map, val);
 }
 
 void sp_rt_set_clear(void* set) {
     if (!set) return;
-    auto* impl = static_cast<SPSetImpl*>(set);
-    impl->str_set.clear();
-    impl->int_set.clear();
+    sp_rt_map_clear(&static_cast<SPSetImpl*>(set)->map);
 }
 
 bool sp_rt_set_is_empty(void* set) {
     if (!set) return true;
-    auto* impl = static_cast<SPSetImpl*>(set);
-    return impl->str_set.empty() && impl->int_set.empty();
+    return sp_rt_map_is_empty(&static_cast<SPSetImpl*>(set)->map);
 }
 
 bool sp_rt_array_is_empty(void* arr) {
