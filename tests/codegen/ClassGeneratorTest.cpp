@@ -163,8 +163,8 @@ TEST(ClassGeneratorTest, NewObjectInstantiationAndFieldAccessAndMethodCall) {
     ir::IRPrinter printer;
     std::string irCode = printer.print(*module);
 
-    // Allocates object with sp_rt_alloc
-    EXPECT_NE(irCode.find("call ptr @sp_rt_alloc(i64"), std::string::npos);
+    // Allocates object with ARC allocator sp_rt_arc_alloc
+    EXPECT_NE(irCode.find("call ptr @sp_rt_arc_alloc(i64"), std::string::npos);
     // Calls Counter_Counter
     EXPECT_NE(irCode.find("call void @Counter_Counter(ptr"), std::string::npos);
     // Method call on object via virtual or direct call

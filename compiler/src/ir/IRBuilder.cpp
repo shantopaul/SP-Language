@@ -2885,6 +2885,77 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
         }
 
+        if (semaObjType && semaObjType->isClass() && semaObjType->toString() == "Arena") {
+            if (methodName == "alloc" && !node.getArgs().empty()) {
+                node.getArgs()[0]->accept(*this);
+                auto szVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                auto alignVal = std::make_shared<ConstantInt>(IRType::getInt64(), 8);
+                std::string reg = m_currentFunction->nextTempName("arena_ptr");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_arena_alloc",
+                    std::vector<IRValuePtr>{objVal, szVal, alignVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+            if (methodName == "allocAligned" && node.getArgs().size() >= 2) {
+                node.getArgs()[0]->accept(*this);
+                auto szVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                node.getArgs()[1]->accept(*this);
+                auto alignVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                std::string reg = m_currentFunction->nextTempName("arena_ptr");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_arena_alloc",
+                    std::vector<IRValuePtr>{objVal, szVal, alignVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+            if (methodName == "reset") {
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_arena_reset",
+                    std::vector<IRValuePtr>{objVal}
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = nullptr;
+                m_lastExprType = IRType::getVoid();
+                return;
+            }
+            if (methodName == "destroy") {
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_arena_destroy",
+                    std::vector<IRValuePtr>{objVal}
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = nullptr;
+                m_lastExprType = IRType::getVoid();
+                return;
+            }
+            if (methodName == "allocatedBytes") {
+                std::string reg = m_currentFunction->nextTempName("arena_bytes");
+                auto callInst = std::make_shared<CallInst>(
+                    IRType::getInt64(),
+                    "sp_rt_arena_allocated_bytes",
+                    std::vector<IRValuePtr>{objVal},
+                    reg
+                );
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt64();
+                return;
+            }
+        }
+
         if (semaObjType && semaObjType->isString()) {
             if (methodName == "length" || methodName == "size") {
                 std::string lenReg = m_currentFunction->nextTempName("slen");
@@ -4172,6 +4243,23 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
+    if (calleeName == "totalAllocatedBytes") {
+        std::string reg = m_currentFunction->nextTempName("mem_bytes");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_mem_allocated_bytes", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+    if (calleeName == "totalLiveObjects") {
+        std::string reg = m_currentFunction->nextTempName("mem_objs");
+        auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_mem_live_objects", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(callInst);
+        m_lastExprValue = callInst;
+        m_lastExprType = IRType::getInt64();
+        return;
+    }
+
     // Check if callee is a method on 'this'
     if (m_currentClass && m_currentClass->methodSlotMap.count(calleeName)) {
         int slotIdx = m_currentClass->methodSlotMap.at(calleeName);
@@ -4827,6 +4915,27 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             "sp_rt_duration_from_millis",
             std::vector<IRValuePtr>{zeroVal},
             durReg
+        );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Arena") {
+        IRValuePtr capVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            capVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        } else {
+            capVal = std::make_shared<ConstantInt>(IRType::getInt64(), 65536);
+        }
+        std::string arenaReg = m_currentFunction->nextTempName("arena");
+        auto allocCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            "sp_rt_arena_create",
+            std::vector<IRValuePtr>{capVal},
+            arenaReg
         );
         m_currentBlock->addInstruction(allocCall);
         m_lastExprValue = allocCall;

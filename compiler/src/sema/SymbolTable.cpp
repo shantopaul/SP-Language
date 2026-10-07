@@ -345,6 +345,10 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("spawn", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("runCommand", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("pid", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+
+    // Built-in memory and arena functions (std.mem)
+    define(std::make_shared<FunctionSymbol>("totalAllocatedBytes", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("totalLiveObjects", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
 }
 
 } // namespace sp::sema

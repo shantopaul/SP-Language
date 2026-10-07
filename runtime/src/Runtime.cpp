@@ -713,12 +713,20 @@ uint64_t sp_rt_arena_allocated(void* arena_ptr) {
     return static_cast<SPArena*>(arena_ptr)->total_allocated;
 }
 
+uint64_t sp_rt_arena_allocated_bytes(void* arena_ptr) {
+    return sp_rt_arena_allocated(arena_ptr);
+}
+
 uint64_t sp_rt_mem_allocated_bytes() {
     return g_allocated_bytes.load(std::memory_order_relaxed);
 }
 
 uint64_t sp_rt_mem_active_arc_objects() {
     return g_active_arc_objects.load(std::memory_order_relaxed);
+}
+
+uint64_t sp_rt_mem_live_objects() {
+    return sp_rt_mem_active_arc_objects();
 }
 
 // Internal structures

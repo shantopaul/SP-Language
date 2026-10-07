@@ -493,6 +493,20 @@ TypeContext::TypeContext() {
     procCls->addMethod({"spawn", getFunctionType({m_stringType}, m_int32Type), "public", true, false, false});
     procCls->addMethod({"run", getFunctionType({m_stringType}, m_stringType), "public", true, false, false});
     procCls->addMethod({"pid", getFunctionType({}, m_int32Type), "public", true, false, false});
+
+    auto arenaCls = createClassType("Arena");
+    arenaCls->addField({"handle", m_int64Type, "private", false, false});
+    arenaCls->addMethod({"alloc", getFunctionType({m_int32Type}, m_int32Type), "public", false, false, false});
+    arenaCls->addMethod({"alloc", getFunctionType({m_int64Type}, m_int64Type), "public", false, false, false});
+    arenaCls->addMethod({"allocAligned", getFunctionType({m_int32Type, m_int32Type}, m_int32Type), "public", false, false, false});
+    arenaCls->addMethod({"allocAligned", getFunctionType({m_int64Type, m_int64Type}, m_int64Type), "public", false, false, false});
+    arenaCls->addMethod({"reset", getFunctionType({}, m_voidType), "public", false, false, false});
+    arenaCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+    arenaCls->addMethod({"allocatedBytes", getFunctionType({}, m_int32Type), "public", false, false, false});
+
+    auto memCls = createClassType("Mem");
+    memCls->addMethod({"totalAllocatedBytes", getFunctionType({}, m_int32Type), "public", true, false, false});
+    memCls->addMethod({"totalLiveObjects", getFunctionType({}, m_int32Type), "public", true, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

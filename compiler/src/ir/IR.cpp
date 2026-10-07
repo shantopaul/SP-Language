@@ -567,29 +567,30 @@ void IRModule::initRuntimeDeclarations() {
                    true);
 
     // ptr sp_rt_arena_create(i64)
-    createFunction("sp_rt_arena_create", IRType::getInt64(),
+    createFunction("sp_rt_arena_create", IRType::getPointer(),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "initialCapacity", 0)},
                    true);
 
-    // ptr sp_rt_arena_alloc(i64, i64)
+    // ptr sp_rt_arena_alloc(ptr, i64, i64)
     createFunction("sp_rt_arena_alloc", IRType::getInt64(),
-                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0),
-                    std::make_shared<ParameterValue>(IRType::getInt64(), "size", 1)},
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "size", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "alignment", 2)},
                    true);
 
-    // void sp_rt_arena_reset(i64)
+    // void sp_rt_arena_reset(ptr)
     createFunction("sp_rt_arena_reset", IRType::getVoid(),
-                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0)},
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0)},
                    true);
 
-    // void sp_rt_arena_destroy(i64)
+    // void sp_rt_arena_destroy(ptr)
     createFunction("sp_rt_arena_destroy", IRType::getVoid(),
-                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0)},
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0)},
                    true);
 
-    // i64 sp_rt_arena_allocated_bytes(i64)
+    // i64 sp_rt_arena_allocated_bytes(ptr)
     createFunction("sp_rt_arena_allocated_bytes", IRType::getInt64(),
-                   {std::make_shared<ParameterValue>(IRType::getInt64(), "arena", 0)},
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arena", 0)},
                    true);
 
     // i64 sp_rt_mem_allocated_bytes()

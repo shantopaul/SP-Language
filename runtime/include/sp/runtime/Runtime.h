@@ -92,10 +92,12 @@ extern "C" {
     void        sp_rt_arena_reset(void* arena);
     void        sp_rt_arena_destroy(void* arena);
     uint64_t    sp_rt_arena_allocated(void* arena);
+    uint64_t    sp_rt_arena_allocated_bytes(void* arena);
 
     // Phase 11: Memory Diagnostics & Active Tracking
     uint64_t    sp_rt_mem_allocated_bytes();
     uint64_t    sp_rt_mem_active_arc_objects();
+    uint64_t    sp_rt_mem_live_objects();
 
     // Native Array primitives
     void* sp_rt_array_alloc(int64_t length, int64_t element_size);

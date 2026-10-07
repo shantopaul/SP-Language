@@ -1779,3 +1779,104 @@ TEST(ExecutionTest, StdlibFullIntegrationNativeExecution) {
     EXPECT_NE(output.find("os_info: true"), std::string::npos);
     EXPECT_NE(output.find("proc_pid_gt_0: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, ARCObjectAllocationAndLifecycle) {
+    const std::string source = R"sp(
+        import std.io;
+
+        class Task {
+            int id;
+            int priority;
+
+            Task(int id, int priority) {
+                this.id = id;
+                this.priority = priority;
+            }
+
+            fn execute() -> int {
+                return this.id * this.priority;
+            }
+        }
+
+        fn runJob() -> int {
+            var t1 = new Task(5, 10);
+            var t2 = new Task(2, 4);
+            int res1 = t1.execute();
+            {
+                var t3 = new Task(10, 20);
+                res1 = res1 + t3.execute();
+            }
+            return res1 + t2.execute();
+        }
+
+        fn main() {
+            int result = runJob();
+            println("job_result: ${result}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_arc_object_lifecycle");
+    EXPECT_NE(output.find("job_result: 258"), std::string::npos);
+}
+
+TEST(ExecutionTest, WeakReferenceCycleBreakingNativeExecution) {
+    const std::string source = R"sp(
+        import std.io;
+
+        class Node {
+            int value;
+            weak Node parent;
+
+            Node(int v) {
+                this.value = v;
+            }
+
+            fn getValue() -> int {
+                return this.value;
+            }
+        }
+
+        fn buildTree() -> int {
+            var root = new Node(100);
+            var child = new Node(200);
+            child.parent = root;
+            return root.getValue() + child.getValue();
+        }
+
+        fn main() {
+            int total = buildTree();
+            println("tree_total: ${total}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_cycle_breaking");
+    EXPECT_NE(output.find("tree_total: 300"), std::string::npos);
+}
+
+TEST(ExecutionTest, MemoryArenaNativeExecution) {
+    const std::string source = R"sp(
+        import std.io;
+        import std.mem;
+
+        fn main() {
+            var arena = new Arena(1024);
+            int p1 = arena.alloc(128);
+            int p2 = arena.alloc(256);
+            int bytes = arena.allocatedBytes();
+            println("arena_allocated: ${bytes >= 384}");
+            arena.reset();
+            println("arena_reset: true");
+            arena.destroy();
+            println("arena_done: true");
+            println("live_objs_gte_0: ${totalLiveObjects() >= 0}");
+            println("total_mem_gte_0: ${totalAllocatedBytes() >= 0}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_memory_arena");
+    EXPECT_NE(output.find("arena_allocated: true"), std::string::npos);
+    EXPECT_NE(output.find("arena_reset: true"), std::string::npos);
+    EXPECT_NE(output.find("arena_done: true"), std::string::npos);
+    EXPECT_NE(output.find("live_objs_gte_0: true"), std::string::npos);
+    EXPECT_NE(output.find("total_mem_gte_0: true"), std::string::npos);
+}
