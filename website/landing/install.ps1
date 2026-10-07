@@ -109,9 +109,10 @@ if ($isLocalRepo) {
     $TempZip = Join-Path $env:TEMP $ZipName
     
     $Urls = @(
+        "https://downloads.splang.shantopaul.com/$ZipName",
         "https://splang.shantopaul.com/downloads/$ZipName",
-        "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$ZipName",
-        "https://github.com/shantopaul/SP-Language/releases/latest/download/$ZipName"
+        "https://dl.splang.shantopaul.com/$ZipName",
+        "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$ZipName"
     )
     
     $Downloaded = $false
