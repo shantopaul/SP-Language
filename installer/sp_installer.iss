@@ -30,6 +30,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesEnvironment=yes
+ChangesAssociations=yes
 PrivilegesRequired=lowest
 
 [Languages]
@@ -38,6 +39,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "addtopath"; Description: "Add SP compiler and tools to User PATH"; GroupDescription: "Environment Configuration:"
+Name: "associate_sp"; Description: "Associate .sp files with SP compiler (Run with SP)"; GroupDescription: "File Associations:"
 
 [Files]
 ; Copy all files staged by package_distribution.ps1
@@ -51,6 +53,12 @@ Name: "{autodesktop}\SP Shell"; Filename: "powershell.exe"; Parameters: "-NoExit
 [Registry]
 ; Set SP_HOME in user environment
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "SP_HOME"; ValueData: "{app}"; Flags: preservestringtype
+; Associate .sp file extension
+Root: HKCU; Subkey: "Software\Classes\.sp"; ValueType: string; ValueName: ""; ValueData: "SPLanguageSource"; Flags: uninsdeletevalue; Tasks: associate_sp
+Root: HKCU; Subkey: "Software\Classes\SPLanguageSource"; ValueType: string; ValueName: ""; ValueData: "SP Source File"; Flags: uninsdeletekey; Tasks: associate_sp
+Root: HKCU; Subkey: "Software\Classes\SPLanguageSource\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\spc.exe,0"; Tasks: associate_sp
+Root: HKCU; Subkey: "Software\Classes\SPLanguageSource\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\bin\spc.exe"" run ""%1"""; Tasks: associate_sp
+Root: HKCU; Subkey: "Software\Classes\SPLanguageSource\shell\build\command"; ValueType: string; ValueName: ""; ValueData: """{app}\bin\spc.exe"" build ""%1"""; Tasks: associate_sp
 
 [Run]
 ; Run 'spc setup' to auto-detect/provision backend toolchains and verify environment
