@@ -60,6 +60,8 @@ private:
     ast::ExprPtr parsePrefix();
     ast::ExprPtr parseInfix(ast::ExprPtr left);
     [[nodiscard]] bool isGenericCall(size_t startPos) const noexcept;
+    [[nodiscard]] bool isTernaryQuestion() const noexcept;
+    [[nodiscard]] bool isTernaryQuestionAt(size_t pos) const noexcept;
     [[nodiscard]] Precedence getPrecedence(lexer::TokenType type) const noexcept;
 
     ast::ExprPtr parseGroupedOrLambda();

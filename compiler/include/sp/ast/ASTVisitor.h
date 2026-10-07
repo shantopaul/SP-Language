@@ -16,6 +16,7 @@ class LambdaExpr;
 class TernaryExpr;
 class AssignExpr;
 class NewExpr;
+class TryExpr;
 
 class BlockStmt;
 class ExprStmt;
@@ -60,6 +61,7 @@ public:
     virtual void visit(const TernaryExpr& node) = 0;
     virtual void visit(const AssignExpr& node) = 0;
     virtual void visit(const NewExpr& node) = 0;
+    virtual void visit(const TryExpr& node) = 0;
 
     // Statements
     virtual void visit(const BlockStmt& node) = 0;

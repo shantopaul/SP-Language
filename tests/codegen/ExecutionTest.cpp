@@ -2222,3 +2222,66 @@ TEST(ExecutionTest, ResultAndOptionZeroAllocTaggedUnionExecution) {
     EXPECT_NE(output.find("directOk.unwrap: 42"), std::string::npos);
     EXPECT_NE(output.find("directSome.unwrap: 77"), std::string::npos);
 }
+
+TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
+    const std::string source = R"sp(
+        fn stepOk(x: int): Result<int, string> {
+            return Ok(x * 2);
+        }
+
+        fn stepFail(msg: string): Result<int, string> {
+            return Err(msg);
+        }
+
+        fn pipelineOk(a: int, b: int): Result<int, string> {
+            var v1 = stepOk(a)?;
+            var v2 = stepOk(b)?;
+            return Ok(v1 + v2);
+        }
+
+        fn pipelineFail(a: int): Result<int, string> {
+            var v1 = stepOk(a)?;
+            var v2 = stepFail("pipeline broke")?;
+            return Ok(v1 + v2);
+        }
+
+        fn optDouble(x: int): Option<int> {
+            if (x > 0) {
+                return Some(x * 2);
+            }
+            return None;
+        }
+
+        fn pipelineOpt(x: int, y: int): Option<int> {
+            var a = optDouble(x)?;
+            var b = optDouble(y)?;
+            return Some(a + b);
+        }
+
+        fn main() {
+            var res1 = pipelineOk(10, 5);
+            println("pipelineOk.isOk: ${res1.isOk()}");
+            println("pipelineOk.unwrap: ${res1.unwrap()}");
+
+            var res2 = pipelineFail(20);
+            println("pipelineFail.isErr: ${res2.isErr()}");
+            println("pipelineFail.unwrapErr: ${res2.unwrapErr()}");
+
+            var opt1 = pipelineOpt(3, 7);
+            println("opt1.isSome: ${opt1.isSome()}");
+            println("opt1.unwrap: ${opt1.unwrap()}");
+
+            var opt2 = pipelineOpt(3, -1);
+            println("opt2.isNone: ${opt2.isNone()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_try_operator");
+    EXPECT_NE(output.find("pipelineOk.isOk: true"), std::string::npos);
+    EXPECT_NE(output.find("pipelineOk.unwrap: 30"), std::string::npos);
+    EXPECT_NE(output.find("pipelineFail.isErr: true"), std::string::npos);
+    EXPECT_NE(output.find("pipelineFail.unwrapErr: pipeline broke"), std::string::npos);
+    EXPECT_NE(output.find("opt1.isSome: true"), std::string::npos);
+    EXPECT_NE(output.find("opt1.unwrap: 20"), std::string::npos);
+    EXPECT_NE(output.find("opt2.isNone: true"), std::string::npos);
+}

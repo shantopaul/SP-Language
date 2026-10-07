@@ -1232,6 +1232,56 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     m_currentExprType = clsType;
 }
 
+void TypeChecker::visit(const ast::TryExpr& node) {
+    auto operandType = checkExpr(node.getExpr());
+    if (operandType->isError()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
+
+    std::string opTypeName = operandType->toString();
+    bool isResult = (opTypeName == "Result" || opTypeName.rfind("Result<", 0) == 0);
+    bool isOption = (opTypeName == "Option" || opTypeName.rfind("Option<", 0) == 0);
+
+    if (!isResult && !isOption) {
+        m_diagnostics.reportError("E1001", "The '?' operator can only be applied to 'Result' or 'Option' types, found '" + opTypeName + "'", node.getLocation());
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
+
+    // Verify enclosing function return type
+    if (m_currentFunctionReturnType) {
+        std::string retTypeName = m_currentFunctionReturnType->toString();
+        if (isResult) {
+            if (retTypeName != "Result" && retTypeName.rfind("Result<", 0) != 0) {
+                m_diagnostics.reportError("E1001", "The '?' operator on Result can only be used in a function returning Result, found return type '" + retTypeName + "'", node.getLocation());
+            }
+        } else if (isOption) {
+            if (retTypeName != "Option" && retTypeName.rfind("Option<", 0) != 0) {
+                m_diagnostics.reportError("E1001", "The '?' operator on Option can only be used in a function returning Option, found return type '" + retTypeName + "'", node.getLocation());
+            }
+        }
+    }
+
+    // Extract unwrapped payload type T
+    TypePtr unwrappedType = m_typeCtx.getAny();
+    if (isResult && opTypeName.rfind("Result<", 0) == 0) {
+        auto args = TypeContext::splitTypeArgs(opTypeName.substr(7, opTypeName.size() - 8));
+        if (args.size() >= 1) {
+            auto t = m_typeCtx.resolveType(args[0]);
+            if (t) unwrappedType = t;
+        }
+    } else if (isOption && opTypeName.rfind("Option<", 0) == 0) {
+        auto args = TypeContext::splitTypeArgs(opTypeName.substr(7, opTypeName.size() - 8));
+        if (args.size() >= 1) {
+            auto t = m_typeCtx.resolveType(args[0]);
+            if (t) unwrappedType = t;
+        }
+    }
+
+    m_currentExprType = unwrappedType;
+}
+
 // Statements
 void TypeChecker::visit(const ast::BlockStmt& node) {
     m_symbolTable.enterScope(ScopeKind::Block);

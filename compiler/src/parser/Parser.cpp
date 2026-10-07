@@ -141,6 +141,90 @@ bool Parser::isGenericCall(size_t startPos) const noexcept {
     return false;
 }
 
+bool Parser::isTernaryQuestion() const noexcept {
+    return isTernaryQuestionAt(m_current);
+}
+
+bool Parser::isTernaryQuestionAt(size_t pos) const noexcept {
+    if (pos >= m_tokens.size() || !m_tokens[pos].is(lexer::TokenType::Question)) {
+        return false;
+    }
+
+    size_t next = pos + 1;
+    if (next >= m_tokens.size()) {
+        return false;
+    }
+
+    const auto& nextTok = m_tokens[next];
+    if (nextTok.is(lexer::TokenType::Colon) ||
+        nextTok.is(lexer::TokenType::Semicolon) ||
+        nextTok.is(lexer::TokenType::Comma) ||
+        nextTok.is(lexer::TokenType::CloseParen) ||
+        nextTok.is(lexer::TokenType::CloseBracket) ||
+        nextTok.is(lexer::TokenType::CloseBrace) ||
+        nextTok.is(lexer::TokenType::FatArrow) ||
+        nextTok.is(lexer::TokenType::EndOfFile)) {
+        return false;
+    }
+
+    int parenDepth = 0;
+    int bracketDepth = 0;
+    int braceDepth = 0;
+    int ternaryDepth = 0;
+
+    for (size_t i = next; i < m_tokens.size(); ++i) {
+        const auto& tok = m_tokens[i];
+        if (tok.is(lexer::TokenType::OpenParen)) {
+            parenDepth++;
+        } else if (tok.is(lexer::TokenType::CloseParen)) {
+            if (parenDepth == 0) return false;
+            parenDepth--;
+        } else if (tok.is(lexer::TokenType::OpenBracket)) {
+            bracketDepth++;
+        } else if (tok.is(lexer::TokenType::CloseBracket)) {
+            if (bracketDepth == 0) return false;
+            bracketDepth--;
+        } else if (tok.is(lexer::TokenType::OpenBrace)) {
+            braceDepth++;
+        } else if (tok.is(lexer::TokenType::CloseBrace)) {
+            if (braceDepth == 0) return false;
+            braceDepth--;
+        } else if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0) {
+            if (tok.is(lexer::TokenType::Semicolon) ||
+                tok.is(lexer::TokenType::Comma) ||
+                tok.is(lexer::TokenType::FatArrow) ||
+                tok.is(lexer::TokenType::EndOfFile) ||
+                tok.is(lexer::TokenType::KeywordReturn) ||
+                tok.is(lexer::TokenType::KeywordLet) ||
+                tok.is(lexer::TokenType::KeywordVar) ||
+                tok.is(lexer::TokenType::KeywordConst) ||
+                tok.is(lexer::TokenType::KeywordFn)) {
+                return false;
+            }
+            if (tok.is(lexer::TokenType::Question)) {
+                if (i + 1 < m_tokens.size()) {
+                    const auto& afterQ = m_tokens[i + 1];
+                    if (!afterQ.is(lexer::TokenType::Colon) &&
+                        !afterQ.is(lexer::TokenType::Semicolon) &&
+                        !afterQ.is(lexer::TokenType::Comma) &&
+                        !afterQ.is(lexer::TokenType::CloseParen) &&
+                        !afterQ.is(lexer::TokenType::CloseBracket) &&
+                        !afterQ.is(lexer::TokenType::CloseBrace)) {
+                        ternaryDepth++;
+                    }
+                }
+            } else if (tok.is(lexer::TokenType::Colon)) {
+                if (ternaryDepth == 0) {
+                    return true;
+                }
+                ternaryDepth--;
+            }
+        }
+    }
+
+    return false;
+}
+
 Precedence Parser::getPrecedence(lexer::TokenType type) const noexcept {
     switch (type) {
         case lexer::TokenType::Equal:
@@ -152,7 +236,7 @@ Precedence Parser::getPrecedence(lexer::TokenType type) const noexcept {
             return Precedence::Assignment;
 
         case lexer::TokenType::Question:
-            return Precedence::Ternary;
+            return isTernaryQuestion() ? Precedence::Ternary : Precedence::Call;
 
         case lexer::TokenType::QuestionQuestion:
             return Precedence::NullCoalescing;
@@ -377,8 +461,11 @@ ast::ExprPtr Parser::parseInfix(ast::ExprPtr left) {
         return std::make_unique<ast::MemberExpr>(std::move(left), memberTok.lexeme, isSafeNav, loc);
     }
 
-    // Ternary Operator: condition ? thenExpr : elseExpr
+    // Ternary Operator: condition ? thenExpr : elseExpr, or Postfix Try: expr?
     if (opTok.is(lexer::TokenType::Question)) {
+        if (!isTernaryQuestionAt(m_current - 1)) {
+            return std::make_unique<ast::TryExpr>(std::move(left), loc);
+        }
         ast::ExprPtr thenExpr = parseExpression();
         consume(lexer::TokenType::Colon, "Expected ':' in ternary operator");
         ast::ExprPtr elseExpr = parseExpression(Precedence::Ternary);

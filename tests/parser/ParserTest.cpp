@@ -472,4 +472,31 @@ TEST(ParserTest, TaggedUnionEnumDeclaration) {
     EXPECT_TRUE(statusEnum->getVariants()[2].hasPayload());
 }
 
+TEST(ParserTest, TryOperatorExpression) {
+    // 1. Basic try operator: expr?
+    ast::ExprPtr expr1 = parseExpr("readData()?");
+    ASSERT_NE(expr1, nullptr);
+    EXPECT_EQ(expr1->getKind(), ast::ASTNodeKind::TryExpr);
+    auto* try1 = dynamic_cast<ast::TryExpr*>(expr1.get());
+    ASSERT_NE(try1, nullptr);
+    EXPECT_EQ(try1->getExpr().getKind(), ast::ASTNodeKind::CallExpr);
+
+    // 2. Try operator in binary expression: expr? + 10
+    ast::ExprPtr expr2 = parseExpr("stepOk()? + 10");
+    ASSERT_NE(expr2, nullptr);
+    EXPECT_EQ(expr2->getKind(), ast::ASTNodeKind::BinaryExpr);
+    auto* bin2 = dynamic_cast<ast::BinaryExpr*>(expr2.get());
+    EXPECT_EQ(bin2->getLeft().getKind(), ast::ASTNodeKind::TryExpr);
+    EXPECT_EQ(bin2->getOp(), lexer::TokenType::Plus);
+
+    // 3. Ternary disambiguation: cond ? a? : b
+    ast::ExprPtr expr3 = parseExpr("isValid ? getData()? : fallback");
+    ASSERT_NE(expr3, nullptr);
+    EXPECT_EQ(expr3->getKind(), ast::ASTNodeKind::TernaryExpr);
+    auto* tern3 = dynamic_cast<ast::TernaryExpr*>(expr3.get());
+    EXPECT_EQ(tern3->getCondition().getKind(), ast::ASTNodeKind::IdentifierExpr);
+    EXPECT_EQ(tern3->getThenExpr().getKind(), ast::ASTNodeKind::TryExpr);
+    EXPECT_EQ(tern3->getElseExpr().getKind(), ast::ASTNodeKind::IdentifierExpr);
+}
+
 } // namespace sp::parser::test

@@ -5514,4 +5514,92 @@ void IRBuilder::visit(const ast::NewExpr& node) {
     m_lastExprType = IRType::getPointer();
 }
 
+void IRBuilder::visit(const ast::TryExpr& node) {
+    node.getExpr().accept(*this);
+    IRValuePtr operandVal = m_lastExprValue;
+    if (!operandVal) {
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getInt32();
+        return;
+    }
+
+    auto semaOpType = m_sema.getNodeType(&node.getExpr());
+    std::string opTypeName = semaOpType ? semaOpType->toString() : "";
+    std::string tuBaseName = (opTypeName.rfind("Option", 0) == 0) ? "Option" : "Result";
+    auto structType = ir::IRType::getStruct("struct." + tuBaseName, {IRType::getInt32(), IRType::getInt64()});
+
+    IRValuePtr objPtr = operandVal;
+    if (operandVal->getType()->isStruct()) {
+        auto tempAlloca = std::make_shared<AllocaInst>(operandVal->getType(), m_currentFunction->nextTempName("try_tmp"));
+        m_currentFunction->getEntryBlock()->addInstruction(tempAlloca);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(operandVal, tempAlloca));
+        objPtr = tempAlloca;
+    }
+
+    // 1. Load tag (field 0)
+    auto gepTag = std::make_shared<GetElementPtrInst>(
+        structType,
+        objPtr,
+        std::vector<IRValuePtr>{
+            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+            std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+        },
+        m_currentFunction->nextTempName("try_tag_ptr")
+    );
+    m_currentBlock->addInstruction(gepTag);
+    auto loadTag = std::make_shared<LoadInst>(IRType::getInt32(), gepTag, m_currentFunction->nextTempName("try_tag"));
+    m_currentBlock->addInstruction(loadTag);
+
+    // 2. Load payload (field 1)
+    auto gepPayload = std::make_shared<GetElementPtrInst>(
+        structType,
+        objPtr,
+        std::vector<IRValuePtr>{
+            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+            std::make_shared<ConstantInt>(IRType::getInt32(), 1)
+        },
+        m_currentFunction->nextTempName("try_payload_ptr")
+    );
+    m_currentBlock->addInstruction(gepPayload);
+    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("try_payload"));
+    m_currentBlock->addInstruction(loadPayload);
+
+    // 3. Compare tag != 0 (error / none)
+    auto cmpErr = std::make_shared<CompareInst>(IROpcode::ICmpNe, loadTag,
+        std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+        m_currentFunction->nextTempName("is_err"));
+    m_currentBlock->addInstruction(cmpErr);
+
+    auto errBB = createBlock("try_err");
+    auto okBB = createBlock("try_ok");
+    m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(cmpErr, errBB->getName(), okBB->getName()));
+
+    // 4. Error block: early return!
+    setInsertPoint(errBB);
+    emitAllFunctionDrops();
+    IRTypePtr retType = m_currentFunction->getReturnType();
+    if (retType->isStruct()) {
+        auto earlyRetVal = std::make_shared<LoadInst>(
+            retType,
+            objPtr,
+            m_currentFunction->nextTempName("early_ret")
+        );
+        errBB->addInstruction(earlyRetVal);
+        errBB->addInstruction(std::make_shared<ReturnInst>(earlyRetVal));
+    } else if (retType->isPointer()) {
+        errBB->addInstruction(std::make_shared<ReturnInst>(objPtr));
+    } else {
+        errBB->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(retType)));
+    }
+
+    // 5. Ok block: unwrapped payload
+    setInsertPoint(okBB);
+    auto semaNodeType = m_sema.getNodeType(&node);
+    IRTypePtr targetType = semaNodeType ? mapType(semaNodeType.get()) : IRType::getInt64();
+    auto unwrapped = emitCastIfNeeded(loadPayload, targetType);
+
+    m_lastExprValue = unwrapped;
+    m_lastExprType = targetType;
+}
+
 } // namespace sp::ir
