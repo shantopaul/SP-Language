@@ -36,6 +36,7 @@ enum class TypeKind {
     Map,
     Nullable,
     Function,
+    Pointer,
 
     // User-defined nominal types
     Class,
@@ -74,6 +75,7 @@ public:
     [[nodiscard]] bool isVoid() const noexcept { return m_kind == TypeKind::Void; }
     [[nodiscard]] bool isNull() const noexcept { return m_kind == TypeKind::Null; }
     [[nodiscard]] bool isNullable() const noexcept { return m_kind == TypeKind::Nullable; }
+    [[nodiscard]] bool isPointer() const noexcept { return m_kind == TypeKind::Pointer; }
     [[nodiscard]] bool isArray() const noexcept { return m_kind == TypeKind::Array; }
     [[nodiscard]] bool isMap() const noexcept { return m_kind == TypeKind::Map; }
     [[nodiscard]] bool isFunction() const noexcept { return m_kind == TypeKind::Function; }
@@ -176,6 +178,21 @@ public:
 private:
     std::vector<TypePtr> m_paramTypes;
     TypePtr m_returnType;
+};
+
+// Raw pointer types: ptr<T>
+class PointerType : public Type {
+public:
+    explicit PointerType(TypePtr pointeeType)
+        : Type(TypeKind::Pointer), m_pointeeType(std::move(pointeeType)) {}
+
+    [[nodiscard]] const TypePtr& getPointeeType() const noexcept { return m_pointeeType; }
+    [[nodiscard]] std::string toString() const override;
+    [[nodiscard]] bool equals(const Type& other) const override;
+    [[nodiscard]] bool isAssignableTo(const Type& target) const override;
+
+private:
+    TypePtr m_pointeeType;
 };
 
 // Field descriptor for Nominal types
@@ -418,6 +435,7 @@ public:
     TypePtr getArrayType(TypePtr elementType);
     TypePtr getMapType(TypePtr keyType, TypePtr valueType);
     TypePtr getNullableType(TypePtr underlyingType);
+    TypePtr getPointerType(TypePtr pointeeType);
     std::shared_ptr<FunctionType> getFunctionType(std::vector<TypePtr> paramTypes, TypePtr returnType);
 
     // User-defined nominal type factory & registry

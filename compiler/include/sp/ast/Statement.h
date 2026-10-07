@@ -17,17 +17,21 @@ using StmtPtr = std::unique_ptr<StatementNode>;
 
 class BlockStmt : public StatementNode {
 public:
-    BlockStmt(std::vector<StmtPtr> statements, diagnostics::SourceLocation loc)
+    BlockStmt(std::vector<StmtPtr> statements, diagnostics::SourceLocation loc, bool isUnsafe = false)
         : StatementNode(ASTNodeKind::BlockStmt, std::move(loc)),
-          m_statements(std::move(statements)) {}
+          m_statements(std::move(statements)),
+          m_isUnsafe(isUnsafe) {}
 
     [[nodiscard]] const std::vector<StmtPtr>& getStatements() const noexcept { return m_statements; }
     [[nodiscard]] std::vector<StmtPtr>& getStatements() noexcept { return m_statements; }
+    [[nodiscard]] bool isUnsafe() const noexcept { return m_isUnsafe; }
+    void setUnsafe(bool unsafe) noexcept { m_isUnsafe = unsafe; }
 
     void accept(ASTVisitor& visitor) const override;
 
 private:
     std::vector<StmtPtr> m_statements;
+    bool m_isUnsafe{false};
 };
 
 class ExprStmt : public StatementNode {

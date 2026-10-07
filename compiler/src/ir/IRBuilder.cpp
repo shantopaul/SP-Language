@@ -355,6 +355,7 @@ IRTypePtr IRBuilder::mapType(const sema::Type* type) const {
         case sema::TypeKind::Class:
         case sema::TypeKind::Interface:
         case sema::TypeKind::Struct:
+        case sema::TypeKind::Pointer:
             return IRType::getPointer();
         case sema::TypeKind::Nullable: {
             const auto* nullT = static_cast<const sema::NullableType*>(type);
@@ -377,6 +378,7 @@ IRTypePtr IRBuilder::mapType(const std::string& typeName) const {
     if (typeName == "float") return IRType::getFloat();
     if (typeName == "double") return IRType::getDouble();
     if (typeName == "string") return IRType::getPointer(IRType::getInt8());
+    if (typeName == "ptr" || typeName.rfind("ptr<", 0) == 0) return IRType::getPointer();
 
     if (typeName == "Result" || typeName.rfind("Result<", 0) == 0) {
         return IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
@@ -1858,6 +1860,24 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
         auto semaObjType = m_sema.getNodeType(&idx->getObject());
         bool isMapType = semaObjType && (semaObjType->isMap() || (semaObjType->isClass() && semaObjType->toString().rfind("Map", 0) == 0));
         bool isListType = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("List", 0) == 0;
+        bool isPtrType = semaObjType && semaObjType->isPointer();
+
+        if (isPtrType) {
+            auto semaPointee = static_cast<const sema::PointerType&>(*semaObjType).getPointeeType();
+            IRTypePtr elemType = semaPointee ? mapType(semaPointee.get()) : IRType::getInt64();
+            std::string gepName = m_currentFunction->nextTempName("ptr_gep");
+            auto gep = std::make_shared<GetElementPtrInst>(
+                elemType, objVal,
+                std::vector<IRValuePtr>{idxVal},
+                gepName
+            );
+            m_currentBlock->addInstruction(gep);
+            rhsVal = emitCastIfNeeded(rhsVal, elemType);
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, gep));
+            m_lastExprValue = rhsVal;
+            m_lastExprType = elemType;
+            return;
+        }
 
         if (isMapType) {
             if (idxVal->getType()->isPointer()) {
@@ -1955,6 +1975,13 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
                     targetPtr = gep;
                 }
             }
+        }
+    } else if (const auto* un = dynamic_cast<const ast::UnaryExpr*>(&node.getTarget())) {
+        if (un->getOp() == lexer::TokenType::Star) {
+            un->getOperand().accept(*this);
+            targetPtr = m_lastExprValue;
+            auto semaType = m_sema.getNodeType(&node.getTarget());
+            valType = semaType ? mapType(semaType.get()) : IRType::getInt64();
         }
     }
 
@@ -2239,6 +2266,63 @@ void IRBuilder::visit(const ast::UnaryExpr& node) {
                 return;
             }
         }
+    }
+
+    // Raw pointer dereference *ptr
+    if (node.getOp() == lexer::TokenType::Star) {
+        node.getOperand().accept(*this);
+        IRValuePtr ptrVal = m_lastExprValue;
+        auto semaType = m_sema.getNodeType(&node);
+        IRTypePtr targetType = semaType ? mapType(semaType.get()) : IRType::getInt64();
+        std::string derefName = m_currentFunction->nextTempName("deref");
+        auto loadInst = std::make_shared<LoadInst>(targetType, ptrVal, derefName);
+        m_currentBlock->addInstruction(loadInst);
+        m_lastExprValue = loadInst;
+        m_lastExprType = targetType;
+        return;
+    }
+
+    // Address-of &var
+    if (node.getOp() == lexer::TokenType::Amp) {
+        if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getOperand())) {
+            auto [allocaPtr, valType] = lookupVariable(ident->getName());
+            if (allocaPtr) {
+                m_lastExprValue = allocaPtr;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+        }
+        if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&node.getOperand())) {
+            mem->getObject().accept(*this);
+            IRValuePtr objVal = m_lastExprValue;
+            auto objSemaType = m_sema.getNodeType(&mem->getObject());
+            std::string className = objSemaType ? objSemaType->toString() : "";
+            int fieldIdx = m_vtableBuilder ? m_vtableBuilder->getFieldIndex(className, mem->getMember()) : -1;
+            if (fieldIdx >= 0) {
+                const auto* layout = m_vtableBuilder->getClassLayout(className);
+                IRTypePtr structType = layout ? layout->structType : IRType::getPointer();
+                std::string gepName = m_currentFunction->nextTempName("addr_gep");
+                auto gep = std::make_shared<GetElementPtrInst>(
+                    structType, objVal,
+                    std::vector<IRValuePtr>{
+                        std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                        std::make_shared<ConstantInt>(IRType::getInt32(), fieldIdx)
+                    },
+                    gepName
+                );
+                m_currentBlock->addInstruction(gep);
+                m_lastExprValue = gep;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+        }
+        node.getOperand().accept(*this);
+        auto temp = std::make_shared<AllocaInst>(m_lastExprType, m_currentFunction->nextTempName("addr_tmp"));
+        m_currentFunction->getEntryBlock()->addInstruction(temp);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(m_lastExprValue, temp));
+        m_lastExprValue = temp;
+        m_lastExprType = IRType::getPointer();
+        return;
     }
 
     node.getOperand().accept(*this);
@@ -5102,6 +5186,24 @@ void IRBuilder::visit(const ast::IndexExpr& node) {
 
     bool isMapType = semaObjType && (semaObjType->isMap() || (semaObjType->isClass() && semaObjType->toString().rfind("Map", 0) == 0));
     bool isListType = semaObjType && semaObjType->isClass() && semaObjType->toString().rfind("List", 0) == 0;
+    bool isPtrType = semaObjType && semaObjType->isPointer();
+
+    if (isPtrType) {
+        auto semaPointee = static_cast<const sema::PointerType&>(*semaObjType).getPointeeType();
+        IRTypePtr elemType = semaPointee ? mapType(semaPointee.get()) : IRType::getInt64();
+        std::string gepName = m_currentFunction->nextTempName("ptr_gep");
+        auto gep = std::make_shared<GetElementPtrInst>(
+            elemType, objVal,
+            std::vector<IRValuePtr>{idxVal},
+            gepName
+        );
+        m_currentBlock->addInstruction(gep);
+        auto loadInst = std::make_shared<LoadInst>(elemType, gep, m_currentFunction->nextTempName("ptr_elem"));
+        m_currentBlock->addInstruction(loadInst);
+        m_lastExprValue = loadInst;
+        m_lastExprType = elemType;
+        return;
+    }
 
     if (isMapType) {
         if (idxVal->getType()->isPointer()) {

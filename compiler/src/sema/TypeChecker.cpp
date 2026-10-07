@@ -272,6 +272,27 @@ void TypeChecker::visit(const ast::UnaryExpr& node) {
             }
             m_currentExprType = operandType;
             break;
+        case lexer::TokenType::Star: // Pointer dereference *ptr
+            if (!m_inUnsafeContext) {
+                m_diagnostics.reportError("E1001", "Raw pointer dereference requires 'unsafe' block or function", node.getLocation());
+            }
+            if (operandType->isPointer()) {
+                const auto& ptrT = static_cast<const PointerType&>(*operandType);
+                m_currentExprType = ptrT.getPointeeType() ? ptrT.getPointeeType() : m_typeCtx.getAny();
+            } else if (operandType->isAny() || operandType->isUnknown()) {
+                m_currentExprType = m_typeCtx.getAny();
+            } else {
+                m_diagnostics.reportError("E1001", "Cannot dereference non-pointer type '" + operandType->toString() + "'", node.getLocation());
+                m_currentExprType = m_typeCtx.getError();
+                return;
+            }
+            break;
+        case lexer::TokenType::Amp: // Address-of &var
+            if (!m_inUnsafeContext) {
+                m_diagnostics.reportError("E1001", "Taking address of variable requires 'unsafe' block or function", node.getLocation());
+            }
+            m_currentExprType = m_typeCtx.getPointerType(operandType);
+            break;
         default:
             m_currentExprType = operandType;
             break;
@@ -935,6 +956,18 @@ void TypeChecker::visit(const ast::IndexExpr& node) {
     auto objType = checkExpr(node.getObject());
     auto indexType = checkExpr(node.getIndex());
 
+    if (objType->isPointer()) {
+        if (!m_inUnsafeContext) {
+            m_diagnostics.reportError("E1001", "Raw pointer indexing requires 'unsafe' block or function", node.getLocation());
+        }
+        if (!indexType->isInteger()) {
+            m_diagnostics.reportError("E1001", "Pointer offset must be an integer, got '" + indexType->toString() + "'", node.getLocation());
+        }
+        const auto& ptrT = static_cast<const PointerType&>(*objType);
+        m_currentExprType = ptrT.getPointeeType() ? ptrT.getPointeeType() : m_typeCtx.getAny();
+        return;
+    }
+
     if (objType->isArray()) {
         if (!indexType->isInteger()) {
             m_diagnostics.reportError("E1001", "Array index must be an integer, got '" + indexType->toString() + "'", node.getLocation());
@@ -1284,11 +1317,16 @@ void TypeChecker::visit(const ast::TryExpr& node) {
 
 // Statements
 void TypeChecker::visit(const ast::BlockStmt& node) {
+    bool prevUnsafe = m_inUnsafeContext;
+    if (node.isUnsafe()) {
+        m_inUnsafeContext = true;
+    }
     m_symbolTable.enterScope(ScopeKind::Block);
     for (const auto& stmtPtr : node.getStatements()) {
         if (stmtPtr) checkStmt(*stmtPtr);
     }
     m_symbolTable.exitScope();
+    m_inUnsafeContext = prevUnsafe;
 }
 
 void TypeChecker::visit(const ast::ExprStmt& node) {
@@ -1614,6 +1652,11 @@ bool TypeChecker::hasGuaranteedReturn(const ast::StatementNode& stmt) {
 }
 
 void TypeChecker::visit(const ast::FunctionDecl& node) {
+    bool prevUnsafe = m_inUnsafeContext;
+    if (node.isUnsafe()) {
+        m_inUnsafeContext = true;
+    }
+
     TypePtr returnType = m_typeCtx.getVoid();
     if (!node.getReturnType().empty()) {
         auto r = m_typeCtx.resolveType(node.getReturnType());
@@ -1704,6 +1747,7 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
 
     m_symbolTable.exitScope();
     m_currentFunctionReturnType = prevReturnType;
+    m_inUnsafeContext = prevUnsafe;
 }
 
 void TypeChecker::verifyInterfaceImplementations(const ast::ClassDecl& decl, const std::shared_ptr<ClassType>& clsType) {

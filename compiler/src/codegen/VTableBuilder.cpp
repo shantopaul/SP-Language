@@ -16,6 +16,7 @@ ir::IRTypePtr VTableBuilder::mapType(const std::string& typeName) const {
     if (typeName == "float") return ir::IRType::getFloat();
     if (typeName == "double") return ir::IRType::getDouble();
     if (typeName == "string") return ir::IRType::getPointer(ir::IRType::getInt8());
+    if (typeName == "ptr" || typeName.rfind("ptr<", 0) == 0) return ir::IRType::getPointer();
 
     if (typeName == "Result" || typeName.rfind("Result<", 0) == 0) {
         return ir::IRType::getStruct("struct.Result", {ir::IRType::getInt32(), ir::IRType::getInt64()});
@@ -287,6 +288,7 @@ void VTableBuilder::buildStructLayout(const ast::StructDecl& structDecl, ir::IRM
     ClassLayout layout;
     layout.name = structName;
     layout.hasVTable = false;
+    layout.isReprC = structDecl.isReprC();
 
     std::vector<ir::IRTypePtr> elementTypes;
     uint32_t currentFieldIndex = 0;

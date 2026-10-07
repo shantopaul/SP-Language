@@ -31,6 +31,7 @@ struct ClassLayout {
     std::string name;
     std::string baseClass;
     bool hasVTable = true;
+    bool isReprC = false;
     uint32_t objectSize = 0; // Size in bytes
     ir::IRStructTypePtr structType;
     std::vector<FieldLayoutInfo> fields;

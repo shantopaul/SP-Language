@@ -389,9 +389,10 @@ ast::ExprPtr Parser::parsePrefix() {
         return parseNewExpr();
     }
 
-    // Prefix unary operators (!, -, +, ~, ++, --)
+    // Prefix unary operators (!, -, +, ~, ++, --, *, &)
     if (matchAny({lexer::TokenType::Bang, lexer::TokenType::Minus, lexer::TokenType::Plus,
-                  lexer::TokenType::Tilde, lexer::TokenType::PlusPlus, lexer::TokenType::MinusMinus})) {
+                  lexer::TokenType::Tilde, lexer::TokenType::PlusPlus, lexer::TokenType::MinusMinus,
+                  lexer::TokenType::Star, lexer::TokenType::Amp})) {
         lexer::TokenType op = previous().type;
         diagnostics::SourceLocation loc = previous().location;
         ast::ExprPtr operand = parseExpression(Precedence::Unary);
@@ -752,9 +753,17 @@ ast::StmtPtr Parser::parseStatement() {
         auto ed = parseEnumDecl("");
         return std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(ed.release()));
     }
+    if (match(lexer::TokenType::KeywordUnsafe)) {
+        if (check(lexer::TokenType::OpenBrace)) {
+            auto block = parseBlock();
+            if (block) block->setUnsafe(true);
+            return block;
+        }
+    }
 
     // Check for variable declaration with explicit or user-defined type: int x = 10; or Person p = ...;
     bool couldBeTypeDecl = isTypeKeyword(peek().type) ||
+                           check(lexer::TokenType::Star) ||
                            (check(lexer::TokenType::Identifier) &&
                             (checkNext(lexer::TokenType::Identifier) ||
                              checkNext(lexer::TokenType::Less) ||
@@ -1057,11 +1066,27 @@ ast::StmtPtr Parser::parseExprStatement() {
 }
 
 ast::ASTNodePtr Parser::parseDeclaration() {
+    bool isReprC = false;
+    if (match(lexer::TokenType::Hash)) {
+        consume(lexer::TokenType::OpenBracket, "Expected '[' after '#'");
+        const lexer::Token& attrName = consume(lexer::TokenType::Identifier, "Expected attribute name");
+        if (attrName.lexeme == "repr") {
+            consume(lexer::TokenType::OpenParen, "Expected '(' after 'repr'");
+            const lexer::Token& reprArg = consume(lexer::TokenType::Identifier, "Expected repr argument (e.g. C)");
+            if (reprArg.lexeme == "C") {
+                isReprC = true;
+            }
+            consume(lexer::TokenType::CloseParen, "Expected ')' after repr argument");
+        }
+        consume(lexer::TokenType::CloseBracket, "Expected ']' after attribute");
+    }
+
     std::string visibility;
     bool isStatic = false;
     bool isOverride = false;
     bool isAbstract = false;
     bool isWeak = false;
+    bool isUnsafe = false;
 
     // Modifiers
     while (true) {
@@ -1073,15 +1098,22 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         if (match(lexer::TokenType::KeywordOverride)) { isOverride = true; continue; }
         if (match(lexer::TokenType::KeywordAbstract)) { isAbstract = true; continue; }
         if (match(lexer::TokenType::KeywordWeak)) { isWeak = true; continue; }
+        if (match(lexer::TokenType::KeywordUnsafe)) { isUnsafe = true; continue; }
         break;
+    }
+
+    if (isUnsafe && check(lexer::TokenType::OpenBrace)) {
+        auto block = parseBlock();
+        if (block) block->setUnsafe(true);
+        return block;
     }
 
     if (match(lexer::TokenType::KeywordModule)) return parseModuleDecl();
     if (match(lexer::TokenType::KeywordImport)) return parseImportDecl();
-    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract);
+    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract, isUnsafe);
     if (match(lexer::TokenType::KeywordClass)) return parseClassDecl(visibility, isAbstract);
     if (match(lexer::TokenType::KeywordInterface)) return parseInterfaceDecl(visibility);
-    if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility);
+    if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility, isReprC);
     if (match(lexer::TokenType::KeywordEnum)) return parseEnumDecl(visibility);
     if (match(lexer::TokenType::KeywordTest)) return parseTestDecl();
 
@@ -1236,7 +1268,7 @@ ast::ASTNodePtr Parser::parseImportDecl() {
     return std::make_unique<ast::ImportDecl>(importPath, isWildcard, loc);
 }
 
-ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract) {
+ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract, bool isUnsafe) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
         ? advance()
@@ -1274,10 +1306,12 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
         errorAt(peek(), "Expected '{' or '=>' for function body");
     }
 
-    return std::make_unique<ast::FunctionDecl>(
+    auto fnDecl = std::make_unique<ast::FunctionDecl>(
         name, std::move(typeParams), std::move(params), returnType,
         std::move(body), std::move(shortBody),
         visibility, isStatic, isOverride, isAbstract, false, loc);
+    fnDecl->setUnsafe(isUnsafe);
+    return fnDecl;
 }
 
 ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) {
@@ -1379,7 +1413,7 @@ ast::ASTNodePtr Parser::parseInterfaceDecl(std::string visibility) {
     return std::make_unique<ast::InterfaceDecl>(name, std::move(methods), visibility, loc);
 }
 
-ast::ASTNodePtr Parser::parseStructDecl(std::string visibility) {
+ast::ASTNodePtr Parser::parseStructDecl(std::string visibility, bool isReprC) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected struct name");
     std::string name = nameTok.lexeme;
@@ -1409,7 +1443,7 @@ ast::ASTNodePtr Parser::parseStructDecl(std::string visibility) {
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of struct body");
-    return std::make_unique<ast::StructDecl>(name, std::move(fields), visibility, loc);
+    return std::make_unique<ast::StructDecl>(name, std::move(fields), visibility, isReprC, loc);
 }
 
 ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
@@ -1513,6 +1547,10 @@ ast::ASTNodePtr Parser::parseTestDecl() {
 }
 
 std::string Parser::parseType() {
+    if (match(lexer::TokenType::Star)) {
+        return "ptr<" + parseType() + ">";
+    }
+
     std::string type;
     if (isTypeKeyword(peek().type)) {
         type = advance().lexeme;

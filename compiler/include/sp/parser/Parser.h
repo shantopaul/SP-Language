@@ -89,10 +89,10 @@ private:
     // Declarations & Compatibility
     ast::ASTNodePtr parseModuleDecl();
     ast::ASTNodePtr parseImportDecl();
-    ast::ASTNodePtr parseFunctionDecl(std::string visibility = "", bool isStatic = false, bool isOverride = false, bool isAbstract = false);
+    ast::ASTNodePtr parseFunctionDecl(std::string visibility = "", bool isStatic = false, bool isOverride = false, bool isAbstract = false, bool isUnsafe = false);
     ast::ASTNodePtr parseClassDecl(std::string visibility = "", bool isAbstract = false);
     ast::ASTNodePtr parseInterfaceDecl(std::string visibility = "");
-    ast::ASTNodePtr parseStructDecl(std::string visibility = "");
+    ast::ASTNodePtr parseStructDecl(std::string visibility = "", bool isReprC = false);
     ast::ASTNodePtr parseEnumDecl(std::string visibility = "");
     ast::ASTNodePtr parseTestDecl();
 

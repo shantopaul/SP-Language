@@ -2285,3 +2285,44 @@ TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
     EXPECT_NE(output.find("opt1.unwrap: 20"), std::string::npos);
     EXPECT_NE(output.find("opt2.isNone: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, RawPointersAndUnsafeBlocksNativeExecution) {
+    const std::string source = R"sp(
+        #[repr(C)]
+        struct Point {
+            x: int;
+            y: int;
+        }
+
+        unsafe fn addThroughPointer(p: ptr<int>, val: int) {
+            *p = *p + val;
+        }
+
+        fn main() {
+            var num: int = 50;
+
+            unsafe {
+                var pNum: ptr<int> = &num;
+                println("initial *pNum: ${*pNum}");
+
+                *pNum = 100;
+                println("after *pNum=100: ${num}");
+
+                addThroughPointer(pNum, 25);
+                println("after addThroughPointer: ${num}");
+
+                pNum[0] = 200;
+                println("after pNum[0]=200: ${pNum[0]}");
+            }
+
+            println("final num: ${num}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_raw_pointers");
+    EXPECT_NE(output.find("initial *pNum: 50"), std::string::npos);
+    EXPECT_NE(output.find("after *pNum=100: 100"), std::string::npos);
+    EXPECT_NE(output.find("after addThroughPointer: 125"), std::string::npos);
+    EXPECT_NE(output.find("after pNum[0]=200: 200"), std::string::npos);
+    EXPECT_NE(output.find("final num: 200"), std::string::npos);
+}

@@ -91,6 +91,7 @@ private:
     std::shared_ptr<ClassType> m_currentEnclosingClass{nullptr};
     int m_loopDepth{0};
     int m_switchDepth{0};
+    bool m_inUnsafeContext{false};
 
     std::unordered_map<const ast::ExpressionNode*, TypePtr> m_nodeTypes;
 };

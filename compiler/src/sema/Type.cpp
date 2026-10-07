@@ -129,6 +129,9 @@ bool Type::isAssignableTo(const Type& target) const {
         return isAssignableTo(*nullableTarget.getUnderlyingType());
     }
 
+    // Target is Pointer
+    if (m_kind == TypeKind::Null && target.getKind() == TypeKind::Pointer) return true;
+
     return false;
 }
 
@@ -220,6 +223,29 @@ bool FunctionType::equals(const Type& other) const {
 
 bool FunctionType::isAssignableTo(const Type& target) const {
     return equals(target) || Type::isAssignableTo(target);
+}
+
+// PointerType
+std::string PointerType::toString() const {
+    return "ptr<" + (m_pointeeType ? m_pointeeType->toString() : "void") + ">";
+}
+
+bool PointerType::equals(const Type& other) const {
+    if (other.getKind() != TypeKind::Pointer) return false;
+    const auto& otherPtr = static_cast<const PointerType&>(other);
+    if (!m_pointeeType || !otherPtr.m_pointeeType) return true;
+    return m_pointeeType->equals(*otherPtr.m_pointeeType);
+}
+
+bool PointerType::isAssignableTo(const Type& target) const {
+    if (target.isAny()) return true;
+    if (target.getKind() != TypeKind::Pointer) return false;
+    const auto& otherPtr = static_cast<const PointerType&>(target);
+    if (!m_pointeeType || m_pointeeType->isVoid() ||
+        !otherPtr.m_pointeeType || otherPtr.m_pointeeType->isVoid()) {
+        return true;
+    }
+    return m_pointeeType->isAssignableTo(*otherPtr.m_pointeeType);
 }
 
 // ClassType
@@ -583,6 +609,18 @@ TypePtr TypeContext::getNullableType(TypePtr underlyingType) {
     return nullable;
 }
 
+TypePtr TypeContext::getPointerType(TypePtr pointeeType) {
+    if (!pointeeType) pointeeType = m_voidType;
+    std::string key = "ptr<" + pointeeType->toString() + ">";
+    auto it = m_cachedTypes.find(key);
+    if (it != m_cachedTypes.end()) {
+        return it->second;
+    }
+    auto ptrType = std::make_shared<PointerType>(std::move(pointeeType));
+    m_cachedTypes[key] = ptrType;
+    return ptrType;
+}
+
 std::shared_ptr<FunctionType> TypeContext::getFunctionType(std::vector<TypePtr> paramTypes, TypePtr returnType) {
     if (!returnType) returnType = m_voidType;
     return std::make_shared<FunctionType>(std::move(paramTypes), std::move(returnType));
@@ -825,6 +863,21 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
     std::string s = rawTypeStr.substr(first, (last - first + 1));
 
     if (s.empty()) return m_unknownType;
+
+    // Check raw pointer types: ptr, ptr<T>, *T
+    if (s == "ptr") {
+        return getPointerType(m_voidType);
+    }
+    if (s.rfind("ptr<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        auto elem = resolveType(inner);
+        return getPointerType(elem);
+    }
+    if (s.front() == '*' && s.size() > 1) {
+        auto elem = resolveType(s.substr(1));
+        return getPointerType(elem);
+    }
 
     // Check nullable suffix '?'
     if (s.back() == '?') {

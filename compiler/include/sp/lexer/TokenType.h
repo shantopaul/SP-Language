@@ -87,6 +87,7 @@ enum class TokenType {
     Comment,
     DocComment,
     At,             // @
+    Hash,           // #
 
     // Primitive Type Keywords
     KeywordVoid,

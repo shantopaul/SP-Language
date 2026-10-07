@@ -85,6 +85,8 @@ public:
     [[nodiscard]] bool isOverride() const noexcept { return m_isOverride; }
     [[nodiscard]] bool isAbstract() const noexcept { return m_isAbstract; }
     [[nodiscard]] bool isAsync() const noexcept { return m_isAsync; }
+    [[nodiscard]] bool isUnsafe() const noexcept { return m_isUnsafe; }
+    void setUnsafe(bool unsafe) noexcept { m_isUnsafe = unsafe; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -100,6 +102,7 @@ private:
     bool m_isOverride;
     bool m_isAbstract;
     bool m_isAsync;
+    bool m_isUnsafe{false};
 };
 
 class ClassDecl : public StatementNode {
@@ -183,16 +186,31 @@ public:
     StructDecl(std::string name,
                std::vector<std::unique_ptr<VarDeclStmt>> fields,
                std::string visibility,
+               diagnostics::SourceLocation loc,
+               bool isReprC = false)
+        : StatementNode(ASTNodeKind::StructDecl, std::move(loc)),
+          m_name(std::move(name)),
+          m_fields(std::move(fields)),
+          m_visibility(std::move(visibility)),
+          m_isReprC(isReprC) {}
+
+    StructDecl(std::string name,
+               std::vector<std::unique_ptr<VarDeclStmt>> fields,
+               std::string visibility,
+               bool isReprC,
                diagnostics::SourceLocation loc)
         : StatementNode(ASTNodeKind::StructDecl, std::move(loc)),
           m_name(std::move(name)),
           m_fields(std::move(fields)),
-          m_visibility(std::move(visibility)) {}
+          m_visibility(std::move(visibility)),
+          m_isReprC(isReprC) {}
 
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
     [[nodiscard]] const std::vector<std::unique_ptr<VarDeclStmt>>& getFields() const noexcept { return m_fields; }
     [[nodiscard]] std::vector<std::unique_ptr<VarDeclStmt>>& getFields() noexcept { return m_fields; }
     [[nodiscard]] const std::string& getVisibility() const noexcept { return m_visibility; }
+    [[nodiscard]] bool isReprC() const noexcept { return m_isReprC; }
+    void setReprC(bool reprC) noexcept { m_isReprC = reprC; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -200,6 +218,7 @@ private:
     std::string m_name;
     std::vector<std::unique_ptr<VarDeclStmt>> m_fields;
     std::string m_visibility;
+    bool m_isReprC{false};
 };
 
 class EnumVariant {

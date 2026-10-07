@@ -499,4 +499,63 @@ TEST(ParserTest, TryOperatorExpression) {
     EXPECT_EQ(tern3->getElseExpr().getKind(), ast::ASTNodeKind::IdentifierExpr);
 }
 
+TEST(ParserTest, ReprCStructDeclaration) {
+    const std::string src = R"sp(
+        #[repr(C)]
+        struct Point {
+            x: int32;
+            y: int32;
+        }
+
+        struct RegularStruct {
+            val: int64;
+        }
+    )sp";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 2);
+
+    auto* pt = dynamic_cast<ast::StructDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(pt, nullptr);
+    EXPECT_EQ(pt->getName(), "Point");
+    EXPECT_TRUE(pt->isReprC());
+    EXPECT_EQ(pt->getFields().size(), 2);
+
+    auto* reg = dynamic_cast<ast::StructDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(reg, nullptr);
+    EXPECT_EQ(reg->getName(), "RegularStruct");
+    EXPECT_FALSE(reg->isReprC());
+}
+
+TEST(ParserTest, UnsafeBlocksAndRawPointers) {
+    const std::string src = R"sp(
+        unsafe fn mutatePtr(p: ptr<int32>) {
+            *p = 42;
+        }
+
+        fn main() {
+            var x: int32 = 10;
+            unsafe {
+                var p: ptr<int32> = &x;
+                p[0] = 99;
+            }
+        }
+    )sp";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 2);
+
+    auto* fnDecl = dynamic_cast<ast::FunctionDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(fnDecl, nullptr);
+    EXPECT_EQ(fnDecl->getName(), "mutatePtr");
+    EXPECT_TRUE(fnDecl->isUnsafe());
+    EXPECT_EQ(fnDecl->getParams()[0].getType(), "ptr<int32>");
+
+    auto* mainDecl = dynamic_cast<ast::FunctionDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(mainDecl, nullptr);
+    EXPECT_FALSE(mainDecl->isUnsafe());
+}
+
 } // namespace sp::parser::test
