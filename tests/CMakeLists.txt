@@ -44,6 +44,7 @@ add_executable(sp_tests
     codegen/ClassGeneratorTest.cpp
     codegen/ObjectEmitterTest.cpp
     codegen/LinkerDriverTest.cpp
+    codegen/DebugInfoGeneratorTest.cpp
     runtime/RuntimeTest.cpp
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp

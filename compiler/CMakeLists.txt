@@ -22,6 +22,7 @@ add_library(sp_compiler
     src/codegen/LLVMGenerator.cpp
     src/codegen/ObjectEmitter.cpp
     src/codegen/LinkerDriver.cpp
+    src/codegen/DebugInfoGenerator.cpp
 )
 
 target_include_directories(sp_compiler
