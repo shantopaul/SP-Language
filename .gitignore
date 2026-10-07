@@ -86,3 +86,5 @@ next-env.d.ts
 
 # Distribution artifacts
 dist/
+*.vsix
+editors/vscode/out/
