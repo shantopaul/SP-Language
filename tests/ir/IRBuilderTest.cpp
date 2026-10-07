@@ -140,3 +140,48 @@ TEST(IRBuilderTest, FibonacciRecursiveFunction) {
     EXPECT_NE(irStr.find("call i32 @fib("), std::string::npos);
     EXPECT_NE(irStr.find("call void @sp_rt_println_int("), std::string::npos);
 }
+
+TEST(IRBuilderTest, ARCObjectAllocationAndScopeDropEmission) {
+    const std::string source = R"(
+        class Connection {
+            int port;
+        }
+
+        fn runSession() {
+            var conn = new Connection();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("sp_rt_arc_alloc"), std::string::npos);
+    EXPECT_NE(irStr.find("sp_rt_release"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ARCClassAssignmentEmitsRetainAndRelease) {
+    const std::string source = R"(
+        class Resource {
+            int id;
+        }
+
+        fn transfer() {
+            var r1 = new Resource();
+            var r2 = new Resource();
+            r2 = r1;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("sp_rt_arc_alloc"), std::string::npos);
+    EXPECT_NE(irStr.find("sp_rt_retain"), std::string::npos);
+    EXPECT_NE(irStr.find("sp_rt_release"), std::string::npos);
+}
