@@ -1330,19 +1330,38 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected enum name");
     std::string name = nameTok.lexeme;
 
+    std::vector<std::string> typeParams;
+    if (match(lexer::TokenType::Less)) {
+        do {
+            const lexer::Token& paramTok = consume(lexer::TokenType::Identifier, "Expected type parameter name");
+            typeParams.push_back(paramTok.lexeme);
+        } while (match(lexer::TokenType::Comma));
+        consume(lexer::TokenType::Greater, "Expected '>' after generic type parameters");
+    }
+
     consume(lexer::TokenType::OpenBrace, "Expected '{' to start enum body");
 
     std::vector<ast::EnumVariant> variants;
 
     while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
         const lexer::Token& varTok = consume(lexer::TokenType::Identifier, "Expected enum variant identifier");
-        ast::ExprPtr val = nullptr;
+        std::vector<std::string> payloadTypes;
 
+        if (match(lexer::TokenType::OpenParen)) {
+            if (!check(lexer::TokenType::CloseParen)) {
+                do {
+                    payloadTypes.push_back(parseType());
+                } while (match(lexer::TokenType::Comma));
+            }
+            consume(lexer::TokenType::CloseParen, "Expected ')' after enum variant payload types");
+        }
+
+        ast::ExprPtr val = nullptr;
         if (match(lexer::TokenType::Equal)) {
             val = parseExpression();
         }
 
-        variants.emplace_back(varTok.lexeme, std::move(val));
+        variants.emplace_back(varTok.lexeme, std::move(val), std::move(payloadTypes));
 
         if (!match(lexer::TokenType::Comma)) {
             break;
@@ -1350,7 +1369,7 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of enum body");
-    return std::make_unique<ast::EnumDecl>(name, std::move(variants), visibility, loc);
+    return std::make_unique<ast::EnumDecl>(name, std::move(typeParams), std::move(variants), visibility, loc);
 }
 
 ast::ASTNodePtr Parser::parseTestDecl() {

@@ -8,6 +8,7 @@
 
 namespace sp::ast {
 class ClassDecl;
+class EnumDecl;
 }
 
 namespace sp::sema {
@@ -301,10 +302,17 @@ public:
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
     [[nodiscard]] std::string toString() const override { return m_name; }
 
-    void addVariant(std::string name, std::optional<int64_t> value = std::nullopt) {
-        m_variants.push_back(std::move(name));
+    void addVariant(std::string name, std::optional<int64_t> value = std::nullopt,
+                    std::vector<std::string> payloadTypeNames = {},
+                    std::vector<TypePtr> payloadTypes = {}) {
+        m_variants.push_back(name);
         if (value.has_value()) {
-            m_values[m_variants.back()] = value.value();
+            m_values[name] = value.value();
+        }
+        if (!payloadTypeNames.empty()) {
+            m_variantPayloadNames[name] = std::move(payloadTypeNames);
+            m_variantPayloadTypes[name] = std::move(payloadTypes);
+            m_isTaggedUnion = true;
         }
     }
 
@@ -328,13 +336,51 @@ public:
 
     [[nodiscard]] const std::vector<std::string>& getVariants() const noexcept { return m_variants; }
 
+    [[nodiscard]] bool isTaggedUnion() const noexcept { return m_isTaggedUnion; }
+    void setTaggedUnion(bool val) noexcept { m_isTaggedUnion = val; }
+
+    [[nodiscard]] bool hasPayload(const std::string& name) const noexcept {
+        auto it = m_variantPayloadTypes.find(name);
+        return it != m_variantPayloadTypes.end() && !it->second.empty();
+    }
+
+    [[nodiscard]] const std::vector<TypePtr>& getVariantPayload(const std::string& name) const {
+        static const std::vector<TypePtr> emptyTypes;
+        auto it = m_variantPayloadTypes.find(name);
+        if (it != m_variantPayloadTypes.end()) {
+            return it->second;
+        }
+        return emptyTypes;
+    }
+
+    [[nodiscard]] const std::vector<std::string>& getVariantPayloadNames(const std::string& name) const {
+        static const std::vector<std::string> emptyNames;
+        auto it = m_variantPayloadNames.find(name);
+        if (it != m_variantPayloadNames.end()) {
+            return it->second;
+        }
+        return emptyNames;
+    }
+
+    void setTypeParams(std::vector<std::string> params) { m_typeParams = std::move(params); }
+    [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
+    [[nodiscard]] bool isGeneric() const noexcept { return !m_typeParams.empty(); }
+
+    void setASTDecl(const ast::EnumDecl* decl) noexcept { m_astDecl = decl; }
+    [[nodiscard]] const ast::EnumDecl* getASTDecl() const noexcept { return m_astDecl; }
+
     [[nodiscard]] bool equals(const Type& other) const override;
     [[nodiscard]] bool isAssignableTo(const Type& target) const override;
 
 private:
     std::string m_name;
+    std::vector<std::string> m_typeParams;
+    const ast::EnumDecl* m_astDecl{nullptr};
     std::vector<std::string> m_variants;
     std::unordered_map<std::string, int64_t> m_values;
+    std::unordered_map<std::string, std::vector<std::string>> m_variantPayloadNames;
+    std::unordered_map<std::string, std::vector<TypePtr>> m_variantPayloadTypes;
+    bool m_isTaggedUnion{false};
 };
 
 // Central Type Context caching singleton primitives and factories
@@ -386,6 +432,7 @@ public:
 
     // Generic specialization
     std::shared_ptr<ClassType> specializeClassType(const std::shared_ptr<ClassType>& baseCls, const std::vector<std::string>& typeArgs);
+    std::shared_ptr<EnumType> specializeEnumType(const std::shared_ptr<EnumType>& baseEnum, const std::vector<std::string>& typeArgs);
     static std::vector<std::string> splitTypeArgs(const std::string& inner);
     static std::string substituteType(const std::string& typeStr, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs);
 

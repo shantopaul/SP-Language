@@ -423,6 +423,27 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
+        // Check global helper calls: Ok(val), Err(err), Some(val), None()
+        if (fnName == "Ok" && argTypes.size() == 1) {
+            std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+            m_currentExprType = m_typeCtx.resolveType("Result<" + tName + ", any>");
+            return;
+        }
+        if (fnName == "Err" && argTypes.size() == 1) {
+            std::string eName = argTypes[0] ? argTypes[0]->toString() : "any";
+            m_currentExprType = m_typeCtx.resolveType("Result<any, " + eName + ">");
+            return;
+        }
+        if (fnName == "Some" && argTypes.size() == 1) {
+            std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+            m_currentExprType = m_typeCtx.resolveType("Option<" + tName + ">");
+            return;
+        }
+        if (fnName == "None" && argTypes.empty()) {
+            m_currentExprType = m_typeCtx.resolveType("Option<any>");
+            return;
+        }
+
         m_diagnostics.reportError("E1003", "Undefined function or callable symbol '" + fnName + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
         return;
@@ -605,6 +626,98 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
+        if (objType->isEnum()) {
+            auto enumType = std::static_pointer_cast<EnumType>(objType);
+            std::string enumName = enumType->getName();
+
+            // Variant constructors on enum type: Result.Ok(val), Result.Err(err)
+            if (enumName == "Result" || enumName.rfind("Result<", 0) == 0) {
+                if (methodName == "Ok" && argTypes.size() == 1) {
+                    std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+                    m_currentExprType = m_typeCtx.resolveType("Result<" + tName + ", any>");
+                    return;
+                }
+                if (methodName == "Err" && argTypes.size() == 1) {
+                    std::string eName = argTypes[0] ? argTypes[0]->toString() : "any";
+                    m_currentExprType = m_typeCtx.resolveType("Result<any, " + eName + ">");
+                    return;
+                }
+                if (methodName == "isOk" || methodName == "isErr") {
+                    m_currentExprType = m_typeCtx.getBool();
+                    return;
+                }
+                if (methodName == "unwrap") {
+                    if (enumName.rfind("Result<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 2) {
+                            auto tType = m_typeCtx.resolveType(args[0]);
+                            m_currentExprType = tType ? tType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+                if (methodName == "unwrapErr") {
+                    if (enumName.rfind("Result<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 2) {
+                            auto eType = m_typeCtx.resolveType(args[1]);
+                            m_currentExprType = eType ? eType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+                if (methodName == "unwrapOr") {
+                    if (enumName.rfind("Result<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 2) {
+                            auto tType = m_typeCtx.resolveType(args[0]);
+                            m_currentExprType = tType ? tType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+            }
+
+            if (enumName == "Option" || enumName.rfind("Option<", 0) == 0) {
+                if (methodName == "Some" && argTypes.size() == 1) {
+                    std::string tName = argTypes[0] ? argTypes[0]->toString() : "any";
+                    m_currentExprType = m_typeCtx.resolveType("Option<" + tName + ">");
+                    return;
+                }
+                if (methodName == "None" && argTypes.empty()) {
+                    m_currentExprType = m_typeCtx.resolveType("Option<any>");
+                    return;
+                }
+                if (methodName == "isSome" || methodName == "isNone") {
+                    m_currentExprType = m_typeCtx.getBool();
+                    return;
+                }
+                if (methodName == "unwrap" || methodName == "unwrapOr") {
+                    if (enumName.rfind("Option<", 0) == 0) {
+                        auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                        if (args.size() == 1) {
+                            auto tType = m_typeCtx.resolveType(args[0]);
+                            m_currentExprType = tType ? tType : m_typeCtx.getAny();
+                            return;
+                        }
+                    }
+                    m_currentExprType = m_typeCtx.getAny();
+                    return;
+                }
+            }
+
+            if (enumType->hasVariant(methodName)) {
+                m_currentExprType = enumType;
+                return;
+            }
+        }
+
         m_diagnostics.reportError("E1003", "Type '" + objType->toString() + "' has no method named '" + methodName + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
         return;
@@ -697,12 +810,84 @@ void TypeChecker::visit(const ast::MemberExpr& node) {
 
     if (objType->isEnum()) {
         auto enumType = std::static_pointer_cast<EnumType>(objType);
+        std::string enumName = enumType->getName();
+
+        if (member == "tag") {
+            m_currentExprType = m_typeCtx.getInt();
+            return;
+        }
+        if (member == "payload") {
+            m_currentExprType = m_typeCtx.getAny();
+            return;
+        }
+
+        if (enumName == "Result" || enumName.rfind("Result<", 0) == 0) {
+            if (member == "isOk" || member == "isErr") {
+                m_currentExprType = m_typeCtx.getFunctionType({}, m_typeCtx.getBool());
+                return;
+            }
+            if (member == "unwrap") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Result<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 2) tType = m_typeCtx.resolveType(args[0]);
+                }
+                m_currentExprType = m_typeCtx.getFunctionType({}, tType ? tType : m_typeCtx.getAny());
+                return;
+            }
+            if (member == "unwrapErr") {
+                TypePtr eType = m_typeCtx.getAny();
+                if (enumName.rfind("Result<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 2) eType = m_typeCtx.resolveType(args[1]);
+                }
+                m_currentExprType = m_typeCtx.getFunctionType({}, eType ? eType : m_typeCtx.getAny());
+                return;
+            }
+            if (member == "unwrapOr") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Result<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 2) tType = m_typeCtx.resolveType(args[0]);
+                }
+                TypePtr unwrapped = tType ? tType : m_typeCtx.getAny();
+                m_currentExprType = m_typeCtx.getFunctionType({unwrapped}, unwrapped);
+                return;
+            }
+        }
+
+        if (enumName == "Option" || enumName.rfind("Option<", 0) == 0) {
+            if (member == "isSome" || member == "isNone") {
+                m_currentExprType = m_typeCtx.getFunctionType({}, m_typeCtx.getBool());
+                return;
+            }
+            if (member == "unwrap") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Option<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 1) tType = m_typeCtx.resolveType(args[0]);
+                }
+                m_currentExprType = m_typeCtx.getFunctionType({}, tType ? tType : m_typeCtx.getAny());
+                return;
+            }
+            if (member == "unwrapOr") {
+                TypePtr tType = m_typeCtx.getAny();
+                if (enumName.rfind("Option<", 0) == 0) {
+                    auto args = TypeContext::splitTypeArgs(enumName.substr(7, enumName.size() - 8));
+                    if (args.size() == 1) tType = m_typeCtx.resolveType(args[0]);
+                }
+                TypePtr unwrapped = tType ? tType : m_typeCtx.getAny();
+                m_currentExprType = m_typeCtx.getFunctionType({unwrapped}, unwrapped);
+                return;
+            }
+        }
+
         if (enumType->hasVariant(member)) {
             m_currentExprType = enumType;
             return;
         }
 
-        m_diagnostics.reportError("E1002", "Enum '" + enumType->getName() + "' has no variant named '" + member + "'", node.getLocation());
+        m_diagnostics.reportError("E1002", "Enum '" + enumType->getName() + "' has no variant or member named '" + member + "'", node.getLocation());
         m_currentExprType = m_typeCtx.getError();
         return;
     }

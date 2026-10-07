@@ -346,7 +346,28 @@ bool EnumType::equals(const Type& other) const {
 
 bool EnumType::isAssignableTo(const Type& target) const {
     if (equals(target)) return true;
-    if (target.isInteger()) return true;
+    if (target.getKind() == TypeKind::Enum) {
+        const auto& otherEnum = static_cast<const EnumType&>(target);
+        // Result variance: Result<T, any> or Result<any, E> -> Result<T, E>
+        if (m_name.rfind("Result<", 0) == 0 && otherEnum.m_name.rfind("Result<", 0) == 0) {
+            auto thisArgs = TypeContext::splitTypeArgs(m_name.substr(7, m_name.size() - 8));
+            auto otherArgs = TypeContext::splitTypeArgs(otherEnum.m_name.substr(7, otherEnum.m_name.size() - 8));
+            if (thisArgs.size() == 2 && otherArgs.size() == 2) {
+                bool tMatch = (thisArgs[0] == "any" || thisArgs[0] == otherArgs[0]);
+                bool eMatch = (thisArgs[1] == "any" || thisArgs[1] == otherArgs[1]);
+                if (tMatch && eMatch) return true;
+            }
+        }
+        // Option variance: Option<any> -> Option<T>
+        if (m_name.rfind("Option<", 0) == 0 && otherEnum.m_name.rfind("Option<", 0) == 0) {
+            auto thisArgs = TypeContext::splitTypeArgs(m_name.substr(7, m_name.size() - 8));
+            auto otherArgs = TypeContext::splitTypeArgs(otherEnum.m_name.substr(7, otherEnum.m_name.size() - 8));
+            if (thisArgs.size() == 1 && otherArgs.size() == 1) {
+                if (thisArgs[0] == "any" || thisArgs[0] == otherArgs[0]) return true;
+            }
+        }
+    }
+    if (!m_isTaggedUnion && target.isInteger()) return true;
     return Type::isAssignableTo(target);
 }
 
@@ -507,6 +528,20 @@ TypeContext::TypeContext() {
     auto memCls = createClassType("Mem");
     memCls->addMethod({"totalAllocatedBytes", getFunctionType({}, m_int32Type), "public", true, false, false});
     memCls->addMethod({"totalLiveObjects", getFunctionType({}, m_int32Type), "public", true, false, false});
+
+    // Built-in Result<T, E> template enum
+    auto resultEnum = createEnumType("Result");
+    resultEnum->setTypeParams({"T", "E"});
+    resultEnum->setTaggedUnion(true);
+    resultEnum->addVariant("Ok", 0, {"T"}, {m_anyType});
+    resultEnum->addVariant("Err", 1, {"E"}, {m_anyType});
+
+    // Built-in Option<T> template enum
+    auto optionEnum = createEnumType("Option");
+    optionEnum->setTypeParams({"T"});
+    optionEnum->setTaggedUnion(true);
+    optionEnum->addVariant("Some", 0, {"T"}, {m_anyType});
+    optionEnum->addVariant("None", 1, {}, {});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {
@@ -730,6 +765,58 @@ std::shared_ptr<ClassType> TypeContext::specializeClassType(
     return specCls;
 }
 
+std::shared_ptr<EnumType> TypeContext::specializeEnumType(
+    const std::shared_ptr<EnumType>& baseEnum,
+    const std::vector<std::string>& typeArgs) {
+
+    std::string specName = baseEnum->getName() + "<";
+    for (size_t i = 0; i < typeArgs.size(); ++i) {
+        if (i > 0) specName += ", ";
+        specName += typeArgs[i];
+    }
+    specName += ">";
+
+    auto existing = findUserType(specName);
+    if (existing && existing->isEnum()) {
+        return std::static_pointer_cast<EnumType>(existing);
+    }
+
+    auto specEnum = createEnumType(specName);
+    specEnum->setTaggedUnion(baseEnum->isTaggedUnion());
+    specEnum->setASTDecl(baseEnum->getASTDecl());
+
+    const auto& typeParams = baseEnum->getTypeParams();
+
+    if (baseEnum->getASTDecl()) {
+        for (const auto& variant : baseEnum->getASTDecl()->getVariants()) {
+            std::vector<std::string> specPayloadNames;
+            std::vector<TypePtr> specPayloadTypes;
+            for (const auto& pTypeStr : variant.getPayloadTypes()) {
+                std::string specStr = substituteType(pTypeStr, typeParams, typeArgs);
+                specPayloadNames.push_back(specStr);
+                auto pType = resolveType(specStr);
+                specPayloadTypes.push_back(pType ? pType : getAny());
+            }
+            specEnum->addVariant(variant.getName(), std::nullopt, specPayloadNames, specPayloadTypes);
+        }
+    } else {
+        for (const auto& vName : baseEnum->getVariants()) {
+            const auto& pNames = baseEnum->getVariantPayloadNames(vName);
+            std::vector<std::string> specPayloadNames;
+            std::vector<TypePtr> specPayloadTypes;
+            for (const auto& pTypeStr : pNames) {
+                std::string specStr = substituteType(pTypeStr, typeParams, typeArgs);
+                specPayloadNames.push_back(specStr);
+                auto pType = resolveType(specStr);
+                specPayloadTypes.push_back(pType ? pType : getAny());
+            }
+            specEnum->addVariant(vName, baseEnum->getVariantValue(vName), specPayloadNames, specPayloadTypes);
+        }
+    }
+
+    return specEnum;
+}
+
 TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
     // Strip leading and trailing whitespace
     size_t first = rawTypeStr.find_first_not_of(" \t\n\r");
@@ -907,7 +994,33 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
     auto userType = findUserType(s);
     if (userType) return userType;
 
-    // Check user-defined generic class specialization (e.g. Box<int>, Pair<string, int>)
+    // Check Result<T, E>
+    if (s.rfind("Result<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        std::vector<std::string> args = splitTypeArgs(inner);
+        if (args.size() == 2) {
+            auto baseResult = findUserType("Result");
+            if (baseResult && baseResult->isEnum()) {
+                return specializeEnumType(std::static_pointer_cast<EnumType>(baseResult), args);
+            }
+        }
+    }
+
+    // Check Option<T>
+    if (s.rfind("Option<", 0) == 0 && s.back() == '>') {
+        size_t openBracket = s.find('<');
+        std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+        std::vector<std::string> args = splitTypeArgs(inner);
+        if (args.size() == 1) {
+            auto baseOption = findUserType("Option");
+            if (baseOption && baseOption->isEnum()) {
+                return specializeEnumType(std::static_pointer_cast<EnumType>(baseOption), args);
+            }
+        }
+    }
+
+    // Check user-defined generic class or enum specialization (e.g. Box<int>, Pair<string, int>)
     if (s.find('<') != std::string::npos && s.back() == '>') {
         size_t openBracket = s.find('<');
         std::string baseName = s.substr(0, openBracket);
@@ -917,6 +1030,12 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
             std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
             std::vector<std::string> typeArgs = splitTypeArgs(inner);
             return specializeClassType(baseCls, typeArgs);
+        }
+        if (baseType && baseType->isEnum()) {
+            auto baseEnum = std::static_pointer_cast<EnumType>(baseType);
+            std::string inner = s.substr(openBracket + 1, s.size() - openBracket - 2);
+            std::vector<std::string> typeArgs = splitTypeArgs(inner);
+            return specializeEnumType(baseEnum, typeArgs);
         }
     }
 

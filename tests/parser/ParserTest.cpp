@@ -416,4 +416,60 @@ TEST(ParserTest, GenericClassAndFunctionDeclarations) {
     EXPECT_EQ(callExpr->getTypeArgs()[0], "int");
 }
 
+TEST(ParserTest, TaggedUnionEnumDeclaration) {
+    std::string_view src = R"(
+        enum Result<T, E> {
+            Ok(T),
+            Err(E)
+        }
+
+        enum Option<T> {
+            Some(T),
+            None
+        }
+
+        enum Status {
+            Ready,
+            Active(int),
+            Failed(string)
+        }
+    )";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 3);
+
+    auto* resEnum = dynamic_cast<ast::EnumDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(resEnum, nullptr);
+    EXPECT_EQ(resEnum->getName(), "Result");
+    EXPECT_TRUE(resEnum->isGeneric());
+    ASSERT_EQ(resEnum->getTypeParams().size(), 2);
+    EXPECT_EQ(resEnum->getTypeParams()[0], "T");
+    EXPECT_EQ(resEnum->getTypeParams()[1], "E");
+    ASSERT_EQ(resEnum->getVariants().size(), 2);
+    EXPECT_EQ(resEnum->getVariants()[0].getName(), "Ok");
+    EXPECT_TRUE(resEnum->getVariants()[0].hasPayload());
+    EXPECT_EQ(resEnum->getVariants()[0].getPayloadTypes()[0], "T");
+    EXPECT_EQ(resEnum->getVariants()[1].getName(), "Err");
+    EXPECT_TRUE(resEnum->getVariants()[1].hasPayload());
+    EXPECT_EQ(resEnum->getVariants()[1].getPayloadTypes()[0], "E");
+
+    auto* optEnum = dynamic_cast<ast::EnumDecl*>(program->getDeclarations()[1].get());
+    ASSERT_NE(optEnum, nullptr);
+    EXPECT_EQ(optEnum->getName(), "Option");
+    EXPECT_TRUE(optEnum->isGeneric());
+    ASSERT_EQ(optEnum->getVariants().size(), 2);
+    EXPECT_TRUE(optEnum->getVariants()[0].hasPayload());
+    EXPECT_FALSE(optEnum->getVariants()[1].hasPayload());
+
+    auto* statusEnum = dynamic_cast<ast::EnumDecl*>(program->getDeclarations()[2].get());
+    ASSERT_NE(statusEnum, nullptr);
+    EXPECT_EQ(statusEnum->getName(), "Status");
+    EXPECT_FALSE(statusEnum->isGeneric());
+    ASSERT_EQ(statusEnum->getVariants().size(), 3);
+    EXPECT_FALSE(statusEnum->getVariants()[0].hasPayload());
+    EXPECT_TRUE(statusEnum->getVariants()[1].hasPayload());
+    EXPECT_TRUE(statusEnum->getVariants()[2].hasPayload());
+}
+
 } // namespace sp::parser::test
