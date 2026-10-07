@@ -42,6 +42,7 @@ add_executable(sp_tests
     codegen/ExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
+    codegen/ObjectEmitterTest.cpp
     runtime/RuntimeTest.cpp
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp

@@ -20,6 +20,7 @@ add_library(sp_compiler
     src/codegen/VTableBuilder.cpp
     src/codegen/ClassGenerator.cpp
     src/codegen/LLVMGenerator.cpp
+    src/codegen/ObjectEmitter.cpp
 )
 
 target_include_directories(sp_compiler
