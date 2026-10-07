@@ -1880,3 +1880,289 @@ TEST(ExecutionTest, MemoryArenaNativeExecution) {
     EXPECT_NE(output.find("live_objs_gte_0: true"), std::string::npos);
     EXPECT_NE(output.find("total_mem_gte_0: true"), std::string::npos);
 }
+
+TEST(ExecutionTest, StackCollectionNativeExecution) {
+    const std::string source = R"sp(
+        import std.collections;
+
+        fn main() {
+            var s = new Stack<int>();
+            println("stack_empty_1: ${s.isEmpty()}");
+            s.push(11);
+            s.push(22);
+            s.push(33);
+            println("stack_len: ${s.size()}");
+            println("stack_peek: ${s.peek()}");
+            println("stack_pop_1: ${s.pop()}");
+            println("stack_pop_2: ${s.pop()}");
+            println("stack_len_after: ${s.size()}");
+            s.clear();
+            println("stack_empty_2: ${s.isEmpty()}");
+
+            var strStack = new Stack<string>();
+            strStack.push("hello");
+            strStack.push("world");
+            println("str_stack_pop: ${strStack.pop()}");
+            println("str_stack_peek: ${strStack.peek()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stack_collection");
+    EXPECT_NE(output.find("stack_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("stack_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("stack_peek: 33"), std::string::npos);
+    EXPECT_NE(output.find("stack_pop_1: 33"), std::string::npos);
+    EXPECT_NE(output.find("stack_pop_2: 22"), std::string::npos);
+    EXPECT_NE(output.find("stack_len_after: 1"), std::string::npos);
+    EXPECT_NE(output.find("stack_empty_2: true"), std::string::npos);
+    EXPECT_NE(output.find("str_stack_pop: world"), std::string::npos);
+    EXPECT_NE(output.find("str_stack_peek: hello"), std::string::npos);
+}
+
+TEST(ExecutionTest, QueueCollectionNativeExecution) {
+    const std::string source = R"sp(
+        import std.collections;
+
+        fn main() {
+            var q = new Queue<int>();
+            println("queue_empty_1: ${q.isEmpty()}");
+            q.enqueue(100);
+            q.enqueue(200);
+            q.enqueue(300);
+            println("queue_len: ${q.size()}");
+            println("queue_peek: ${q.peek()}");
+            println("queue_deq_1: ${q.dequeue()}");
+            println("queue_deq_2: ${q.dequeue()}");
+            println("queue_len_after: ${q.size()}");
+            q.clear();
+            println("queue_empty_2: ${q.isEmpty()}");
+
+            var strQueue = new Queue<string>();
+            strQueue.enqueue("first");
+            strQueue.enqueue("second");
+            println("str_queue_deq: ${strQueue.dequeue()}");
+            println("str_queue_peek: ${strQueue.peek()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_queue_collection");
+    EXPECT_NE(output.find("queue_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("queue_len: 3"), std::string::npos);
+    EXPECT_NE(output.find("queue_peek: 100"), std::string::npos);
+    EXPECT_NE(output.find("queue_deq_1: 100"), std::string::npos);
+    EXPECT_NE(output.find("queue_deq_2: 200"), std::string::npos);
+    EXPECT_NE(output.find("queue_len_after: 1"), std::string::npos);
+    EXPECT_NE(output.find("queue_empty_2: true"), std::string::npos);
+    EXPECT_NE(output.find("str_queue_deq: first"), std::string::npos);
+    EXPECT_NE(output.find("str_queue_peek: second"), std::string::npos);
+}
+
+TEST(ExecutionTest, PriorityQueueCollectionNativeExecution) {
+    const std::string source = R"sp(
+        import std.collections;
+
+        fn main() {
+            var pq = new PriorityQueue<string>();
+            println("pq_empty_1: ${pq.isEmpty()}");
+            pq.push("low", 100);
+            pq.push("highest", 1);
+            pq.push("medium", 50);
+            pq.push("high", 10);
+            println("pq_len: ${pq.size()}");
+            println("pq_peek: ${pq.peek()}");
+            println("pq_peek_prio: ${pq.peekPriority()}");
+            println("pq_pop_1: ${pq.pop()}");
+            println("pq_pop_2: ${pq.pop()}");
+            println("pq_pop_3: ${pq.pop()}");
+            println("pq_pop_4: ${pq.pop()}");
+            println("pq_empty_2: ${pq.isEmpty()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_pq_collection");
+    EXPECT_NE(output.find("pq_empty_1: true"), std::string::npos);
+    EXPECT_NE(output.find("pq_len: 4"), std::string::npos);
+    EXPECT_NE(output.find("pq_peek: highest"), std::string::npos);
+    EXPECT_NE(output.find("pq_peek_prio: 1"), std::string::npos);
+    EXPECT_NE(output.find("pq_pop_1: highest"), std::string::npos);
+    EXPECT_NE(output.find("pq_pop_2: high"), std::string::npos);
+    EXPECT_NE(output.find("pq_pop_3: medium"), std::string::npos);
+    EXPECT_NE(output.find("pq_pop_4: low"), std::string::npos);
+    EXPECT_NE(output.find("pq_empty_2: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, PureSPGenericCollectionsNativeExecution) {
+    const std::string source = R"sp(
+        class ArrayList<T> {
+            var backend: List<T>;
+
+            fn ArrayList() {
+                this.backend = new List<T>();
+            }
+
+            fn add(val: T) {
+                this.backend.push(val);
+            }
+
+            fn get(index: int) -> T {
+                return this.backend.get(index);
+            }
+
+            fn set(index: int, val: T) {
+                this.backend.set(index, val);
+            }
+
+            fn pop() -> T {
+                return this.backend.pop();
+            }
+
+            fn size() -> int {
+                return this.backend.size();
+            }
+
+            fn contains(val: T) -> bool {
+                return this.backend.contains(val);
+            }
+        }
+
+        class HashMap<K, V> {
+            var backend: Map<K, V>;
+
+            fn HashMap() {
+                this.backend = new Map<K, V>();
+            }
+
+            fn set(key: K, val: V) {
+                this.backend.set(key, val);
+            }
+
+            fn get(key: K) -> V {
+                return this.backend.get(key);
+            }
+
+            fn contains(key: K) -> bool {
+                return this.backend.contains(key);
+            }
+
+            fn remove(key: K) {
+                this.backend.remove(key);
+            }
+
+            fn size() -> int {
+                return this.backend.size();
+            }
+        }
+
+        class HashSet<T> {
+            var backend: Set<T>;
+
+            fn HashSet() {
+                this.backend = new Set<T>();
+            }
+
+            fn add(val: T) {
+                this.backend.add(val);
+            }
+
+            fn contains(val: T) -> bool {
+                return this.backend.contains(val);
+            }
+
+            fn remove(val: T) {
+                this.backend.remove(val);
+            }
+
+            fn size() -> int {
+                return this.backend.size();
+            }
+        }
+
+        fn main() {
+            var list = new ArrayList<int>();
+            list.add(10);
+            list.add(20);
+            list.add(30);
+            println("arrlist_size: ${list.size()}");
+            println("arrlist_get_1: ${list.get(1)}");
+            list.set(1, 99);
+            println("arrlist_get_1_after: ${list.get(1)}");
+            println("arrlist_has_99: ${list.contains(99)}");
+            println("arrlist_pop: ${list.pop()}");
+            println("arrlist_size_after: ${list.size()}");
+
+            var map = new HashMap<string, int>();
+            string alice = "Alice";
+            string bob = "Bob";
+            map.set(alice, 95);
+            map.set(bob, 88);
+            println("hashmap_size: ${map.size()}");
+            println("hashmap_get_alice: ${map.get(alice)}");
+            println("hashmap_has_bob: ${map.contains(bob)}");
+            map.remove(bob);
+            println("hashmap_has_bob_after: ${map.contains(bob)}");
+
+            var set = new HashSet<int>();
+            set.add(42);
+            set.add(42);
+            set.add(77);
+            println("hashset_size: ${set.size()}");
+            println("hashset_has_42: ${set.contains(42)}");
+            set.remove(42);
+            println("hashset_has_42_after: ${set.contains(42)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_pure_sp_collections");
+    EXPECT_NE(output.find("arrlist_size: 3"), std::string::npos);
+    EXPECT_NE(output.find("arrlist_get_1: 20"), std::string::npos);
+    EXPECT_NE(output.find("arrlist_get_1_after: 99"), std::string::npos);
+    EXPECT_NE(output.find("arrlist_has_99: true"), std::string::npos);
+    EXPECT_NE(output.find("arrlist_pop: 30"), std::string::npos);
+    EXPECT_NE(output.find("arrlist_size_after: 2"), std::string::npos);
+    EXPECT_NE(output.find("hashmap_size: 2"), std::string::npos);
+    EXPECT_NE(output.find("hashmap_get_alice: 95"), std::string::npos);
+    EXPECT_NE(output.find("hashmap_has_bob: true"), std::string::npos);
+    EXPECT_NE(output.find("hashmap_has_bob_after: false"), std::string::npos);
+    EXPECT_NE(output.find("hashset_size: 2"), std::string::npos);
+    EXPECT_NE(output.find("hashset_has_42: true"), std::string::npos);
+    EXPECT_NE(output.find("hashset_has_42_after: false"), std::string::npos);
+}
+
+TEST(ExecutionTest, CollectionStressAndScalingNativeExecution) {
+    const std::string source = R"sp(
+        import std.collections;
+
+        fn main() {
+            var list = new List<int>();
+            var count = 10000;
+            for (var i = 0; i < count; i = i + 1) {
+                list.push(i);
+            }
+            println("stress_list_size: ${list.length()}");
+            println("stress_list_first: ${list.get(0)}");
+            println("stress_list_mid: ${list.get(5000)}");
+            println("stress_list_last: ${list.get(9999)}");
+
+            var map = new Map<int, int>();
+            for (var i = 0; i < 2000; i = i + 1) {
+                map.set(i, i * 2);
+            }
+            println("stress_map_size: ${map.length()}");
+            println("stress_map_0: ${map.get(0)}");
+            println("stress_map_1000: ${map.get(1000)}");
+            println("stress_map_1999: ${map.get(1999)}");
+            println("stress_map_has_500: ${map.contains(500)}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_collection_stress");
+    EXPECT_NE(output.find("stress_list_size: 10000"), std::string::npos);
+    EXPECT_NE(output.find("stress_list_first: 0"), std::string::npos);
+    EXPECT_NE(output.find("stress_list_mid: 5000"), std::string::npos);
+    EXPECT_NE(output.find("stress_list_last: 9999"), std::string::npos);
+    EXPECT_NE(output.find("stress_map_size: 2000"), std::string::npos);
+    EXPECT_NE(output.find("stress_map_0: 0"), std::string::npos);
+    EXPECT_NE(output.find("stress_map_1000: 2000"), std::string::npos);
+    EXPECT_NE(output.find("stress_map_1999: 3998"), std::string::npos);
+    EXPECT_NE(output.find("stress_map_has_500: true"), std::string::npos);
+}

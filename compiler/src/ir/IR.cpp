@@ -1019,6 +1019,57 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_set_is_empty", IRType::getInt1(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)}, true);
 
+    // Native Stack<T> declarations
+    createFunction("sp_rt_stack_alloc", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_stack_push", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "stack", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_stack_pop", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "stack", 0)}, true);
+    createFunction("sp_rt_stack_peek", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "stack", 0)}, true);
+    createFunction("sp_rt_stack_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "stack", 0)}, true);
+    createFunction("sp_rt_stack_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "stack", 0)}, true);
+    createFunction("sp_rt_stack_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "stack", 0)}, true);
+
+    // Native Queue<T> declarations
+    createFunction("sp_rt_queue_alloc", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_queue_enqueue", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_queue_dequeue", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0)}, true);
+    createFunction("sp_rt_queue_peek", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0)}, true);
+    createFunction("sp_rt_queue_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0)}, true);
+    createFunction("sp_rt_queue_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0)}, true);
+    createFunction("sp_rt_queue_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0)}, true);
+
+    // Native PriorityQueue<T> declarations
+    createFunction("sp_rt_pq_alloc", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_pq_push", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "priority", 2)}, true);
+    createFunction("sp_rt_pq_pop", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)}, true);
+    createFunction("sp_rt_pq_peek", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)}, true);
+    createFunction("sp_rt_pq_peek_priority", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)}, true);
+    createFunction("sp_rt_pq_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)}, true);
+    createFunction("sp_rt_pq_is_empty", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)}, true);
+    createFunction("sp_rt_pq_clear", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)}, true);
+
     createFunction("sp_rt_list_clear", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)}, true);
 
