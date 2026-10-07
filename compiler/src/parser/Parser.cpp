@@ -40,6 +40,7 @@ const lexer::Token& Parser::advance() noexcept {
 
 bool Parser::check(lexer::TokenType type) const noexcept {
     if (isAtEnd()) return false;
+    if (type == lexer::TokenType::Greater && m_pendingGreater > 0) return true;
     return peek().is(type);
 }
 
@@ -49,6 +50,22 @@ bool Parser::checkNext(lexer::TokenType type) const noexcept {
 }
 
 bool Parser::match(lexer::TokenType type) noexcept {
+    if (type == lexer::TokenType::Greater) {
+        if (m_pendingGreater > 0) {
+            m_pendingGreater--;
+            advance();
+            return true;
+        }
+        if (check(lexer::TokenType::Greater)) {
+            advance();
+            return true;
+        }
+        if (check(lexer::TokenType::GreaterGreater)) {
+            m_pendingGreater = 1;
+            return true;
+        }
+        return false;
+    }
     if (check(type)) {
         advance();
         return true;
@@ -58,8 +75,7 @@ bool Parser::match(lexer::TokenType type) noexcept {
 
 bool Parser::matchAny(std::initializer_list<lexer::TokenType> types) noexcept {
     for (auto type : types) {
-        if (check(type)) {
-            advance();
+        if (match(type)) {
             return true;
         }
     }
@@ -67,8 +83,8 @@ bool Parser::matchAny(std::initializer_list<lexer::TokenType> types) noexcept {
 }
 
 const lexer::Token& Parser::consume(lexer::TokenType type, std::string_view message, std::string_view hint) {
-    if (check(type)) {
-        return advance();
+    if (match(type)) {
+        return previous();
     }
     errorAt(peek(), message, hint);
     static const lexer::Token errorTok(lexer::TokenType::Invalid, "", diagnostics::SourceLocation("<err>", 0, 0));
@@ -1438,7 +1454,11 @@ ast::ASTNodePtr Parser::parseStructDecl(std::string visibility, bool isReprC) {
             fieldLoc = fTok.location;
         }
 
-        consume(lexer::TokenType::Semicolon, "Expected ';' after struct field");
+        if (!match(lexer::TokenType::Semicolon) && !match(lexer::TokenType::Comma)) {
+            if (!check(lexer::TokenType::CloseBrace) && !isAtEnd()) {
+                advance();
+            }
+        }
         fields.push_back(std::make_unique<ast::VarDeclStmt>(type, fieldName, nullptr, false, false, fieldLoc));
     }
 
@@ -1558,10 +1578,11 @@ std::string Parser::parseType() {
         type = previous().lexeme;
     } else {
         errorAt(peek(), "Expected type name");
+        if (!isAtEnd()) advance();
         return "unknown";
     }
 
-    // Generic type parameters: List<int>, Map<string, User>
+    // Generic type parameters: List<int>, Map<string, User>, ptr<ptr<T>>
     if (match(lexer::TokenType::Less)) {
         type += "<";
         do {
@@ -1570,9 +1591,15 @@ std::string Parser::parseType() {
                 type += ", ";
                 advance();
             }
-        } while (!isAtEnd() && !check(lexer::TokenType::Greater));
-        consume(lexer::TokenType::Greater, "Expected '>' after generic type arguments");
-        type += ">";
+        } while (!isAtEnd() && !check(lexer::TokenType::Greater) && !check(lexer::TokenType::GreaterGreater));
+
+        if (match(lexer::TokenType::Greater)) {
+            type += ">";
+        } else {
+            errorAt(peek(), "Expected '>' after generic type arguments");
+            if (!isAtEnd()) advance();
+            type += ">";
+        }
     }
 
     // Array type: int[]

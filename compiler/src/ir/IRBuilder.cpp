@@ -430,6 +430,20 @@ void IRBuilder::visit(const ast::Program& node) {
                 dynamic_cast<const ast::ImportDecl*>(stmt)) {
                 continue;
             }
+            if (const auto* block = dynamic_cast<const ast::BlockStmt*>(stmt)) {
+                bool hasOnlyDecls = true;
+                for (const auto& inner : block->getStatements()) {
+                    if (!dynamic_cast<const ast::FunctionDecl*>(inner.get()) &&
+                        !dynamic_cast<const ast::StructDecl*>(inner.get()) &&
+                        !dynamic_cast<const ast::EnumDecl*>(inner.get())) {
+                        hasOnlyDecls = false;
+                        break;
+                    }
+                }
+                if (hasOnlyDecls && !block->getStatements().empty()) {
+                    continue;
+                }
+            }
             topLevelStmts.push_back(stmt);
         }
     }
@@ -507,6 +521,12 @@ void IRBuilder::visit(const ast::Program& node) {
     for (const auto& decl : node.getDeclarations()) {
         if (dynamic_cast<const ast::FunctionDecl*>(decl.get())) {
             decl->accept(*this);
+        } else if (const auto* block = dynamic_cast<const ast::BlockStmt*>(decl.get())) {
+            for (const auto& inner : block->getStatements()) {
+                if (dynamic_cast<const ast::FunctionDecl*>(inner.get())) {
+                    inner->accept(*this);
+                }
+            }
         }
     }
 
@@ -542,6 +562,11 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
     for (size_t i = 0; i < node.getParams().size(); ++i) {
         const auto& p = node.getParams()[i];
         params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+    }
+
+    if (!node.hasBody() && !node.isShortForm()) {
+        m_module->createFunction(node.getName(), returnType, params, /*isExternal=*/true);
+        return;
     }
 
     auto func = m_module->createFunction(node.getName(), returnType, params);

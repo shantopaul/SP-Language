@@ -38,6 +38,7 @@ public:
 private:
     const std::vector<lexer::Token>& m_tokens;
     size_t m_current{0};
+    mutable int m_pendingGreater{0};
     std::string m_filename;
     diagnostics::DiagnosticEngine* m_diagnostics{nullptr};
 

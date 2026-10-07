@@ -2326,3 +2326,21 @@ TEST(ExecutionTest, RawPointersAndUnsafeBlocksNativeExecution) {
     EXPECT_NE(output.find("after pNum[0]=200: 200"), std::string::npos);
     EXPECT_NE(output.find("final num: 200"), std::string::npos);
 }
+
+TEST(ExecutionTest, ExternCFunctionCallsNativeExecution) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn abs(n: int): int;
+        }
+
+        fn main() {
+            var val: int = -42;
+            var res: int = abs(val);
+            println("abs(-42) = ${res}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_extern_c");
+    EXPECT_NE(output.find("abs(-42) = 42"), std::string::npos);
+}
+

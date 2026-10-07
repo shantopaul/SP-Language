@@ -15,6 +15,7 @@
 #include "fmt/Formatter.h"
 #include "test/TestRunner.h"
 #include "doc/DocGenerator.h"
+#include "bindgen/Bindgen.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -51,7 +52,8 @@ void printHelp() {
               << "  fmt <file>      Format SP source files according to style rules\n"
               << "  test [path]     Execute SP unit and integration tests\n"
               << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
-              << "  init [name]     Initialize a new SP project with sp.toml\n\n"
+              << "  init [name]     Initialize a new SP project with sp.toml\n"
+              << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n\n"
               << "Options:\n"
               << "  -o <path>       Specify output binary path (for build/obj command)\n"
               << "  -c, --emit-obj  Emit relocatable object file (.o / .obj) directly\n"
@@ -447,6 +449,59 @@ int main(int argc, char* argv[]) {
         sp::doc::DocGenerator generator(opts);
         bool success = generator.generate(inputPath, outputDir);
         return success ? 0 : 1;
+    }
+
+    if (command == "bindgen") {
+        std::string headerFile;
+        std::string outputFile;
+        std::string moduleName;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if ((arg == "-o" || arg == "--out" || arg == "--output") && i + 1 < argc) {
+                outputFile = argv[++i];
+            } else if (arg == "--module" && i + 1 < argc) {
+                moduleName = argv[++i];
+            } else if (!arg.starts_with("-")) {
+                if (headerFile.empty()) {
+                    headerFile = arg;
+                }
+            }
+        }
+
+        if (headerFile.empty()) {
+            std::cerr << "error: no input C header file specified\n"
+                      << "Usage: spc bindgen <header.h> [-o <out.sp>] [--module <name>]\n";
+            return 1;
+        }
+
+        sp::bindgen::BindgenOptions opts;
+        opts.moduleName = moduleName;
+        sp::bindgen::Bindgen bg(opts);
+
+        if (!bg.parseFile(headerFile)) {
+            std::cerr << "error: " << bg.getLastError() << "\n";
+            return 1;
+        }
+
+        std::string generatedSP = bg.generateSP();
+
+        if (!outputFile.empty()) {
+            std::ofstream out(outputFile);
+            if (!out.is_open()) {
+                std::cerr << "error: failed to write to output file: " << outputFile << "\n";
+                return 1;
+            }
+            out << generatedSP;
+            std::cout << "Generated SP bindings in " << outputFile << " ("
+                      << bg.getStructs().size() << " structs, "
+                      << bg.getFunctions().size() << " functions, "
+                      << bg.getEnums().size() << " enums, "
+                      << bg.getMacros().size() << " constants)\n";
+        } else {
+            std::cout << generatedSP;
+        }
+        return 0;
     }
 
     diagEngine.reportError("E1000", "Unknown command: " + std::string(command),

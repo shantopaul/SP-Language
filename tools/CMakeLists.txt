@@ -22,11 +22,19 @@ target_include_directories(sp_doc_generator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_doc_generator PUBLIC sp_compiler)
 target_compile_features(sp_doc_generator PRIVATE cxx_std_20)
 
+# SP Bindgen Library (sp_bindgen)
+add_library(sp_bindgen
+    bindgen/Bindgen.cpp
+)
+target_include_directories(sp_bindgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sp_bindgen PUBLIC sp_compiler)
+target_compile_features(sp_bindgen PRIVATE cxx_std_20)
+
 # SP Compiler Executable (spc)
 add_executable(spc
     spc/main.cpp
 )
-target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator)
+target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator sp_bindgen)
 target_compile_features(spc PRIVATE cxx_std_20)
 
 # SP Package Manager Core Library (spm_core)

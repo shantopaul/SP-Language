@@ -56,6 +56,7 @@ add_executable(sp_tests
     doc/DocGeneratorTest.cpp
     spls/LspServerTest.cpp
     debugger/DapServerTest.cpp
+    bindgen/BindgenTest.cpp
 )
 
 target_include_directories(sp_tests
@@ -71,6 +72,7 @@ target_link_libraries(sp_tests
         sp_fmt
         sp_test_runner
         sp_doc_generator
+        sp_bindgen
         sp_lsp_server
         sp_debugger
         GTest::gtest_main
