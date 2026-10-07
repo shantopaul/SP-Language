@@ -10,7 +10,7 @@ export const metadata = {
 };
 
 export default function VsCodeExtensionPage() {
-  const installCmd = `code --install-extension shantopaul.sp-lang`;
+  const installCmd = `code --install-extension https://dl.splang.shantopaul.com/sp-vscode.vsix`;
 
   return (
     <div className="space-y-6">
@@ -23,10 +23,29 @@ export default function VsCodeExtensionPage() {
 
       <h1 className="text-3xl font-extrabold text-white">Official VS Code Extension</h1>
       <p className="text-sm text-slate-300">
-        The official extension is located inside the repository at <code>editors/vscode/</code> and available on the Visual Studio Marketplace.
+        The official SP Language Support extension delivers full syntax highlighting, TextMate grammar, language server integration, and snippets for Visual Studio Code.
       </p>
 
-      <CodeBlock code={installCmd} language="bash" />
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-slate-200">Option 1: Install via Terminal</h2>
+        <CodeBlock code={installCmd} language="bash" />
+      </div>
+
+      <div className="space-y-2 pt-2">
+        <h2 className="text-sm font-semibold text-slate-200">Option 2: Direct VSIX Download</h2>
+        <p className="text-xs text-slate-400">
+          Download the package directly:{" "}
+          <a
+            href="https://dl.splang.shantopaul.com/sp-vscode.vsix"
+            className="text-cyan-400 underline hover:text-cyan-300 font-mono font-medium"
+          >
+            sp-vscode.vsix (11.8 KB)
+          </a>
+        </p>
+        <p className="text-xs text-slate-400">
+          In VS Code: Open <strong>Extensions</strong> (<code>Ctrl+Shift+X</code>) &rarr; Click <strong>...</strong> (top right of Extensions sidebar) &rarr; Select <strong>Install from VSIX...</strong>.
+        </p>
+      </div>
 
       <h2 className="text-xl font-bold text-white pt-4">Extension Features</h2>
       <ul className="list-disc list-inside space-y-2 text-xs sm:text-sm text-slate-300">
@@ -36,8 +55,8 @@ export default function VsCodeExtensionPage() {
         <li><strong>Snippets:</strong> Quick code snippets for <code>fn</code>, <code>class</code>, <code>struct</code>, <code>match</code>, and <code>test</code> blocks.</li>
       </ul>
 
-      <Callout type="tip" title="Bundled in Release Packages">
-        When you install SP via <code>winget</code>, <code>install.ps1</code>, or <code>install.sh</code>, the VS Code extension manifest is automatically installed into your editor.
+      <Callout type="tip" title="Activating after install">
+        Press <code>Ctrl+Shift+P</code> &rarr; run <code>Developer: Reload Window</code> to apply syntax highlighting immediately.
       </Callout>
 
       <PrevNextNav

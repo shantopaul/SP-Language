@@ -55,6 +55,15 @@ export const CURRENT_RELEASE: ReleaseInfo = {
       url: "https://dl.splang.shantopaul.com/sp-1.0.0-windows-x64.zip",
     },
     {
+      os: "VS Code",
+      arch: "All Platforms",
+      filename: "sp-vscode.vsix",
+      format: ".vsix (Extension)",
+      size: "11.8 KB",
+      sha256: "50F86C1435041704B8FA48E2DDF3FF34E557DB09460A21B358034F955703026D",
+      url: "https://dl.splang.shantopaul.com/sp-vscode.vsix",
+    },
+    {
       os: "Linux",
       arch: "x86_64",
       filename: "sp-1.0.0-linux-x86_64.tar.gz",
