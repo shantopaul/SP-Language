@@ -43,16 +43,28 @@ export default function DownloadsPage() {
               winget install SPLang.SP
             </div>
           </div>
-          <a
-            href={CURRENT_RELEASE.artifacts.find((a) => a.os === "Windows")?.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button className="w-full justify-center" variant="primary">
-              <Download className="w-4 h-4 mr-1.5" />
-              Download .zip ({CURRENT_RELEASE.artifacts.find((a) => a.os === "Windows")?.size || "3.85 MB"})
-            </Button>
-          </a>
+          <div className="flex flex-col gap-2.5">
+            <a
+              href="https://dl.splang.shantopaul.com/sp-setup.exe"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button className="w-full justify-center" variant="primary">
+                <Download className="w-4 h-4 mr-1.5" />
+                Download Installer (.exe) (2.76 MB)
+              </Button>
+            </a>
+            <a
+              href="https://dl.splang.shantopaul.com/sp-1.0.0-windows-x64.zip"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button className="w-full justify-center bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                <Download className="w-4 h-4 mr-1.5" />
+                Download Portable (.zip) (2.62 MB)
+              </Button>
+            </a>
+          </div>
         </div>
 
         {/* Linux Card */}

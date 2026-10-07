@@ -38,12 +38,21 @@ export const CURRENT_RELEASE: ReleaseInfo = {
     {
       os: "Windows",
       arch: "x64 (64-bit)",
+      filename: "sp-setup.exe",
+      format: ".exe (GUI Installer)",
+      size: "2.76 MB",
+      sha256: "84D36638402673CD129133BE83D0AF31C5BD176BA2C0130BC73F2A1A0DA2C34A",
+      url: "https://dl.splang.shantopaul.com/sp-setup.exe",
+      primary: true,
+    },
+    {
+      os: "Windows",
+      arch: "x64 (64-bit)",
       filename: "sp-1.0.0-windows-x64.zip",
-      format: ".zip",
+      format: ".zip (Portable)",
       size: "2.62 MB",
       sha256: "691FDE6F305520FEE2E4CE589B0C5BB264367EEC0A8CEFD56BBE44D42DE9DE75",
       url: "https://dl.splang.shantopaul.com/sp-1.0.0-windows-x64.zip",
-      primary: true,
     },
     {
       os: "Linux",
