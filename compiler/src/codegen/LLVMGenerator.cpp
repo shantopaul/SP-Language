@@ -230,7 +230,7 @@ bool LLVMGenerator::emitObjectFile(const ir::IRModule& module, const std::string
     ObjectEmitterOptions emitOpts;
     emitOpts.targetTriple = m_options.targetTriple;
     emitOpts.dataLayout = m_options.dataLayout;
-    emitOpts.optLevel = m_options.optLevel.empty() ? "-O2" : m_options.optLevel;
+    emitOpts.optLevel = m_options.optLevel.empty() ? (m_options.releaseMode ? "-O3" : "-O0") : m_options.optLevel;
     emitOpts.debugSymbols = m_options.debugSymbols;
 
     ObjectEmitter emitter(emitOpts);

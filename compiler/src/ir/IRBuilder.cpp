@@ -200,7 +200,9 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType, co
         return val;
     }
     std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str") : "%str";
-    if (valType->isInt1()) {
+    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
+    if (valType->isInt1() || (semaType && semaType->getKind() == sema::TypeKind::Bool)) {
+        val = emitCastIfNeeded(val, IRType::getInt1());
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_from_bool",
                                                std::vector<IRValuePtr>{val},
@@ -208,8 +210,6 @@ IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType, co
         if (m_currentBlock) m_currentBlock->addInstruction(call);
         return call;
     }
-
-    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
     if (semaType && semaType->isChar()) {
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
                                                "sp_rt_str_from_char",
@@ -2006,6 +2006,19 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
             m_lastExprType = IRType::getInt1();
             return;
         }
+    }
+
+    // Logical operations on booleans stay as i1 without integer promotion
+    if (node.getOp() == lexer::TokenType::AmpAmp || node.getOp() == lexer::TokenType::PipePipe) {
+        lhs = emitCastIfNeeded(lhs, IRType::getInt1());
+        rhs = emitCastIfNeeded(rhs, IRType::getInt1());
+        std::string resName = m_currentFunction->nextTempName("b");
+        auto op = (node.getOp() == lexer::TokenType::AmpAmp) ? IROpcode::And : IROpcode::Or;
+        auto resultInst = std::make_shared<BinaryInst>(op, lhs, rhs, resName);
+        if (m_currentBlock) m_currentBlock->addInstruction(resultInst);
+        m_lastExprValue = resultInst;
+        m_lastExprType = IRType::getInt1();
+        return;
     }
 
     // Type promotion / widening
