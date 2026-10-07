@@ -21,6 +21,7 @@ add_library(sp_compiler
     src/codegen/ClassGenerator.cpp
     src/codegen/LLVMGenerator.cpp
     src/codegen/ObjectEmitter.cpp
+    src/codegen/LinkerDriver.cpp
 )
 
 target_include_directories(sp_compiler
