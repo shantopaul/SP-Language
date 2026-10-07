@@ -23,6 +23,7 @@ add_library(sp_compiler
     src/codegen/ObjectEmitter.cpp
     src/codegen/LinkerDriver.cpp
     src/codegen/DebugInfoGenerator.cpp
+    src/codegen/LLVMOptimizer.cpp
 )
 
 target_include_directories(sp_compiler
