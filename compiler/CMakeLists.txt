@@ -24,6 +24,7 @@ add_library(sp_compiler
     src/codegen/LinkerDriver.cpp
     src/codegen/DebugInfoGenerator.cpp
     src/codegen/LLVMOptimizer.cpp
+    src/util/PathUtils.cpp
 )
 
 target_include_directories(sp_compiler

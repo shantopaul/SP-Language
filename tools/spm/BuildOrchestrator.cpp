@@ -5,6 +5,7 @@
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
+#include "sp/util/PathUtils.h"
 
 #include <filesystem>
 #include <fstream>
@@ -133,6 +134,10 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
 
     if (!llvmGen.compileToExecutable(*irModule, outBin.string())) {
         result.errorMessage = "Compilation failed: " + llvmGen.getLastError();
+        if (!sp::util::hasBackendToolchain()) {
+            result.errorMessage += "\n[HINT] No backend C/LLVM compiler or linker was detected on this computer.\n"
+                                   "       Run 'spc setup' to auto-provision a portable toolchain.";
+        }
         return result;
     }
 

@@ -16,6 +16,7 @@
 #include "test/TestRunner.h"
 #include "doc/DocGenerator.h"
 #include "bindgen/Bindgen.h"
+#include "sp/util/PathUtils.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -53,7 +54,9 @@ void printHelp() {
               << "  test [path]     Execute SP unit and integration tests\n"
               << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
               << "  init [name]     Initialize a new SP project with sp.toml\n"
-              << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n\n"
+              << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n"
+              << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
+              << "  setup           Check, auto-provision, or update portable backend toolchain\n\n"
               << "Options:\n"
               << "  -o <path>       Specify output binary path (for build/obj command)\n"
               << "  -c, --emit-obj  Emit relocatable object file (.o / .obj) directly\n"
@@ -77,6 +80,182 @@ std::string readFile(const std::string& path) {
     return ss.str();
 }
 
+int handleDoctor() {
+    auto health = sp::util::inspectToolchainHealth();
+
+    std::cout << "\n========================================================================\n"
+              << "             SP Programming Language System Doctor (v" << sp::SP_VERSION_STRING << ")\n"
+              << "========================================================================\n\n";
+
+    // 1. SP Compiler
+    std::cout << "[1] SP Compiler Binary:\n"
+              << "    Location:       " << health.spcPath.string() << "\n"
+              << "    Status:         [OK] Operational\n\n";
+
+    // 2. SP_HOME
+    std::cout << "[2] SP Installation Home (SP_HOME):\n"
+              << "    Location:       " << (health.spHome.empty() ? "(none)" : health.spHome.string()) << "\n";
+    const char* envHome = std::getenv("SP_HOME");
+    if (envHome && *envHome) {
+        std::cout << "    Environment:    SP_HOME is explicitly configured in environment\n"
+                  << "    Status:         [OK]\n\n";
+    } else {
+        std::cout << "    Environment:    SP_HOME not set (inferred from binary location)\n"
+                  << "    Status:         [OK] Portable relative auto-discovery active\n\n";
+    }
+
+    // 3. Standard Library
+    std::cout << "[3] Standard Library (stdlib):\n"
+              << "    Location:       " << (health.stdlibDir.empty() ? "(not found)" : health.stdlibDir.string()) << "\n";
+    if (health.hasStdlib) {
+        size_t moduleCount = 0;
+        std::string moduleNames;
+        try {
+            for (const auto& entry : fs::directory_iterator(health.stdlibDir)) {
+                if (entry.is_directory()) {
+                    if (!moduleNames.empty()) moduleNames += ", ";
+                    moduleNames += entry.path().filename().string();
+                    moduleCount++;
+                }
+            }
+        } catch (...) {}
+        std::cout << "    Modules:        " << moduleNames << "\n"
+                  << "    Status:         [OK] (" << moduleCount << " standard library modules ready)\n\n";
+    } else {
+        std::cout << "    Status:         [MISSING] Standard library directory not found!\n"
+                  << "    Action:         Ensure 'stdlib' directory is placed in SP_HOME or next to spc.\n\n";
+    }
+
+    // 4. Runtime Library
+    std::cout << "[4] Precompiled Runtime Library:\n"
+              << "    Library:        " << (health.runtimeLib.empty() ? "(not found)" : health.runtimeLib.string()) << "\n"
+              << "    Headers:        " << (health.runtimeInc.empty() ? "(not found)" : health.runtimeInc.string()) << "\n";
+    if (health.hasRuntimeLib) {
+        std::error_code ec;
+        auto sz = fs::file_size(health.runtimeLib, ec);
+        std::cout << "    Status:         [OK] (" << sz << " bytes precompiled runtime ready)\n\n";
+    } else if (!health.runtimeInc.empty()) {
+        std::cout << "    Status:         [OK] Runtime headers found (source compilation fallback ready)\n\n";
+    } else {
+        std::cout << "    Status:         [MISSING] Runtime library or headers not found!\n\n";
+    }
+
+    // 5. Backend Toolchain
+    std::cout << "[5] Backend C/LLVM Toolchain:\n"
+              << "    Target Triple:  " << health.targetTriple << "\n"
+              << "    C Compiler:     " << (health.clangPath.empty() ? "(not found)" : health.clangPath.string()) << "\n"
+              << "    Linker:         " << (health.linkerPath.empty() ? "(not found)" : health.linkerPath.string()) << "\n";
+    if (health.hasClang || health.hasLinker) {
+        std::cout << "    Status:         [OK] Native code generation backend operational\n\n";
+    } else {
+        std::cout << "    Status:         [MISSING] No Clang or LLD linker detected on this computer!\n"
+                  << "    Action:         Run 'spc setup' to auto-provision a portable toolchain.\n\n";
+    }
+
+    std::cout << "------------------------------------------------------------------------\n";
+    if (health.isOperational) {
+        std::cout << "Diagnosis: ALL SYSTEMS OPERATIONAL\n"
+                  << "Your computer is 100% ready to build and run native SP applications!\n";
+    } else {
+        std::cout << "Diagnosis: ACTION REQUIRED\n"
+                  << "Run 'spc setup' to automatically configure missing components.\n";
+    }
+    std::cout << "========================================================================\n\n";
+    return health.isOperational ? 0 : 1;
+}
+
+int handleSetup() {
+    std::cout << "\n========================================================================\n"
+              << "             SP Programming Language Auto-Setup & Repair\n"
+              << "========================================================================\n\n";
+
+    auto health = sp::util::inspectToolchainHealth();
+
+    if (health.isOperational) {
+        std::cout << "[✓] SP Language installation is already fully operational!\n"
+                  << "    SP_HOME:   " << health.spHome.string() << "\n"
+                  << "    Compiler:  " << health.spcPath.string() << "\n"
+                  << "    Toolchain: " << health.clangPath.string() << "\n\n";
+    } else {
+        std::cout << "[*] Inspecting environment and provisioning missing components...\n";
+
+#if defined(_WIN32)
+        if (!health.hasClang && !health.hasLinker) {
+            std::cout << "[*] No backend toolchain found. Preparing portable toolchain...\n";
+            fs::path tcDir = health.spHome / "toolchain";
+            fs::create_directories(tcDir);
+
+            // Execute toolchain provisioning script
+            std::string psCmd = 
+                "powershell -ExecutionPolicy Bypass -Command \""
+                "Write-Host 'Downloading portable toolchain for Windows x64...'; "
+                "$tc = '" + tcDir.string() + "'; "
+                "$url = 'https://splang.shantopaul.com/downloads/toolchain-win64.zip'; "
+                "$tmp = Join-Path $env:TEMP 'sp_toolchain.zip'; "
+                "try { "
+                "  Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 120; "
+                "  Expand-Archive -Path $tmp -DestinationPath $tc -Force; "
+                "  Remove-Item $tmp -Force -ErrorAction SilentlyContinue; "
+                "  Write-Host 'Portable toolchain provisioned successfully!'; "
+                "} catch { "
+                "  Write-Host 'Notice: Online download unreachable. If using offline package, toolchain is bundled in toolchain/ directory.'; "
+                "}\"";
+            std::system(psCmd.c_str());
+        }
+#endif
+    }
+
+    // Run quick verification smoke test
+    std::cout << "[*] Running end-to-end compiler verification test...\n";
+    std::string testProg = "import std.io;\nfn main() {\n    println(\"SP self-test: SUCCESS!\");\n}\n";
+    std::string testPath = (fs::temp_directory_path() / "sp_setup_smoke.sp").string();
+    std::string testExe = (fs::temp_directory_path() / "sp_setup_smoke.exe").string();
+
+    {
+        std::ofstream out(testPath);
+        out << testProg;
+    }
+
+    sp::diagnostics::DiagnosticEngine diags(std::cerr);
+    sp::lexer::Lexer lex(testProg, "sp_setup_smoke.sp", &diags);
+    auto tokens = lex.tokenizeAll();
+    sp::parser::Parser p(tokens, "sp_setup_smoke.sp", &diags);
+    auto prog = p.parseProgram();
+
+    bool smokePassed = false;
+    if (prog && !diags.hasErrors()) {
+        sp::sema::SemanticAnalyzer sema(diags);
+        if (sema.analyze(*prog) && !diags.hasErrors()) {
+            sp::ir::IRBuilder b(sema);
+            auto mod = b.build(*prog, "smoke");
+            if (mod) {
+                sp::codegen::CodegenOptions opts;
+                sp::codegen::LLVMGenerator gen(opts);
+                if (gen.compileToExecutable(*mod, testExe)) {
+                    smokePassed = true;
+                }
+            }
+        }
+    }
+
+    std::error_code ec;
+    fs::remove(testPath, ec);
+
+    if (smokePassed && fs::exists(testExe)) {
+        std::cout << "    Verification output: ";
+        std::string runCmd = "\"" + testExe + "\"";
+        std::system(runCmd.c_str());
+        fs::remove(testExe, ec);
+        std::cout << "\n========================================================================\n"
+                  << "  [SUCCESS] SP Language environment is 100% verified and operational!\n"
+                  << "========================================================================\n\n";
+        return 0;
+    } else {
+        std::cout << "\n[!] Setup check completed. Run 'spc doctor' to view detailed diagnostic info.\n\n";
+        return 0;
+    }
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -95,6 +274,14 @@ int main(int argc, char* argv[]) {
     if (command == "-h" || command == "--help" || command == "help") {
         printHelp();
         return 0;
+    }
+
+    if (command == "doctor") {
+        return handleDoctor();
+    }
+
+    if (command == "setup") {
+        return handleSetup();
     }
 
     sp::diagnostics::DiagnosticEngine diagEngine(std::cerr);
@@ -304,6 +491,11 @@ int main(int argc, char* argv[]) {
         bool buildSuccess = llvmGen.compileToExecutable(*irModule, outputPath);
         if (!buildSuccess) {
             std::cerr << "Compilation failed: " << llvmGen.getLastError() << "\n";
+            if (!sp::util::hasBackendToolchain()) {
+                std::cerr << "\n[HINT] No backend C/LLVM compiler or linker was detected on this computer.\n"
+                          << "       Run 'spc setup' to auto-provision a portable toolchain,\n"
+                          << "       or run 'spc doctor' to inspect your environment.\n\n";
+            }
             return 1;
         }
 

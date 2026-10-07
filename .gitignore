@@ -77,3 +77,6 @@ node_modules/
 .next/
 *.tsbuildinfo
 next-env.d.ts
+
+# Distribution artifacts
+dist/
