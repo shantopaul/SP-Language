@@ -9,6 +9,7 @@
 #include "sp/ir/IRBuilder.h"
 #include "sp/ir/IRPrinter.h"
 #include "sp/codegen/LLVMGenerator.h"
+#include "sp/codegen/ObjectEmitter.h"
 #include "sp/runtime/Runtime.h"
 #include "sp/Version.h"
 #include "fmt/Formatter.h"
@@ -32,7 +33,7 @@ void printVersion() {
               << "Copyright (c) 2026 Shanto Paul\n"
               << "Website: " << sp::SP_HOMEPAGE_URL << "\n"
               << "Docs:    " << sp::SP_DOCS_URL << "\n"
-              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (native LLVM backend)\n";
+              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (in-process LLVM & LLD backend)\n";
 }
 
 void printHelp() {
@@ -44,6 +45,7 @@ void printHelp() {
               << "  check <file>    Perform lexical, syntactic, and semantic type analysis\n"
               << "  ir <file>       Compile to SP Intermediate Representation (SP IR)\n"
               << "  llvm <file>     Translate SP IR to LLVM IR (.ll) representation\n"
+              << "  obj <file>      Compile an SP source file directly to a native object file (.o / .obj)\n"
               << "  build <file>    Compile an SP source file to a native standalone executable\n"
               << "  run <file>      Compile and immediately execute an SP program\n"
               << "  fmt <file>      Format SP source files according to style rules\n"
@@ -51,10 +53,13 @@ void printHelp() {
               << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
               << "  init [name]     Initialize a new SP project with sp.toml\n\n"
               << "Options:\n"
-              << "  -o <path>       Specify output binary path (for build command)\n"
-              << "  -O0, -O1, -O2, -O3, -Os Optimization level (default: -O0)\n"
+              << "  -o <path>       Specify output binary path (for build/obj command)\n"
+              << "  -c, --emit-obj  Emit relocatable object file (.o / .obj) directly\n"
+              << "  -S, --emit-ir   Emit LLVM IR (.ll) directly\n"
+              << "  -O0, -O1, -O2, -O3, -Os, -Oz Optimization level (default: -O0)\n"
+              << "  --opt-level <O> Specify optimization level (O0, O1, O2, O3, Os, Oz)\n"
               << "  --release       Build with -O3 optimizations enabled\n"
-              << "  --debug         Build with debug symbols (-g) enabled\n"
+              << "  -g, --debug     Build with debug symbols (-g) enabled\n"
               << "  --target <arch> Cross-compile for target architecture triple\n"
               << "  -h, --help      Display this help message\n"
               << "  -v, --version   Display compiler version information\n";
@@ -94,7 +99,7 @@ int main(int argc, char* argv[]) {
 
     if (command == "tokens" || command == "ast" || command == "sema" ||
         command == "check" || command == "ir" || command == "llvm" ||
-        command == "build" || command == "run") {
+        command == "obj" || command == "build" || command == "run") {
 
         // Parse options and identify input source file
         std::string filename;
@@ -103,11 +108,25 @@ int main(int argc, char* argv[]) {
         std::string optLevel;
         bool releaseMode = false;
         bool debugMode = false;
+        bool emitObjOnly = false;
+        bool emitIROnly = false;
 
         for (int i = 2; i < argc; ++i) {
             std::string_view arg = argv[i];
             if (arg == "-o" && i + 1 < argc) {
                 outputPath = argv[++i];
+            } else if (arg == "-c" || arg == "--emit-obj") {
+                emitObjOnly = true;
+            } else if (arg == "-S" || arg == "--emit-ir") {
+                emitIROnly = true;
+            } else if (arg == "-g") {
+                debugMode = true;
+            } else if (arg == "--opt-level" && i + 1 < argc) {
+                optLevel = argv[++i];
+                if (!optLevel.empty() && optLevel[0] != '-') optLevel = "-" + optLevel;
+            } else if (arg.starts_with("--opt-level=")) {
+                optLevel = std::string(arg.substr(12));
+                if (!optLevel.empty() && optLevel[0] != '-') optLevel = "-" + optLevel;
             } else if (arg == "--release") {
                 releaseMode = true;
                 optLevel = "-O3";
@@ -244,8 +263,30 @@ int main(int argc, char* argv[]) {
         }
         sp::codegen::LLVMGenerator llvmGen(codegenOpts);
 
-        if (command == "llvm") {
-            std::cout << llvmGen.generateLLVMIR(*irModule);
+        if (command == "llvm" || emitIROnly) {
+            std::string ir = llvmGen.generateLLVMIR(*irModule);
+            if (!outputPath.empty()) {
+                std::ofstream out(outputPath);
+                out << ir;
+                std::cout << "Emitted LLVM IR to: " << outputPath << "\n";
+            } else {
+                std::cout << ir;
+            }
+            return 0;
+        }
+
+        if (command == "obj" || emitObjOnly) {
+            if (outputPath.empty()) {
+                fs::path p = fs::path(filename).stem();
+                p.replace_extension(sp::codegen::ObjectEmitter::getObjectFileExtension(codegenOpts.targetTriple));
+                outputPath = p.string();
+            }
+            bool ok = llvmGen.emitObjectFile(*irModule, outputPath);
+            if (!ok) {
+                std::cerr << "Object emission failed: " << llvmGen.getLastError() << "\n";
+                return 1;
+            }
+            std::cout << "Successfully emitted object file: " << outputPath << "\n";
             return 0;
         }
 
