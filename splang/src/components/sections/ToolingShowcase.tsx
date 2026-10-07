@@ -33,7 +33,7 @@ export const ToolingShowcase: React.FC = () => {
       badge: "LSP & DAP",
       description:
         "Official JSON-RPC 2.0 Language Server and Debug Adapter. Autocomplete, hover tooltips, go-to-definition, and breakpoints in VS Code.",
-      command: "code --install-extension sp-lang",
+      command: "irm https://dl.splang.shantopaul.com/sp-vscode.vsix -OutFile $env:TEMP/sp.vsix; code --install-extension $env:TEMP/sp.vsix",
       features: ["Real-time diagnostics", "Variable inspection", "Step over/into/out debugger"],
     },
   ];

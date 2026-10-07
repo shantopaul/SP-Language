@@ -195,8 +195,21 @@ class User extends Entity implements Printable {
       </ul>
     </section>
 
+    <section id="spls">
+      <h2>7. VS Code Extension & Language Server (spls)</h2>
+      <p>SP provides an official Visual Studio Code extension with full syntax highlighting, TextMate grammar, snippets, and LSP autocomplete:</p>
+      <p><strong>Install in one command (PowerShell):</strong></p>
+      <pre><code>irm https://dl.splang.shantopaul.com/sp-vscode.vsix -OutFile "$env:TEMP\sp-vscode.vsix"; code --install-extension "$env:TEMP\sp-vscode.vsix"</code></pre>
+      <p>Or download the package directly: <a href="https://dl.splang.shantopaul.com/sp-vscode.vsix" style="color: var(--primary);">sp-vscode.vsix (11.8 KB)</a> and select <em>Install from VSIX...</em> in VS Code.</p>
+    </section>
+
+    <section id="debugger">
+      <h2>8. Debug Adapter Protocol (spd)</h2>
+      <p>SP includes <code>spd</code> for interactive source-level debugging with step-in, step-over, breakpoints, and live variable inspection in VS Code.</p>
+    </section>
+
     <section id="benchmarks">
-      <h2>7. Performance Benchmarks</h2>
+      <h2>9. Performance Benchmarks</h2>
       <p>SP compiles straight to native machine code through LLVM with <code>-O3</code> optimizations. Measurements across 7 languages:</p>
       <ul>
         <li><strong>Recursive Fibonacci (35):</strong> SP: 39.62 ms | C: 29.67 ms | C++: 37.87 ms | Rust: 29.30 ms | Java: 102.54 ms | Node: 144.29 ms | Python: 1,402.38 ms (<strong>35.4x faster than Python</strong>)</li>

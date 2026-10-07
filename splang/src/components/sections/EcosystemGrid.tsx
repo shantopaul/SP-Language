@@ -25,11 +25,11 @@ export const EcosystemGrid: React.FC = () => {
     },
     {
       title: "VS Code Extension",
-      url: "https://marketplace.visualstudio.com",
+      url: "https://dl.splang.shantopaul.com/sp-vscode.vsix",
       description:
         "Official editor support featuring TextMate syntax highlighting, code snippets, LSP autocompletion, and DAP stepping debugger.",
       icon: Code,
-      badge: "editors/vscode",
+      badge: "sp-vscode.vsix",
       accent: "from-blue-500/20 to-indigo-500/5",
       border: "hover:border-blue-500/50",
     },

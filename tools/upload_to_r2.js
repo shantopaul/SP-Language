@@ -98,6 +98,7 @@ function getMimeType(filePath) {
   switch (ext) {
     case '.zip': return 'application/zip';
     case '.exe': return 'application/octet-stream';
+    case '.vsix': return 'application/octet-stream';
     case '.ps1': return 'text/plain; charset=utf-8';
     case '.sh':  return 'text/plain; charset=utf-8';
     case '.json': return 'application/json';
@@ -203,6 +204,12 @@ async function main() {
   const setupExe = path.join(repoRoot, 'dist', 'sp-setup.exe');
   if (fs.existsSync(setupExe)) {
     filesToUpload.push({ path: setupExe, key: 'sp-setup.exe' });
+  }
+
+  const vsixExt = path.join(repoRoot, 'dist', 'sp-language-support-1.0.0.vsix');
+  if (fs.existsSync(vsixExt)) {
+    filesToUpload.push({ path: vsixExt, key: 'sp-language-support-1.0.0.vsix' });
+    filesToUpload.push({ path: vsixExt, key: 'sp-vscode.vsix' });
   }
 
   if (filesToUpload.length === 0) {
