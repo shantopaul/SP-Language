@@ -11,8 +11,8 @@ export const metadata = {
 
 export default function InstallationPage() {
   const winWinget = `winget install SPLang.SP`;
-  const winPs = `iwr -useb https://splang.shantopaul.com/install.ps1 | iex`;
-  const unixCurl = `curl -fsSL https://splang.shantopaul.com/install.sh | sh`;
+  const winPs = `irm https://dl.splang.shantopaul.com/install.ps1 | iex`;
+  const unixCurl = `curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh`;
   const verifyCmd = `spc --version
 spm --version`;
 

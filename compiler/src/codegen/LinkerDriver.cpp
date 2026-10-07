@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <iostream>
 
+#include "sp/util/PathUtils.h"
+
 namespace fs = std::filesystem;
 
 namespace sp::codegen {
@@ -20,86 +22,18 @@ LinkerDriver::LinkerDriver(LinkerDriverOptions options)
 }
 
 std::string LinkerDriver::findPrecompiledRuntimeLib(const std::string& customPath) {
-    if (!customPath.empty() && fs::exists(customPath)) {
-        return fs::absolute(customPath).string();
+    auto p = util::getRuntimeLibPath(customPath);
+    if (!p.empty() && fs::exists(p)) {
+        return p.string();
     }
-
-    const char* envLib = std::getenv("SP_RUNTIME_LIB");
-    if (envLib && fs::exists(envLib)) {
-        return fs::absolute(envLib).string();
-    }
-
-#ifdef SP_PROJECT_ROOT
-    fs::path projLib = fs::path(SP_PROJECT_ROOT) / "build" / "lib" / "libsp_runtime.a";
-    if (fs::exists(projLib)) {
-        return fs::absolute(projLib).string();
-    }
-    fs::path projLib2 = fs::path(SP_PROJECT_ROOT) / "lib" / "libsp_runtime.a";
-    if (fs::exists(projLib2)) {
-        return fs::absolute(projLib2).string();
-    }
-#endif
-
-    const char* envHome = std::getenv("SP_HOME");
-    if (envHome && fs::exists(envHome)) {
-        fs::path p1 = fs::path(envHome) / "lib" / "libsp_runtime.a";
-        if (fs::exists(p1)) return fs::absolute(p1).string();
-    }
-
-    const std::vector<std::string> candidates = {
-        "build/lib/libsp_runtime.a",
-        "../build/lib/libsp_runtime.a",
-        "../../build/lib/libsp_runtime.a",
-        "lib/libsp_runtime.a",
-        "../lib/libsp_runtime.a"
-    };
-
-    for (const auto& c : candidates) {
-        if (fs::exists(c)) {
-            return fs::absolute(c).string();
-        }
-    }
-
     return "libsp_runtime.a";
 }
 
 std::string LinkerDriver::findLinker(const std::string& targetTriple, const std::string& customPath) {
-    (void)targetTriple;
-    if (!customPath.empty()) {
-        if (fs::exists(customPath)) return customPath;
+    auto p = util::findLinker(targetTriple, customPath);
+    if (!p.empty() && fs::exists(p)) {
+        return p.string();
     }
-
-    const char* envLinker = std::getenv("SP_LINKER");
-    if (envLinker && fs::exists(envLinker)) {
-        return envLinker;
-    }
-
-    const char* envClang = std::getenv("SP_CLANG");
-    if (envClang && fs::exists(envClang)) {
-        return envClang;
-    }
-
-    const char* envClang2 = std::getenv("CLANG");
-    if (envClang2 && fs::exists(envClang2)) {
-        return envClang2;
-    }
-
-    // Known toolchain directories
-    const std::vector<std::string> knownPaths = {
-        "K:/AndroidDev/tools/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
-        "K:/AndroidDev/tools/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/ld.lld.exe",
-        "C:/msys64/ucrt64/bin/clang++.exe",
-        "C:/msys64/mingw64/bin/clang++.exe",
-        "C:/Program Files/LLVM/bin/clang++.exe",
-        "C:/Program Files/LLVM/bin/lld-link.exe"
-    };
-
-    for (const auto& path : knownPaths) {
-        if (fs::exists(path)) {
-            return path;
-        }
-    }
-
 #if defined(_WIN32)
     return "clang++.exe";
 #else

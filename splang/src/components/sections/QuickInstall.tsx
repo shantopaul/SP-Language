@@ -23,14 +23,14 @@ const INSTALL_TABS: InstallTab[] = [
     id: "windows-ps",
     label: "PowerShell",
     os: "Windows",
-    command: "iwr -useb https://splang.shantopaul.com/install.ps1 | iex",
-    description: "Automated PowerShell installer with environment verification.",
+    command: "irm https://dl.splang.shantopaul.com/install.ps1 | iex",
+    description: "Instant PowerShell installer with zero-dependency auto-setup.",
   },
   {
     id: "unix-curl",
     label: "Linux / macOS",
     os: "Ubuntu, Debian, macOS, Fedora, Arch",
-    command: "curl -fsSL https://splang.shantopaul.com/install.sh | sh",
+    command: "curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh",
     description: "Direct shell installer detecting OS and CPU architecture.",
   },
   {

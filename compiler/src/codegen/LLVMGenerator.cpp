@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <iostream>
 
+#include "sp/util/PathUtils.h"
+
 namespace fs = std::filesystem;
 
 namespace sp::codegen {
@@ -51,33 +53,10 @@ std::string LLVMGenerator::getHostTargetTriple() {
 }
 
 std::string LLVMGenerator::findClangCompiler() {
-    const char* envClang = std::getenv("SP_CLANG");
-    if (envClang && fs::exists(envClang)) {
-        return envClang;
+    auto p = util::findClangCompiler();
+    if (!p.empty() && fs::exists(p)) {
+        return p.string();
     }
-
-    const char* envClang2 = std::getenv("CLANG");
-    if (envClang2 && fs::exists(envClang2)) {
-        return envClang2;
-    }
-
-    // Check Android NDK LLVM toolchain path if present
-    const std::vector<std::string> knownPaths = {
-        "K:/AndroidDev/tools/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
-        "K:/AndroidDev/tools/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe",
-        "C:/msys64/ucrt64/bin/clang++.exe",
-        "C:/msys64/mingw64/bin/clang++.exe",
-        "C:/Program Files/LLVM/bin/clang++.exe",
-        "C:/Program Files (x86)/LLVM/bin/clang++.exe"
-    };
-
-    for (const auto& path : knownPaths) {
-        if (fs::exists(path)) {
-            return path;
-        }
-    }
-
-    // Default to clang++ in PATH
 #if defined(_WIN32)
     return "clang++.exe";
 #else
@@ -86,82 +65,22 @@ std::string LLVMGenerator::findClangCompiler() {
 }
 
 std::string LLVMGenerator::findRuntimeSourcePath() {
-    const char* envRt = std::getenv("SP_RUNTIME_SRC");
-    if (envRt && fs::exists(envRt)) {
-        return envRt;
+    auto p = util::getRuntimeSourcePath();
+    if (!p.empty() && fs::exists(p)) {
+        return p.string();
     }
-
-#ifdef SP_PROJECT_ROOT
-    fs::path projRt = fs::path(SP_PROJECT_ROOT) / "runtime" / "src" / "Runtime.cpp";
-    if (fs::exists(projRt)) {
-        return fs::absolute(projRt).string();
-    }
-#endif
-
-    const char* envHome = std::getenv("SP_HOME");
-    if (envHome && fs::exists(envHome)) {
-        fs::path p1 = fs::path(envHome) / "share" / "sp" / "runtime" / "Runtime.cpp";
-        if (fs::exists(p1)) return fs::absolute(p1).string();
-        fs::path p2 = fs::path(envHome) / "runtime" / "src" / "Runtime.cpp";
-        if (fs::exists(p2)) return fs::absolute(p2).string();
-    }
-
-    const std::vector<std::string> candidates = {
-        "runtime/src/Runtime.cpp",
-        "../runtime/src/Runtime.cpp",
-        "../../runtime/src/Runtime.cpp"
-    };
-
-    for (const auto& candidate : candidates) {
-        if (fs::exists(candidate)) {
-            return fs::absolute(candidate).string();
-        }
-    }
-
     return "runtime/src/Runtime.cpp";
 }
 
 std::string LLVMGenerator::findRuntimeIncludePath() {
-    const char* envInc = std::getenv("SP_RUNTIME_INC");
-    if (envInc && fs::exists(envInc)) {
-        return envInc;
+    auto p = util::getRuntimeIncludePath();
+    if (!p.empty() && fs::exists(p)) {
+        return p.string();
     }
-
-#ifdef SP_PROJECT_ROOT
-    fs::path projInc = fs::path(SP_PROJECT_ROOT) / "runtime" / "include";
-    if (fs::exists(projInc)) {
-        return fs::absolute(projInc).string();
-    }
-#endif
-
-    const char* envHome = std::getenv("SP_HOME");
-    if (envHome && fs::exists(envHome)) {
-        fs::path p1 = fs::path(envHome) / "include";
-        if (fs::exists(p1)) return fs::absolute(p1).string();
-        fs::path p2 = fs::path(envHome) / "runtime" / "include";
-        if (fs::exists(p2)) return fs::absolute(p2).string();
-    }
-
-    const std::vector<std::string> candidates = {
-        "runtime/include",
-        "../runtime/include",
-        "../../runtime/include"
-    };
-
-    for (const auto& candidate : candidates) {
-        if (fs::exists(candidate)) {
-            return fs::absolute(candidate).string();
-        }
-    }
-
     return "runtime/include";
 }
 
 std::string LLVMGenerator::findRuntimeLibPath() {
-    const char* envLib = std::getenv("SP_RUNTIME_LIB");
-    if (envLib && fs::exists(envLib)) {
-        return envLib;
-    }
     return LinkerDriver::findPrecompiledRuntimeLib();
 }
 
