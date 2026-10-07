@@ -39,6 +39,7 @@ This directory contains the complete architectural audit, strategic goal definit
 ## 🏛️ Architectural Decision Records (ADRs)
 
 Located in [`DECISIONS/`](DECISIONS/):
+- **[`ADR-000: Selection of Strategic Direction — Direction B`](DECISIONS/ADR-000-strategic-direction.md):** **[APPROVED]** Formal selection of **Direction B: High-Performance Native Application & Cloud Language** (Backend, Cloud, Microservices, CLI, Data Engines).
 - **[`ADR-001: Memory Management Architecture`](DECISIONS/ADR-001-memory-model.md):** Hybrid Value Semantics by default + Compiler-Automated Reference Counting (ARC).
 - **[`ADR-002: Error Handling Model`](DECISIONS/ADR-002-error-handling.md):** `Result<T, E>` & `Option<T>` with syntactic `?` operator.
 - **[`ADR-003: Concurrency & Async Architecture`](DECISIONS/ADR-003-concurrency.md):** Structured `async`/`await` with Non-Blocking Event Loop (epoll/IOCP/kqueue).

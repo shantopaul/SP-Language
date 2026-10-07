@@ -75,8 +75,14 @@ To remain maintainable, lightweight, and laser-focused, SP explicitly commits to
 
 ## 7. Long-Term Technical Direction
 
-### Strategic Core: High-Performance Native Systems & Cloud Services
-SP’s primary architectural pillar is: **High-Performance Native Application & Service Engineering**.
+### Formally Approved Strategic Direction: Direction B (High-Performance Native Application & Cloud Language)
+> **Decision Ratified by Shanto Paul (October 7, 2026) — See [ADR-000](DECISIONS/ADR-000-strategic-direction.md)**
+
+SP's official architectural pillar is: **High-Performance Native Application, Cloud Infrastructure & Developer Tooling Engineering**.
+
+* **Target Domains:** Backend Cloud Services, Microservices, CLI Developer Tools, Networking, and Data Engines.
+* **Primary Competitors:** Go, C#, Swift, modern Java.
+* **Core Advantage:** Go/TypeScript ergonomics + C++/Rust native performance with **zero stop-the-world GC pause spikes**.
 
 ```
 ┌────────────────────────────────────────────────────────┐
