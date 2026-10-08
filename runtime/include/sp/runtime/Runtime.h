@@ -475,5 +475,68 @@ extern "C" {
     void        sp_rt_http_server_use_recovery(void* srv);
     void        sp_rt_http_server_use_request_id(void* srv);
     void        sp_rt_http_server_use_rate_limiter(void* srv, int64_t max_reqs, int64_t window_secs);
+
+    // Phase 23: Tier-1 Databases & Connection Pooling (PostgreSQL & SQLite) (SP 2.5)
+    // SQLite C-ABI bindings
+    void*       sp_rt_sqlite_open(const char* path, int64_t busy_timeout_ms, bool wal_mode);
+    void        sp_rt_sqlite_close(void* db);
+    int64_t     sp_rt_sqlite_exec(void* db, const char* sql);
+    const char* sp_rt_sqlite_errmsg(void* db);
+    int64_t     sp_rt_sqlite_last_insert_rowid(void* db);
+    int64_t     sp_rt_sqlite_changes(void* db);
+    bool        sp_rt_sqlite_begin(void* db);
+    bool        sp_rt_sqlite_commit(void* db);
+    bool        sp_rt_sqlite_rollback(void* db);
+
+    void*       sp_rt_sqlite_prepare(void* db, const char* sql);
+    bool        sp_rt_sqlite_bind_int(void* stmt, int64_t index, int64_t val);
+    bool        sp_rt_sqlite_bind_double(void* stmt, int64_t index, double val);
+    bool        sp_rt_sqlite_bind_string(void* stmt, int64_t index, const char* val);
+    bool        sp_rt_sqlite_bind_null(void* stmt, int64_t index);
+    int64_t     sp_rt_sqlite_step(void* stmt); // 100 = Row, 101 = Done
+    int64_t     sp_rt_sqlite_col_count(void* stmt);
+    const char* sp_rt_sqlite_col_name(void* stmt, int64_t index);
+    int64_t     sp_rt_sqlite_col_type(void* stmt, int64_t index);
+    int64_t     sp_rt_sqlite_col_int(void* stmt, int64_t index);
+    double      sp_rt_sqlite_col_double(void* stmt, int64_t index);
+    const char* sp_rt_sqlite_col_string(void* stmt, int64_t index);
+    bool        sp_rt_sqlite_col_is_null(void* stmt, int64_t index);
+    bool        sp_rt_sqlite_reset(void* stmt);
+    bool        sp_rt_sqlite_clear_bindings(void* stmt);
+    void        sp_rt_sqlite_finalize(void* stmt);
+
+    // PostgreSQL C-ABI bindings
+    void*       sp_rt_pg_connect(const char* conn_str);
+    void        sp_rt_pg_close(void* conn);
+    bool        sp_rt_pg_is_connected(void* conn);
+    const char* sp_rt_pg_last_error(void* conn);
+    void*       sp_rt_pg_query(void* conn, const char* sql);
+    void*       sp_rt_pg_query_params(void* conn, const char* sql, const char** params, int64_t param_count);
+    bool        sp_rt_pg_ping(void* conn);
+    bool        sp_rt_pg_begin(void* conn);
+    bool        sp_rt_pg_commit(void* conn);
+    bool        sp_rt_pg_rollback(void* conn);
+
+    bool        sp_rt_pg_res_is_ok(void* res);
+    const char* sp_rt_pg_res_error(void* res);
+    const char* sp_rt_pg_res_command_tag(void* res);
+    int64_t     sp_rt_pg_res_affected_rows(void* res);
+    int64_t     sp_rt_pg_res_row_count(void* res);
+    int64_t     sp_rt_pg_res_col_count(void* res);
+    const char* sp_rt_pg_res_col_name(void* res, int64_t col);
+    const char* sp_rt_pg_res_get_value(void* res, int64_t row, int64_t col);
+    bool        sp_rt_pg_res_is_null(void* res, int64_t row, int64_t col);
+    void        sp_rt_pg_res_free(void* res);
+
+    // Connection Pool C-ABI bindings
+    void*       sp_rt_db_pool_create_sqlite(const char* path, int64_t min_conn, int64_t max_conn, int64_t acquire_timeout_ms);
+    void*       sp_rt_db_pool_create_pg(const char* conn_str, int64_t min_conn, int64_t max_conn, int64_t acquire_timeout_ms);
+    void*       sp_rt_db_pool_acquire(void* pool);
+    void        sp_rt_db_pool_release(void* pool, void* conn);
+    void        sp_rt_db_pool_invalidate(void* pool, void* conn);
+    void        sp_rt_db_pool_close(void* pool);
+    int64_t     sp_rt_db_pool_total(void* pool);
+    int64_t     sp_rt_db_pool_available(void* pool);
+    int64_t     sp_rt_db_pool_in_use(void* pool);
 }
 
