@@ -12,12 +12,24 @@ add_library(sp_runtime
     src/crypto/Crypto.cpp
     src/json/Json.cpp
     src/http/Http.cpp
+    src/db/Sqlite.cpp
+    src/db/Postgres.cpp
+    src/db/DbPool.cpp
+    src/db/DbBridge.cpp
+    third_party/sqlite3/sqlite3.c
 )
 
 target_include_directories(sp_runtime
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite3>
         $<INSTALL_INTERFACE:include>
+)
+
+target_compile_definitions(sp_runtime PRIVATE
+    SQLITE_THREADSAFE=1
+    SQLITE_ENABLE_WAL=1
+    SQLITE_ENABLE_JSON1=1
 )
 
 target_compile_features(sp_runtime PUBLIC cxx_std_20)
