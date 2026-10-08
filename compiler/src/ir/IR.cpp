@@ -1140,6 +1140,158 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getPointer(), "fn", 1),
                     std::make_shared<ParameterValue>(IRType::getInt64(), "init", 2)},
                    true);
+
+    // ========================================================================
+    // Phase 15: Concurrency, Thread Pool & Lock-Free Channels (std.sync)
+    // ========================================================================
+
+    // OS Threads
+    createFunction("sp_rt_thread_spawn", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "fnPtr", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "arg", 1)}, true);
+    createFunction("sp_rt_thread_join", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "handle", 0)}, true);
+    createFunction("sp_rt_thread_detach", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "handle", 0)}, true);
+    createFunction("sp_rt_thread_id", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_thread_hardware_concurrency", IRType::getInt64(), {}, true);
+    createFunction("sp_rt_thread_yield", IRType::getVoid(), {}, true);
+    createFunction("sp_rt_thread_sleep_ms", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 0)}, true);
+
+    // Mutex
+    createFunction("sp_rt_mutex_create", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_mutex_lock", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "mtx", 0)}, true);
+    createFunction("sp_rt_mutex_try_lock", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "mtx", 0)}, true);
+    createFunction("sp_rt_mutex_unlock", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "mtx", 0)}, true);
+    createFunction("sp_rt_mutex_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "mtx", 0)}, true);
+
+    // RwLock
+    createFunction("sp_rt_rwlock_create", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_rwlock_read_lock", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+    createFunction("sp_rt_rwlock_try_read_lock", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+    createFunction("sp_rt_rwlock_read_unlock", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+    createFunction("sp_rt_rwlock_write_lock", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+    createFunction("sp_rt_rwlock_try_write_lock", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+    createFunction("sp_rt_rwlock_write_unlock", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+    createFunction("sp_rt_rwlock_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "rw", 0)}, true);
+
+    // Semaphore
+    createFunction("sp_rt_semaphore_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "count", 0)}, true);
+    createFunction("sp_rt_semaphore_acquire", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sem", 0)}, true);
+    createFunction("sp_rt_semaphore_try_acquire", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sem", 0)}, true);
+    createFunction("sp_rt_semaphore_release", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sem", 0)}, true);
+    createFunction("sp_rt_semaphore_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sem", 0)}, true);
+
+    // ConditionVariable
+    createFunction("sp_rt_condvar_create", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_condvar_wait", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "cv", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "mtx", 1)}, true);
+    createFunction("sp_rt_condvar_wait_timeout", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "cv", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "mtx", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 2)}, true);
+    createFunction("sp_rt_condvar_notify_one", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "cv", 0)}, true);
+    createFunction("sp_rt_condvar_notify_all", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "cv", 0)}, true);
+    createFunction("sp_rt_condvar_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "cv", 0)}, true);
+
+    // Atomics: AtomicInt
+    createFunction("sp_rt_atomic_int_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "initialVal", 0)}, true);
+    createFunction("sp_rt_atomic_int_load", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0)}, true);
+    createFunction("sp_rt_atomic_int_store", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_atomic_int_add", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_atomic_int_sub", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_atomic_int_exchange", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_atomic_int_cas", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "expected", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "desired", 2)}, true);
+    createFunction("sp_rt_atomic_int_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0)}, true);
+
+    // Atomics: AtomicBool
+    createFunction("sp_rt_atomic_bool_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt1(), "initialVal", 0)}, true);
+    createFunction("sp_rt_atomic_bool_load", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0)}, true);
+    createFunction("sp_rt_atomic_bool_store", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt1(), "val", 1)}, true);
+    createFunction("sp_rt_atomic_bool_exchange", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt1(), "val", 1)}, true);
+    createFunction("sp_rt_atomic_bool_cas", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt1(), "expected", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt1(), "desired", 2)}, true);
+    createFunction("sp_rt_atomic_bool_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "atom", 0)}, true);
+
+    // Channels
+    createFunction("sp_rt_channel_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "capacity", 0)}, true);
+    createFunction("sp_rt_channel_send_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_channel_recv_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+    createFunction("sp_rt_channel_try_send_i64", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "val", 1)}, true);
+    createFunction("sp_rt_channel_close", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+    createFunction("sp_rt_channel_is_closed", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+    createFunction("sp_rt_channel_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+    createFunction("sp_rt_channel_capacity", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+    createFunction("sp_rt_channel_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+
+    // ThreadPool
+    createFunction("sp_rt_threadpool_create", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getInt64(), "numThreads", 0)}, true);
+    createFunction("sp_rt_threadpool_submit", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pool", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "fnPtr", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "arg", 2)}, true);
+    createFunction("sp_rt_threadpool_wait_idle", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pool", 0)}, true);
+    createFunction("sp_rt_threadpool_thread_count", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pool", 0)}, true);
+    createFunction("sp_rt_threadpool_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pool", 0)}, true);
 }
 
 } // namespace sp::ir

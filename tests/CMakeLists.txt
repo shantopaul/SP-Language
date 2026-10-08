@@ -47,6 +47,7 @@ add_executable(sp_tests
     codegen/DebugInfoGeneratorTest.cpp
     codegen/LLVMOptimizerTest.cpp
     runtime/RuntimeTest.cpp
+    runtime/ConcurrencyTest.cpp
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp
     spm/LockfileTest.cpp

@@ -594,6 +594,103 @@ TypeContext::TypeContext() {
 
         ioCls->addMethod({"tryReadLine", getFunctionType({}, resultStrIO), "public", true, false, false});
     }
+
+    // ========================================================================
+    // Phase 15: Concurrency and Synchronization Types (std.sync)
+    // ========================================================================
+    auto threadCls = createClassType("Thread");
+    threadCls->addField({"handle", m_int64Type, "public", false, false});
+    threadCls->addMethod({"spawn", getFunctionType({m_int64Type, m_int64Type}, threadCls), "public", true, false, false});
+    threadCls->addMethod({"spawn", getFunctionType({m_int64Type}, threadCls), "public", true, false, false});
+    threadCls->addMethod({"id", getFunctionType({}, m_int64Type), "public", true, false, false});
+    threadCls->addMethod({"hardwareConcurrency", getFunctionType({}, m_int64Type), "public", true, false, false});
+    threadCls->addMethod({"yield", getFunctionType({}, m_voidType), "public", true, false, false});
+    threadCls->addMethod({"sleep", getFunctionType({m_int64Type}, m_voidType), "public", true, false, false});
+    threadCls->addMethod({"sleep", getFunctionType({m_int32Type}, m_voidType), "public", true, false, false});
+    threadCls->addMethod({"join", getFunctionType({}, m_voidType), "public", false, false, false});
+    threadCls->addMethod({"detach", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto mutexCls = createClassType("Mutex");
+    mutexCls->addField({"handle", m_int64Type, "public", false, false});
+    mutexCls->addMethod({"lock", getFunctionType({}, m_voidType), "public", false, false, false});
+    mutexCls->addMethod({"tryLock", getFunctionType({}, m_boolType), "public", false, false, false});
+    mutexCls->addMethod({"unlock", getFunctionType({}, m_voidType), "public", false, false, false});
+    mutexCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto rwlockCls = createClassType("RwLock");
+    rwlockCls->addField({"handle", m_int64Type, "public", false, false});
+    rwlockCls->addMethod({"readLock", getFunctionType({}, m_voidType), "public", false, false, false});
+    rwlockCls->addMethod({"tryReadLock", getFunctionType({}, m_boolType), "public", false, false, false});
+    rwlockCls->addMethod({"readUnlock", getFunctionType({}, m_voidType), "public", false, false, false});
+    rwlockCls->addMethod({"writeLock", getFunctionType({}, m_voidType), "public", false, false, false});
+    rwlockCls->addMethod({"tryWriteLock", getFunctionType({}, m_boolType), "public", false, false, false});
+    rwlockCls->addMethod({"writeUnlock", getFunctionType({}, m_voidType), "public", false, false, false});
+    rwlockCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto semCls = createClassType("Semaphore");
+    semCls->addField({"handle", m_int64Type, "public", false, false});
+    semCls->addMethod({"acquire", getFunctionType({}, m_voidType), "public", false, false, false});
+    semCls->addMethod({"tryAcquire", getFunctionType({}, m_boolType), "public", false, false, false});
+    semCls->addMethod({"release", getFunctionType({}, m_voidType), "public", false, false, false});
+    semCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto cvCls = createClassType("ConditionVariable");
+    cvCls->addField({"handle", m_int64Type, "public", false, false});
+    cvCls->addMethod({"wait", getFunctionType({mutexCls}, m_voidType), "public", false, false, false});
+    cvCls->addMethod({"waitTimeout", getFunctionType({mutexCls, m_int64Type}, m_boolType), "public", false, false, false});
+    cvCls->addMethod({"waitTimeout", getFunctionType({mutexCls, m_int32Type}, m_boolType), "public", false, false, false});
+    cvCls->addMethod({"notifyOne", getFunctionType({}, m_voidType), "public", false, false, false});
+    cvCls->addMethod({"notifyAll", getFunctionType({}, m_voidType), "public", false, false, false});
+    cvCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto atomicIntCls = createClassType("AtomicInt");
+    atomicIntCls->addField({"handle", m_int64Type, "public", false, false});
+    atomicIntCls->addMethod({"get", getFunctionType({}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"load", getFunctionType({}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"set", getFunctionType({m_int64Type}, m_voidType), "public", false, false, false});
+    atomicIntCls->addMethod({"set", getFunctionType({m_int32Type}, m_voidType), "public", false, false, false});
+    atomicIntCls->addMethod({"store", getFunctionType({m_int64Type}, m_voidType), "public", false, false, false});
+    atomicIntCls->addMethod({"store", getFunctionType({m_int32Type}, m_voidType), "public", false, false, false});
+    atomicIntCls->addMethod({"add", getFunctionType({m_int64Type}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"add", getFunctionType({m_int32Type}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"sub", getFunctionType({m_int64Type}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"sub", getFunctionType({m_int32Type}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"increment", getFunctionType({}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"decrement", getFunctionType({}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"exchange", getFunctionType({m_int64Type}, m_int64Type), "public", false, false, false});
+    atomicIntCls->addMethod({"compareAndSwap", getFunctionType({m_int64Type, m_int64Type}, m_boolType), "public", false, false, false});
+    atomicIntCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto atomicBoolCls = createClassType("AtomicBool");
+    atomicBoolCls->addField({"handle", m_int64Type, "public", false, false});
+    atomicBoolCls->addMethod({"get", getFunctionType({}, m_boolType), "public", false, false, false});
+    atomicBoolCls->addMethod({"load", getFunctionType({}, m_boolType), "public", false, false, false});
+    atomicBoolCls->addMethod({"set", getFunctionType({m_boolType}, m_voidType), "public", false, false, false});
+    atomicBoolCls->addMethod({"store", getFunctionType({m_boolType}, m_voidType), "public", false, false, false});
+    atomicBoolCls->addMethod({"exchange", getFunctionType({m_boolType}, m_boolType), "public", false, false, false});
+    atomicBoolCls->addMethod({"compareAndSwap", getFunctionType({m_boolType, m_boolType}, m_boolType), "public", false, false, false});
+    atomicBoolCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto channelCls = createClassType("Channel");
+    channelCls->setTypeParams({"T"});
+    channelCls->addField({"handle", m_int64Type, "public", false, false});
+    channelCls->addMethod({"send", getFunctionType({m_int64Type}, m_boolType), "public", false, false, false});
+    channelCls->addMethod({"send", getFunctionType({m_anyType}, m_boolType), "public", false, false, false});
+    channelCls->addMethod({"recv", getFunctionType({}, m_int64Type), "public", false, false, false});
+    channelCls->addMethod({"trySend", getFunctionType({m_int64Type}, m_boolType), "public", false, false, false});
+    channelCls->addMethod({"trySend", getFunctionType({m_anyType}, m_boolType), "public", false, false, false});
+    channelCls->addMethod({"close", getFunctionType({}, m_voidType), "public", false, false, false});
+    channelCls->addMethod({"isClosed", getFunctionType({}, m_boolType), "public", false, false, false});
+    channelCls->addMethod({"size", getFunctionType({}, m_int64Type), "public", false, false, false});
+    channelCls->addMethod({"capacity", getFunctionType({}, m_int64Type), "public", false, false, false});
+    channelCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
+
+    auto poolCls = createClassType("ThreadPool");
+    poolCls->addField({"handle", m_int64Type, "public", false, false});
+    poolCls->addMethod({"submit", getFunctionType({m_int64Type, m_int64Type}, m_voidType), "public", false, false, false});
+    poolCls->addMethod({"waitIdle", getFunctionType({}, m_voidType), "public", false, false, false});
+    poolCls->addMethod({"threadCount", getFunctionType({}, m_int64Type), "public", false, false, false});
+    poolCls->addMethod({"destroy", getFunctionType({}, m_voidType), "public", false, false, false});
 }
 
 TypePtr TypeContext::getArrayType(TypePtr elementType) {

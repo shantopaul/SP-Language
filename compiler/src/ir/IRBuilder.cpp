@@ -3233,6 +3233,58 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
 
+            if (targetName == "Thread") {
+                if (methodName == "id") {
+                    std::string reg = m_currentFunction->nextTempName("tid");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_thread_id", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "hardwareConcurrency") {
+                    std::string reg = m_currentFunction->nextTempName("hwc");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_thread_hardware_concurrency", std::vector<IRValuePtr>{}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "yield") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_thread_yield", std::vector<IRValuePtr>{});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "sleep" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_thread_sleep_ms", std::vector<IRValuePtr>{ms});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "spawn" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto fnPtr = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    IRValuePtr argVal = nullptr;
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[1]->accept(*this);
+                        argVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    } else {
+                        argVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+                    }
+                    std::string reg = m_currentFunction->nextTempName("th_handle");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_thread_spawn", std::vector<IRValuePtr>{fnPtr, argVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+            }
+
             if (targetName == "Result" || targetName.rfind("Result<", 0) == 0) {
                 if (methodName == "Ok" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
@@ -3565,6 +3617,438 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 m_lastExprValue = callInst;
                 m_lastExprType = IRType::getInt64();
                 return;
+            }
+        }
+
+        if (semaObjType && semaObjType->isClass()) {
+            std::string clsName = semaObjType->toString();
+
+            if (clsName == "Thread") {
+                if (methodName == "join") {
+                    auto hVal = emitCastIfNeeded(objVal, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_thread_join", std::vector<IRValuePtr>{hVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "detach") {
+                    auto hVal = emitCastIfNeeded(objVal, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_thread_detach", std::vector<IRValuePtr>{hVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "Mutex") {
+                if (methodName == "lock") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_mutex_lock", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "tryLock") {
+                    std::string reg = m_currentFunction->nextTempName("mtx_try");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_mutex_try_lock", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "unlock") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_mutex_unlock", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_mutex_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "RwLock") {
+                if (methodName == "readLock") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_rwlock_read_lock", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "tryReadLock") {
+                    std::string reg = m_currentFunction->nextTempName("rw_try");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_rwlock_try_read_lock", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "readUnlock") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_rwlock_read_unlock", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "writeLock") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_rwlock_write_lock", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "tryWriteLock") {
+                    std::string reg = m_currentFunction->nextTempName("rw_try");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_rwlock_try_write_lock", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "writeUnlock") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_rwlock_write_unlock", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_rwlock_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "Semaphore") {
+                if (methodName == "acquire") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_semaphore_acquire", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "tryAcquire") {
+                    std::string reg = m_currentFunction->nextTempName("sem_try");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_semaphore_try_acquire", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "release") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_semaphore_release", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_semaphore_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "ConditionVariable") {
+                if (methodName == "wait" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto mtxVal = m_lastExprValue;
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_condvar_wait", std::vector<IRValuePtr>{objVal, mtxVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "waitTimeout" && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto mtxVal = m_lastExprValue;
+                    node.getArgs()[1]->accept(*this);
+                    auto msVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("cv_timeout");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_condvar_wait_timeout", std::vector<IRValuePtr>{objVal, mtxVal, msVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "notifyOne") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_condvar_notify_one", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "notifyAll") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_condvar_notify_all", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_condvar_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "AtomicInt") {
+                if (methodName == "get" || methodName == "load") {
+                    std::string reg = m_currentFunction->nextTempName("atom_val");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_atomic_int_load", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if ((methodName == "set" || methodName == "store") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_atomic_int_store", std::vector<IRValuePtr>{objVal, val});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "add" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("atom_add");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_atomic_int_add", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "sub" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("atom_sub");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_atomic_int_sub", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "increment") {
+                    auto val = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    std::string reg = m_currentFunction->nextTempName("atom_inc");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_atomic_int_add", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "decrement") {
+                    auto val = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+                    std::string reg = m_currentFunction->nextTempName("atom_dec");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_atomic_int_sub", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "exchange" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("atom_xchg");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_atomic_int_exchange", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "compareAndSwap" && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto expVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    node.getArgs()[1]->accept(*this);
+                    auto desVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("atom_cas");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_atomic_int_cas", std::vector<IRValuePtr>{objVal, expVal, desVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_atomic_int_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "AtomicBool") {
+                if (methodName == "get" || methodName == "load") {
+                    std::string reg = m_currentFunction->nextTempName("atom_bval");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_atomic_bool_load", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if ((methodName == "set" || methodName == "store") && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt1());
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_atomic_bool_store", std::vector<IRValuePtr>{objVal, val});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "exchange" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt1());
+                    std::string reg = m_currentFunction->nextTempName("atom_bxchg");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_atomic_bool_exchange", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "compareAndSwap" && node.getArgs().size() >= 2) {
+                    node.getArgs()[0]->accept(*this);
+                    auto expVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt1());
+                    node.getArgs()[1]->accept(*this);
+                    auto desVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt1());
+                    std::string reg = m_currentFunction->nextTempName("atom_bcas");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_atomic_bool_cas", std::vector<IRValuePtr>{objVal, expVal, desVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_atomic_bool_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "Channel" || clsName.rfind("Channel", 0) == 0) {
+                if (methodName == "send" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("chan_send");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_channel_send_i64", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "recv") {
+                    std::string reg = m_currentFunction->nextTempName("chan_recv");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_channel_recv_i64", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "trySend" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    std::string reg = m_currentFunction->nextTempName("chan_tsend");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_channel_try_send_i64", std::vector<IRValuePtr>{objVal, val}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "close") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_channel_close", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "isClosed") {
+                    std::string reg = m_currentFunction->nextTempName("chan_closed");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_channel_is_closed", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt1();
+                    return;
+                }
+                if (methodName == "size") {
+                    std::string reg = m_currentFunction->nextTempName("chan_sz");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_channel_size", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "capacity") {
+                    std::string reg = m_currentFunction->nextTempName("chan_cap");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_channel_capacity", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_channel_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+            }
+
+            if (clsName == "ThreadPool") {
+                if (methodName == "submit" && !node.getArgs().empty()) {
+                    node.getArgs()[0]->accept(*this);
+                    auto fnVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    IRValuePtr argVal = nullptr;
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[1]->accept(*this);
+                        argVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    } else {
+                        argVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+                    }
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_threadpool_submit", std::vector<IRValuePtr>{objVal, fnVal, argVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "waitIdle") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_threadpool_wait_idle", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
+                if (methodName == "threadCount") {
+                    std::string reg = m_currentFunction->nextTempName("tpool_cnt");
+                    auto callInst = std::make_shared<CallInst>(IRType::getInt64(), "sp_rt_threadpool_thread_count", std::vector<IRValuePtr>{objVal}, reg);
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = callInst;
+                    m_lastExprType = IRType::getInt64();
+                    return;
+                }
+                if (methodName == "destroy") {
+                    auto callInst = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_threadpool_destroy", std::vector<IRValuePtr>{objVal});
+                    m_currentBlock->addInstruction(callInst);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = IRType::getVoid();
+                    return;
+                }
             }
         }
 
@@ -5893,6 +6377,113 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             std::vector<IRValuePtr>{capVal},
             arenaReg
         );
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Mutex") {
+        std::string reg = m_currentFunction->nextTempName("mtx");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_mutex_create", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "RwLock") {
+        std::string reg = m_currentFunction->nextTempName("rw");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_rwlock_create", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Semaphore") {
+        IRValuePtr countVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            countVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        } else {
+            countVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1);
+        }
+        std::string reg = m_currentFunction->nextTempName("sem");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_semaphore_create", std::vector<IRValuePtr>{countVal}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "ConditionVariable") {
+        std::string reg = m_currentFunction->nextTempName("cv");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_condvar_create", std::vector<IRValuePtr>{}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "AtomicInt") {
+        IRValuePtr initVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            initVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        } else {
+            initVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        }
+        std::string reg = m_currentFunction->nextTempName("atom");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_atomic_int_create", std::vector<IRValuePtr>{initVal}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "AtomicBool") {
+        IRValuePtr initVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            initVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt1());
+        } else {
+            initVal = std::make_shared<ConstantInt>(IRType::getInt1(), 0);
+        }
+        std::string reg = m_currentFunction->nextTempName("atom");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_atomic_bool_create", std::vector<IRValuePtr>{initVal}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "Channel" || node.getTypeName() == "Channel") {
+        IRValuePtr capVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            capVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        } else {
+            capVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        }
+        std::string reg = m_currentFunction->nextTempName("chan");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_channel_create", std::vector<IRValuePtr>{capVal}, reg);
+        m_currentBlock->addInstruction(allocCall);
+        m_lastExprValue = allocCall;
+        m_lastExprType = IRType::getPointer();
+        return;
+    }
+
+    if (typeName == "ThreadPool") {
+        IRValuePtr threadsVal = nullptr;
+        if (!node.getArgs().empty()) {
+            node.getArgs()[0]->accept(*this);
+            threadsVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        } else {
+            threadsVal = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        }
+        std::string reg = m_currentFunction->nextTempName("tpool");
+        auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_threadpool_create", std::vector<IRValuePtr>{threadsVal}, reg);
         m_currentBlock->addInstruction(allocCall);
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();

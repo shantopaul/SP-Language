@@ -251,4 +251,99 @@ extern "C" {
     int64_t     sp_rt_process_spawn(const char* cmd);
     const char* sp_rt_process_run(const char* cmd);
     int64_t     sp_rt_process_pid();
+
+    // ========================================================================
+    // Phase 15: Concurrency, Thread Pool & Lock-Free Channels (std.sync)
+    // ========================================================================
+
+    // OS Threads
+    int64_t     sp_rt_thread_spawn(void (*fn)(void*), void* arg);
+    void        sp_rt_thread_join(int64_t handle);
+    void        sp_rt_thread_detach(int64_t handle);
+    int64_t     sp_rt_thread_id();
+    int64_t     sp_rt_thread_hardware_concurrency();
+    void        sp_rt_thread_yield();
+    void        sp_rt_thread_sleep_ms(int64_t ms);
+
+    // Mutex
+    void*       sp_rt_mutex_create();
+    void        sp_rt_mutex_lock(void* mtx);
+    bool        sp_rt_mutex_try_lock(void* mtx);
+    void        sp_rt_mutex_unlock(void* mtx);
+    void        sp_rt_mutex_destroy(void* mtx);
+
+    // RwLock
+    void*       sp_rt_rwlock_create();
+    void        sp_rt_rwlock_read_lock(void* rw);
+    bool        sp_rt_rwlock_try_read_lock(void* rw);
+    void        sp_rt_rwlock_read_unlock(void* rw);
+    void        sp_rt_rwlock_write_lock(void* rw);
+    bool        sp_rt_rwlock_try_write_lock(void* rw);
+    void        sp_rt_rwlock_write_unlock(void* rw);
+    void        sp_rt_rwlock_destroy(void* rw);
+
+    // Semaphore
+    void*       sp_rt_semaphore_create(int64_t initial_count);
+    void        sp_rt_semaphore_acquire(void* sem);
+    bool        sp_rt_semaphore_try_acquire(void* sem);
+    void        sp_rt_semaphore_release(void* sem);
+    void        sp_rt_semaphore_destroy(void* sem);
+
+    // ConditionVariable
+    void*       sp_rt_condvar_create();
+    void        sp_rt_condvar_wait(void* cv, void* mtx);
+    bool        sp_rt_condvar_wait_timeout(void* cv, void* mtx, int64_t timeout_ms);
+    void        sp_rt_condvar_notify_one(void* cv);
+    void        sp_rt_condvar_notify_all(void* cv);
+    void        sp_rt_condvar_destroy(void* cv);
+
+    // Atomics: AtomicInt
+    void*       sp_rt_atomic_int_create(int64_t initial_val);
+    int64_t     sp_rt_atomic_int_load(void* atom);
+    void        sp_rt_atomic_int_store(void* atom, int64_t val);
+    int64_t     sp_rt_atomic_int_add(void* atom, int64_t val);
+    int64_t     sp_rt_atomic_int_sub(void* atom, int64_t val);
+    int64_t     sp_rt_atomic_int_exchange(void* atom, int64_t val);
+    bool        sp_rt_atomic_int_cas(void* atom, int64_t expected, int64_t desired);
+    void        sp_rt_atomic_int_destroy(void* atom);
+
+    // Atomics: AtomicBool
+    void*       sp_rt_atomic_bool_create(bool initial_val);
+    bool        sp_rt_atomic_bool_load(void* atom);
+    void        sp_rt_atomic_bool_store(void* atom, bool val);
+    bool        sp_rt_atomic_bool_exchange(void* atom, bool val);
+    bool        sp_rt_atomic_bool_cas(void* atom, bool expected, bool desired);
+    void        sp_rt_atomic_bool_destroy(void* atom);
+
+    // Atomics: AtomicPtr
+    void*       sp_rt_atomic_ptr_create(void* initial_val);
+    void*       sp_rt_atomic_ptr_load(void* atom);
+    void        sp_rt_atomic_ptr_store(void* atom, void* val);
+    void*       sp_rt_atomic_ptr_exchange(void* atom, void* val);
+    bool        sp_rt_atomic_ptr_cas(void* atom, void* expected, void* desired);
+    void        sp_rt_atomic_ptr_destroy(void* atom);
+
+    // Channel
+    void*       sp_rt_channel_create(int64_t capacity);
+    bool        sp_rt_channel_send(void* chan, void* item);
+    void*       sp_rt_channel_recv(void* chan);
+    bool        sp_rt_channel_try_send(void* chan, void* item);
+    bool        sp_rt_channel_try_recv(void* chan, void** out_item);
+    bool        sp_rt_channel_send_i64(void* chan, int64_t val);
+    int64_t     sp_rt_channel_recv_i64(void* chan);
+    bool        sp_rt_channel_try_send_i64(void* chan, int64_t val);
+    bool        sp_rt_channel_try_recv_i64(void* chan, int64_t* out_val);
+    void        sp_rt_channel_close(void* chan);
+    bool        sp_rt_channel_is_closed(void* chan);
+    int64_t     sp_rt_channel_size(void* chan);
+    int64_t     sp_rt_channel_capacity(void* chan);
+    void        sp_rt_channel_destroy(void* chan);
+
+    // ThreadPool
+    void*       sp_rt_threadpool_create(int64_t num_threads);
+    void        sp_rt_threadpool_submit(void* pool, void (*fn)(void*), void* arg);
+    void        sp_rt_threadpool_wait_idle(void* pool);
+    int64_t     sp_rt_threadpool_thread_count(void* pool);
+    void        sp_rt_threadpool_destroy(void* pool);
 }
+

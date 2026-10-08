@@ -78,6 +78,9 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
         cmd << "\"" << rtLib << "\" ";
     }
 
+    // Enable multi-threading runtime libraries
+    cmd << "-pthread ";
+
     // Search paths
     for (const auto& spath : m_options.librarySearchPaths) {
         cmd << "-L\"" << spath << "\" ";

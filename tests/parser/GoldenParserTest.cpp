@@ -116,4 +116,8 @@ TEST(GoldenParserTest, ParseStdlibMem) {
     assertFileParsesCleanly("stdlib/mem/mem.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibSync) {
+    assertFileParsesCleanly("stdlib/sync/sync.sp");
+}
+
 } // namespace sp::parser::test

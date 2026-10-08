@@ -2384,4 +2384,101 @@ TEST(ExecutionTest, StdlibFsAndIoResultErrorHandlingNativeExecution) {
     EXPECT_NE(output.find("del_is_ok: true"), std::string::npos);
 }
 
+TEST(ExecutionTest, ConcurrencyMutexAndAtomicsExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            var mtx = new Mutex();
+            mtx.lock();
+            println("mutex_locked: true");
+            mtx.unlock();
+            println("mutex_unlocked: true");
+
+            var atom = new AtomicInt(100);
+            println("atom_initial: ${atom.get()}");
+            atom.add(50);
+            println("atom_after_add: ${atom.get()}");
+            atom.sub(20);
+            println("atom_after_sub: ${atom.get()}");
+            atom.increment();
+            println("atom_after_inc: ${atom.get()}");
+            var casOk = atom.compareAndSwap(131, 200);
+            println("atom_cas_ok: ${casOk}");
+            println("atom_final: ${atom.get()}");
+
+            var b = new AtomicBool(false);
+            println("bool_initial: ${b.get()}");
+            b.set(true);
+            println("bool_after_set: ${b.get()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_conc_atomics");
+    EXPECT_NE(output.find("mutex_locked: true"), std::string::npos);
+    EXPECT_NE(output.find("mutex_unlocked: true"), std::string::npos);
+    EXPECT_NE(output.find("atom_initial: 100"), std::string::npos);
+    EXPECT_NE(output.find("atom_after_add: 150"), std::string::npos);
+    EXPECT_NE(output.find("atom_after_sub: 130"), std::string::npos);
+    EXPECT_NE(output.find("atom_after_inc: 131"), std::string::npos);
+    EXPECT_NE(output.find("atom_cas_ok: true"), std::string::npos);
+    EXPECT_NE(output.find("atom_final: 200"), std::string::npos);
+    EXPECT_NE(output.find("bool_initial: false"), std::string::npos);
+    EXPECT_NE(output.find("bool_after_set: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, ConcurrencyChannelSendRecvExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            var chan = new Channel<int>(10);
+            println("chan_cap: ${chan.capacity()}");
+            println("chan_initial_size: ${chan.size()}");
+
+            chan.send(42);
+            chan.send(100);
+            chan.send(2026);
+            println("chan_size: ${chan.size()}");
+
+            var v1 = chan.recv();
+            var v2 = chan.recv();
+            var v3 = chan.recv();
+            println("recv_1: ${v1}");
+            println("recv_2: ${v2}");
+            println("recv_3: ${v3}");
+            println("chan_empty_size: ${chan.size()}");
+
+            chan.close();
+            println("chan_closed: ${chan.isClosed()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_conc_channel");
+    EXPECT_NE(output.find("chan_cap: 10"), std::string::npos);
+    EXPECT_NE(output.find("chan_initial_size: 0"), std::string::npos);
+    EXPECT_NE(output.find("chan_size: 3"), std::string::npos);
+    EXPECT_NE(output.find("recv_1: 42"), std::string::npos);
+    EXPECT_NE(output.find("recv_2: 100"), std::string::npos);
+    EXPECT_NE(output.find("recv_3: 2026"), std::string::npos);
+    EXPECT_NE(output.find("chan_empty_size: 0"), std::string::npos);
+    EXPECT_NE(output.find("chan_closed: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, ConcurrencyThreadStaticMethodsExecution) {
+    const std::string source = R"sp(
+        fn main() {
+            var cores = Thread.hardwareConcurrency();
+            var tid = Thread.id();
+            println("has_cores: ${cores > 0}");
+            println("has_tid: ${tid != 0}");
+            Thread.yield();
+            Thread.sleep(1);
+            println("thread_yield_sleep_ok: true");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_conc_thread");
+    EXPECT_NE(output.find("has_cores: true"), std::string::npos);
+    EXPECT_NE(output.find("has_tid: true"), std::string::npos);
+    EXPECT_NE(output.find("thread_yield_sleep_ok: true"), std::string::npos);
+}
+
+
 

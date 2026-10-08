@@ -362,6 +362,14 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     // Built-in memory and arena functions (std.mem)
     define(std::make_shared<FunctionSymbol>("totalAllocatedBytes", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("totalLiveObjects", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+
+    // Built-in concurrency functions (std.sync)
+    define(std::make_shared<FunctionSymbol>("threadSpawn", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("threadJoin", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("threadDetach", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("threadId", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("hardwareConcurrency", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("threadYield", typeCtx.getFunctionType({}, typeCtx.getVoid()), builtinLoc));
 }
 
 } // namespace sp::sema

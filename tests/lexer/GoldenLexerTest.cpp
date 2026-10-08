@@ -121,4 +121,8 @@ TEST(GoldenLexerTest, TokenizeStdlibProcess) {
     assertFileTokenizesWithoutErrors("stdlib/process/process.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibSync) {
+    assertFileTokenizesWithoutErrors("stdlib/sync/sync.sp");
+}
+
 } // namespace sp::lexer::test
