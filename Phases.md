@@ -669,6 +669,418 @@ This document outlines the detailed development phases for the SP Programming La
 
 ---
 
+---
+
+# PART III: PROFESSIONAL BACKEND PLATFORM (SP 2.1 – SP 3.0)
+
+Following the completion of the SP 2.0 core language and compiler milestones, SP Lang enters its primary product evolution: **The Professional Backend Platform**. This architecture targets high-concurrency, database-driven, secure REST/JSON APIs, real-time microservices, and SaaS application backends communicating seamlessly with modern frontends (React, Next.js, Vue, mobile apps).
+
+---
+
+## Phase 19: Multi-File Compilation & Module System (SP 2.1) 📋
+**Duration:** 3-4 weeks  
+**Goal:** Transform the SP compiler from a single-file pipeline into a robust multi-file project compilation driver with circular dependency resolution, module namespaces, and full standard library import resolution (`import std.http;`, `import std.json;`, `import routes.users;`).  
+**Strategic Reference:** Backend Platform Requirement #1 & ADR-005
+
+### Tasks
+- [ ] 1. Implement `ModuleLoader` in `compiler/src/sema/ModuleLoader.cpp`: file resolution rules (`foo.bar` -> `foo/bar.sp` or `foo/bar/mod.sp`), search paths (`--include-dir`, `SP_HOME/stdlib`, project root).
+- [ ] 2. Implement recursive multi-file AST parsing with circular import detection and dependency graph topological sorting.
+- [ ] 3. Enhance `NameResolver` to export and import module symbols across compilation units with lexical namespace scoping.
+- [ ] 4. Update `IRBuilder` and `LLVMGenerator` to compile multi-module ASTs into unified or modular object files and link them via `LinkerDriver`.
+- [ ] 5. Connect all existing pure SP standard library modules (`stdlib/http/http.sp`, `stdlib/json/json.sp`, `stdlib/crypto/crypto.sp`, `stdlib/net/net.sp`) so they are 100% resolvable and usable in user code via `import std.http;`, `import std.json;`, etc.
+- [ ] 6. Update `spm build` to compile entire project directory trees (`src/**/*.sp`) and external package dependencies automatically.
+
+### Deliverables
+- Fully functional multi-file compiler driver supporting modular project structures.
+- Direct usability of all existing `stdlib` modules (`std.http`, `std.json`, `std.net`, `std.crypto`) from user `.sp` code.
+- Multi-file compilation integration in both `spc` and `spm`.
+
+### Key Files Affected
+- `compiler/include/sp/sema/ModuleLoader.h`, `compiler/src/sema/ModuleLoader.cpp` (new)
+- `compiler/src/sema/NameResolver.cpp`, `compiler/src/sema/SemanticAnalyzer.cpp`
+- `compiler/src/ir/IRBuilder.cpp`, `compiler/src/codegen/LLVMGenerator.cpp`
+- `tools/spc/main.cpp`, `tools/spm/BuildOrchestrator.cpp`
+
+### Testing Requirements
+- Multi-file importing unit tests (relative imports, absolute imports, package imports).
+- Circular dependency error diagnostic tests (E1010: Circular import detected).
+- End-to-end multi-file application compilation test (`main.sp` importing `models/user.sp` and `std.http`).
+- Full continuous verification test suite passing 100%.
+
+### Success Criteria
+- An SP developer can split code into multiple directories and files, run `spc build src/main.sp`, and compile a clean binary that imports `std.http` and local modules without errors.
+
+---
+
+## Phase 20: Production HTTP/1.1 Engine & Streaming Server (SP 2.2) 📋
+**Duration:** 4-5 weeks  
+**Goal:** Upgrade the HTTP server engine into an enterprise-grade, high-throughput non-blocking HTTP/1.1 server with persistent keep-alive connections, streaming request/response bodies, query string decoding, and graceful shutdown.  
+**Strategic Reference:** Backend Platform Requirement #6
+
+### Tasks
+- [ ] 1. Implement RFC 7230 compliant HTTP/1.1 parser supporting chunked transfer encoding, pipelining, and connection keep-alive pools.
+- [ ] 2. Implement streaming request and response bodies (`HttpRequest.stream()`, `HttpResponse.writeChunk()`) for large payloads and file transfers.
+- [ ] 3. Implement full URL parsing and query string decoding (`req.query("search")`, percent-decoding, multi-value query parameters).
+- [ ] 4. Implement connection lifecycle management: configurable idle timeouts, request timeouts, and maximum payload limits (`maxBodySize` to prevent DOS attacks).
+- [ ] 5. Implement multi-threaded connection worker pooling utilizing `libsp_runtime`'s work-stealing thread pool for high-throughput concurrency.
+- [ ] 6. Implement graceful shutdown on `SIGINT` / `SIGTERM`: stop accepting new connections, finish in-flight requests within a grace period, and release sockets cleanly.
+
+### Deliverables
+- Enterprise-grade HTTP/1.1 server engine in `libsp_runtime` and `std.http`.
+- Clean SP API for streaming, headers, cookies, and query parameters.
+- Benchmark demonstrating 100,000+ requests/second on a single server node.
+
+### Key Files Affected
+- `runtime/include/sp/runtime/Http.h`, `runtime/src/http/Http.cpp`
+- `runtime/src/net/EventLoop.cpp`, `runtime/src/net/NetBridge.cpp`
+- `stdlib/http/http.sp`
+
+### Testing Requirements
+- HTTP conformance tests: keep-alive reuse across 1,000 requests, chunked transfer encoding, malformed request handling (400 Bad Request).
+- Concurrency stress tests with `wrk` / `k6` under 10,000 concurrent client connections.
+- Graceful shutdown integration test verifying 0 dropped in-flight requests upon shutdown signal.
+
+### Success Criteria
+- SP HTTP server passes strict RFC compliance suites, maintains zero memory leaks over 24-hour continuous load tests, and handles 100k+ req/sec.
+
+---
+
+## Phase 21: High-Performance Routing, Route Groups & Middleware Pipeline (SP 2.3) 📋
+**Duration:** 3-4 weeks  
+**Goal:** Build a zero-allocation Radix-tree router with dynamic path parameters, route groups, nested routers, and an onion-style middleware pipeline with `next()` execution semantics.  
+**Strategic Reference:** Backend Platform Requirements #7 & #8
+
+### Tasks
+- [ ] 1. Implement Radix-Tree / Trie-based route matcher supporting parameterized paths (`/api/users/:id`), wildcards (`/static/*filepath`), and exact matches.
+- [ ] 2. Implement full HTTP method dispatch: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`, with automatic `405 Method Not Allowed` and `Allow` headers.
+- [ ] 3. Implement route groups with prefix inheritance (`app.group("/api/v1", (v1) => { ... })`).
+- [ ] 4. Implement composable middleware pipeline (`use(middleware)`) with sequential execution and error-interception capabilities.
+- [ ] 5. Implement official built-in middleware:
+  - `CorsMiddleware`: configurable allowed origins, methods, headers, credentials, and preflight handling.
+  - `LoggerMiddleware`: formatted request latency, status code, method, path, and client IP.
+  - `RecoveryMiddleware`: catches unhandled runtime panics and returns structured 500 JSON responses.
+  - `RequestIdMiddleware`: generates and injects unique `X-Request-ID` headers for distributed tracing.
+  - `RateLimiterMiddleware`: sliding window in-memory rate limiting per IP or token.
+
+### Deliverables
+- High-performance Router and RouteGroup modules in pure SP.
+- Composable middleware pipeline with 5 production-ready standard middlewares.
+- Sub-microsecond routing benchmark regardless of route count (100+ routes).
+
+### Key Files Affected
+- `stdlib/http/router.sp` (new)
+- `stdlib/http/middleware.sp` (new)
+- `stdlib/http/http.sp`
+
+### Testing Requirements
+- Router unit tests: exact paths, parameterized routes, conflicting patterns, wildcard captures, 404 and 405 status codes.
+- Middleware execution order tests: verifying onion-model entry and exit sequencing.
+- CORS preflight OPTIONS request integration tests with standard browser headers.
+
+### Success Criteria
+- Developers can organize complex APIs into nested modular route groups with dedicated middlewares and sub-microsecond route dispatch.
+
+---
+
+## Phase 22: Zero-Copy JSON & Typed Data Serialization (SP 2.4) 📋
+**Duration:** 3-4 weeks  
+**Goal:** Deliver lightning-fast JSON encoding and decoding with direct SP class/struct mapping, compile-time metadata, and request validation error reporting.  
+**Strategic Reference:** Backend Platform Requirement #12
+
+### Tasks
+- [ ] 1. Upgrade `runtime/src/json/Json.cpp` with zero-copy string slicing and SIMD-accelerated whitespace/escape parsing.
+- [ ] 2. Implement typed object deserialization (`Json.decode<T>(string) -> Result<T, JsonError>`) directly populating SP class and struct fields.
+- [ ] 3. Implement typed object serialization (`Json.encode<T>(T obj) -> string`) with optional indentation for pretty printing.
+- [ ] 4. Support serialization annotations (`@json("field_name")`, `@json_ignore`) for schema mapping and sensitive field exclusion.
+- [ ] 5. Implement request validation schema engine (`Validator<T>`): required fields, string length, email regex, numeric ranges, and custom validation rules.
+- [ ] 6. Emit RFC 7807 compliant Problem Details JSON for validation errors (`422 Unprocessable Entity`).
+
+### Deliverables
+- High-performance typed JSON serialization module in `std.json`.
+- Schema validator with descriptive, actionable error diagnostics.
+- Benchmarks proving JSON throughput exceeding 1 GB/sec on modern hardware.
+
+### Key Files Affected
+- `runtime/include/sp/runtime/Json.h`, `runtime/src/json/Json.cpp`
+- `stdlib/json/json.sp`, `stdlib/json/validator.sp` (new)
+- `compiler/src/sema/TypeChecker.cpp` (annotation recognition)
+
+### Testing Requirements
+- JSON RFC 8259 compliance test suite (100% pass rate).
+- Class/struct roundtrip serialization tests with nested objects, arrays, and null/optional values.
+- Schema validator tests with valid and invalid inputs producing expected RFC 7807 payload structures.
+
+### Success Criteria
+- Frontend `POST` requests with JSON payloads are decoded and validated into strongly typed SP objects in under 10 microseconds.
+
+---
+
+## Phase 23: Tier-1 Databases & Connection Pooling (PostgreSQL & SQLite) (SP 2.5) 📋
+**Duration:** 5-6 weeks  
+**Goal:** Deliver enterprise database connectivity with a bundled native SQLite driver, an asynchronous PostgreSQL driver, a generic thread-safe connection pool, and safe transaction management.  
+**Strategic Reference:** Backend Platform Requirement #10
+
+### Tasks
+- [ ] 1. **SQLite Native Driver (`std.db.sqlite`)**:
+  - Bundle the SQLite3 C amalgamation library directly into the SP runtime / build toolchain.
+  - Implement `SqliteConnection`: `open(path)`, `execute(sql)`, `prepare(sql)`, parameterized bindings (`?`, `:name`), rows iteration, and `close()`.
+  - Implement SQLite WAL mode and busy timeout defaults for concurrent reader/writer stability.
+- [ ] 2. **PostgreSQL Driver (`std.db.postgres`)**:
+  - Implement PostgreSQL wire protocol v3.0 client or native `libpq` C bindings.
+  - Support connection strings (`postgres://user:pass@host:5432/dbname?sslmode=require`), authentication (MD5, SCRAM-SHA-256), and SSL/TLS.
+  - Support prepared statements, parameter binding, binary result decoding, and notice handling.
+- [ ] 3. **Generic Connection Pool (`std.db.pool.ConnectionPool<T>`)**:
+  - Thread-safe connection pool with `minConnections`, `maxConnections`, `idleTimeoutMs`, and `acquireTimeoutMs`.
+  - Automatic connection health checks (ping) on acquire and dead-connection eviction/reconnection.
+- [ ] 4. **Transaction Manager (`std.db.Transaction`)**:
+  - Provide safe transaction block execution: `pool.transaction((tx) => { ... })`.
+  - Automatic `COMMIT` on successful closure, automatic `ROLLBACK` on unhandled errors or panics.
+- [ ] 5. **Fluent Query Builder (`std.db.sql`)**:
+  - Type-safe query building: `sql.table("users").where("active", true).limit(10).select()`.
+  - Mandatory parameterized queries preventing SQL injection vulnerabilities.
+
+### Deliverables
+- Production-ready `std.db.sqlite` and `std.db.postgres` modules.
+- Generic connection pool and transaction manager.
+- End-to-end CRUD application test with real databases.
+
+### Key Files Affected
+- `runtime/src/db/*` (new database runtime bridges)
+- `stdlib/db/sqlite.sp`, `stdlib/db/postgres.sp`, `stdlib/db/pool.sp`, `stdlib/db/sql.sp` (new)
+- `runtime/CMakeLists.txt` (bundling SQLite)
+
+### Testing Requirements
+- SQLite integration tests: schema creation, concurrent reads/writes in WAL mode, transactions, prepared statement recycling.
+- PostgreSQL integration tests: connecting to real Postgres instance, SCRAM authentication, transactions, connection pool exhaustion and recovery.
+- SQL injection resistance tests verifying parameterized binding across all input types.
+
+### Success Criteria
+- An SP backend can connect to PostgreSQL or SQLite, execute 50,000+ queries/second across a connection pool, and safely handle concurrent transactions with zero leaks.
+
+---
+
+## Phase 24: Security, Authentication & Cryptography (SP 2.6) 📋
+**Duration:** 4-5 weeks  
+**Goal:** Implement a hardened security and authentication ecosystem: Argon2id password hashing, JWT creation & verification, signed cookies, session storage, and security headers.  
+**Strategic Reference:** Backend Platform Requirement #11
+
+### Tasks
+- [ ] 1. **Password Hashing (`std.crypto.password`)**:
+  - Integrate audited, reference implementations of **Argon2id** and **bcrypt**.
+  - Provide ergonomic APIs: `Password.hash(plainText) -> string` and `Password.verify(plainText, hash) -> bool`.
+- [ ] 2. **JSON Web Tokens (`std.security.jwt`)**:
+  - Implement JWT encoding and decoding with **HMAC-SHA256** (HS256) and RSA (RS256) signatures.
+  - Automatic validation of registered claims: `exp` (expiration), `nbf` (not before), `iat` (issued at), `iss` (issuer), `aud` (audience).
+  - Strongly typed payload extraction and custom claims support.
+- [ ] 3. **Secure Cookies & Session Management**:
+  - Cookie builder and parser supporting `HttpOnly`, `Secure`, `SameSite=Strict|Lax|None`, `Max-Age`, and `Domain`.
+  - HMAC cookie signing preventing client-side tampering (`cookie.sign(secret)`).
+  - In-memory and Redis-backed session stores with configurable TTL and auto-regeneration.
+- [ ] 4. **Authentication & Authorization Middleware**:
+  - `JwtAuthMiddleware`: extracts `Bearer <token>`, validates signature, and populates `req.user`.
+  - `RoleAuthMiddleware`: enforces role-based access control (RBAC).
+- [ ] 5. **Security Hardening**:
+  - Security headers middleware: HSTS (`Strict-Transport-Security`), `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`.
+  - Constant-time string comparison (`Crypto.timingSafeEqual`) preventing timing side-channel attacks.
+
+### Deliverables
+- `std.crypto.password`, `std.security.jwt`, and `std.security.session` modules.
+- Hardened authentication middlewares ready for production SaaS APIs.
+- Security test suite verifying defense against timing attacks, token tampering, and replay attacks.
+
+### Key Files Affected
+- `runtime/src/crypto/Argon2.cpp` (new)
+- `runtime/src/crypto/Crypto.cpp`, `runtime/include/sp/runtime/Crypto.h`
+- `stdlib/crypto/password.sp`, `stdlib/security/jwt.sp`, `stdlib/security/session.sp` (new)
+
+### Testing Requirements
+- Argon2id and bcrypt test vectors matching official RFC standards.
+- JWT verification tests: expired tokens rejected, tampered signatures rejected, valid tokens decoded cleanly.
+- Constant-time equality benchmark validating zero data-dependent execution time variations.
+
+### Success Criteria
+- An SP application can authenticate users via passwords or JWTs, protect routes via middleware, and manage secure sessions with industry-standard cryptographic guarantees.
+
+---
+
+## Phase 25: Official Backend Framework & Context Ergonomics (SP 2.7) 📋
+**Duration:** 3-4 weeks  
+**Goal:** Deliver the official high-level backend application framework (`sp-web`), unifying router, middleware, dependency injection, and ergonomic HTTP `Context`.  
+**Strategic Reference:** Backend Platform Requirements #5, #13, #14
+
+### Tasks
+- [ ] 1. Design and build the `App` class providing the premier developer experience:
+  ```sp
+  import std.web;
+
+  fn main() {
+      let app = new App();
+      app.use(new Logger());
+      app.use(new Cors());
+
+      app.get("/api/health", (ctx) => ctx.json({ status: "ok" }));
+      app.post("/api/users", handleCreateUser);
+
+      app.listen(8080);
+  }
+  ```
+- [ ] 2. Implement the `Context` (`ctx`) API:
+  - Request helpers: `ctx.param(name)`, `ctx.query(name)`, `ctx.header(name)`, `ctx.bodyJson<T>()`.
+  - Response helpers: `ctx.json(data, status=200)`, `ctx.text(data, status=200)`, `ctx.html(data)`, `ctx.status(code)`.
+  - Cookie helpers: `ctx.setCookie(...)`, `ctx.getCookie(name)`.
+  - State sharing: `ctx.set("user", userObj)`, `ctx.get<T>("user")`.
+- [ ] 3. Implement dependency injection container (`Container`) for injecting database pools, loggers, and services into route handlers.
+- [ ] 4. Standardize backend project templates (`spm new my-api --template api`).
+- [ ] 5. Implement hot-reloading development server (`sp dev` / `spc run --watch`) monitoring file changes and auto-restarting the server process.
+
+### Deliverables
+- `std.web` official backend framework package.
+- `Context` and `App` APIs with sub-millisecond route handling.
+- `sp dev` auto-reloading developer workflow.
+
+### Key Files Affected
+- `stdlib/web/app.sp`, `stdlib/web/context.sp`, `stdlib/web/di.sp` (new)
+- `tools/spm/main.cpp` (`sp dev` command implementation)
+
+### Testing Requirements
+- Full application lifecycle integration test (creation, routing, middleware execution, JSON response).
+- Concurrent stress testing with simulated frontend clients.
+- Hot-reload test verifying file modification detection and rapid server reboot (< 50ms).
+
+### Success Criteria
+- A developer can create a production-ready REST API in fewer than 20 lines of SP code, experiencing instant compilation, zero memory leaks, and blazing-fast response latencies.
+
+---
+
+## Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis) (SP 2.8) 📋
+**Duration:** 4-5 weeks  
+**Goal:** Add real-time communication capabilities (RFC 6455 WebSockets and Server-Sent Events) and high-performance Redis caching and Pub/Sub.  
+**Strategic Reference:** Backend Platform Requirement #16
+
+### Tasks
+- [ ] 1. **WebSocket Engine (`std.net.ws`)**:
+  - Implement HTTP upgrade handshake (`Upgrade: websocket`, `Sec-WebSocket-Key` hash verification).
+  - Implement RFC 6455 frame parser and serializer (text, binary, ping, pong, close frames, masking keys).
+  - Implement `WebSocketConnection` and `WebSocketHub` for connection management, broadcasting, and room subscriptions.
+- [ ] 2. **Server-Sent Events (`std.web.sse`)**:
+  - Implement SSE event streaming helper (`ctx.sseInit()`, `ctx.sseSend(event, data)`).
+  - Automatic keep-alive heartbeat comments preventing proxy timeouts.
+- [ ] 3. **Redis Client (`std.redis`)**:
+  - Implement Redis Serialization Protocol (RESP2 / RESP3) parser.
+  - Implement thread-safe connection pooling for Redis.
+  - Implement core Redis commands: `GET`, `SET`, `DEL`, `EXPIRE`, `INCR`, `HGET`, `HSET`, `LPUSH`, `RPOP`.
+  - Implement Redis Pub/Sub client (`SUBSCRIBE`, `PUBLISH`) for distributed multi-instance event broadcasting.
+
+### Deliverables
+- `std.net.ws`, `std.web.sse`, and `std.redis` modules.
+- Real-time chat & live dashboard reference application.
+- Distributed cache and pub/sub integration examples.
+
+### Key Files Affected
+- `runtime/src/net/WebSocket.cpp` (new)
+- `stdlib/net/websocket.sp`, `stdlib/web/sse.sp`, `stdlib/redis/redis.sp` (new)
+
+### Testing Requirements
+- WebSocket autobahn test suite subset: frame parsing, payload masking, ping/pong echo, abrupt disconnection.
+- SSE connection persistence test with simulated browser client consuming continuous event stream.
+- Redis integration tests: caching keys with TTL, atomic increments, multi-subscriber pub/sub messaging.
+
+### Success Criteria
+- An SP backend can host 50,000+ simultaneous WebSocket connections per instance and distribute real-time events across Redis clusters with sub-millisecond broadcast latency.
+
+---
+
+## Phase 27: Observability, Background Workers & Production DevOps (SP 2.9) 📋
+**Duration:** 3-4 weeks  
+**Goal:** Deliver production telemetry, metrics, structured logging, background task queues, and zero-dependency static containerization.  
+**Strategic Reference:** Backend Platform Requirements #15 & #17
+
+### Tasks
+- [ ] 1. **Structured Logging (`std.log`)**:
+  - JSON-formatted log emitter with timestamp, severity level (TRACE, DEBUG, INFO, WARN, ERROR, FATAL), message, and contextual key-value fields.
+  - Multiple log appenders: stdout, stderr, rotating file appender.
+- [ ] 2. **Prometheus Metrics (`std.metrics`)**:
+  - Built-in metrics registry: Counter, Gauge, Histogram.
+  - Automatic HTTP server metrics: request count, error count, latency histograms (p50, p90, p99).
+  - `/metrics` standard scrape endpoint.
+- [ ] 3. **Health & Readiness Checks (`std.health`)**:
+  - `/healthz` (liveness) and `/readyz` (readiness) handlers verifying database pool and Redis connectivity.
+- [ ] 4. **In-Process Background Worker & Queue (`std.queue`)**:
+  - Persistent or in-memory job queue with worker goroutines/threads.
+  - Automatic retry with exponential backoff and dead-letter queues.
+  - Cron-style periodic job scheduler (`Cron.schedule("*/5 * * * *", task)`).
+- [ ] 5. **Static Compilation & Containerization**:
+  - Support fully static Linux binary generation (`spc build --static`) linking against `musl` libc.
+  - Provide official ultra-minimal Dockerfile templates producing scratch or distroless images (< 15MB total container size).
+
+### Deliverables
+- `std.log`, `std.metrics`, `std.health`, and `std.queue` modules.
+- Production-ready Dockerfile and Kubernetes deployment manifests.
+- Observability dashboard configuration (Prometheus + Grafana).
+
+### Key Files Affected
+- `stdlib/log/log.sp`, `stdlib/metrics/metrics.sp`, `stdlib/health/health.sp`, `stdlib/queue/queue.sp` (new)
+- `compiler/src/codegen/LinkerDriver.cpp` (`--static` musl support)
+
+### Testing Requirements
+- Structured logger output verification against JSON schema.
+- Prometheus scrape endpoint validation against official Prometheus text format specification.
+- Queue retry test verifying exponential backoff intervals and dead-letter transition on repeated failures.
+- Docker build test verifying container boots and serves traffic on Linux.
+
+### Success Criteria
+- An SP backend API deploys inside a sub-15MB container, emits structured JSON telemetry and Prometheus metrics, and manages background tasks reliably.
+
+---
+
+## Phase 28: Developer Experience, OpenAPI & Production Benchmarks (SP 3.0) 📋
+**Duration:** 4-5 weeks  
+**Goal:** Reach SP 3.0 Enterprise Milestone: automated OpenAPI 3.0 documentation generation, end-to-end integration test harness, and official TechEmpower backend benchmarks against Go, Rust, and Node.js.  
+**Strategic Reference:** Backend Platform Requirements #18, #19, #20
+
+### Tasks
+- [ ] 1. **OpenAPI 3.0 Generator (`spc doc --openapi`)**:
+  - Introspect routes, parameter types, request bodies, and response models to auto-generate `openapi.json` and `openapi.yaml`.
+  - Embed Swagger UI / Redoc viewer directly into development servers (`/docs`).
+- [ ] 2. **Native HTTP Test Harness (`std.test.http`)**:
+  - Provide in-memory test client (`TestServer.bind(app)` and `client.get("/api/users")`).
+  - Fluent assertions on response status, headers, and JSON body structure without requiring network port allocation.
+- [ ] 3. **CLI Project Scaffolding**:
+  - `spm new my-backend --template api`: scaffolds complete clean-architecture backend with routes, controllers, services, repositories, and Dockerfile.
+- [ ] 4. **TechEmpower Industry Benchmarks**:
+  - Build standard TechEmpower benchmark tests:
+    1. JSON Serialization test
+    2. Single Database Query test
+    3. Multiple Database Queries test
+    4. Fortunes template rendering test
+    5. Plaintext test
+  - Publish certified, reproducible benchmark results against Go (Gin/Fiber), Rust (Actix/Axum), and Node.js (Fastify/Express).
+- [ ] 5. **Documentation & Official Backend Guides**:
+  - Publish comprehensive backend tutorials on `docs.splang.shantopaul.com`: building a complete SaaS backend (Auth, PostgreSQL, Redis, REST API, Next.js frontend).
+
+### Deliverables
+- SP 3.0 Production Backend Platform General Availability.
+- Automated OpenAPI documentation generator and embedded Swagger UI.
+- Comprehensive TechEmpower performance benchmarks.
+- Official production documentation and starter templates.
+
+### Key Files Affected
+- `tools/doc/OpenApiGenerator.cpp` (new)
+- `stdlib/test/http.sp` (new)
+- `tools/spm/templates/*` (new backend project templates)
+- `benchmarks/backend/*` (TechEmpower benchmark suite)
+- `splang-docs/src/app/backend/*` (new comprehensive backend documentation)
+
+### Testing Requirements
+- OpenAPI generator validation against official OpenAPI 3.0 validator.
+- End-to-end integration test suite verifying scaffolding, building, testing, and running an entire CRUD service.
+- Reproducible TechEmpower benchmark execution across 1, 2, 4, and 8 CPU core allocations.
+
+### Success Criteria
+- SP Lang is universally recognized as a premier, production-grade native backend programming language delivering C/Rust performance with TypeScript/Go ergonomics.
+
+---
+
 ## Phase Progression Summary
 
 ```
@@ -698,4 +1110,17 @@ SP 1.x Evolution (Direction B: Native Application & Cloud) 🚀
            ▼
 SP 2.0 Enterprise Milestone 🏆
   └── Phase 18: Language Editions, Comptime, Self-Hosting & WebAssembly (SP 2.0) ✅
+           │
+           ▼
+Professional Backend Platform (Direction B Prime: Cloud & API Engine) 🌐
+  ├── Phase 19: Multi-File Compilation & Module System (SP 2.1) 📋
+  ├── Phase 20: Production HTTP/1.1 Engine & Streaming Server (SP 2.2) 📋
+  ├── Phase 21: High-Performance Routing, Route Groups & Middleware (SP 2.3) 📋
+  ├── Phase 22: Zero-Copy JSON & Typed Data Serialization (SP 2.4) 📋
+  ├── Phase 23: Tier-1 Databases & Connection Pooling (PostgreSQL & SQLite) (SP 2.5) 📋
+  ├── Phase 24: Security, Authentication & Cryptography (JWT, Argon2id, CORS) (SP 2.6) 📋
+  ├── Phase 25: Official Backend Framework & Context Ergonomics (SP 2.7) 📋
+  ├── Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis) (SP 2.8) 📋
+  ├── Phase 27: Observability, Background Workers & Production DevOps (SP 2.9) 📋
+  └── Phase 28: Developer Experience, OpenAPI & TechEmpower Benchmarks (SP 3.0) 📋
 ```
