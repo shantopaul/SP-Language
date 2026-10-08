@@ -5,6 +5,8 @@
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
 #include "sp/sema/SemanticAnalyzer.h"
+#include "sp/sema/ModuleLoader.h"
+#include "sp/ast/Edition.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/util/PathUtils.h"
@@ -146,14 +148,29 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
         return result;
     }
 
+    sp::ast::Edition edition = sp::ast::parseEdition(config.getPackage().edition);
     sp::parser::Parser parser(tokens, entryPath.string(), &diagEngine);
+    parser.setEdition(edition);
     auto program = parser.parseProgram();
     if (diagEngine.hasErrors() || !program) {
         result.errorMessage = "Syntax error during build:\n" + diagStream.str();
         return result;
     }
 
+    sp::sema::ModuleLoader moduleLoader(diagEngine);
+    moduleLoader.setEdition(edition);
+    moduleLoader.addSearchPath(fs::path(projectDir) / "src");
+    moduleLoader.addSearchPath(fs::path(projectDir));
+    if (fs::exists(fs::path(projectDir) / ".spm" / "packages")) {
+        moduleLoader.addSearchPath(fs::path(projectDir) / ".spm" / "packages");
+    }
+    if (!moduleLoader.loadAndMergeAll(*program, entryPath)) {
+        result.errorMessage = "Module resolution error during build:\n" + diagStream.str();
+        return result;
+    }
+
     sp::sema::SemanticAnalyzer sema(diagEngine);
+    sema.setEdition(edition);
     if (!sema.analyze(*program)) {
         result.errorMessage = "Semantic error during build:\n" + diagStream.str();
         return result;

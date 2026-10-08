@@ -16,6 +16,7 @@ add_library(sp_compiler
     src/sema/SemanticAnalyzer.cpp
     src/sema/EscapeAnalysis.cpp
     src/sema/ComptimeEvaluator.cpp
+    src/sema/ModuleLoader.cpp
     src/ir/IR.cpp
     src/ir/IRPrinter.cpp
     src/ir/IRBuilder.cpp

@@ -1126,7 +1126,7 @@ void TypeChecker::visit(const ast::AssignExpr& node) {
     }
 
     // Check null safety (E1008)
-    if (!targetType->isNullable() && valueType->isNull()) {
+    if (!targetType->isNullable() && !targetType->isPointer() && valueType->isNull()) {
         m_diagnostics.reportError("E1008", "Null safety violation: cannot assign null to non-nullable type '" +
                                   targetType->toString() + "'", node.getLocation(), "Change variable type to '" +
                                   targetType->toString() + "?' to allow null");
@@ -1412,7 +1412,7 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
             }
 
             // Null safety check (E1008)
-            if (!varType->isNullable() && initType->isNull()) {
+            if (!varType->isNullable() && !varType->isPointer() && initType->isNull()) {
                 m_diagnostics.reportError("E1008", "Null safety violation: cannot assign null to non-nullable variable '" +
                                           name + "' of type '" + varType->toString() + "'", node.getLocation(),
                                           "Use '" + varType->toString() + "?' to declare a nullable variable");
@@ -1457,7 +1457,7 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
             }
 
             // Null safety check (E1008)
-            if (!varType->isNullable() && initType->isNull()) {
+            if (!varType->isNullable() && !varType->isPointer() && initType->isNull()) {
                 m_diagnostics.reportError("E1008", "Null safety violation: cannot assign null to non-nullable variable '" +
                                           name + "' of type '" + varType->toString() + "'", node.getLocation(),
                                           "Use '" + varType->toString() + "?' to declare a nullable variable");

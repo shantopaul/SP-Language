@@ -8,6 +8,7 @@
 #include "sp/ast/Edition.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/sema/ComptimeEvaluator.h"
+#include "sp/sema/ModuleLoader.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/ir/IRPrinter.h"
 #include "sp/codegen/LLVMGenerator.h"
@@ -75,6 +76,8 @@ void printHelp() {
               << "  --release       Build with -O3 optimizations enabled\n"
               << "  -g, --debug     Build with debug symbols (-g) enabled\n"
               << "  --target <arch> Cross-compile for target architecture triple (e.g. wasm32-wasi)\n"
+              << "  -I <dir>        Add search directory for module resolution\n"
+              << "  --stdlib <path> Specify custom standard library directory path\n"
               << "  -h, --help      Display this help message\n"
               << "  -v, --version   Display compiler version information\n";
 }
@@ -393,6 +396,8 @@ int main(int argc, char* argv[]) {
         bool emitIROnly = false;
         sp::ast::Edition edition = sp::ast::Edition::Edition2026;
         bool explicitEdition = false;
+        std::vector<std::string> includeDirs;
+        std::string customStdlibDir;
 
         for (int i = 2; i < argc; ++i) {
             std::string_view arg = argv[i];
@@ -410,6 +415,18 @@ int main(int argc, char* argv[]) {
             } else if (arg.starts_with("--edition=")) {
                 edition = sp::ast::parseEdition(arg.substr(10));
                 explicitEdition = true;
+            } else if (arg == "-I" && i + 1 < argc) {
+                includeDirs.push_back(argv[++i]);
+            } else if (arg.starts_with("-I")) {
+                includeDirs.push_back(std::string(arg.substr(2)));
+            } else if ((arg == "--include-dir") && i + 1 < argc) {
+                includeDirs.push_back(argv[++i]);
+            } else if (arg.starts_with("--include-dir=")) {
+                includeDirs.push_back(std::string(arg.substr(14)));
+            } else if (arg == "--stdlib" && i + 1 < argc) {
+                customStdlibDir = argv[++i];
+            } else if (arg.starts_with("--stdlib=")) {
+                customStdlibDir = std::string(arg.substr(9));
             } else if (arg == "--opt-level" && i + 1 < argc) {
                 optLevel = argv[++i];
                 if (!optLevel.empty() && optLevel[0] != '-') optLevel = "-" + optLevel;
@@ -501,6 +518,20 @@ int main(int argc, char* argv[]) {
 
         if (diagEngine.hasErrors() || !program) {
             std::cerr << "Parsing failed with " << diagEngine.errorCount() << " error(s).\n";
+            return 1;
+        }
+
+        // Multi-file compilation & module dependency resolution (Phase 19)
+        sp::sema::ModuleLoader moduleLoader(diagEngine);
+        moduleLoader.setEdition(edition);
+        for (const auto& inc : includeDirs) {
+            moduleLoader.addSearchPath(inc);
+        }
+        if (!customStdlibDir.empty()) {
+            moduleLoader.setStdlibPath(customStdlibDir);
+        }
+        if (!moduleLoader.loadAndMergeAll(*program, filename)) {
+            std::cerr << "Module resolution failed with " << diagEngine.errorCount() << " error(s).\n";
             return 1;
         }
 

@@ -467,10 +467,26 @@ void IRBuilder::visit(const ast::Program& node) {
             if (fn->isGeneric()) {
                 m_genericFunctions[fn->getName()] = fn;
             }
+            if (!fn->hasBody() && !fn->isShortForm()) {
+                std::vector<std::shared_ptr<ParameterValue>> params;
+                for (size_t i = 0; i < fn->getParams().size(); ++i) {
+                    const auto& p = fn->getParams()[i];
+                    params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+                }
+                m_module->createFunction(fn->getName(), mapType(fn->getReturnType()), params, /*isExternal=*/true);
+            }
         } else if (const auto* block = dynamic_cast<const ast::BlockStmt*>(decl.get())) {
             for (const auto& inner : block->getStatements()) {
                 if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(inner.get())) {
                     m_astFunctions[fn->getName()] = fn;
+                    if (!fn->hasBody() && !fn->isShortForm()) {
+                        std::vector<std::shared_ptr<ParameterValue>> params;
+                        for (size_t i = 0; i < fn->getParams().size(); ++i) {
+                            const auto& p = fn->getParams()[i];
+                            params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+                        }
+                        m_module->createFunction(fn->getName(), mapType(fn->getReturnType()), params, /*isExternal=*/true);
+                    }
                 }
             }
         }
@@ -5770,6 +5786,8 @@ void IRBuilder::visit(const ast::CallExpr& node) {
     IRTypePtr returnType = IRType::getInt32();
     if (targetFunc) {
         returnType = targetFunc->getReturnType();
+    } else if (m_astFunctions.count(calleeName)) {
+        returnType = mapType(m_astFunctions.at(calleeName)->getReturnType());
     }
 
     std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("c");

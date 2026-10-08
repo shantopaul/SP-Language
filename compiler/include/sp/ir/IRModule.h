@@ -51,6 +51,18 @@ public:
                                IRTypePtr returnType,
                                std::vector<std::shared_ptr<ParameterValue>> params,
                                bool isExternal = false) {
+        auto it = m_functionMap.find(name);
+        if (it != m_functionMap.end()) {
+            if (isExternal && it->second->isExternal()) {
+                return it->second;
+            }
+            if (it->second->isExternal() && !isExternal) {
+                it->second->setExternal(false);
+                return it->second;
+            }
+            return it->second;
+        }
+
         auto func = std::make_unique<IRFunction>(name, std::move(returnType), std::move(params), isExternal, this);
         auto* rawPtr = func.get();
         m_functions.push_back(std::move(func));
