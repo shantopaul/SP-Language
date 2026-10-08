@@ -36,6 +36,10 @@ export default function GettingStartedOverviewPage() {
       </ul>
 
       <PrevNextNav
+        prev={{
+          title: "SP 2.0 Release Overview",
+          href: "/sp2/overview",
+        }}
         next={{
           title: "Installation Guide",
           href: "/getting-started/installation",

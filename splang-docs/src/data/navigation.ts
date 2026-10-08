@@ -11,6 +11,17 @@ export interface NavSection {
 
 export const DOCS_NAVIGATION: NavSection[] = [
   {
+    title: "SP 2.0 Evolution",
+    items: [
+      { title: "SP 2.0 Release Overview", href: "/sp2/overview", badge: "v2.0 GA" },
+      { title: "Language Editions (2026/2028)", href: "/sp2/editions" },
+      { title: "Compile-Time Execution (comptime)", href: "/sp2/comptime" },
+      { title: "WebAssembly (wasm32-wasi)", href: "/sp2/wasm" },
+      { title: "Structured Coroutines (async/await)", href: "/sp2/async-await" },
+      { title: "Automated Migration (spc fix)", href: "/sp2/migration" },
+    ],
+  },
+  {
     title: "Getting Started",
     items: [
       { title: "Introduction & Overview", href: "/getting-started" },

@@ -19,7 +19,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 &nbsp;
-[![Version](https://img.shields.io/badge/version-1.0.0_stable-green?style=for-the-badge)](#-roadmap)
+[![Version](https://img.shields.io/badge/version-2.0.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
 &nbsp;
 [![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](#-tech-stack)
 &nbsp;
@@ -80,18 +80,21 @@ fn main() {
 
 ### How SP Compares
 
-| Feature | C++ | Java | C# | Rust | Go | **SP** |
+| Feature | C++ | Java | C# | Rust | Go | **SP 2.0** |
 |:--------|:---:|:----:|:--:|:----:|:--:|:------:|
 | Native binaries | ✅ | ❌ | ❌ | ✅ | ✅ | **✅** |
-| No runtime needed | ✅ | ❌ | ❌ | ✅ | ❌ | **✅** |
+| Zero GC runtime pause (Deterministic ARC) | ✅ | ❌ | ❌ | ✅ | ❌ | **✅** |
 | Null safety | ❌ | ❌ | ✅ | ✅ | ❌ | **✅** |
 | Type inference | Partial | Partial | ✅ | ✅ | ✅ | **✅** |
-| Generics | ✅ | ✅ | ✅ | ✅ | ✅ | **✅** |
+| Zero-cost Generics | ✅ | ❌ | ✅ | ✅ | ❌ | **✅** |
 | Pattern matching | Limited | ✅ | ✅ | ✅ | ❌ | **✅** |
-| Familiar OOP syntax | ✅ | ✅ | ✅ | ❌ | ❌ | **✅** |
-| Built-in package manager | ❌ | ❌ | ✅ | ✅ | ✅ | **✅** |
-| Human-friendly errors | ❌ | ❌ | ❌ | ✅ | ✅ | **✅** |
-| Multiple syntax styles | ❌ | ❌ | ❌ | ❌ | ❌ | **✅** |
+| Familiar OOP & Interfaces | ✅ | ✅ | ✅ | ❌ | ❌ | **✅** |
+| Compile-Time Metaprogramming (`comptime`) | ✅ | ❌ | ❌ | ❌ | ❌ | **✅** |
+| First-Class WebAssembly (`wasm32-wasi`) | Limited | ❌ | ❌ | ✅ | ✅ | **✅** |
+| Structured Coroutines (`async`/`await`) | Partial | ❌ | ✅ | ✅ | ✅ | **✅** |
+| Non-breaking Language Editions | ❌ | ❌ | ❌ | ✅ | ❌ | **✅** |
+| Built-in package manager (`spm`) | ❌ | ❌ | ✅ | ✅ | ✅ | **✅** |
+| Human-friendly compiler errors | ❌ | ❌ | ❌ | ✅ | ✅ | **✅** |
 
 <br>
 
@@ -848,29 +851,24 @@ spm search <query>              # Search package registry
 ---
 
 ## 🗺️ Roadmap
+ 
+ ```
+  v0.1..v0.9 ──── v1.0 ──── v1.5 ──── v1.6 ──── v1.7 ──── v2.0 (GA)
+      │             │        │        │        │          │
+      ▼             ▼        ▼        ▼        ▼          ▼
+  Bootstrap &     Core     Sync &    HTTP    Registry   Comptime,
+  Native LLVM    Release  Channels  & JSON      GA      WASI & Editions
+ ```
+ 
+ | Version | Milestone | Key Deliverables | Status |
+ |:--------|:----------|:-----------------|:------:|
+ | `0.1`–`0.9` | **Bootstrap & Compiler Pipeline** | Lexer, parser, type checker, LLVM backend, generics, stdlib | ✅ Done |
+ | `1.0` | **🎉 Stable Release** | Production compiler, VS Code extension, `spm` CLI, full docs | ✅ Done |
+ | `1.5` | **Concurrency & Channels** | Worker thread pool, lock-free MPMC channels, atomic memory | ✅ Done |
+ | `1.6` | **Networking & JSON Engine** | Non-blocking TCP/HTTP client/server, high-throughput JSON | ✅ Done |
+ | `1.7` | **Package Registry GA** | Supply chain verification, cryptographic checksums, publishing | ✅ Done |
+ | `2.0` | **🚀 SP 2.0 General Availability** | `comptime` execution, `wasm32-wasi` target, editions (`2026`/`2028`), coroutines (`async`/`await`), self-hosted frontend, `spc fix` (346/346 CTests passing) | ✅ Done |
 
-```
- v0.1 ──── v0.2 ──── v0.3 ──── v0.4 ──── v0.5 ──── v0.6 ──── v0.7 ──── v0.8 ──── v0.9 ──── v1.0
-  │          │          │          │          │          │          │          │          │          │
-  ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼          ▼
-Lexer    Semantic    LLVM      Classes   Generics   StdLib   Package   Lang       RC      Stable
-Parser    + AST     Codegen    + OOP    Collections           Mgr     Server            Release
-```
-
-| Version | Milestone | Key Deliverables | Status |
-|:--------|:----------|:-----------------|:------:|
-| `0.1` | **Lexer + Parser** | Tokenizer, AST, recursive descent parser | ✅ Done |
-| `0.2` | **Semantic Analysis** | Symbol table, type checker, error codes | ✅ Done |
-| `0.3` | **LLVM Compiler** | Native code generation, `spc build/run` | ✅ Done |
-| `0.4` | **Object System** | Classes, inheritance, interfaces, constructors | ✅ Done |
-| `0.5` | **Generics + Collections** | `Box<T>`, `List<T>`, `Map<K,V>`, lambdas | ✅ Done |
-| `0.6` | **Standard Library** | io, fs, math, string, collections, time | ✅ Done |
-| `0.7` | **Package Manager** | `spm` with dependency resolution, `sp.lock` | ✅ Done |
-| `0.8` | **Language Server** | LSP, VS Code extension, `spc fmt` | ✅ Done |
-| `0.9` | **Release Candidate** | Stability, benchmarks, documentation | ✅ Done |
-| `1.0` | **🎉 Stable Release** | Production-ready, cross-platform, full docs | ✅ Done |
-
-**Post 1.0:** Async/await · Ownership model · Traits · WebAssembly · FFI bridges · Reflection · GUI framework
 
 ---
 

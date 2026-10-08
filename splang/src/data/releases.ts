@@ -20,19 +20,20 @@ export interface ReleaseInfo {
 }
 
 export const CURRENT_RELEASE: ReleaseInfo = {
-  version: "1.0.0",
-  releaseDate: "October 6, 2026",
-  title: "SP 1.0.0 — Production General Availability",
-  tag: "v1.0.0",
-  announcementUrl: "/blog/v1.0.0-release",
+  version: "2.0.0",
+  releaseDate: "October 8, 2026",
+  title: "SP 2.0.0 — Language Editions, Comptime & WebAssembly GA",
+  tag: "v2.0.0",
+  announcementUrl: "https://docs.splang.shantopaul.com/sp2/overview",
   highlights: [
-    "Native LLVM 18+ code generation with -O0 through -O3 optimization passes",
-    "Complete standard library with 8 modules (std.io, std.string, std.math, std.collections, std.fs, std.time, std.os, std.process)",
-    "Built-in SP Package Manager (spm) with SHA-256 cryptographic lockfile verification",
-    "Official developer tools suite: spc fmt (formatter), spc test (test runner), spc doc (doc generator)",
-    "SP Language Server (spls) & Debug Adapter (spd) with official VS Code extension",
-    "Monomorphized zero-cost generics, first-class lambdas, and closures",
-    "Comprehensive benchmark suite demonstrating performance on par with C and Rust",
+    "Language Editions (edition = '2026' and edition = '2028') with automated migration tool (spc fix)",
+    "Compile-time function execution (comptime) for constant folding, table generation, and compile-time assertions",
+    "First-class WebAssembly target (--target wasm32-wasi) targeting WASI preview 1 and serverless edge runtimes",
+    "Structured async / await coroutines with zero allocations and seamless threadpool event-loop integration",
+    "Self-hosted SP compiler frontend written in pure SP (compiler/self_hosted/)",
+    "Deterministic Automated Reference Counting (ARC) with zero stop-the-world GC pauses and 0 bytes leaked",
+    "Production package publishing and dependency management on registry.splang.shantopaul.com",
+    "346/346 continuous verification tests passing (100% pass rate)",
   ],
   artifacts: [
     {

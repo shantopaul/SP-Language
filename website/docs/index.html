@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SP Documentation — The Complete Guide (v1.0.0)</title>
-  <meta name="description" content="Official documentation for the SP Programming Language. Guides, Tutorials, Syntax, Standard Library, and Package Manager.">
+  <title>SP Documentation — The Complete Guide (v2.0.0)</title>
+  <meta name="description" content="Official documentation for the SP Programming Language 2.0. Guides, Tutorials, Comptime, WebAssembly, Editions, Standard Library, and Package Manager.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
   <style>
     :root {
@@ -56,7 +56,7 @@
   <aside>
     <div class="side-brand">
       <a href="https://splang.shantopaul.com">⚡ SP Docs</a>
-      <span class="version-tag">v1.0.0</span>
+      <span class="version-tag">v2.0.0</span>
     </div>
 
     <input type="text" class="search-input" placeholder="Search documentation..." oninput="filterNav(this.value)">
@@ -66,6 +66,15 @@
       <li><a href="#installation" class="active">Installation</a></li>
       <li><a href="#hello-world">Your First Program</a></li>
       <li><a href="#project-setup">Project Setup (SPM)</a></li>
+    </ul>
+
+    <div class="nav-group-title">SP 2.0 Features</div>
+    <ul class="nav-links">
+      <li><a href="#sp2-editions">Language Editions (2026/2028)</a></li>
+      <li><a href="#sp2-comptime">Comptime Function Execution</a></li>
+      <li><a href="#sp2-wasm">WebAssembly (wasm32-wasi)</a></li>
+      <li><a href="#sp2-coroutines">Structured async / await</a></li>
+      <li><a href="#sp2-migration">Automated Migration (spc fix)</a></li>
     </ul>
 
     <div class="nav-group-title">Language Tour</div>
@@ -80,12 +89,12 @@
 
     <div class="nav-group-title">Standard Library</div>
     <ul class="nav-links">
-      <li><a href="#stdlib-io">std/io</a></li>
-      <li><a href="#stdlib-math">std/math</a></li>
-      <li><a href="#stdlib-string">std/string</a></li>
-      <li><a href="#stdlib-collections">std/collections</a></li>
-      <li><a href="#stdlib-fs">std/fs</a></li>
-      <li><a href="#stdlib-process">std/process</a></li>
+      <li><a href="#stdlib-io">std.io</a></li>
+      <li><a href="#stdlib-sync">std.sync & Channels</a></li>
+      <li><a href="#stdlib-http">std.http & Microservices</a></li>
+      <li><a href="#stdlib-json">std.json (RFC 8259)</a></li>
+      <li><a href="#stdlib-fs">std.fs</a></li>
+      <li><a href="#stdlib-process">std.process</a></li>
     </ul>
 
     <div class="nav-group-title">Tools & Ecosystem</div>
@@ -99,11 +108,11 @@
 
   <main>
     <h1>SP Programming Language Documentation</h1>
-    <p>Welcome to the official technical documentation for SP v1.0.0. SP is a modern statically-typed programming language providing native LLVM machine performance, multi-syntax familiarity, built-in package management, and unified IDE tooling.</p>
+    <p>Welcome to the official technical documentation for SP v2.0.0. SP is a modern statically-typed programming language providing native LLVM machine performance, compile-time function execution (comptime), language editions, first-class WebAssembly, and unified IDE tooling.</p>
 
     <div class="callout">
-      <div class="callout-title">Production Release (v1.0.0)</div>
-      SP 1.0.0 delivers a stabilized core specification, official package manager (<code>spm</code>) with SHA-256 integrity verification, native test runner, formatter, documentation generator, LSP server, and DAP debugger.
+      <div class="callout-title">Production Release (v2.0.0 General Availability)</div>
+      SP 2.0.0 delivers the full language edition system (<code>edition = "2028"</code>), compile-time function execution (<code>comptime</code>), native <code>wasm32-wasi</code> WebAssembly code generation, structured coroutines (<code>async</code>/<code>await</code>), and automated migration tooling (<code>spc fix</code>).
     </div>
 
     <section id="installation">
@@ -125,7 +134,7 @@ spm --version</code></pre>
       <h2>2. Your First Program</h2>
       <p>Create a file named <code>main.sp</code>:</p>
       <pre><code>fn main() -> int {
-    let message = "Hello from SP 1.0!";
+    let message = "Hello from SP 2.0!";
     println(message);
     return 0;
 }</code></pre>
@@ -146,8 +155,60 @@ spm run</code></pre>
       <pre><code>spm verify</code></pre>
     </section>
 
+    <section id="sp2-editions">
+      <h2>4. Language Editions (2026 & 2028)</h2>
+      <p>SP 2.0 introduces language editions, guaranteeing perpetual backwards compatibility for older codebases while unlocking modern syntax and stricter safety:</p>
+      <pre><code># In sp.toml
+[package]
+name = "my_app"
+version = "2.0.0"
+edition = "2028" # Or "2026" for legacy baseline</code></pre>
+      <p>Pass the edition directly to the compiler CLI:</p>
+      <pre><code>spc build --edition 2028 src/main.sp</code></pre>
+    </section>
+
+    <section id="sp2-comptime">
+      <h2>5. Compile-Time Function Execution (comptime)</h2>
+      <p>Execute deterministic logic, generate lookup tables, and run compile-time assertions at build time with zero runtime overhead:</p>
+      <pre><code>comptime fn fibonacci(n: int): int {
+    if (n &lt;= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+fn main(): int {
+    // Evaluated at compile-time and folded directly into integer constant 55
+    const FIB_10: int = comptime fibonacci(10);
+    println("Fibonacci(10) computed at comptime: ${FIB_10}");
+    return 0;
+}</code></pre>
+    </section>
+
+    <section id="sp2-wasm">
+      <h2>6. First-Class WebAssembly (wasm32-wasi)</h2>
+      <p>Compile high-performance SP binaries directly to WebAssembly System Interface (WASI) for serverless edge workers and browser runtimes:</p>
+      <pre><code>spc build --target wasm32-wasi -o service.wasm src/main.sp
+wasmtime service.wasm</code></pre>
+    </section>
+
+    <section id="sp2-coroutines">
+      <h2>7. Structured async / await Coroutines</h2>
+      <p>Native asynchronous functions and tasks with seamless threadpool event-loop integration:</p>
+      <pre><code>async fn fetchRemoteData(url: string): string {
+    let client = new HttpClient();
+    let resp = await client.get(url);
+    return resp.body;
+}</code></pre>
+    </section>
+
+    <section id="sp2-migration">
+      <h2>8. Automated Migration Tool (spc fix)</h2>
+      <p>Automatically inspect and upgrade legacy codebases to Edition 2028:</p>
+      <pre><code>spc fix --edition 2028 --dry-run src/
+spc fix --edition 2028 src/</code></pre>
+    </section>
+
     <section id="variables">
-      <h2>4. Variables & Data Types</h2>
+      <h2>9. Variables & Data Types</h2>
       <p>SP supports explicit type annotations as well as automatic type inference:</p>
       <pre><code>let name: string = "Alice"; // Immutable
 var score: int = 100;       // Mutable

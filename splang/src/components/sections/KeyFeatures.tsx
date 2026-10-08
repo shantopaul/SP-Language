@@ -15,51 +15,51 @@ export const KeyFeatures: React.FC = () => {
   const features = [
     {
       icon: Cpu,
-      title: "Native LLVM 18+ Backend",
+      title: "Native LLVM & WebAssembly Backend",
       description:
-        "Compiles directly to optimized machine code (.exe, ELF, Mach-O) via LLVM intermediate representation with -O0 through -O3 optimization passes.",
+        "Compiles directly to optimized machine code (.exe, ELF, Mach-O) and first-class WebAssembly (wasm32-wasi) via LLVM intermediate representation with -O3 optimization passes.",
       color: "text-emerald-400",
       border: "hover:border-emerald-500/50",
     },
     {
-      icon: ShieldCheck,
-      title: "Expressive Type & Null Safety",
+      icon: Zap,
+      title: "Compile-Time Execution (comptime)",
       description:
-        "Static type checking with bidirectional inference, nullable types (T?), safe navigation (?.), and null-coalescing (??) catching errors before code generation.",
+        "Execute pure SP functions, compile-time assertions, and constant lookup tables at build time with zero runtime overhead.",
+      color: "text-amber-400",
+      border: "hover:border-amber-500/50",
+    },
+    {
+      icon: Layers,
+      title: "Language Editions (2026 & 2028)",
+      description:
+        "Perpetual backwards compatibility for existing packages with automated migration tooling (spc fix) to modernize legacy syntax seamlessly.",
       color: "text-cyan-400",
       border: "hover:border-cyan-500/50",
     },
     {
-      icon: Zap,
-      title: "Zero-Cost Generics",
+      icon: ShieldCheck,
+      title: "Deterministic ARC Memory Model",
       description:
-        "Specializes generic classes (Box<T>, List<T>, Map<K,V>) and functions via monomorphization, eliminating runtime boxing and dynamic casting overhead.",
+        "Hybrid value semantics and compiler-automated reference counting with RAII scope-exit drops. Zero stop-the-world GC pauses and 0 bytes leaked.",
       color: "text-blue-400",
       border: "hover:border-blue-500/50",
     },
     {
-      icon: Layers,
-      title: "Clean Object-Oriented Architecture",
-      description:
-        "Full support for classes, constructors, single inheritance, vtable virtual dispatch, interface contracts, struct value types, and type-safe enums.",
-      color: "text-indigo-400",
-      border: "hover:border-indigo-500/50",
-    },
-    {
       icon: Boxes,
-      title: "Built-In Package Manager (spm)",
+      title: "Structured Coroutines & Async I/O",
       description:
-        "Complete dependency resolution, cycle detection, semantic versioning, and deterministic sp.lock generation backed by cryptographic SHA-256 validation.",
+        "First-class async fn and await expressions powered by an IOCP/epoll non-blocking event loop and work-stealing thread pool.",
       color: "text-purple-400",
       border: "hover:border-purple-500/50",
     },
     {
       icon: Terminal,
-      title: "Unified Developer Tooling",
+      title: "Unified Production Toolchain",
       description:
-        "Shipped with an idempotent formatter (spc fmt), native test runner (spc test), documentation generator (spc doc), and official VS Code LSP/DAP support.",
-      color: "text-amber-400",
-      border: "hover:border-amber-500/50",
+        "Shipped with self-hosted compiler frontend, formatter (spc fmt), test runner (spc test), package manager (spm), and official VS Code LSP/DAP support.",
+      color: "text-indigo-400",
+      border: "hover:border-indigo-500/50",
     },
   ];
 

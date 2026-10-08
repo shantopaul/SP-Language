@@ -23,14 +23,14 @@ export const ReleaseCallout: React.FC = () => {
             </h2>
 
             <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-              SP 1.0.0 is officially released and production-ready. Start building blazing-fast CLI utilities, backend microservices, or computational kernels with confidence.
+              SP 2.0.0 is officially released and production-ready. Start building blazing-fast CLI utilities, backend microservices, WebAssembly modules, or computational kernels with confidence.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
               <Link href="/downloads">
                 <Button size="lg" variant="primary">
                   <Download className="w-4 h-4 mr-1" />
-                  <span>Download SP 1.0.0</span>
+                  <span>Download SP 2.0.0</span>
                 </Button>
               </Link>
               <a

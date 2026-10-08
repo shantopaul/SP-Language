@@ -128,6 +128,45 @@ Doubled evens:
  -> 60`,
   },
   {
+    id: "comptime",
+    title: "SP 2.0 Comptime",
+    subtitle: "Zero runtime overhead with compile-time metaprogramming & constant folding.",
+    code: `import std.io;
+
+// Evaluated strictly during compilation
+comptime fn factorial(int n) -> int {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+fn main() -> void {
+    // Constant folded directly into LLVM IR as an immediate value 3628800
+    let answer = comptime factorial(10);
+    println("Precomputed Factorial(10): \${answer}");
+}`,
+    output: `Precomputed Factorial(10): 3628800`,
+  },
+  {
+    id: "coroutines",
+    title: "SP 2.0 Coroutines",
+    subtitle: "Cooperative async/await coroutines with lock-free channel concurrency.",
+    code: `import std.io;
+import std.sync;
+
+async fn fetchMetrics(string serviceId) -> string {
+    println("Connecting to telemetry cluster for \${serviceId}...");
+    return "Status: 200 OK | Latency: 1.2ms";
+}
+
+fn main() -> void {
+    let handle = spawn fetchMetrics("sp-core-node-1");
+    let result = await handle;
+    println("Cluster Response: \${result}");
+}`,
+    output: `Connecting to telemetry cluster for sp-core-node-1...
+Cluster Response: Status: 200 OK | Latency: 1.2ms`,
+  },
+  {
     id: "stdlib",
     title: "Standard Library",
     subtitle: "Production-ready IO, Filesystem, Math, and OS modules out-of-the-box.",
@@ -149,7 +188,7 @@ fn main() -> void {
     
     let root = math.sqrt(256.0);
     println("Calculated root: \${root}");
-}`,
+} `,
     output: `Created: config.sp.tmp
 Content:
 mode=production
@@ -157,3 +196,4 @@ threads=8
 Calculated root: 16`,
   },
 ];
+

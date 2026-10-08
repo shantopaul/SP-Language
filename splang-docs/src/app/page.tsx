@@ -27,8 +27,13 @@ fn main() -> void {
         </p>
       </div>
 
-      <Callout type="tip" title="SP 1.0.0 Production Release">
-        SP 1.0.0 is officially released with LLVM native compilation, a standard library containing 8 modules, a built-in package manager, and full VS Code integration.
+      <Callout type="tip" title="SP 2.0.0 General Availability Now Live">
+        <p>
+          SP 2.0.0 is officially released! Introducing <strong>Language Editions</strong> (<code>edition = &quot;2026&quot;</code> / <code>edition = &quot;2028&quot;</code>), <strong>Compile-Time Function Execution</strong> (<code>comptime</code>), <strong>First-Class WebAssembly</strong> (<code>wasm32-wasi</code>), <strong>Structured Coroutines</strong> (<code>async</code>/<code>await</code>), and automated migration tooling (<code>spc fix</code>).{" "}
+          <Link href="/sp2/overview" className="underline font-semibold hover:text-white">
+            Read the SP 2.0.0 Release Notes &rarr;
+          </Link>
+        </p>
       </Callout>
 
       {/* Quick Start Card Grid */}

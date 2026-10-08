@@ -112,6 +112,11 @@
 - [x] [98. Atomic Operations (Lock-Free)](#98-atomic-operations-lock-free) ✅
 - [x] [99. Real-World Project: High-Performance Key-Value Store](#99-real-world-project-high-performance-key-value-store) ✅
 - [x] [100. Real-World Project: Multi-Threaded HTTP REST Microservice](#100-real-world-project-multi-threaded-http-rest-microservice) ✅
+- [x] [101. SP 2.0 Compile-Time Execution (`comptime`)](#101-sp-20-compile-time-execution-comptime) 🚀
+- [x] [102. SP 2.0 WebAssembly Target (`wasm32-wasi`)](#102-sp-20-webassembly-target-wasm32-wasi) 🚀
+- [x] [103. SP 2.0 Structured Coroutines (`async` / `await`)](#103-sp-20-structured-coroutines-async--await) 🚀
+- [x] [104. SP 2.0 Language Editions (`2026` / `2028`)](#104-sp-20-language-editions-2026--2028) 🚀
+- [x] [105. SP 2.0 Automated Modernization (`spc fix`)](#105-sp-20-automated-modernization-spc-fix) 🚀
 
 ---
 
@@ -5501,6 +5506,112 @@ Active endpoint: GET http://localhost:8080/api/products
 Health check:    GET http://localhost:8080/health
 ```
 
+
+---
+
+## 101. SP 2.0 Compile-Time Execution (`comptime`) 🚀
+
+Functions marked with `comptime` or expressions inside `comptime` are evaluated during compilation by the SP compiler AST evaluator, folding results directly into immediate LLVM IR constants with zero runtime overhead:
+
+```sp
+import std.io;
+
+// Computed entirely at compile time
+comptime fn factorial(int n) -> int {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+fn main() {
+    // 3628800 is embedded directly into the machine binary
+    let result = comptime factorial(10);
+    println("Precalculated Factorial(10): ${result}");
+}
+```
+
+**Output:**
+```
+Precalculated Factorial(10): 3628800
+```
+
+---
+
+## 102. SP 2.0 WebAssembly Target (`wasm32-wasi`) 🚀
+
+SP 2.0 compiles directly to WebAssembly using the `wasm32-wasi` target. Because SP uses deterministic ARC instead of a heavyweight garbage collector, output WASM binaries are minimal in footprint (often < 50KB) and have instant sub-millisecond cold starts:
+
+```bash
+# Cross-compile to WebAssembly
+spc build app.sp --target wasm32-wasi -O3 -o app.wasm
+
+# Run on Wasmtime runtime
+wasmtime app.wasm
+```
+
+---
+
+## 103. SP 2.0 Structured Coroutines (`async` / `await`) 🚀
+
+Lightweight cooperative coroutines running on an asynchronous runtime with zero OS thread context-switch penalty:
+
+```sp
+import std.io;
+import std.sync;
+import std.time;
+
+async fn fetchMetrics(string node) -> string {
+    time.sleepMs(20);
+    return "Node ${node} healthy";
+}
+
+fn main() {
+    let task1 = spawn fetchMetrics("primary");
+    let task2 = spawn fetchMetrics("replica");
+
+    let r2 = await task2;
+    let r1 = await task1;
+
+    println(r1);
+    println(r2);
+}
+```
+
+**Output:**
+```
+Node primary healthy
+Node replica healthy
+```
+
+---
+
+## 104. SP 2.0 Language Editions (`2026` / `2028`) 🚀
+
+Editions provide forward progress without breaking older codebases. Specify the edition in `spc.toml` or via CLI:
+
+```toml
+[package]
+name = "my_app"
+version = "2.0.0"
+edition = "2026" # Or "2028" for next-gen features
+```
+
+```bash
+spc build main.sp --edition 2028 -o app
+```
+
+---
+
+## 105. SP 2.0 Automated Modernization (`spc fix`) 🚀
+
+Automatically modernize codebases between editions using AST-aware refactoring:
+
+```bash
+# Dry run to preview changes
+spc fix --dry-run
+
+# Automatically apply modern syntax and upgrade to Edition 2028
+spc fix --edition 2028
+```
 
 <div align="center">
 
