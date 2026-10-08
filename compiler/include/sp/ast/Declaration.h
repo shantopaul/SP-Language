@@ -90,6 +90,15 @@ public:
     [[nodiscard]] bool isComptime() const noexcept { return m_isComptime; }
     void setComptime(bool comptime) noexcept { m_isComptime = comptime; }
 
+    [[nodiscard]] const std::vector<Annotation>& getAnnotations() const noexcept { return m_annotations; }
+    void setAnnotations(std::vector<Annotation> annotations) noexcept { m_annotations = std::move(annotations); }
+    [[nodiscard]] bool hasAnnotation(const std::string& name) const noexcept {
+        for (const auto& ann : m_annotations) {
+            if (ann.name == name) return true;
+        }
+        return false;
+    }
+
     void accept(ASTVisitor& visitor) const override;
 
 private:
@@ -106,6 +115,7 @@ private:
     bool m_isAsync;
     bool m_isUnsafe{false};
     bool m_isComptime{false};
+    std::vector<Annotation> m_annotations;
 };
 
 class ClassDecl : public StatementNode {
@@ -148,6 +158,16 @@ public:
     [[nodiscard]] const std::string& getVisibility() const noexcept { return m_visibility; }
     [[nodiscard]] bool isAbstract() const noexcept { return m_isAbstract; }
 
+    [[nodiscard]] const std::vector<Annotation>& getAnnotations() const noexcept { return m_annotations; }
+    void addAnnotation(Annotation annot) { m_annotations.push_back(std::move(annot)); }
+    void setAnnotations(std::vector<Annotation> annots) { m_annotations = std::move(annots); }
+    [[nodiscard]] bool hasAnnotation(const std::string& name) const noexcept {
+        for (const auto& ann : m_annotations) {
+            if (ann.name == name) return true;
+        }
+        return false;
+    }
+
     void accept(ASTVisitor& visitor) const override;
 
 private:
@@ -158,6 +178,7 @@ private:
     std::vector<ASTNodePtr> m_members;
     std::string m_visibility;
     bool m_isAbstract;
+    std::vector<Annotation> m_annotations;
 };
 
 class InterfaceDecl : public StatementNode {

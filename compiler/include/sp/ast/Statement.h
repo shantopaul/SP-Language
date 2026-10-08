@@ -68,6 +68,16 @@ public:
     [[nodiscard]] bool isWeak() const noexcept { return m_isWeak; }
     void setWeak(bool weak) noexcept { m_isWeak = weak; }
 
+    [[nodiscard]] const std::vector<Annotation>& getAnnotations() const noexcept { return m_annotations; }
+    void addAnnotation(Annotation annot) { m_annotations.push_back(std::move(annot)); }
+    void setAnnotations(std::vector<Annotation> annots) { m_annotations = std::move(annots); }
+    [[nodiscard]] bool hasAnnotation(const std::string& name) const noexcept {
+        for (const auto& ann : m_annotations) {
+            if (ann.name == name) return true;
+        }
+        return false;
+    }
+
     void accept(ASTVisitor& visitor) const override;
 
 private:
@@ -79,6 +89,7 @@ private:
     std::string m_visibility;
     bool m_isStatic{false};
     bool m_isWeak{false};
+    std::vector<Annotation> m_annotations;
 };
 
 class IfStmt : public StatementNode {

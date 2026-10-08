@@ -27,6 +27,13 @@ extern "C" {
     fn sp_rt_json_new_array() -> ptr;
     fn sp_rt_json_new_object() -> ptr;
     fn sp_rt_json_destroy(ptr handle);
+
+    // Typed Data Serialization (SP 2.4)
+    fn sp_rt_json_register_class(string className, int objectSize, bool hasVtable);
+    fn sp_rt_json_register_field(string className, string fieldName, string jsonKey, int typeKind, string typeName, int byteOffset, bool isIgnored, bool isNullable);
+    fn sp_rt_json_decode_typed(string className, string jsonStr, ptr outErr) -> ptr;
+    fn sp_rt_json_encode_typed(string className, ptr obj, int indent) -> string;
+    fn sp_rt_json_problem_details(string title, int status, string detail, string instance, string errorsJson) -> string;
 }
 
 public enum JsonType {
@@ -155,6 +162,19 @@ public class JsonValue {
     }
 }
 
+public class ProblemDetails {
+    public string type;
+    public string title;
+    public int status;
+    public string detail;
+    public string instance;
+    public string errorsJson;
+
+    public fn toJson() -> string {
+        return sp_rt_json_problem_details(this.title, this.status, this.detail, this.instance, this.errorsJson);
+    }
+}
+
 public class Json {
     public static fn parse(string jsonStr) -> JsonValue {
         return JsonValue.parse(jsonStr);
@@ -171,4 +191,26 @@ public class Json {
     public static fn array() -> JsonValue {
         return JsonValue.arrayVal();
     }
+
+    // Typed Data Serialization (SP 2.4)
+    public static fn registerClass(string className, int objectSize, bool hasVtable) {
+        sp_rt_json_register_class(className, objectSize, hasVtable);
+    }
+
+    public static fn registerField(string className, string fieldName, string jsonKey, int typeKind, string typeName, int byteOffset, bool isIgnored, bool isNullable) {
+        sp_rt_json_register_field(className, fieldName, jsonKey, typeKind, typeName, byteOffset, isIgnored, isNullable);
+    }
+
+    public static fn decodeTyped(string className, string jsonStr) -> ptr {
+        return sp_rt_json_decode_typed(className, jsonStr, null);
+    }
+
+    public static fn encodeTyped(string className, ptr obj, int indent) -> string {
+        return sp_rt_json_encode_typed(className, obj, indent);
+    }
+
+    public static fn problemDetails(string title, int status, string detail, string instance, string errorsJson) -> string {
+        return sp_rt_json_problem_details(title, status, detail, instance, errorsJson);
+    }
 }
+

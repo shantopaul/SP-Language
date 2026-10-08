@@ -76,7 +76,8 @@ private:
     ast::ExprPtr parseNewExpr();
 
     // Statement Parsing
-    ast::StmtPtr parseVarDecl(bool isConst = false, bool isVar = false, bool isWeak = false);
+    std::vector<ast::Annotation> parseAnnotations();
+    ast::StmtPtr parseVarDecl(bool isConst = false, bool isVar = false, bool isWeak = false, std::string visibility = "public", bool isStatic = false);
     ast::StmtPtr parseIfStatement();
     ast::StmtPtr parseWhileStatement();
     ast::StmtPtr parseDoWhileStatement();
