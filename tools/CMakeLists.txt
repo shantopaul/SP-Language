@@ -30,11 +30,19 @@ target_include_directories(sp_bindgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_bindgen PUBLIC sp_compiler)
 target_compile_features(sp_bindgen PRIVATE cxx_std_20)
 
+# SP Benchmark Library (sp_benchmark)
+add_library(sp_benchmark
+    benchmark/Benchmark.cpp
+)
+target_include_directories(sp_benchmark PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sp_benchmark PUBLIC sp_compiler sp_runtime)
+target_compile_features(sp_benchmark PRIVATE cxx_std_20)
+
 # SP Compiler Executable (spc)
 add_executable(spc
     spc/main.cpp
 )
-target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator sp_bindgen)
+target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator sp_bindgen sp_benchmark)
 target_compile_features(spc PRIVATE cxx_std_20)
 
 # SP Package Manager Core Library (spm_core)
@@ -44,6 +52,9 @@ add_library(spm_core
     spm/DependencyResolver.cpp
     spm/Lockfile.cpp
     spm/BuildOrchestrator.cpp
+    spm/Cache.cpp
+    spm/Publish.cpp
+    spm/DependencyTree.cpp
 )
 target_include_directories(spm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(spm_core PUBLIC sp_compiler sp_runtime)

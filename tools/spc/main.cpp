@@ -16,6 +16,7 @@
 #include "test/TestRunner.h"
 #include "doc/DocGenerator.h"
 #include "bindgen/Bindgen.h"
+#include "benchmark/Benchmark.h"
 #include "sp/util/PathUtils.h"
 #include <iostream>
 #include <fstream>
@@ -52,12 +53,16 @@ void printHelp() {
               << "  run <file>      Compile and immediately execute an SP program\n"
               << "  fmt <file>      Format SP source files according to style rules\n"
               << "  test [path]     Execute SP unit and integration tests\n"
+              << "  bench [path]    Execute micro-benchmarks with statistical regression tracking\n"
               << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
               << "  init [name]     Initialize a new SP project with sp.toml\n"
               << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n"
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
               << "  setup           Check, auto-provision, or update portable backend toolchain\n\n"
               << "Options:\n"
+              << "  --save-baseline Save current benchmark results as new historical baseline\n"
+              << "  --warmup <n>    Number of warmup iterations (default: 5)\n"
+              << "  --samples <n>   Number of sample measurement runs (default: 50)\n"
               << "  -o <path>       Specify output binary path (for build/obj command)\n"
               << "  -c, --emit-obj  Emit relocatable object file (.o / .obj) directly\n"
               << "  -S, --emit-ir   Emit LLVM IR (.ll) directly\n"
@@ -600,6 +605,44 @@ int main(int argc, char* argv[]) {
         sp::testing::TestRunner runner(verbose);
         auto suite = runner.runAll(targetPath, filter);
         return suite.isSuccess() ? 0 : 1;
+    }
+
+    if (command == "bench") {
+        std::string targetPath = ".";
+        sp::bench::BenchmarkOptions opts;
+
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if (arg == "--save-baseline") {
+                opts.saveBaseline = true;
+            } else if (arg == "--warmup" && i + 1 < argc) {
+                opts.warmupRuns = std::stoul(argv[++i]);
+            } else if (arg == "--samples" && i + 1 < argc) {
+                opts.sampleRuns = std::stoul(argv[++i]);
+            } else if ((arg == "--filter" || arg == "-f") && i + 1 < argc) {
+                opts.filter = argv[++i];
+            } else if (!arg.starts_with("-")) {
+                targetPath = arg;
+            }
+        }
+
+        std::cout << "Executing SP micro-benchmarks on '" << targetPath << "'...\n";
+        auto res = sp::bench::BenchmarkRunner::run(targetPath, opts);
+        if (!res.success) {
+            std::cerr << "error: benchmark execution failed: " << res.errorMessage << "\n";
+            return 1;
+        }
+
+        std::cout << res.formattedReport;
+        if (res.regressionsDetected > 0) {
+            std::cout << "\n[!] REGRESSION ALERT: " << res.regressionsDetected
+                      << " benchmark(s) exhibited performance regressions (>10% slower than baseline).\n";
+            return 1;
+        } else {
+            std::cout << "\nStatus: ALL " << res.totalBenchmarks
+                      << " BENCHMARKS COMPLETED (0 regressions detected)\n";
+        }
+        return 0;
     }
 
     if (command == "doc") {

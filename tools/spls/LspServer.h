@@ -35,6 +35,11 @@ public:
     JsonValue handleDefinition(const JsonValue& id, const JsonValue& params);
     JsonValue handleFormatting(const JsonValue& id, const JsonValue& params);
     JsonValue handleRename(const JsonValue& id, const JsonValue& params);
+    JsonValue handleWorkspaceSymbol(const JsonValue& id, const JsonValue& params);
+    JsonValue handleInlayHint(const JsonValue& id, const JsonValue& params);
+
+    // Incremental document synchronization helper
+    void applyIncrementalEdit(const std::string& uri, const Range& range, const std::string& text);
 
     // Diagnostics helper
     std::vector<Diagnostic> computeDiagnostics(const std::string& uri, const std::string& source);

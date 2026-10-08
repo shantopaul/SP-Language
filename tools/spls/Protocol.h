@@ -125,4 +125,40 @@ struct Hover {
     }
 };
 
+struct SymbolInformation {
+    std::string name;
+    int kind{12}; // 5 = Class, 11 = Interface, 12 = Function, 13 = Variable, 23 = Struct, 10 = Enum
+    Location location;
+    std::string containerName;
+
+    JsonValue toJson() const {
+        JsonValue j = JsonValue::object();
+        j["name"] = name;
+        j["kind"] = kind;
+        j["location"] = location.toJson();
+        if (!containerName.empty()) {
+            j["containerName"] = containerName;
+        }
+        return j;
+    }
+};
+
+struct InlayHint {
+    Position position;
+    std::string label;
+    int kind{1}; // 1 = Type, 2 = Parameter
+    bool paddingLeft{true};
+    bool paddingRight{false};
+
+    JsonValue toJson() const {
+        JsonValue j = JsonValue::object();
+        j["position"] = position.toJson();
+        j["label"] = label;
+        j["kind"] = kind;
+        j["paddingLeft"] = paddingLeft;
+        j["paddingRight"] = paddingRight;
+        return j;
+    }
+};
+
 } // namespace sp::lsp

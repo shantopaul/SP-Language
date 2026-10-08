@@ -56,12 +56,15 @@ add_executable(sp_tests
     spm/DependencyResolverTest.cpp
     spm/LockfileTest.cpp
     spm/BuildOrchestratorTest.cpp
+    spm/Phase17ToolingTest.cpp
     fmt/FormatterTest.cpp
     test/TestRunnerTest.cpp
     doc/DocGeneratorTest.cpp
     spls/LspServerTest.cpp
+    spls/SplsPhase17Test.cpp
     debugger/DapServerTest.cpp
     bindgen/BindgenTest.cpp
+    benchmark/BenchmarkTest.cpp
 )
 
 target_include_directories(sp_tests
@@ -80,6 +83,7 @@ target_link_libraries(sp_tests
         sp_bindgen
         sp_lsp_server
         sp_debugger
+        sp_benchmark
         GTest::gtest_main
 )
 

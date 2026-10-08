@@ -2,6 +2,9 @@
 #include "DependencyResolver.h"
 #include "Lockfile.h"
 #include "BuildOrchestrator.h"
+#include "Cache.h"
+#include "Publish.h"
+#include "DependencyTree.h"
 #include "sp/Version.h"
 #include <iostream>
 #include <string_view>
@@ -32,6 +35,8 @@ void printHelp() {
               << "  run [args...]       Compile and immediately run package binary\n"
               << "  clean               Remove build artifacts (target/ directory)\n"
               << "  verify              Verify package lockfile integrity and cryptographic checksums\n"
+              << "  tree                Display transitive dependency tree and version conflict diagnostics\n"
+              << "  cache [list|clean]  Manage local offline package cache (~/.sp/cache/packages/)\n"
               << "  publish             Publish current package to registry\n"
               << "  search <query>      Search for packages in registry\n\n"
               << "Options:\n"
@@ -43,6 +48,10 @@ void printHelp() {
               << "  --release           Build/run with optimizations enabled\n"
               << "  --debug             Build/run with debug symbols\n"
               << "  --frozen            Require that sp.lock is up-to-date (used in CI)\n"
+              << "  --workspace         Build all workspace members in a monorepo\n"
+              << "  -p, --package <pkg> Target specific workspace member package\n"
+              << "  --dry-run           Package and verify without uploading to registry\n"
+              << "  --token <token>     API token for registry authentication\n"
               << "  -o <output>         Specify custom output path\n"
               << "  -h, --help          Show help message\n"
               << "  -v, --version       Show version information\n";
@@ -321,6 +330,8 @@ int handleBuild(int argc, char* argv[]) {
             opts.debugMode = true;
         } else if (arg == "-o" && i + 1 < argc) {
             opts.customOutput = argv[++i];
+        } else if ((arg == "-p" || arg == "--package") && i + 1 < argc) {
+            opts.targetPackage = argv[++i];
         }
     }
 
@@ -331,8 +342,15 @@ int handleBuild(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "Finished " << (opts.releaseMode ? "release [optimized]" : "debug")
-              << " target: " << res.targetBinary << "\n";
+    if (!res.memberBinaries.empty()) {
+        std::cout << "Finished workspace monorepo build (" << res.memberBinaries.size() << " packages compiled):\n";
+        for (const auto& bin : res.memberBinaries) {
+            std::cout << "  - " << bin << "\n";
+        }
+    } else {
+        std::cout << "Finished " << (opts.releaseMode ? "release [optimized]" : "debug")
+                  << " target: " << res.targetBinary << "\n";
+    }
     return 0;
 }
 
@@ -382,22 +400,109 @@ int handleVerify(int /*argc*/, char* /*argv*/[]) {
 }
 
 int handlePublish(int argc, char* argv[]) {
-    std::string registryUrl = "https://registry.splang.shantopaul.com";
+    sp::spm::PublishOptions opts;
+    opts.registryUrl = "https://registry.splang.shantopaul.com";
+
     for (int i = 2; i < argc; ++i) {
-        if (std::string_view(argv[i]) == "--registry" && i + 1 < argc) {
-            registryUrl = argv[++i];
+        std::string_view arg = argv[i];
+        if (arg == "--registry" && i + 1 < argc) {
+            opts.registryUrl = argv[++i];
+        } else if (arg == "--token" && i + 1 < argc) {
+            opts.token = argv[++i];
+        } else if (arg == "--dry-run") {
+            opts.dryRun = true;
+        } else if (arg == "--skip-build") {
+            opts.skipBuildValidation = true;
         }
     }
 
-    std::cout << "Verifying package before publishing to " << registryUrl << "...\n";
-    auto res = sp::spm::BuildOrchestrator::publish(".", registryUrl);
+    std::cout << "Packaging and verifying release for " << opts.registryUrl
+              << (opts.dryRun ? " (dry-run mode)" : "") << "...\n";
+    auto res = sp::spm::BuildOrchestrator::publish(".", opts);
     if (!res.success) {
         std::cerr << "error: publication failed: " << res.errorMessage << "\n";
         return 1;
     }
 
-    std::cout << "Package successfully verified and packaged: " << res.packageArtifact << "\n"
-              << "Published to " << registryUrl << "\n";
+    std::cout << "Package:    " << res.packageName << " v" << res.packageVersion << "\n"
+              << "Artifact:   " << res.packageArtifact << " (" << res.archiveSizeBytes << " bytes)\n"
+              << "Checksum:   " << res.sha256Checksum << " (SHA-256)\n"
+              << "Status:     " << res.registryResponse << "\n";
+    return 0;
+}
+
+int handleTree(int argc, char* argv[]) {
+    int maxDepth = 100;
+    bool asciiOnly = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--depth" && i + 1 < argc) {
+            maxDepth = std::atoi(argv[++i]);
+        } else if (arg == "--ascii") {
+            asciiOnly = true;
+        }
+    }
+
+    auto treeRes = sp::spm::BuildOrchestrator::tree(".", maxDepth);
+    if (!treeRes.success) {
+        std::cerr << "error: " << treeRes.formattedTree << "\n";
+        for (const auto& w : treeRes.conflictWarnings) {
+            std::cerr << "  " << w << "\n";
+        }
+        return 1;
+    }
+
+    std::cout << (asciiOnly ? sp::spm::DependencyTree::formatTree(treeRes.root, false) : treeRes.formattedTree);
+
+    if (!treeRes.conflictWarnings.empty()) {
+        std::cout << "\n[!] Version Conflicts & Warnings Detected (" << treeRes.conflictWarnings.size() << "):\n";
+        for (const auto& w : treeRes.conflictWarnings) {
+            std::cout << "  - " << w << "\n";
+        }
+    }
+    return 0;
+}
+
+int handleCache(int argc, char* argv[]) {
+    std::string sub = (argc >= 3) ? argv[2] : "list";
+
+    if (sub == "clean" || sub == "clear") {
+        std::string err;
+        if (!sp::spm::PackageCache::clean(err)) {
+            std::cerr << "error: failed to clean cache: " << err << "\n";
+            return 1;
+        }
+        std::cout << "Package cache cleaned successfully.\n";
+        return 0;
+    }
+
+    if (sub == "dir" || sub == "path") {
+        std::cout << sp::spm::PackageCache::getCacheRootDir().string() << "\n";
+        return 0;
+    }
+
+    // Default: list
+    auto pkgs = sp::spm::PackageCache::listCachedPackages();
+    size_t bytes = sp::spm::PackageCache::getCacheSizeBytes();
+    double mb = static_cast<double>(bytes) / (1024.0 * 1024.0);
+
+    std::cout << "SP Offline Package Cache: " << sp::spm::PackageCache::getPackagesRootDir().string() << "\n"
+              << "Total Cached: " << pkgs.size() << " packages (" << std::fixed << std::setprecision(2) << mb << " MB)\n\n";
+
+    for (const auto& [name, ver] : pkgs) {
+        std::string cks = sp::spm::PackageCache::getCachedChecksum(name, ver);
+        std::cout << "  - " << std::left << std::setw(20) << (name + " v" + ver);
+        if (!cks.empty()) {
+            std::cout << " [SHA-256: " << cks.substr(0, 16) << "...]";
+        }
+        std::cout << "\n";
+    }
+
+    if (pkgs.empty()) {
+        std::cout << "  (Cache is currently empty)\n";
+    }
+
     return 0;
 }
 
@@ -481,6 +586,14 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "verify") {
         return handleVerify(argc, argv);
+    }
+
+    if (cmd == "tree") {
+        return handleTree(argc, argv);
+    }
+
+    if (cmd == "cache") {
+        return handleCache(argc, argv);
     }
 
     if (cmd == "publish") {

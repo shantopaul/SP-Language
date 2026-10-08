@@ -1,4 +1,5 @@
 #include "DependencyResolver.h"
+#include "Cache.h"
 #include <filesystem>
 #include <functional>
 #include <sstream>
@@ -52,6 +53,28 @@ std::vector<Version> DefaultPackageProvider::getAvailableVersions(const std::str
             if (v) versions.push_back(*v);
         }
     }
+
+    // Also inspect offline package cache
+    fs::path cacheRoot = PackageCache::getPackagesRootDir() / name;
+    if (fs::exists(cacheRoot) && fs::is_directory(cacheRoot)) {
+        try {
+            for (const auto& entry : fs::directory_iterator(cacheRoot)) {
+                if (entry.is_directory() && fs::exists(entry.path() / "sp.toml")) {
+                    auto v = Version::parse(entry.path().filename().string());
+                    if (v) {
+                        bool alreadyPresent = false;
+                        for (const auto& ex : versions) {
+                            if (ex == *v) { alreadyPresent = true; break; }
+                        }
+                        if (!alreadyPresent) {
+                            versions.push_back(*v);
+                        }
+                    }
+                }
+            }
+        } catch (...) {}
+    }
+
     std::sort(versions.rbegin(), versions.rend()); // descending order
     return versions;
 }
@@ -66,6 +89,16 @@ std::optional<ProjectConfig> DefaultPackageProvider::getPackageConfig(const std:
             }
         }
     }
+
+    // Try loading from offline package cache
+    fs::path cachedToml = PackageCache::getPackageDir(name, version.toString()) / "sp.toml";
+    if (fs::exists(cachedToml)) {
+        ProjectConfig cfg;
+        if (cfg.loadFromFile(cachedToml.string())) {
+            return cfg;
+        }
+    }
+
     return std::nullopt;
 }
 

@@ -88,14 +88,24 @@ ProjectConfig ProjectConfig::createDefault(const std::string& name, bool isLib) 
     return config;
 }
 
+ProjectConfig ProjectConfig::createWorkspace(const std::vector<std::string>& members) {
+    ProjectConfig config;
+    config.m_isWorkspace = true;
+    config.m_workspaceMembers = members;
+    return config;
+}
+
 bool ProjectConfig::loadFromString(const std::string& tomlContent) {
     m_dependencies.clear();
     m_devDependencies.clear();
     m_package = PackageMetadata();
+    m_isWorkspace = false;
+    m_workspaceMembers.clear();
 
     std::stringstream ss(tomlContent);
     std::string line;
     std::string currentSection;
+    bool inWorkspaceMembersArray = false;
 
     while (std::getline(ss, line)) {
         // Strip comments
@@ -106,9 +116,30 @@ bool ProjectConfig::loadFromString(const std::string& tomlContent) {
         line = trim(line);
         if (line.empty()) continue;
 
+        // If accumulating multiline workspace members
+        if (inWorkspaceMembersArray) {
+            size_t closePos = line.find(']');
+            std::string items = (closePos != std::string::npos) ? line.substr(0, closePos) : line;
+            std::stringstream mss(items);
+            std::string item;
+            while (std::getline(mss, item, ',')) {
+                std::string mem = stripQuotes(trim(item));
+                if (!mem.empty()) {
+                    m_workspaceMembers.push_back(mem);
+                }
+            }
+            if (closePos != std::string::npos) {
+                inWorkspaceMembersArray = false;
+            }
+            continue;
+        }
+
         // Section header
         if (line.front() == '[' && line.back() == ']') {
             currentSection = trim(line.substr(1, line.size() - 2));
+            if (currentSection == "workspace") {
+                m_isWorkspace = true;
+            }
             continue;
         }
 
@@ -119,7 +150,35 @@ bool ProjectConfig::loadFromString(const std::string& tomlContent) {
         std::string key = trim(line.substr(0, eqPos));
         std::string value = trim(line.substr(eqPos + 1));
 
-        if (currentSection == "package") {
+        if (currentSection == "workspace") {
+            m_isWorkspace = true;
+            if (key == "members") {
+                size_t openPos = value.find('[');
+                size_t closePos = value.find(']');
+                if (openPos != std::string::npos && closePos != std::string::npos) {
+                    std::string items = value.substr(openPos + 1, closePos - openPos - 1);
+                    std::stringstream mss(items);
+                    std::string item;
+                    while (std::getline(mss, item, ',')) {
+                        std::string mem = stripQuotes(trim(item));
+                        if (!mem.empty()) {
+                            m_workspaceMembers.push_back(mem);
+                        }
+                    }
+                } else if (openPos != std::string::npos) {
+                    inWorkspaceMembersArray = true;
+                    std::string items = value.substr(openPos + 1);
+                    std::stringstream mss(items);
+                    std::string item;
+                    while (std::getline(mss, item, ',')) {
+                        std::string mem = stripQuotes(trim(item));
+                        if (!mem.empty()) {
+                            m_workspaceMembers.push_back(mem);
+                        }
+                    }
+                }
+            }
+        } else if (currentSection == "package") {
             if (key == "name") {
                 m_package.name = stripQuotes(value);
             } else if (key == "version") {
@@ -145,6 +204,10 @@ bool ProjectConfig::loadFromString(const std::string& tomlContent) {
     }
 
     if (m_package.name.empty()) {
+        if (m_isWorkspace) {
+            // Valid workspace root without a package
+            return true;
+        }
         m_lastError = "Missing [package] name in sp.toml";
         return false;
     }
@@ -167,18 +230,28 @@ bool ProjectConfig::loadFromFile(const std::string& filePath) {
 std::string ProjectConfig::toTomlString() const {
     std::ostringstream ss;
 
-    ss << "[package]\n";
-    ss << "name = \"" << m_package.name << "\"\n";
-    ss << "version = \"" << m_package.version << "\"\n";
-    if (!m_package.description.empty()) {
-        ss << "description = \"" << m_package.description << "\"\n";
+    if (m_isWorkspace) {
+        ss << "[workspace]\nmembers = [\n";
+        for (size_t i = 0; i < m_workspaceMembers.size(); ++i) {
+            ss << "    \"" << m_workspaceMembers[i] << "\"" << (i + 1 < m_workspaceMembers.size() ? ",\n" : "\n");
+        }
+        ss << "]\n\n";
     }
-    if (!m_package.author.empty()) {
-        ss << "author = \"" << m_package.author << "\"\n";
+
+    if (!m_package.name.empty()) {
+        ss << "[package]\n";
+        ss << "name = \"" << m_package.name << "\"\n";
+        ss << "version = \"" << m_package.version << "\"\n";
+        if (!m_package.description.empty()) {
+            ss << "description = \"" << m_package.description << "\"\n";
+        }
+        if (!m_package.author.empty()) {
+            ss << "author = \"" << m_package.author << "\"\n";
+        }
+        ss << "edition = \"" << m_package.edition << "\"\n";
+        ss << "entry = \"" << m_package.entry << "\"\n";
+        ss << "type = \"" << m_package.packageType << "\"\n";
     }
-    ss << "edition = \"" << m_package.edition << "\"\n";
-    ss << "entry = \"" << m_package.entry << "\"\n";
-    ss << "type = \"" << m_package.packageType << "\"\n";
 
     ss << "\n[dependencies]\n";
     for (const auto& dep : m_dependencies) {

@@ -1,4 +1,6 @@
 #include "BuildOrchestrator.h"
+#include "Publish.h"
+#include "DependencyTree.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
@@ -26,6 +28,39 @@ std::string BuildOrchestrator::readFile(const std::string& path) {
     return ss.str();
 }
 
+BuildResult BuildOrchestrator::buildWorkspace(const std::string& workspaceDir, const BuildOptions& options) {
+    BuildResult result;
+    fs::path tomlPath = fs::path(workspaceDir) / "sp.toml";
+    ProjectConfig config;
+    if (!config.loadFromFile(tomlPath.string())) {
+        result.errorMessage = "Failed to load workspace sp.toml: " + config.getLastError();
+        return result;
+    }
+
+    if (!config.isWorkspace()) {
+        result.errorMessage = "Project at '" + workspaceDir + "' is not a workspace";
+        return result;
+    }
+
+    for (const auto& member : config.getWorkspaceMembers()) {
+        fs::path memberDir = fs::path(workspaceDir) / member;
+        BuildOptions memberOpts = options;
+        memberOpts.targetPackage.clear();
+        auto memberRes = build(memberDir.string(), memberOpts);
+        if (!memberRes.success) {
+            result.errorMessage = "Failed to build workspace member '" + member + "': " + memberRes.errorMessage;
+            return result;
+        }
+        result.memberBinaries.push_back(memberRes.targetBinary);
+    }
+
+    result.success = true;
+    if (!result.memberBinaries.empty()) {
+        result.targetBinary = result.memberBinaries.back();
+    }
+    return result;
+}
+
 BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildOptions& options) {
     BuildResult result;
     fs::path tomlPath = fs::path(projectDir) / "sp.toml";
@@ -39,6 +74,22 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
     if (!config.loadFromFile(tomlPath.string())) {
         result.errorMessage = "Failed to load 'sp.toml': " + config.getLastError();
         return result;
+    }
+
+    // Check if building workspace monorepo
+    if (config.isWorkspace()) {
+        if (!options.targetPackage.empty()) {
+            for (const auto& member : config.getWorkspaceMembers()) {
+                fs::path mDir = fs::path(projectDir) / member;
+                ProjectConfig mCfg;
+                if (mCfg.loadFromFile((mDir / "sp.toml").string()) && mCfg.getPackage().name == options.targetPackage) {
+                    return build(mDir.string(), options);
+                }
+            }
+            result.errorMessage = "Workspace member '" + options.targetPackage + "' not found in workspace";
+            return result;
+        }
+        return buildWorkspace(projectDir, options);
     }
 
     // Lockfile and dependency resolution
@@ -125,14 +176,26 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
     std::error_code ec;
     fs::create_directories(targetDir, ec);
 
+    bool isLib = (config.getPackage().packageType == "lib");
     std::string binName = config.getPackage().name;
+    if (isLib) {
 #if defined(_WIN32)
-    binName += ".exe";
+        binName += ".obj";
+#else
+        binName += ".o";
 #endif
+    } else {
+#if defined(_WIN32)
+        binName += ".exe";
+#endif
+    }
 
     fs::path outBin = options.customOutput.empty() ? (targetDir / binName) : fs::path(options.customOutput);
 
-    if (!llvmGen.compileToExecutable(*irModule, outBin.string())) {
+    bool buildSuccess = isLib ? llvmGen.emitObjectFile(*irModule, outBin.string())
+                              : llvmGen.compileToExecutable(*irModule, outBin.string());
+
+    if (!buildSuccess) {
         result.errorMessage = "Compilation failed: " + llvmGen.getLastError();
         if (!sp::util::hasBackendToolchain()) {
             result.errorMessage += "\n[HINT] No backend C/LLVM compiler or linker was detected on this computer.\n"
@@ -177,60 +240,27 @@ bool BuildOrchestrator::clean(const std::string& projectDir, std::string& errorM
 }
 
 PublishResult BuildOrchestrator::publish(const std::string& projectDir, const std::string& registryUrl) {
-    PublishResult result;
+    PublishOptions opts;
+    opts.registryUrl = registryUrl;
+    std::string token = PackagePublisher::resolveApiToken(opts);
+    opts.dryRun = token.empty();
+    return PackagePublisher::publish(projectDir, opts);
+}
+
+PublishResult BuildOrchestrator::publish(const std::string& projectDir, const PublishOptions& options) {
+    return PackagePublisher::publish(projectDir, options);
+}
+
+DependencyTreeResult BuildOrchestrator::tree(const std::string& projectDir, int maxDepth) {
     fs::path tomlPath = fs::path(projectDir) / "sp.toml";
-
-    if (!fs::exists(tomlPath)) {
-        result.errorMessage = "Could not find 'sp.toml' in '" + projectDir + "'";
-        return result;
-    }
-
     ProjectConfig config;
     if (!config.loadFromFile(tomlPath.string())) {
-        result.errorMessage = "Failed to load 'sp.toml': " + config.getLastError();
-        return result;
+        DependencyTreeResult res;
+        res.success = false;
+        res.formattedTree = "error: could not load sp.toml in " + projectDir;
+        return res;
     }
-
-    const auto& pkg = config.getPackage();
-    if (pkg.name.empty()) {
-        result.errorMessage = "Package name cannot be empty in sp.toml";
-        return result;
-    }
-
-    auto optV = Version::parse(pkg.version);
-    if (!optV) {
-        result.errorMessage = "Invalid package version '" + pkg.version + "' in sp.toml";
-        return result;
-    }
-
-    fs::path srcDir = fs::path(projectDir) / "src";
-    if (!fs::exists(srcDir)) {
-        result.errorMessage = "Cannot publish package without 'src/' directory";
-        return result;
-    }
-
-    // Prepare package artifact in target/packages
-    fs::path pkgDir = fs::path(projectDir) / "target" / "packages";
-    std::error_code ec;
-    fs::create_directories(pkgDir, ec);
-
-    std::string artifactName = pkg.name + "-" + pkg.version + ".tar.gz";
-    fs::path artifactPath = pkgDir / artifactName;
-
-    // Create package bundle metadata artifact
-    std::ofstream artOut(artifactPath);
-    if (!artOut.is_open()) {
-        result.errorMessage = "Failed to create package distribution artifact at " + artifactPath.string();
-        return result;
-    }
-    artOut << "# SP Package Archive: " << pkg.name << " v" << pkg.version << "\n"
-           << "# Target Registry: " << registryUrl << "\n"
-           << config.toTomlString();
-    artOut.close();
-
-    result.success = true;
-    result.packageArtifact = artifactPath.string();
-    return result;
+    return DependencyTree::buildTree(config, projectDir, nullptr, maxDepth);
 }
 
 std::vector<SearchResult> BuildOrchestrator::search(const std::string& query, const std::string& /*registryUrl*/) {

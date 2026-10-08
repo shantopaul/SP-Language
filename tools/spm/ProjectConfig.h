@@ -29,6 +29,7 @@ public:
     ProjectConfig() = default;
 
     static ProjectConfig createDefault(const std::string& name, bool isLib = false);
+    static ProjectConfig createWorkspace(const std::vector<std::string>& members);
 
     bool loadFromFile(const std::string& filePath);
     bool loadFromString(const std::string& tomlContent);
@@ -47,12 +48,23 @@ public:
     const Dependency* findDependency(const std::string& name, bool isDev = false) const;
     bool hasDependency(const std::string& name) const;
 
+    // Workspace monorepo support
+    bool isWorkspace() const { return m_isWorkspace; }
+    void setWorkspace(bool ws) { m_isWorkspace = ws; }
+    const std::vector<std::string>& getWorkspaceMembers() const { return m_workspaceMembers; }
+    void addWorkspaceMember(const std::string& member) {
+        m_isWorkspace = true;
+        m_workspaceMembers.push_back(member);
+    }
+
     const std::string& getLastError() const { return m_lastError; }
 
 private:
     PackageMetadata m_package;
     std::vector<Dependency> m_dependencies;
     std::vector<Dependency> m_devDependencies;
+    bool m_isWorkspace{false};
+    std::vector<std::string> m_workspaceMembers;
     mutable std::string m_lastError;
 
     static std::string trim(const std::string& s);

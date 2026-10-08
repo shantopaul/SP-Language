@@ -198,6 +198,20 @@ std::string LspServer::handleMessage(const std::string& rawMessage) {
             resp["result"] = handleRename(id, params);
             return resp.serialize();
         }
+        if (method == "workspace/symbol") {
+            JsonValue resp = JsonValue::object();
+            resp["jsonrpc"] = "2.0";
+            resp["id"] = id;
+            resp["result"] = handleWorkspaceSymbol(id, params);
+            return resp.serialize();
+        }
+        if (method == "textDocument/inlayHint") {
+            JsonValue resp = JsonValue::object();
+            resp["jsonrpc"] = "2.0";
+            resp["id"] = id;
+            resp["result"] = handleInlayHint(id, params);
+            return resp.serialize();
+        }
 
         // Default empty result for unsupported requests
         JsonValue resp = JsonValue::object();
@@ -244,6 +258,8 @@ JsonValue LspServer::handleInitialize(const JsonValue&, const JsonValue&) {
     caps["definitionProvider"] = true;
     caps["documentFormattingProvider"] = true;
     caps["renameProvider"] = true;
+    caps["workspaceSymbolProvider"] = true;
+    caps["inlayHintProvider"] = true;
 
     result["capabilities"] = caps;
 
@@ -284,12 +300,49 @@ void LspServer::handleDidOpen(const JsonValue& params) {
     publishDiagnostics(uri);
 }
 
+void LspServer::applyIncrementalEdit(const std::string& uri, const Range& range, const std::string& text) {
+    auto it = m_documents.find(uri);
+    if (it == m_documents.end()) {
+        m_documents[uri] = text;
+        return;
+    }
+
+    const std::string& doc = it->second;
+    auto positionToOffset = [&](const Position& pos) -> size_t {
+        size_t currentLine = 0;
+        size_t currentOffset = 0;
+        while (currentOffset < doc.size() && currentLine < static_cast<size_t>(pos.line)) {
+            if (doc[currentOffset] == '\n') {
+                currentLine++;
+            }
+            currentOffset++;
+        }
+        size_t targetOffset = currentOffset + static_cast<size_t>(pos.character);
+        return std::min(targetOffset, doc.size());
+    };
+
+    size_t startOffset = positionToOffset(range.start);
+    size_t endOffset = positionToOffset(range.end);
+    if (startOffset > endOffset) std::swap(startOffset, endOffset);
+
+    std::string newDoc = doc.substr(0, startOffset) + text + doc.substr(endOffset);
+    m_documents[uri] = std::move(newDoc);
+}
+
 void LspServer::handleDidChange(const JsonValue& params) {
     std::string uri = params["textDocument"]["uri"].asString();
     const auto& changes = params["contentChanges"];
     if (changes.isArray() && !changes.arrVal.empty()) {
-        std::string text = changes[0]["text"].asString();
-        updateDocument(uri, text);
+        for (const auto& ch : changes.arrVal) {
+            if (ch.isObject() && ch.hasKey("range") && !ch["range"].isNull()) {
+                Range r = Range::fromJson(ch["range"]);
+                std::string txt = ch["text"].asString();
+                applyIncrementalEdit(uri, r, txt);
+            } else if (ch.isObject() && ch.hasKey("text")) {
+                std::string txt = ch["text"].asString();
+                updateDocument(uri, txt);
+            }
+        }
         publishDiagnostics(uri);
     }
 }
@@ -605,6 +658,141 @@ JsonValue LspServer::handleRename(const JsonValue&, const JsonValue& params) {
     workspaceEdit["changes"] = changes;
 
     return workspaceEdit;
+}
+
+JsonValue LspServer::handleWorkspaceSymbol(const JsonValue&, const JsonValue& params) {
+    std::string query = params["query"].asString("");
+    std::string qLower = query;
+    std::transform(qLower.begin(), qLower.end(), qLower.begin(), [](unsigned char c) { return std::tolower(c); });
+
+    JsonValue symbols = JsonValue::array();
+
+    for (const auto& [uri, text] : m_documents) {
+        std::istringstream stream(text);
+        std::string line;
+        int lineNum = 0;
+
+        while (std::getline(stream, line)) {
+            auto findSymbol = [&](const std::string& keyword, int kind) {
+                size_t pos = line.find(keyword);
+                if (pos != std::string::npos && (pos == 0 || std::isspace(static_cast<unsigned char>(line[pos - 1])))) {
+                    size_t nameStart = pos + keyword.size();
+                    while (nameStart < line.size() && std::isspace(static_cast<unsigned char>(line[nameStart]))) {
+                        nameStart++;
+                    }
+                    size_t nameEnd = nameStart;
+                    while (nameEnd < line.size() && (std::isalnum(static_cast<unsigned char>(line[nameEnd])) || line[nameEnd] == '_')) {
+                        nameEnd++;
+                    }
+                    if (nameEnd > nameStart) {
+                        std::string symName = line.substr(nameStart, nameEnd - nameStart);
+                        std::string sLower = symName;
+                        std::transform(sLower.begin(), sLower.end(), sLower.begin(), [](unsigned char c) { return std::tolower(c); });
+
+                        if (qLower.empty() || sLower.find(qLower) != std::string::npos) {
+                            SymbolInformation sym;
+                            sym.name = symName;
+                            sym.kind = kind;
+                            sym.location.uri = uri;
+                            sym.location.range.start.line = lineNum;
+                            sym.location.range.start.character = static_cast<int>(nameStart);
+                            sym.location.range.end.line = lineNum;
+                            sym.location.range.end.character = static_cast<int>(nameEnd);
+                            symbols.push_back(sym.toJson());
+                        }
+                    }
+                }
+            };
+
+            findSymbol("fn", 12);         // Function
+            findSymbol("class", 5);       // Class
+            findSymbol("struct", 23);     // Struct
+            findSymbol("interface", 11);  // Interface
+            findSymbol("enum", 10);       // Enum
+            findSymbol("let", 13);        // Variable
+            findSymbol("const", 14);      // Constant
+
+            lineNum++;
+        }
+    }
+
+    return symbols;
+}
+
+JsonValue LspServer::handleInlayHint(const JsonValue&, const JsonValue& params) {
+    std::string uri = params["textDocument"]["uri"].asString();
+    auto docIt = m_documents.find(uri);
+    if (docIt == m_documents.end()) {
+        return JsonValue::array();
+    }
+
+    JsonValue hints = JsonValue::array();
+    const std::string& text = docIt->second;
+    std::istringstream stream(text);
+    std::string line;
+    int lineNum = 0;
+
+    while (std::getline(stream, line)) {
+        // Look for `let <name> = <val>;` without colon `: <type>`
+        size_t letPos = line.find("let ");
+        if (letPos != std::string::npos && (letPos == 0 || std::isspace(static_cast<unsigned char>(line[letPos - 1])))) {
+            size_t nameStart = letPos + 4;
+            while (nameStart < line.size() && std::isspace(static_cast<unsigned char>(line[nameStart]))) {
+                nameStart++;
+            }
+            size_t nameEnd = nameStart;
+            while (nameEnd < line.size() && (std::isalnum(static_cast<unsigned char>(line[nameEnd])) || line[nameEnd] == '_')) {
+                nameEnd++;
+            }
+            if (nameEnd > nameStart) {
+                // Check if already has explicit type annotation e.g. `let x: int = ...`
+                size_t afterName = nameEnd;
+                while (afterName < line.size() && std::isspace(static_cast<unsigned char>(line[afterName]))) {
+                    afterName++;
+                }
+                if (afterName < line.size() && line[afterName] == '=') {
+                    // Type was omitted! Infer from initializer
+                    size_t eqPos = afterName + 1;
+                    while (eqPos < line.size() && std::isspace(static_cast<unsigned char>(line[eqPos]))) {
+                        eqPos++;
+                    }
+                    std::string inferred = "any";
+                    if (eqPos < line.size()) {
+                        char firstChar = line[eqPos];
+                        if (firstChar == '"' || firstChar == '\'') {
+                            inferred = "string";
+                        } else if (line.compare(eqPos, 4, "true") == 0 || line.compare(eqPos, 5, "false") == 0) {
+                            inferred = "bool";
+                        } else if (std::isdigit(static_cast<unsigned char>(firstChar)) || firstChar == '-') {
+                            size_t dotPos = line.find('.', eqPos);
+                            size_t semiPos = line.find(';', eqPos);
+                            if (dotPos != std::string::npos && (semiPos == std::string::npos || dotPos < semiPos)) {
+                                inferred = "float";
+                            } else {
+                                inferred = "int";
+                            }
+                        } else if (firstChar == '[') {
+                            inferred = "Array";
+                        } else if (firstChar == '{') {
+                            inferred = "Map";
+                        }
+                    }
+
+                    InlayHint hint;
+                    hint.position.line = lineNum;
+                    hint.position.character = static_cast<int>(nameEnd);
+                    hint.label = ": " + inferred;
+                    hint.kind = 1; // Type
+                    hint.paddingLeft = false;
+                    hint.paddingRight = true;
+                    hints.push_back(hint.toJson());
+                }
+            }
+        }
+        lineNum++;
+    }
+
+    return hints;
 }
 
 } // namespace sp::lsp
