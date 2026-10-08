@@ -423,9 +423,31 @@ extern "C" {
     const char* sp_rt_http_resp_body(void* resp);
     const char* sp_rt_http_resp_header(void* resp, const char* name);
     void        sp_rt_http_resp_destroy(void* resp);
+
+    // Phase 20: HTTP/1.1 Engine & Streaming Server enhancements
+    const char* sp_rt_http_req_method(void* req);
+    const char* sp_rt_http_req_path(void* req);
+    const char* sp_rt_http_req_body(void* req);
+    const char* sp_rt_http_req_header(void* req, const char* name);
+    const char* sp_rt_http_req_query(void* req, const char* name);
+    const char* sp_rt_http_req_param(void* req, const char* name);
+    const char* sp_rt_http_req_cookie(void* req, const char* name);
+
+    void*       sp_rt_http_resp_create(int64_t status, const char* body);
+    void        sp_rt_http_resp_set_status(void* resp, int64_t status);
+    void        sp_rt_http_resp_set_header(void* resp, const char* name, const char* val);
+    void        sp_rt_http_resp_set_cookie(void* resp, const char* name, const char* val, 
+                                           const char* path, int64_t max_age, 
+                                           bool secure, bool http_only, const char* same_site);
+    void        sp_rt_http_resp_set_body(void* resp, const char* body);
+    void        sp_rt_http_resp_set_json(void* resp, const char* json_str);
+
     void*       sp_rt_http_server_create();
+    void*       sp_rt_http_server_create_advanced(int64_t workers, int64_t max_body_bytes, int64_t max_header_bytes);
     void        sp_rt_http_server_route(void* srv, const char* method, const char* path, 
                                         const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body));
+    void        sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
+                                                void* (*handler_fn)(void* req));
     bool        sp_rt_http_server_listen(void* srv, const char* host, int64_t port);
     int64_t     sp_rt_http_server_port(void* srv);
     void        sp_rt_http_server_stop(void* srv);

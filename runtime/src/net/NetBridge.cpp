@@ -411,6 +411,92 @@ void* sp_rt_http_server_create() {
     return new sp::rt::http::HttpServer();
 }
 
+void* sp_rt_http_server_create_advanced(int64_t workers, int64_t max_body_bytes, int64_t max_header_bytes) {
+    sp::rt::http::HttpServerConfig cfg;
+    if (workers > 0) cfg.workerThreads = static_cast<int>(workers);
+    if (max_body_bytes > 0) cfg.maxBodySize = static_cast<size_t>(max_body_bytes);
+    if (max_header_bytes > 0) cfg.maxHeaderSize = static_cast<size_t>(max_header_bytes);
+    return new sp::rt::http::HttpServer(cfg);
+}
+
+// Request inspection
+const char* sp_rt_http_req_method(void* req) {
+    if (!req) return alloc_str("GET");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->method);
+}
+
+const char* sp_rt_http_req_path(void* req) {
+    if (!req) return alloc_str("/");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->path);
+}
+
+const char* sp_rt_http_req_body(void* req) {
+    if (!req) return alloc_str("");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->body);
+}
+
+const char* sp_rt_http_req_header(void* req, const char* name) {
+    if (!req || !name) return alloc_str("");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->getHeader(name));
+}
+
+const char* sp_rt_http_req_query(void* req, const char* name) {
+    if (!req || !name) return alloc_str("");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->getQueryParam(name));
+}
+
+const char* sp_rt_http_req_param(void* req, const char* name) {
+    if (!req || !name) return alloc_str("");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->getPathParam(name));
+}
+
+const char* sp_rt_http_req_cookie(void* req, const char* name) {
+    if (!req || !name) return alloc_str("");
+    return alloc_str(static_cast<const sp::rt::http::HttpRequest*>(req)->getCookie(name));
+}
+
+// Response construction
+void* sp_rt_http_resp_create(int64_t status, const char* body) {
+    auto* resp = new sp::rt::http::HttpResponse();
+    resp->statusCode = static_cast<int>(status);
+    resp->statusText = (status == 200) ? "OK" : ("Status " + std::to_string(status));
+    if (body) resp->setBody(body);
+    return resp;
+}
+
+void sp_rt_http_resp_set_status(void* resp, int64_t status) {
+    if (!resp) return;
+    auto* r = static_cast<sp::rt::http::HttpResponse*>(resp);
+    r->statusCode = static_cast<int>(status);
+    r->statusText = (status == 200) ? "OK" : ("Status " + std::to_string(status));
+}
+
+void sp_rt_http_resp_set_header(void* resp, const char* name, const char* val) {
+    if (!resp || !name) return;
+    static_cast<sp::rt::http::HttpResponse*>(resp)->setHeader(name, val ? val : "");
+}
+
+void sp_rt_http_resp_set_cookie(void* resp, const char* name, const char* val, 
+                                const char* path, int64_t max_age, 
+                                bool secure, bool http_only, const char* same_site) {
+    if (!resp || !name) return;
+    static_cast<sp::rt::http::HttpResponse*>(resp)->setCookie(
+        name, val ? val : "", 
+        path ? path : "/", static_cast<int>(max_age),
+        secure, http_only, same_site ? same_site : "Lax"
+    );
+}
+
+void sp_rt_http_resp_set_body(void* resp, const char* body) {
+    if (!resp) return;
+    static_cast<sp::rt::http::HttpResponse*>(resp)->setBody(body ? body : "");
+}
+
+void sp_rt_http_resp_set_json(void* resp, const char* json_str) {
+    if (!resp) return;
+    static_cast<sp::rt::http::HttpResponse*>(resp)->setJson(json_str ? json_str : "{}");
+}
+
 void sp_rt_http_server_route(void* srv, const char* method, const char* path, 
                              const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body)) {
     if (!srv || !path || !handler_fn) return;
@@ -431,6 +517,22 @@ void sp_rt_http_server_route(void* srv, const char* method, const char* path,
             return sp::rt::http::HttpResponse::json(resContent);
         }
         return sp::rt::http::HttpResponse::ok(resContent);
+    });
+}
+
+void sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
+                                     void* (*handler_fn)(void* req)) {
+    if (!srv || !path || !handler_fn) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    std::string m = method ? method : "GET";
+    std::string p = path;
+    s->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
+        void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
+        if (!respHandle) return sp::rt::http::HttpResponse::ok();
+        auto* respPtr = static_cast<sp::rt::http::HttpResponse*>(respHandle);
+        sp::rt::http::HttpResponse copy = *respPtr;
+        delete respPtr; // cleanup temporary response
+        return copy;
     });
 }
 
