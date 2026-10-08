@@ -362,6 +362,86 @@ void sp_rt_json_destroy(void* handle) {
     }
 }
 
+void sp_rt_json_register_class(const char* class_name, uint32_t object_size, bool has_vtable) {
+    if (!class_name) return;
+    sp::rt::json::ClassMetadata meta;
+    meta.className = class_name;
+    meta.objectSize = object_size;
+    meta.hasVTable = has_vtable;
+    sp::rt::json::ClassMetadataRegistry::instance().registerClass(std::move(meta));
+}
+
+void sp_rt_json_register_field(const char* class_name, const char* field_name, const char* json_key, 
+                              int32_t type_kind, const char* type_name, uint32_t byte_offset, 
+                              bool is_ignored, bool is_nullable) {
+    if (!class_name || !field_name) return;
+    auto* meta = const_cast<sp::rt::json::ClassMetadata*>(
+        sp::rt::json::ClassMetadataRegistry::instance().findClass(class_name));
+    if (!meta) {
+        sp::rt::json::ClassMetadata newMeta;
+        newMeta.className = class_name;
+        sp::rt::json::ClassMetadataRegistry::instance().registerClass(newMeta);
+        meta = const_cast<sp::rt::json::ClassMetadata*>(
+            sp::rt::json::ClassMetadataRegistry::instance().findClass(class_name));
+    }
+    if (meta) {
+        sp::rt::json::FieldMetadata f;
+        f.fieldName = field_name;
+        f.jsonKey = json_key && *json_key ? json_key : field_name;
+        f.typeKind = static_cast<sp::rt::json::FieldTypeKind>(type_kind);
+        f.typeName = type_name ? type_name : "";
+        f.byteOffset = byte_offset;
+        f.isIgnored = is_ignored;
+        f.isNullable = is_nullable;
+        meta->fields.push_back(std::move(f));
+    }
+}
+
+void* sp_rt_json_decode_typed(const char* class_name, const char* json_str, char** out_err) {
+    if (!class_name || !json_str) {
+        if (out_err) *out_err = const_cast<char*>("Invalid null class name or JSON string");
+        return nullptr;
+    }
+    std::string errStr;
+    void* obj = sp::rt::json::decodeTypedObject(class_name, json_str, &errStr);
+    if (!obj && out_err && !errStr.empty()) {
+        *out_err = const_cast<char*>(alloc_str(errStr));
+    }
+    return obj;
+}
+
+const char* sp_rt_json_encode_typed(const char* class_name, const void* obj_ptr, int64_t indent) {
+    if (!class_name || !obj_ptr) return alloc_str("null");
+    std::string res = sp::rt::json::encodeTypedObject(class_name, obj_ptr, static_cast<int>(indent));
+    return alloc_str(res);
+}
+
+const char* sp_rt_json_problem_details(const char* title, int32_t status, const char* detail, 
+                                       const char* instance, const char* errors_json) {
+    sp::rt::json::ProblemDetails pd;
+    if (title && *title) pd.title = title;
+    pd.status = status;
+    if (detail && *detail) pd.detail = detail;
+    if (instance && *instance) pd.instance = instance;
+    if (errors_json && *errors_json) {
+        std::string err;
+        auto parsedErrs = sp::rt::json::parse(errors_json, &err);
+        if (parsedErrs && parsedErrs->isArray()) {
+            for (const auto& item : parsedErrs->getArrayItems()) {
+                if (item && item->isObject()) {
+                    auto fVal = item->get("field");
+                    auto mVal = item->get("message");
+                    pd.errors.push_back({
+                        fVal ? std::string(fVal->asStringView()) : "",
+                        mVal ? std::string(mVal->asStringView()) : ""
+                    });
+                }
+            }
+        }
+    }
+    return alloc_str(pd.toJsonString(0));
+}
+
 // ============================================================================
 // HTTP C-ABI
 // ============================================================================

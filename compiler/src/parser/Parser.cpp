@@ -729,6 +729,13 @@ ast::ExprPtr Parser::parseNewExpr() {
 }
 
 ast::StmtPtr Parser::parseStatement() {
+    if (check(lexer::TokenType::At)) {
+        auto decl = parseDeclaration();
+        if (decl) {
+            return std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(decl.release()));
+        }
+        return nullptr;
+    }
     if (check(lexer::TokenType::OpenBrace)) {
         return parseBlock();
     }
@@ -823,7 +830,38 @@ ast::StmtPtr Parser::parseStatement() {
     return parseExprStatement();
 }
 
-ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar, bool isWeak) {
+std::vector<ast::Annotation> Parser::parseAnnotations() {
+    std::vector<ast::Annotation> annotations;
+    while (match(lexer::TokenType::At)) {
+        diagnostics::SourceLocation loc = previous().location;
+        const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected annotation name after '@'");
+        std::vector<std::string> args;
+        if (match(lexer::TokenType::OpenParen)) {
+            if (!check(lexer::TokenType::CloseParen)) {
+                do {
+                    if (check(lexer::TokenType::StringLiteral)) {
+                        const lexer::Token& strTok = advance();
+                        std::string val = strTok.lexeme;
+                        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
+                            val = val.substr(1, val.size() - 2);
+                        }
+                        args.push_back(val);
+                    } else if (check(lexer::TokenType::Identifier) || check(lexer::TokenType::IntegerLiteral) || check(lexer::TokenType::FloatLiteral)) {
+                        args.push_back(advance().lexeme);
+                    } else {
+                        errorAt(peek(), "Expected string literal or identifier in annotation argument");
+                        break;
+                    }
+                } while (match(lexer::TokenType::Comma));
+            }
+            consume(lexer::TokenType::CloseParen, "Expected ')' after annotation arguments");
+        }
+        annotations.push_back(ast::Annotation{nameTok.lexeme, std::move(args), loc});
+    }
+    return annotations;
+}
+
+ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar, bool isWeak, std::string visibility, bool isStatic) {
     diagnostics::SourceLocation loc = previous().location;
     std::string type;
 
@@ -847,7 +885,7 @@ ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar, bool isWeak) {
     }
 
     consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
-    return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), isConst, isVar, loc, "public", false, isWeak);
+    return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), isConst, isVar, loc, visibility.empty() ? "public" : visibility, isStatic, isWeak);
 }
 
 ast::StmtPtr Parser::parseIfStatement() {
@@ -1100,6 +1138,25 @@ ast::StmtPtr Parser::parseExprStatement() {
 }
 
 ast::ASTNodePtr Parser::parseDeclaration() {
+    std::vector<ast::Annotation> annotations;
+    while (check(lexer::TokenType::At)) {
+        auto anns = parseAnnotations();
+        annotations.insert(annotations.end(), std::make_move_iterator(anns.begin()), std::make_move_iterator(anns.end()));
+    }
+
+    auto attachAnnotations = [&](ast::ASTNodePtr node) -> ast::ASTNodePtr {
+        if (!annotations.empty() && node) {
+            if (auto* varDecl = dynamic_cast<ast::VarDeclStmt*>(node.get())) {
+                varDecl->setAnnotations(annotations);
+            } else if (auto* classDecl = dynamic_cast<ast::ClassDecl*>(node.get())) {
+                classDecl->setAnnotations(annotations);
+            } else if (auto* fnDecl = dynamic_cast<ast::FunctionDecl*>(node.get())) {
+                fnDecl->setAnnotations(annotations);
+            }
+        }
+        return node;
+    };
+
     bool isReprC = false;
     if (match(lexer::TokenType::Hash)) {
         consume(lexer::TokenType::OpenBracket, "Expected '[' after '#'");
@@ -1126,6 +1183,11 @@ ast::ASTNodePtr Parser::parseDeclaration() {
 
     // Modifiers
     while (true) {
+        if (check(lexer::TokenType::At)) {
+            auto anns = parseAnnotations();
+            annotations.insert(annotations.end(), std::make_move_iterator(anns.begin()), std::make_move_iterator(anns.end()));
+            continue;
+        }
         if (match(lexer::TokenType::KeywordPublic)) { visibility = "public"; continue; }
         if (match(lexer::TokenType::KeywordPrivate)) { visibility = "private"; continue; }
         if (match(lexer::TokenType::KeywordProtected)) { visibility = "protected"; continue; }
@@ -1143,28 +1205,28 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     if (isUnsafe && check(lexer::TokenType::OpenBrace)) {
         auto block = parseBlock();
         if (block) block->setUnsafe(true);
-        return block;
+        return attachAnnotations(std::move(block));
     }
 
     if (isComptime && check(lexer::TokenType::OpenBrace)) {
         diagnostics::SourceLocation loc = previous().location;
         auto block = parseBlock();
-        return std::make_unique<ast::ComptimeExpr>(std::move(block), loc);
+        return attachAnnotations(std::make_unique<ast::ComptimeExpr>(std::move(block), loc));
     }
 
-    if (match(lexer::TokenType::KeywordModule)) return parseModuleDecl();
-    if (match(lexer::TokenType::KeywordImport)) return parseImportDecl();
-    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract, isUnsafe, isAsync, isComptime);
-    if (match(lexer::TokenType::KeywordClass)) return parseClassDecl(visibility, isAbstract);
-    if (match(lexer::TokenType::KeywordInterface)) return parseInterfaceDecl(visibility);
-    if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility, isReprC);
-    if (match(lexer::TokenType::KeywordEnum)) return parseEnumDecl(visibility);
-    if (match(lexer::TokenType::KeywordTest)) return parseTestDecl();
+    if (match(lexer::TokenType::KeywordModule)) return attachAnnotations(parseModuleDecl());
+    if (match(lexer::TokenType::KeywordImport)) return attachAnnotations(parseImportDecl());
+    if (match(lexer::TokenType::KeywordFn)) return attachAnnotations(parseFunctionDecl(visibility, isStatic, isOverride, isAbstract, isUnsafe, isAsync, isComptime));
+    if (match(lexer::TokenType::KeywordClass)) return attachAnnotations(parseClassDecl(visibility, isAbstract));
+    if (match(lexer::TokenType::KeywordInterface)) return attachAnnotations(parseInterfaceDecl(visibility));
+    if (match(lexer::TokenType::KeywordStruct)) return attachAnnotations(parseStructDecl(visibility, isReprC));
+    if (match(lexer::TokenType::KeywordEnum)) return attachAnnotations(parseEnumDecl(visibility));
+    if (match(lexer::TokenType::KeywordTest)) return attachAnnotations(parseTestDecl());
 
     // Variable declarations with visibility or const/var
-    if (match(lexer::TokenType::KeywordConst)) return parseVarDecl(true, false, isWeak);
-    if (match(lexer::TokenType::KeywordVar)) return parseVarDecl(false, true, isWeak);
-    if (match(lexer::TokenType::KeywordLet)) return parseVarDecl(false, true, isWeak);
+    if (match(lexer::TokenType::KeywordConst)) return attachAnnotations(parseVarDecl(true, false, isWeak, visibility, isStatic));
+    if (match(lexer::TokenType::KeywordVar)) return attachAnnotations(parseVarDecl(false, true, isWeak, visibility, isStatic));
+    if (match(lexer::TokenType::KeywordLet)) return attachAnnotations(parseVarDecl(false, true, isWeak, visibility, isStatic));
 
     // Extern block: extern "C" { ... }
     if (match(lexer::TokenType::KeywordExtern)) {
@@ -1182,7 +1244,7 @@ ast::ASTNodePtr Parser::parseDeclaration() {
             }
         }
         consume(lexer::TokenType::CloseBrace, "Expected '}' after extern block");
-        return std::make_unique<ast::BlockStmt>(std::move(externDecls), loc);
+        return attachAnnotations(std::make_unique<ast::BlockStmt>(std::move(externDecls), loc));
     }
 
     // Short-form function: main() { ... } or func() -> int { ... } without fn keyword
@@ -1214,9 +1276,9 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                 } else {
                     body = parseBlock();
                 }
-                return std::make_unique<ast::FunctionDecl>(
+                return attachAnnotations(std::make_unique<ast::FunctionDecl>(
                     nameTok.lexeme, std::move(params), returnType,
-                    std::move(body), std::move(exprBody), visibility, isStatic, isOverride, isAbstract, false, loc);
+                    std::move(body), std::move(exprBody), visibility, isStatic, isOverride, isAbstract, false, loc));
             }
         }
     }
@@ -1244,9 +1306,9 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                     consume(lexer::TokenType::Semicolon, "Expected ';' after function signature");
                 }
 
-                return std::make_unique<ast::FunctionDecl>(
+                return attachAnnotations(std::make_unique<ast::FunctionDecl>(
                     nameTok.lexeme, std::move(params), type,
-                    std::move(body), nullptr, visibility, isStatic, isOverride, isAbstract, false, loc);
+                    std::move(body), nullptr, visibility, isStatic, isOverride, isAbstract, false, loc));
             } else if (checkNext(lexer::TokenType::Equal) || checkNext(lexer::TokenType::Semicolon) || checkNext(lexer::TokenType::Comma)) {
                 // Field or global variable: [public/protected] int count = 0;
                 const lexer::Token& nameTok = advance();
@@ -1256,13 +1318,13 @@ ast::ASTNodePtr Parser::parseDeclaration() {
                     init = parseExpression();
                 }
                 consume(lexer::TokenType::Semicolon, "Expected ';' after variable declaration");
-                return std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc, visibility, isStatic, isWeak);
+                return attachAnnotations(std::make_unique<ast::VarDeclStmt>(type, nameTok.lexeme, std::move(init), false, false, loc, visibility, isStatic, isWeak));
             }
         }
         m_current = saved; // Not a declaration, rewind
     }
 
-    return parseStatement();
+    return attachAnnotations(parseStatement());
 }
 
 ast::ASTNodePtr Parser::parseModuleDecl() {

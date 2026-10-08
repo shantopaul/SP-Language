@@ -3,6 +3,7 @@
 #include "sp/diagnostics/SourceLocation.h"
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace sp::ast {
 
@@ -73,5 +74,11 @@ private:
 };
 
 using ASTNodePtr = std::unique_ptr<ASTNode>;
+
+struct Annotation {
+    std::string name;
+    std::vector<std::string> args;
+    diagnostics::SourceLocation location;
+};
 
 } // namespace sp::ast

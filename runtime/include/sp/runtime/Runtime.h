@@ -415,6 +415,16 @@ extern "C" {
     void*       sp_rt_json_new_object();
     void        sp_rt_json_destroy(void* handle);
 
+    // Phase 22: Typed JSON & Class Metadata Bridges
+    void        sp_rt_json_register_class(const char* class_name, uint32_t object_size, bool has_vtable);
+    void        sp_rt_json_register_field(const char* class_name, const char* field_name, const char* json_key, 
+                                          int32_t type_kind, const char* type_name, uint32_t byte_offset, 
+                                          bool is_ignored, bool is_nullable);
+    void*       sp_rt_json_decode_typed(const char* class_name, const char* json_str, char** out_err);
+    const char* sp_rt_json_encode_typed(const char* class_name, const void* obj_ptr, int64_t indent);
+    const char* sp_rt_json_problem_details(const char* title, int32_t status, const char* detail, 
+                                           const char* instance, const char* errors_json);
+
     // HTTP
     void*       sp_rt_http_get(const char* url, int64_t timeout_ms);
     void*       sp_rt_http_post(const char* url, const char* body, const char* content_type, int64_t timeout_ms);

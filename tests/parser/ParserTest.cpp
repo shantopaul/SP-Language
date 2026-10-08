@@ -558,4 +558,48 @@ TEST(ParserTest, UnsafeBlocksAndRawPointers) {
     EXPECT_FALSE(mainDecl->isUnsafe());
 }
 
+TEST(ParserTest, SerializationAnnotations) {
+    const std::string src = R"sp(
+        @json
+        class User {
+            @json("user_id")
+            var id: int;
+
+            @json("full_name")
+            var name: string;
+
+            @json_ignore
+            var passwordHash: string;
+        }
+    )sp";
+
+    auto program = parseSource(src);
+    ASSERT_NE(program, nullptr);
+    ASSERT_EQ(program->getDeclarations().size(), 1);
+
+    auto* classDecl = dynamic_cast<ast::ClassDecl*>(program->getDeclarations()[0].get());
+    ASSERT_NE(classDecl, nullptr);
+    EXPECT_EQ(classDecl->getName(), "User");
+    EXPECT_TRUE(classDecl->hasAnnotation("json"));
+
+    ASSERT_EQ(classDecl->getMembers().size(), 3);
+    auto* idVar = dynamic_cast<ast::VarDeclStmt*>(classDecl->getMembers()[0].get());
+    ASSERT_NE(idVar, nullptr);
+    EXPECT_TRUE(idVar->hasAnnotation("json"));
+    ASSERT_FALSE(idVar->getAnnotations().empty());
+    ASSERT_FALSE(idVar->getAnnotations()[0].args.empty());
+    EXPECT_EQ(idVar->getAnnotations()[0].args[0], "user_id");
+
+    auto* nameVar = dynamic_cast<ast::VarDeclStmt*>(classDecl->getMembers()[1].get());
+    ASSERT_NE(nameVar, nullptr);
+    EXPECT_TRUE(nameVar->hasAnnotation("json"));
+    ASSERT_FALSE(nameVar->getAnnotations().empty());
+    ASSERT_FALSE(nameVar->getAnnotations()[0].args.empty());
+    EXPECT_EQ(nameVar->getAnnotations()[0].args[0], "full_name");
+
+    auto* pwVar = dynamic_cast<ast::VarDeclStmt*>(classDecl->getMembers()[2].get());
+    ASSERT_NE(pwVar, nullptr);
+    EXPECT_TRUE(pwVar->hasAnnotation("json_ignore"));
+}
+
 } // namespace sp::parser::test
