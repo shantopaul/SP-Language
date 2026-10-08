@@ -69,6 +69,7 @@ std::string_view tokenTypeToString(TokenType type) noexcept {
         case TokenType::KeywordThrow: return "throw";
         case TokenType::KeywordUnsafe: return "unsafe";
         case TokenType::KeywordExtern: return "extern";
+        case TokenType::KeywordComptime: return "comptime";
 
         case TokenType::KeywordTest: return "test";
         case TokenType::KeywordAssert: return "assert";

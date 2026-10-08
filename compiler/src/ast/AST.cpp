@@ -20,6 +20,13 @@ void TernaryExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 void AssignExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 void NewExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
 void TryExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
+void AwaitExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
+void ComptimeExpr::accept(ASTVisitor& visitor) const { visitor.visit(*this); }
+ComptimeExpr::ComptimeExpr(std::unique_ptr<BlockStmt> block, diagnostics::SourceLocation loc)
+    : ExpressionNode(ASTNodeKind::ComptimeExpr, std::move(loc)),
+      m_block(std::move(block)), m_isBlock(true) {}
+ComptimeExpr::~ComptimeExpr() = default;
+
 
 // Statements accept
 void BlockStmt::accept(ASTVisitor& visitor) const { visitor.visit(*this); }

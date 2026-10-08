@@ -7,6 +7,7 @@ add_library(sp_compiler
     src/lexer/Lexer.cpp
     src/ast/AST.cpp
     src/ast/ASTPrinter.cpp
+    src/ast/Edition.cpp
     src/parser/Parser.cpp
     src/sema/Type.cpp
     src/sema/SymbolTable.cpp
@@ -14,6 +15,7 @@ add_library(sp_compiler
     src/sema/TypeChecker.cpp
     src/sema/SemanticAnalyzer.cpp
     src/sema/EscapeAnalysis.cpp
+    src/sema/ComptimeEvaluator.cpp
     src/ir/IR.cpp
     src/ir/IRPrinter.cpp
     src/ir/IRBuilder.cpp

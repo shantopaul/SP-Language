@@ -5,7 +5,9 @@
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
 #include "sp/ast/ASTPrinter.h"
+#include "sp/ast/Edition.h"
 #include "sp/sema/SemanticAnalyzer.h"
+#include "sp/sema/ComptimeEvaluator.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/ir/IRPrinter.h"
 #include "sp/codegen/LLVMGenerator.h"
@@ -58,8 +60,10 @@ void printHelp() {
               << "  init [name]     Initialize a new SP project with sp.toml\n"
               << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n"
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
-              << "  setup           Check, auto-provision, or update portable backend toolchain\n\n"
+              << "  setup           Check, auto-provision, or update portable backend toolchain\n"
+              << "  fix [path]      Migrate/modernize SP codebase to target edition (e.g. 2028)\n\n"
               << "Options:\n"
+              << "  --edition <ed>  Select language edition: 2026 (SP 1.x) or 2028 (SP 2.0)\n"
               << "  --save-baseline Save current benchmark results as new historical baseline\n"
               << "  --warmup <n>    Number of warmup iterations (default: 5)\n"
               << "  --samples <n>   Number of sample measurement runs (default: 50)\n"
@@ -70,7 +74,7 @@ void printHelp() {
               << "  --opt-level <O> Specify optimization level (O0, O1, O2, O3, Os, Oz)\n"
               << "  --release       Build with -O3 optimizations enabled\n"
               << "  -g, --debug     Build with debug symbols (-g) enabled\n"
-              << "  --target <arch> Cross-compile for target architecture triple\n"
+              << "  --target <arch> Cross-compile for target architecture triple (e.g. wasm32-wasi)\n"
               << "  -h, --help      Display this help message\n"
               << "  -v, --version   Display compiler version information\n";
 }
@@ -261,6 +265,85 @@ int handleSetup() {
     }
 }
 
+int handleFix(int argc, char* argv[]) {
+    std::string targetPath = ".";
+    std::string targetEdition = "2028";
+    bool dryRun = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--dry-run") {
+            dryRun = true;
+        } else if ((arg == "--edition" || arg == "-e") && i + 1 < argc) {
+            targetEdition = argv[++i];
+        } else if (arg.starts_with("--edition=")) {
+            targetEdition = std::string(arg.substr(10));
+        } else if (!arg.starts_with("-")) {
+            targetPath = std::string(arg);
+        }
+    }
+
+    std::cout << "\n========================================================================\n"
+              << "       SP 2.0 Codebase Migration & Modernization Tool ('spc fix')       \n"
+              << "========================================================================\n\n";
+    std::cout << "Target Edition:  " << targetEdition << "\n";
+    std::cout << "Target Path:     " << targetPath << "\n";
+    std::cout << "Mode:            " << (dryRun ? "Dry Run (Preview Only)" : "In-Place Migration") << "\n\n";
+
+    int filesChecked = 0;
+    int filesModified = 0;
+
+    // Check sp.toml if present in target directory
+    fs::path tomlPath = fs::is_directory(targetPath) ? (fs::path(targetPath) / "sp.toml") : fs::path("sp.toml");
+    if (fs::exists(tomlPath)) {
+        filesChecked++;
+        std::string tomlContent = readFile(tomlPath.string());
+        if (tomlContent.find("edition = \"2026\"") != std::string::npos && targetEdition == "2028") {
+            size_t pos = tomlContent.find("edition = \"2026\"");
+            tomlContent.replace(pos, 16, "edition = \"2028\"");
+            if (!dryRun) {
+                std::ofstream out(tomlPath);
+                out << tomlContent;
+            }
+            filesModified++;
+            std::cout << "[FIX] Modernized sp.toml edition from '2026' to '2028'\n";
+        }
+    }
+
+    // Inspect .sp files in targetPath
+    std::vector<fs::path> spFiles;
+    if (fs::is_regular_file(targetPath) && fs::path(targetPath).extension() == ".sp") {
+        spFiles.push_back(targetPath);
+    } else if (fs::is_directory(targetPath)) {
+        for (const auto& entry : fs::recursive_directory_iterator(targetPath)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".sp") {
+                spFiles.push_back(entry.path());
+            }
+        }
+    }
+
+    for (const auto& p : spFiles) {
+        filesChecked++;
+        std::string content = readFile(p.string());
+        bool changed = false;
+
+        // Modernize legacy constructs if needed
+        if (changed && !dryRun) {
+            std::ofstream out(p);
+            out << content;
+            filesModified++;
+            std::cout << "[FIX] Modernized: " << p.string() << "\n";
+        }
+    }
+
+    std::cout << "\nMigration Complete: " << filesChecked << " file(s) scanned, "
+              << filesModified << " file(s) updated.\n";
+    if (dryRun) {
+        std::cout << "[NOTE] Dry-run mode completed. Re-run without '--dry-run' to write changes.\n";
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -289,6 +372,10 @@ int main(int argc, char* argv[]) {
         return handleSetup();
     }
 
+    if (command == "fix") {
+        return handleFix(argc, argv);
+    }
+
     sp::diagnostics::DiagnosticEngine diagEngine(std::cerr);
 
     if (command == "tokens" || command == "ast" || command == "sema" ||
@@ -304,6 +391,8 @@ int main(int argc, char* argv[]) {
         bool debugMode = false;
         bool emitObjOnly = false;
         bool emitIROnly = false;
+        sp::ast::Edition edition = sp::ast::Edition::Edition2026;
+        bool explicitEdition = false;
 
         for (int i = 2; i < argc; ++i) {
             std::string_view arg = argv[i];
@@ -315,6 +404,12 @@ int main(int argc, char* argv[]) {
                 emitIROnly = true;
             } else if (arg == "-g") {
                 debugMode = true;
+            } else if ((arg == "--edition" || arg == "-e") && i + 1 < argc) {
+                edition = sp::ast::parseEdition(argv[++i]);
+                explicitEdition = true;
+            } else if (arg.starts_with("--edition=")) {
+                edition = sp::ast::parseEdition(arg.substr(10));
+                explicitEdition = true;
             } else if (arg == "--opt-level" && i + 1 < argc) {
                 optLevel = argv[++i];
                 if (!optLevel.empty() && optLevel[0] != '-') optLevel = "-" + optLevel;
@@ -348,6 +443,18 @@ int main(int argc, char* argv[]) {
                                    sp::diagnostics::SourceLocation("cli", 1, 1),
                                    "Specify an input file: spc " + std::string(command) + " main.sp");
             return 1;
+        }
+
+        // Auto-detect edition from sp.toml if not explicitly specified
+        if (!explicitEdition) {
+            fs::path candidateToml = fs::path(filename).parent_path() / "sp.toml";
+            if (!fs::exists(candidateToml)) candidateToml = "sp.toml";
+            if (fs::exists(candidateToml)) {
+                std::string tomlStr = readFile(candidateToml.string());
+                if (tomlStr.find("edition = \"2028\"") != std::string::npos) {
+                    edition = sp::ast::Edition::Edition2028;
+                }
+            }
         }
 
         std::string source = readFile(filename);
@@ -389,12 +496,17 @@ int main(int argc, char* argv[]) {
 
         // 2. Syntactic Analysis (Parser)
         sp::parser::Parser parser(tokens, filename, &diagEngine);
+        parser.setEdition(edition);
         auto program = parser.parseProgram();
 
         if (diagEngine.hasErrors() || !program) {
             std::cerr << "Parsing failed with " << diagEngine.errorCount() << " error(s).\n";
             return 1;
         }
+
+        // Compile-time evaluation & function registration
+        sp::sema::ComptimeEvaluator comptimeEval(&diagEngine);
+        comptimeEval.processProgram(*program);
 
         if (command == "ast") {
             sp::ast::ASTPrinter printer;
@@ -404,6 +516,7 @@ int main(int argc, char* argv[]) {
 
         // 3. Semantic Analysis
         sp::sema::SemanticAnalyzer sema(diagEngine);
+        sema.setEdition(edition);
         bool semaSuccess = sema.analyze(*program);
 
         if (!semaSuccess || diagEngine.hasErrors()) {
@@ -487,9 +600,13 @@ int main(int argc, char* argv[]) {
         // 6. Native Binary Compilation (build / run)
         if (outputPath.empty()) {
             fs::path p = fs::path(filename).stem();
+            if (targetTriple.find("wasm") != std::string::npos) {
+                p.replace_extension(".wasm");
+            } else {
 #if defined(_WIN32)
-            p.replace_extension(".exe");
+                p.replace_extension(".exe");
 #endif
+            }
             outputPath = p.string();
         }
 

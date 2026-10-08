@@ -519,6 +519,7 @@ TokenType Lexer::lookupKeyword(std::string_view text) noexcept {
         {"throw", TokenType::KeywordThrow},
         {"unsafe", TokenType::KeywordUnsafe},
         {"extern", TokenType::KeywordExtern},
+        {"comptime", TokenType::KeywordComptime},
 
         // Testing
         {"test", TokenType::KeywordTest},

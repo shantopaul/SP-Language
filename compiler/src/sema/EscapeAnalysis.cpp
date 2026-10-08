@@ -306,6 +306,18 @@ void EscapeAnalysis::visit(const ast::TryExpr& node) {
     node.getExpr().accept(*this);
 }
 
+void EscapeAnalysis::visit(const ast::AwaitExpr& node) {
+    node.getExpr().accept(*this);
+}
+
+void EscapeAnalysis::visit(const ast::ComptimeExpr& node) {
+    if (node.hasExpr()) {
+        node.getExpr()->accept(*this);
+    } else if (node.isBlock() && node.getBlock()) {
+        node.getBlock()->accept(*this);
+    }
+}
+
 void EscapeAnalysis::visit(const ast::BlockStmt& node) {
     for (const auto& stmt : node.getStatements()) {
         if (stmt) stmt->accept(*this);

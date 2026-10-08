@@ -38,6 +38,9 @@ std::string ObjectEmitter::getHostTriple() {
 }
 
 std::string ObjectEmitter::getObjectFileExtension(const std::string& targetTriple) {
+    if (targetTriple.find("wasm") != std::string::npos) {
+        return ".wasm";
+    }
     if (targetTriple.find("windows-msvc") != std::string::npos) {
         return ".obj";
     }

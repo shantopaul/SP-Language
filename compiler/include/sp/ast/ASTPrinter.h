@@ -29,6 +29,8 @@ public:
     void visit(const AssignExpr& node) override;
     void visit(const NewExpr& node) override;
     void visit(const TryExpr& node) override;
+    void visit(const AwaitExpr& node) override;
+    void visit(const ComptimeExpr& node) override;
 
     // Statements
     void visit(const BlockStmt& node) override;

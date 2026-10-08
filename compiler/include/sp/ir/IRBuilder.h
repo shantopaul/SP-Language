@@ -55,6 +55,8 @@ public:
     void visit(const ast::AssignExpr& node) override;
     void visit(const ast::NewExpr& node) override;
     void visit(const ast::TryExpr& node) override;
+    void visit(const ast::AwaitExpr& node) override;
+    void visit(const ast::ComptimeExpr& node) override;
 
     // Statements
     void visit(const ast::BlockStmt& node) override;

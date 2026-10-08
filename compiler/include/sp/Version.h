@@ -4,8 +4,8 @@
 
 namespace sp {
 
-constexpr std::string_view SP_VERSION_STRING = "1.0.0";
-constexpr int SP_VERSION_MAJOR = 1;
+constexpr std::string_view SP_VERSION_STRING = "2.0.0";
+constexpr int SP_VERSION_MAJOR = 2;
 constexpr int SP_VERSION_MINOR = 0;
 constexpr int SP_VERSION_PATCH = 0;
 

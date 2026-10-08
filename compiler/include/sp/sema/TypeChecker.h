@@ -4,6 +4,7 @@
 #include "sp/ast/Declaration.h"
 #include "sp/ast/Expression.h"
 #include "sp/ast/Statement.h"
+#include "sp/ast/Edition.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
 #include "sp/sema/SymbolTable.h"
 #include "sp/sema/Type.h"
@@ -43,6 +44,11 @@ public:
     void visit(const ast::AssignExpr& node) override;
     void visit(const ast::NewExpr& node) override;
     void visit(const ast::TryExpr& node) override;
+    void visit(const ast::AwaitExpr& node) override;
+    void visit(const ast::ComptimeExpr& node) override;
+
+    void setEdition(ast::Edition edition) noexcept { m_edition = edition; }
+    [[nodiscard]] ast::Edition getEdition() const noexcept { return m_edition; }
 
     // Statements
     void visit(const ast::BlockStmt& node) override;
@@ -92,6 +98,8 @@ private:
     int m_loopDepth{0};
     int m_switchDepth{0};
     bool m_inUnsafeContext{false};
+    bool m_inAsyncContext{false};
+    ast::Edition m_edition{ast::Edition::Edition2026};
 
     std::unordered_map<const ast::ExpressionNode*, TypePtr> m_nodeTypes;
 };

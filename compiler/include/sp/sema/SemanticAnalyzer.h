@@ -30,6 +30,9 @@ public:
     [[nodiscard]] TypeChecker& getTypeChecker() noexcept { return m_typeChecker; }
     [[nodiscard]] const TypeChecker& getTypeChecker() const noexcept { return m_typeChecker; }
 
+    void setEdition(ast::Edition edition) noexcept { m_typeChecker.setEdition(edition); }
+    [[nodiscard]] ast::Edition getEdition() const noexcept { return m_typeChecker.getEdition(); }
+
     [[nodiscard]] TypePtr getNodeType(const ast::ExpressionNode* expr) const {
         return m_typeChecker.getNodeType(expr);
     }
