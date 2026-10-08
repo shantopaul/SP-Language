@@ -125,4 +125,20 @@ TEST(GoldenLexerTest, TokenizeStdlibSync) {
     assertFileTokenizesWithoutErrors("stdlib/sync/sync.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibNet) {
+    assertFileTokenizesWithoutErrors("stdlib/net/net.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibCrypto) {
+    assertFileTokenizesWithoutErrors("stdlib/crypto/crypto.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibJson) {
+    assertFileTokenizesWithoutErrors("stdlib/json/json.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibHttp) {
+    assertFileTokenizesWithoutErrors("stdlib/http/http.sp");
+}
+
 } // namespace sp::lexer::test

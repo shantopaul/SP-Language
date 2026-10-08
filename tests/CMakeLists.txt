@@ -48,6 +48,10 @@ add_executable(sp_tests
     codegen/LLVMOptimizerTest.cpp
     runtime/RuntimeTest.cpp
     runtime/ConcurrencyTest.cpp
+    runtime/NetTest.cpp
+    runtime/CryptoTest.cpp
+    runtime/JsonTest.cpp
+    runtime/HttpTest.cpp
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp
     spm/LockfileTest.cpp

@@ -345,5 +345,90 @@ extern "C" {
     void        sp_rt_threadpool_wait_idle(void* pool);
     int64_t     sp_rt_threadpool_thread_count(void* pool);
     void        sp_rt_threadpool_destroy(void* pool);
+
+    // ========================================================================
+    // Phase 16: Non-Blocking Networking, JSON & HTTP Engine (SP 1.6)
+    // ========================================================================
+
+    // Network
+    void        sp_rt_net_init();
+    void        sp_rt_net_shutdown();
+    const char* sp_rt_net_resolve(const char* host);
+
+    // TCP Client
+    void*       sp_rt_tcp_connect(const char* host, int64_t port, int64_t timeout_ms);
+    int64_t     sp_rt_tcp_write(void* sock, const char* str);
+    const char* sp_rt_tcp_read(void* sock, int64_t max_bytes);
+    const char* sp_rt_tcp_read_all(void* sock, int64_t timeout_ms);
+    bool        sp_rt_tcp_set_nonblocking(void* sock, bool nb);
+    bool        sp_rt_tcp_set_timeout(void* sock, int64_t ms);
+    void        sp_rt_tcp_close(void* sock);
+
+    // TCP Listener
+    void*       sp_rt_tcp_listen(const char* host, int64_t port, int64_t backlog);
+    void*       sp_rt_tcp_accept(void* listener);
+    void*       sp_rt_tcp_accept_timeout(void* listener, int64_t timeout_ms);
+    int64_t     sp_rt_tcp_listener_port(void* listener);
+    void        sp_rt_tcp_listener_close(void* listener);
+
+    // UDP Socket
+    void*       sp_rt_udp_bind(const char* host, int64_t port);
+    int64_t     sp_rt_udp_send_to(void* sock, const char* data, const char* host, int64_t port);
+    const char* sp_rt_udp_recv_from(void* sock, int64_t max_len, const char** out_sender_host, int64_t* out_sender_port);
+    void        sp_rt_udp_close(void* sock);
+
+    // EventLoop
+    void*       sp_rt_eventloop_create();
+    bool        sp_rt_eventloop_add(void* loop, void* sock, int64_t events);
+    bool        sp_rt_eventloop_remove(void* loop, void* sock);
+    int64_t     sp_rt_eventloop_poll(void* loop, int64_t timeout_ms);
+    void        sp_rt_eventloop_destroy(void* loop);
+
+    // Crypto
+    const char* sp_rt_crypto_sha256(const char* data);
+    const char* sp_rt_crypto_hmac_sha256(const char* key, const char* data);
+    const char* sp_rt_crypto_base64_encode(const char* data);
+    const char* sp_rt_crypto_base64_decode(const char* data);
+    const char* sp_rt_crypto_random_hex(int64_t bytes);
+    const char* sp_rt_crypto_uuid();
+
+    // JSON
+    void*       sp_rt_json_parse(const char* json_str);
+    const char* sp_rt_json_stringify(void* handle, int64_t indent);
+    int64_t     sp_rt_json_get_type(void* handle);
+    bool        sp_rt_json_get_bool(void* handle);
+    int64_t     sp_rt_json_get_int(void* handle);
+    double      sp_rt_json_get_double(void* handle);
+    const char* sp_rt_json_get_string(void* handle);
+    int64_t     sp_rt_json_arr_size(void* handle);
+    void*       sp_rt_json_arr_get(void* handle, int64_t idx);
+    void        sp_rt_json_arr_add(void* handle, void* item_handle);
+    void*       sp_rt_json_obj_get(void* handle, const char* key);
+    void        sp_rt_json_obj_set(void* handle, const char* key, void* item_handle);
+    bool        sp_rt_json_obj_has(void* handle, const char* key);
+    void*       sp_rt_json_new_null();
+    void*       sp_rt_json_new_bool(bool b);
+    void*       sp_rt_json_new_int(int64_t i);
+    void*       sp_rt_json_new_double(double d);
+    void*       sp_rt_json_new_string(const char* s);
+    void*       sp_rt_json_new_array();
+    void*       sp_rt_json_new_object();
+    void        sp_rt_json_destroy(void* handle);
+
+    // HTTP
+    void*       sp_rt_http_get(const char* url, int64_t timeout_ms);
+    void*       sp_rt_http_post(const char* url, const char* body, const char* content_type, int64_t timeout_ms);
+    int64_t     sp_rt_http_resp_status(void* resp);
+    const char* sp_rt_http_resp_status_text(void* resp);
+    const char* sp_rt_http_resp_body(void* resp);
+    const char* sp_rt_http_resp_header(void* resp, const char* name);
+    void        sp_rt_http_resp_destroy(void* resp);
+    void*       sp_rt_http_server_create();
+    void        sp_rt_http_server_route(void* srv, const char* method, const char* path, 
+                                        const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body));
+    bool        sp_rt_http_server_listen(void* srv, const char* host, int64_t port);
+    int64_t     sp_rt_http_server_port(void* srv);
+    void        sp_rt_http_server_stop(void* srv);
+    void        sp_rt_http_server_destroy(void* srv);
 }
 

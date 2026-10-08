@@ -80,6 +80,9 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
 
     // Enable multi-threading runtime libraries
     cmd << "-pthread ";
+#if defined(_WIN32)
+    cmd << "-lws2_32 ";
+#endif
 
     // Search paths
     for (const auto& spath : m_options.librarySearchPaths) {

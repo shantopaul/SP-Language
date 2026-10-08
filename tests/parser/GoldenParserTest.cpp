@@ -120,4 +120,20 @@ TEST(GoldenParserTest, ParseStdlibSync) {
     assertFileParsesCleanly("stdlib/sync/sync.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibNet) {
+    assertFileParsesCleanly("stdlib/net/net.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibCrypto) {
+    assertFileParsesCleanly("stdlib/crypto/crypto.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibJson) {
+    assertFileParsesCleanly("stdlib/json/json.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibHttp) {
+    assertFileParsesCleanly("stdlib/http/http.sp");
+}
+
 } // namespace sp::parser::test

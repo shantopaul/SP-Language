@@ -207,6 +207,9 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     cmd << "\"" << clang << "\" ";
     cmd << "-std=c++20 ";
     cmd << "-pthread ";
+#if defined(_WIN32)
+    cmd << "-lws2_32 ";
+#endif
 
     if (!m_options.targetTriple.empty()) {
         cmd << "--target=" << m_options.targetTriple << " ";

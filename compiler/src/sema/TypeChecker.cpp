@@ -174,7 +174,8 @@ void TypeChecker::visit(const ast::BinaryExpr& node) {
     // Equality operators: ==, !=
     if (op == lexer::TokenType::EqualEqual || op == lexer::TokenType::BangEqual) {
         if (!leftType->isAssignableTo(*rightType) && !rightType->isAssignableTo(*leftType) &&
-            !(leftType->isNull() && rightType->isNullable()) && !(rightType->isNull() && leftType->isNullable())) {
+            !(leftType->isNull() && rightType->isNullable()) && !(rightType->isNull() && leftType->isNullable()) &&
+            !(leftType->isPointer() && rightType->isNull()) && !(rightType->isPointer() && leftType->isNull())) {
             m_diagnostics.reportError("E1001", "Cannot compare incompatible types '" + leftType->toString() +
                                       "' and '" + rightType->toString() + "'", node.getLocation());
             m_currentExprType = m_typeCtx.getError();

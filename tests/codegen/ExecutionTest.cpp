@@ -2480,5 +2480,105 @@ TEST(ExecutionTest, ConcurrencyThreadStaticMethodsExecution) {
     EXPECT_NE(output.find("thread_yield_sleep_ok: true"), std::string::npos);
 }
 
+TEST(ExecutionTest, CryptoSha256AndUuidExecution) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_crypto_sha256(string data) -> string;
+            fn sp_rt_crypto_uuid() -> string;
+        }
+
+        fn main() {
+            var hash = sp_rt_crypto_sha256("hello");
+            println("sha256_hello: ${hash}");
+
+            var id = sp_rt_crypto_uuid();
+            println("uuid_len: ${id.length()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_crypto_sha256");
+    EXPECT_NE(output.find("sha256_hello: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"), std::string::npos);
+    EXPECT_NE(output.find("uuid_len: 36"), std::string::npos);
+}
+
+TEST(ExecutionTest, JsonParseAndStringifyExecution) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_json_parse(string jsonStr) -> ptr;
+            fn sp_rt_json_stringify(ptr handle, int indent) -> string;
+            fn sp_rt_json_obj_get(ptr handle, string key) -> ptr;
+            fn sp_rt_json_get_string(ptr handle) -> string;
+            fn sp_rt_json_get_int(ptr handle) -> int64;
+            fn sp_rt_json_destroy(ptr handle);
+        }
+
+        fn main() {
+            var root = sp_rt_json_parse("{\"app\":\"SP Cloud\",\"port\":8080}");
+            var appVal = sp_rt_json_obj_get(root, "app");
+            var portVal = sp_rt_json_obj_get(root, "port");
+
+            var appName = sp_rt_json_get_string(appVal);
+            var portNum = sp_rt_json_get_int(portVal);
+
+            println("app_name: ${appName}");
+            println("app_port: ${portNum}");
+
+            var outJson = sp_rt_json_stringify(root, 0);
+            println("serialized: ${outJson}");
+
+            sp_rt_json_destroy(appVal);
+            sp_rt_json_destroy(portVal);
+            sp_rt_json_destroy(root);
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_json_parse");
+    EXPECT_NE(output.find("app_name: SP Cloud"), std::string::npos);
+    EXPECT_NE(output.find("app_port: 8080"), std::string::npos);
+    EXPECT_NE(output.find("serialized: {\"app\":\"SP Cloud\",\"port\":8080}"), std::string::npos);
+}
+
+TEST(ExecutionTest, NetTcpSocketEchoExecution) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_tcp_listen(string host, int port, int backlog) -> ptr;
+            fn sp_rt_tcp_listener_port(ptr listener) -> int;
+            fn sp_rt_tcp_connect(string host, int port, int timeoutMs) -> ptr;
+            fn sp_rt_tcp_accept(ptr listener) -> ptr;
+            fn sp_rt_tcp_write(ptr sock, string str) -> int;
+            fn sp_rt_tcp_read(ptr sock, int maxBytes) -> string;
+            fn sp_rt_tcp_close(ptr sock);
+            fn sp_rt_tcp_listener_close(ptr listener);
+        }
+
+        fn main() {
+            var listener = sp_rt_tcp_listen("127.0.0.1", 0, 10);
+            var port = sp_rt_tcp_listener_port(listener);
+            println("listening_port_gt_zero: ${port > 0}");
+
+            var client = sp_rt_tcp_connect("127.0.0.1", port, 2000);
+            var serverConn = sp_rt_tcp_accept(listener);
+
+            sp_rt_tcp_write(client, "Hello TCP!");
+            var received = sp_rt_tcp_read(serverConn, 128);
+            println("server_received: ${received}");
+
+            sp_rt_tcp_write(serverConn, "Echo: " + received);
+            var echoed = sp_rt_tcp_read(client, 128);
+            println("client_echoed: ${echoed}");
+
+            sp_rt_tcp_close(client);
+            sp_rt_tcp_close(serverConn);
+            sp_rt_tcp_listener_close(listener);
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_net_tcp");
+    EXPECT_NE(output.find("listening_port_gt_zero: true"), std::string::npos);
+    EXPECT_NE(output.find("server_received: Hello TCP!"), std::string::npos);
+    EXPECT_NE(output.find("client_echoed: Echo: Hello TCP!"), std::string::npos);
+}
+
+
 
 
