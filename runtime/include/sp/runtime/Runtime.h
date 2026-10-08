@@ -452,5 +452,18 @@ extern "C" {
     int64_t     sp_rt_http_server_port(void* srv);
     void        sp_rt_http_server_stop(void* srv);
     void        sp_rt_http_server_destroy(void* srv);
+
+    // Phase 21: High-Performance Routing, Route Groups & Middleware Pipeline (SP 2.3)
+    void*       sp_rt_http_server_group(void* srv, const char* prefix);
+    void*       sp_rt_http_group_group(void* grp, const char* prefix);
+    void        sp_rt_http_group_route(void* grp, const char* method, const char* path, 
+                                       const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body));
+    void        sp_rt_http_group_destroy(void* grp);
+
+    void        sp_rt_http_server_use_cors(void* srv, const char* origins, const char* methods, const char* headers);
+    void        sp_rt_http_server_use_logger(void* srv);
+    void        sp_rt_http_server_use_recovery(void* srv);
+    void        sp_rt_http_server_use_request_id(void* srv);
+    void        sp_rt_http_server_use_rate_limiter(void* srv, int64_t max_reqs, int64_t window_secs);
 }
 

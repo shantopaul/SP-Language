@@ -563,4 +563,84 @@ void sp_rt_http_server_destroy(void* srv) {
     }
 }
 
+// Phase 21: High-Performance Routing, Route Groups & Middleware Pipeline
+void* sp_rt_http_server_group(void* srv, const char* prefix) {
+    if (!srv) return nullptr;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    std::string p = prefix ? prefix : "";
+    return new sp::rt::http::RouteGroup(s->group(p));
+}
+
+void* sp_rt_http_group_group(void* grp, const char* prefix) {
+    if (!grp) return nullptr;
+    auto* g = static_cast<sp::rt::http::RouteGroup*>(grp);
+    std::string p = prefix ? prefix : "";
+    return new sp::rt::http::RouteGroup(g->group(p));
+}
+
+void sp_rt_http_group_route(void* grp, const char* method, const char* path, 
+                             const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body)) {
+    if (!grp || !path || !handler_fn) return;
+    auto* g = static_cast<sp::rt::http::RouteGroup*>(grp);
+    std::string m = method ? method : "GET";
+    std::string p = path;
+    g->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
+        const char* resultStr = handler_fn(req.method.c_str(), req.path.c_str(), req.body.c_str());
+        if (!resultStr) return sp::rt::http::HttpResponse::ok();
+        std::string resContent = resultStr;
+        if (resContent.rfind("HTTP/1.1", 0) == 0) {
+            sp::rt::http::HttpResponse res;
+            res.setBody(resContent);
+            return res;
+        }
+        if (!resContent.empty() && (resContent.front() == '{' || resContent.front() == '[')) {
+            return sp::rt::http::HttpResponse::json(resContent);
+        }
+        return sp::rt::http::HttpResponse::ok(resContent);
+    });
+}
+
+void sp_rt_http_group_destroy(void* grp) {
+    if (grp) {
+        delete static_cast<sp::rt::http::RouteGroup*>(grp);
+    }
+}
+
+void sp_rt_http_server_use_cors(void* srv, const char* origins, const char* methods, const char* headers) {
+    if (!srv) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    sp::rt::http::CorsOptions opts;
+    if (origins && *origins) opts.allowedOrigins = origins;
+    if (methods && *methods) opts.allowedMethods = methods;
+    if (headers && *headers) opts.allowedHeaders = headers;
+    s->use(sp::rt::http::HttpServer::cors(opts));
+}
+
+void sp_rt_http_server_use_logger(void* srv) {
+    if (!srv) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    s->use(sp::rt::http::HttpServer::logger());
+}
+
+void sp_rt_http_server_use_recovery(void* srv) {
+    if (!srv) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    s->use(sp::rt::http::HttpServer::recovery());
+}
+
+void sp_rt_http_server_use_request_id(void* srv) {
+    if (!srv) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    s->use(sp::rt::http::HttpServer::requestId());
+}
+
+void sp_rt_http_server_use_rate_limiter(void* srv, int64_t max_reqs, int64_t window_secs) {
+    if (!srv) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    sp::rt::http::RateLimiterOptions opts;
+    if (max_reqs > 0) opts.maxRequests = static_cast<int>(max_reqs);
+    if (window_secs > 0) opts.windowSeconds = static_cast<int>(window_secs);
+    s->use(sp::rt::http::HttpServer::rateLimiter(opts));
+}
+
 } // extern "C"

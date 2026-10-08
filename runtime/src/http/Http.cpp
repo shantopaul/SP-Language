@@ -1,4 +1,5 @@
 #include "sp/runtime/Http.h"
+#include "sp/runtime/Crypto.h"
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -511,6 +512,327 @@ HttpResponse HttpClient::post(const std::string& url, const std::string& body,
 }
 
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Radix-Tree Router & Route Groups (SP 2.3)
+// ----------------------------------------------------------------------------
+
+std::vector<std::string_view> RadixRouter::splitPath(std::string_view path) {
+    std::vector<std::string_view> segments;
+    segments.reserve(8);
+    size_t start = 0;
+    while (start < path.size()) {
+        while (start < path.size() && path[start] == '/') {
+            start++;
+        }
+        if (start >= path.size()) break;
+        size_t end = path.find('/', start);
+        if (end == std::string_view::npos) {
+            segments.push_back(path.substr(start));
+            break;
+        }
+        segments.push_back(path.substr(start, end - start));
+        start = end + 1;
+    }
+    return segments;
+}
+
+RadixRouter::Node* RadixRouter::Node::findChild(NodeType t, std::string_view seg) const {
+    if (t == NodeType::Exact) {
+        auto it = exactChildren.find(seg);
+        if (it != exactChildren.end()) return it->second;
+        return nullptr;
+    } else if (t == NodeType::Param) {
+        return paramChild;
+    } else if (t == NodeType::Wildcard) {
+        return wildcardChild;
+    }
+    return nullptr;
+}
+
+RadixRouter::RadixRouter() {
+    m_root = std::make_unique<Node>();
+}
+
+void RadixRouter::addRoute(const std::string& method, const std::string& pattern, 
+                           HttpHandler handler, std::vector<HttpMiddleware> middlewares) {
+    if (!m_root) {
+        m_root = std::make_unique<Node>();
+    }
+    std::string cleanPattern = pattern;
+    size_t qPos = cleanPattern.find('?');
+    if (qPos != std::string::npos) {
+        cleanPattern = cleanPattern.substr(0, qPos);
+    }
+
+    auto segments = splitPath(cleanPattern);
+    Node* curr = m_root.get();
+
+    for (const auto& seg : segments) {
+        NodeType t = NodeType::Exact;
+        std::string pName;
+        std::string sVal(seg);
+
+        if (!seg.empty() && seg[0] == '*') {
+            t = NodeType::Wildcard;
+            pName = std::string(seg.substr(1));
+        } else if (!seg.empty() && seg[0] == ':') {
+            t = NodeType::Param;
+            pName = std::string(seg.substr(1));
+        }
+
+        Node* child = curr->findChild(t, sVal);
+        if (!child) {
+            auto newNode = std::make_unique<Node>();
+            newNode->type = t;
+            newNode->segment = sVal;
+            newNode->paramName = pName;
+            child = newNode.get();
+            if (t == NodeType::Exact) {
+                curr->exactChildren[sVal] = child;
+            } else if (t == NodeType::Param) {
+                if (!curr->paramChild) curr->paramChild = child;
+            } else if (t == NodeType::Wildcard) {
+                if (!curr->wildcardChild) curr->wildcardChild = child;
+            }
+            curr->children.push_back(std::move(newNode));
+        }
+        curr = child;
+
+        if (t == NodeType::Wildcard) {
+            break; // Wildcard absorbs remainder
+        }
+    }
+
+    std::string upperMethod = method;
+    std::transform(upperMethod.begin(), upperMethod.end(), upperMethod.begin(), ::toupper);
+
+    curr->handlers[upperMethod] = std::move(handler);
+    if (!middlewares.empty()) {
+        curr->middlewares.insert(curr->middlewares.end(), middlewares.begin(), middlewares.end());
+    }
+    m_routeCount++;
+}
+
+RouteMatchResult RadixRouter::match(const std::string& method, const std::string& path) const {
+    RouteMatchResult result;
+    if (!m_root) return result;
+
+    std::string upperMethod;
+    bool needsUpper = false;
+    for (char c : method) {
+        if (std::islower(static_cast<unsigned char>(c))) {
+            needsUpper = true;
+            break;
+        }
+    }
+    if (needsUpper) {
+        upperMethod = method;
+        for (char& c : upperMethod) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+    }
+    const std::string& queryMethod = needsUpper ? upperMethod : method;
+
+    auto segments = splitPath(path);
+    std::vector<HttpMiddleware> accumulatedMws;
+    accumulatedMws.reserve(8);
+    std::vector<std::pair<std::string_view, std::string>> accumulatedParams;
+    accumulatedParams.reserve(8);
+
+    matchRecursive(m_root.get(), segments, 0, queryMethod, accumulatedMws, accumulatedParams, result);
+    return result;
+}
+
+void RadixRouter::matchRecursive(const Node* node, const std::vector<std::string_view>& segments, size_t segIdx,
+                                 const std::string& method,
+                                 std::vector<HttpMiddleware>& accumulatedMiddlewares,
+                                 std::vector<std::pair<std::string_view, std::string>>& accumulatedParams,
+                                 RouteMatchResult& bestResult) const {
+    if (!node) return;
+
+    size_t prevMwCount = accumulatedMiddlewares.size();
+    if (!node->middlewares.empty()) {
+        accumulatedMiddlewares.insert(accumulatedMiddlewares.end(), node->middlewares.begin(), node->middlewares.end());
+    }
+
+    if (segIdx == segments.size()) {
+        if (!node->handlers.empty()) {
+            auto it = node->handlers.find(method);
+            if (it != node->handlers.end()) {
+                bestResult.found = true;
+                bestResult.handler = it->second;
+                bestResult.middlewares = accumulatedMiddlewares;
+                for (const auto& [k, v] : accumulatedParams) {
+                    bestResult.pathParams[std::string(k)] = v;
+                }
+                return;
+            } else {
+                bestResult.methodNotAllowed = true;
+                for (const auto& [m, _] : node->handlers) {
+                    if (std::find(bestResult.allowedMethods.begin(), bestResult.allowedMethods.end(), m) == bestResult.allowedMethods.end()) {
+                        bestResult.allowedMethods.push_back(m);
+                    }
+                }
+                bestResult.middlewares = accumulatedMiddlewares;
+                for (const auto& [k, v] : accumulatedParams) {
+                    bestResult.pathParams[std::string(k)] = v;
+                }
+            }
+        }
+        if (node->wildcardChild) {
+            accumulatedParams.emplace_back(node->wildcardChild->paramName, "");
+            auto it = node->wildcardChild->handlers.find(method);
+            if (it != node->wildcardChild->handlers.end()) {
+                bestResult.found = true;
+                bestResult.handler = it->second;
+                bestResult.middlewares = accumulatedMiddlewares;
+                if (!node->wildcardChild->middlewares.empty()) {
+                    bestResult.middlewares.insert(bestResult.middlewares.end(), 
+                                                  node->wildcardChild->middlewares.begin(), 
+                                                  node->wildcardChild->middlewares.end());
+                }
+                for (const auto& [k, v] : accumulatedParams) {
+                    bestResult.pathParams[std::string(k)] = v;
+                }
+                return;
+            } else if (!node->wildcardChild->handlers.empty()) {
+                bestResult.methodNotAllowed = true;
+                for (const auto& [m, _] : node->wildcardChild->handlers) {
+                    if (std::find(bestResult.allowedMethods.begin(), bestResult.allowedMethods.end(), m) == bestResult.allowedMethods.end()) {
+                        bestResult.allowedMethods.push_back(m);
+                    }
+                }
+                bestResult.middlewares = accumulatedMiddlewares;
+                for (const auto& [k, v] : accumulatedParams) {
+                    bestResult.pathParams[std::string(k)] = v;
+                }
+            }
+            accumulatedParams.pop_back();
+        }
+        if (accumulatedMiddlewares.size() > prevMwCount) {
+            accumulatedMiddlewares.resize(prevMwCount);
+        }
+        return;
+    }
+
+    std::string_view seg = segments[segIdx];
+
+    // 1. Try Exact match child (O(1) lookup)
+    auto itExact = node->exactChildren.find(seg);
+    if (itExact != node->exactChildren.end()) {
+        matchRecursive(itExact->second, segments, segIdx + 1, method, accumulatedMiddlewares, accumulatedParams, bestResult);
+        if (bestResult.found) return;
+    }
+
+    // 2. Try Param match child
+    if (node->paramChild) {
+        accumulatedParams.emplace_back(node->paramChild->paramName, std::string(seg));
+        matchRecursive(node->paramChild, segments, segIdx + 1, method, accumulatedMiddlewares, accumulatedParams, bestResult);
+        if (bestResult.found) return;
+        accumulatedParams.pop_back();
+    }
+
+    // 3. Try Wildcard match child
+    if (node->wildcardChild) {
+        std::string wildcardTail;
+        for (size_t i = segIdx; i < segments.size(); ++i) {
+            if (i > segIdx) wildcardTail += "/";
+            wildcardTail += segments[i];
+        }
+        accumulatedParams.emplace_back(node->wildcardChild->paramName, std::move(wildcardTail));
+        auto it = node->wildcardChild->handlers.find(method);
+        if (it != node->wildcardChild->handlers.end()) {
+            bestResult.found = true;
+            bestResult.handler = it->second;
+            bestResult.middlewares = accumulatedMiddlewares;
+            if (!node->wildcardChild->middlewares.empty()) {
+                bestResult.middlewares.insert(bestResult.middlewares.end(), 
+                                              node->wildcardChild->middlewares.begin(), 
+                                              node->wildcardChild->middlewares.end());
+            }
+            for (const auto& [k, v] : accumulatedParams) {
+                bestResult.pathParams[std::string(k)] = v;
+            }
+            return;
+        } else if (!node->wildcardChild->handlers.empty()) {
+            bestResult.methodNotAllowed = true;
+            for (const auto& [m, _] : node->wildcardChild->handlers) {
+                if (std::find(bestResult.allowedMethods.begin(), bestResult.allowedMethods.end(), m) == bestResult.allowedMethods.end()) {
+                    bestResult.allowedMethods.push_back(m);
+                }
+            }
+            bestResult.middlewares = accumulatedMiddlewares;
+            for (const auto& [k, v] : accumulatedParams) {
+                bestResult.pathParams[std::string(k)] = v;
+            }
+        }
+        accumulatedParams.pop_back();
+    }
+
+    if (accumulatedMiddlewares.size() > prevMwCount) {
+        accumulatedMiddlewares.resize(prevMwCount);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// RouteGroup Implementation
+// ----------------------------------------------------------------------------
+
+RouteGroup::RouteGroup(std::string prefix, RadixRouter* router, std::vector<HttpMiddleware> middlewares)
+    : m_prefix(std::move(prefix)), m_router(router), m_middlewares(std::move(middlewares)) {}
+
+std::string RouteGroup::fullPath(const std::string& pattern) const {
+    if (m_prefix.empty()) return pattern;
+    std::string cleanPre = m_prefix;
+    if (cleanPre.back() == '/') cleanPre.pop_back();
+    std::string cleanPat = pattern;
+    if (!cleanPat.empty() && cleanPat.front() == '/') cleanPat = cleanPat.substr(1);
+    return cleanPre + "/" + cleanPat;
+}
+
+RouteGroup RouteGroup::group(const std::string& subPrefix) {
+    return RouteGroup(fullPath(subPrefix), m_router, m_middlewares);
+}
+
+void RouteGroup::use(HttpMiddleware middleware) {
+    m_middlewares.push_back(std::move(middleware));
+}
+
+void RouteGroup::get(const std::string& pattern, HttpHandler handler) {
+    route("GET", pattern, std::move(handler));
+}
+
+void RouteGroup::post(const std::string& pattern, HttpHandler handler) {
+    route("POST", pattern, std::move(handler));
+}
+
+void RouteGroup::put(const std::string& pattern, HttpHandler handler) {
+    route("PUT", pattern, std::move(handler));
+}
+
+void RouteGroup::patch(const std::string& pattern, HttpHandler handler) {
+    route("PATCH", pattern, std::move(handler));
+}
+
+void RouteGroup::deleteRoute(const std::string& pattern, HttpHandler handler) {
+    route("DELETE", pattern, std::move(handler));
+}
+
+void RouteGroup::options(const std::string& pattern, HttpHandler handler) {
+    route("OPTIONS", pattern, std::move(handler));
+}
+
+void RouteGroup::head(const std::string& pattern, HttpHandler handler) {
+    route("HEAD", pattern, std::move(handler));
+}
+
+void RouteGroup::route(const std::string& method, const std::string& pattern, HttpHandler handler) {
+    if (m_router) {
+        m_router->addRoute(method, fullPath(pattern), std::move(handler), m_middlewares);
+    }
+}
+
+// ----------------------------------------------------------------------------
 // HttpServer Methods (Multi-Threaded & Keep-Alive RFC 7230)
 // ----------------------------------------------------------------------------
 
@@ -541,21 +863,20 @@ void HttpServer::deleteRoute(const std::string& pattern, HttpHandler handler) {
     route("DELETE", pattern, std::move(handler));
 }
 
-void HttpServer::route(const std::string& method, const std::string& pattern, HttpHandler handler) {
-    Route r;
-    r.method = method;
-    r.pattern = pattern;
-    r.handler = std::move(handler);
+void HttpServer::options(const std::string& pattern, HttpHandler handler) {
+    route("OPTIONS", pattern, std::move(handler));
+}
 
-    // Extract :param names
-    std::istringstream pStream(pattern);
-    std::string part;
-    while (std::getline(pStream, part, '/')) {
-        if (!part.empty() && part.front() == ':') {
-            r.paramNames.push_back(part.substr(1));
-        }
-    }
-    m_routes.push_back(std::move(r));
+void HttpServer::head(const std::string& pattern, HttpHandler handler) {
+    route("HEAD", pattern, std::move(handler));
+}
+
+void HttpServer::route(const std::string& method, const std::string& pattern, HttpHandler handler) {
+    m_router.addRoute(method, pattern, std::move(handler));
+}
+
+RouteGroup HttpServer::group(const std::string& prefix) {
+    return RouteGroup(prefix, &m_router);
 }
 
 void HttpServer::use(HttpMiddleware middleware) {
@@ -682,17 +1003,24 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
             if (req.body.size() > m_config.maxBodySize) {
                 res = HttpResponse::payloadTooLarge();
             } else {
-                // Apply middlewares
+                // Apply global middlewares
+                HttpResponse mwRes;
                 bool proceed = true;
                 for (const auto& mw : m_middlewares) {
-                    if (!mw(req, res)) {
+                    if (!mw(req, mwRes)) {
                         proceed = false;
+                        res = std::move(mwRes);
                         break;
                     }
                 }
 
                 if (proceed) {
                     res = dispatch(req);
+                    for (const auto& h : mwRes.headers) {
+                        if (res.getHeader(h.name).empty()) {
+                            res.setHeader(h.name, h.value);
+                        }
+                    }
                 }
             }
 
@@ -725,43 +1053,166 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
 }
 
 HttpResponse HttpServer::dispatch(const HttpRequest& req) {
-    for (const auto& route : m_routes) {
-        if (!route.method.empty() && !equalsIgnoreCase(route.method, req.method)) {
-            continue;
+    std::string upperMethod = req.method;
+    std::transform(upperMethod.begin(), upperMethod.end(), upperMethod.begin(), ::toupper);
+
+    auto match = m_router.match(upperMethod, req.path);
+
+    if (match.found) {
+        HttpRequest matchedReq = req;
+        matchedReq.pathParams = std::move(match.pathParams);
+
+        // Run group-level middlewares
+        HttpResponse groupMwRes;
+        for (const auto& mw : match.middlewares) {
+            if (!mw(matchedReq, groupMwRes)) {
+                return groupMwRes; // short-circuited by group middleware
+            }
         }
 
-        // Exact match
-        if (route.pattern == req.path) {
-            return route.handler(req);
+        HttpResponse finalRes;
+        if (upperMethod == "HEAD") {
+            finalRes = match.handler(matchedReq);
+            finalRes.body.clear();
+        } else {
+            finalRes = match.handler(matchedReq);
         }
 
-        // Path parameter match e.g. /users/:id
-        if (route.pattern.find(':') != std::string::npos) {
-            std::istringstream patStream(route.pattern);
-            std::istringstream reqStream(req.path);
-            std::string patPart, reqPart;
-            bool match = true;
-            std::unordered_map<std::string, std::string> params;
+        // Merge group middleware headers
+        for (const auto& h : groupMwRes.headers) {
+            if (finalRes.getHeader(h.name).empty()) {
+                finalRes.setHeader(h.name, h.value);
+            }
+        }
+        return finalRes;
+    }
 
-            while (std::getline(patStream, patPart, '/') && std::getline(reqStream, reqPart, '/')) {
-                if (patPart.empty() && reqPart.empty()) continue;
-                if (!patPart.empty() && patPart.front() == ':') {
-                    params[patPart.substr(1)] = reqPart;
-                } else if (patPart != reqPart) {
-                    match = false;
-                    break;
+    if (match.methodNotAllowed) {
+        if (upperMethod == "OPTIONS") {
+            // Automatic OPTIONS preflight response with Allow header
+            auto res = HttpResponse::noContent();
+            std::string allowHeader;
+            for (size_t i = 0; i < match.allowedMethods.size(); ++i) {
+                if (i > 0) allowHeader += ", ";
+                allowHeader += match.allowedMethods[i];
+            }
+            if (allowHeader.find("OPTIONS") == std::string::npos) {
+                if (!allowHeader.empty()) allowHeader += ", ";
+                allowHeader += "OPTIONS";
+            }
+            if (allowHeader.find("HEAD") == std::string::npos) {
+                if (!allowHeader.empty()) allowHeader += ", ";
+                allowHeader += "HEAD";
+            }
+            res.setHeader("Allow", allowHeader);
+            return res;
+        }
+
+        if (upperMethod == "HEAD") {
+            // Check if GET is allowed
+            auto it = std::find(match.allowedMethods.begin(), match.allowedMethods.end(), "GET");
+            if (it != match.allowedMethods.end()) {
+                auto getMatch = m_router.match("GET", req.path);
+                if (getMatch.found) {
+                    HttpRequest matchedReq = req;
+                    matchedReq.pathParams = std::move(getMatch.pathParams);
+                    auto getRes = getMatch.handler(matchedReq);
+                    getRes.body.clear();
+                    return getRes;
                 }
             }
-
-            if (match && !patStream.good() && !reqStream.good()) {
-                HttpRequest matchedReq = req;
-                matchedReq.pathParams = std::move(params);
-                return route.handler(matchedReq);
-            }
         }
+
+        return HttpResponse::methodNotAllowed(match.allowedMethods);
+    }
+
+    // Path not found in router
+    if (upperMethod == "OPTIONS") {
+        return HttpResponse::noContent();
     }
 
     return HttpResponse::notFound("No route matched " + req.method + " " + req.path);
+}
+
+// Built-in Middleware factories
+HttpMiddleware HttpServer::cors(CorsOptions opts) {
+    return [opts](const HttpRequest& req, HttpResponse& res) -> bool {
+        res.setHeader("Access-Control-Allow-Origin", opts.allowedOrigins);
+        res.setHeader("Access-Control-Allow-Methods", opts.allowedMethods);
+        res.setHeader("Access-Control-Allow-Headers", opts.allowedHeaders);
+        res.setHeader("Access-Control-Expose-Headers", opts.exposedHeaders);
+        if (opts.allowCredentials) {
+            res.setHeader("Access-Control-Allow-Credentials", "true");
+        }
+        if (opts.maxAge > 0) {
+            res.setHeader("Access-Control-Max-Age", std::to_string(opts.maxAge));
+        }
+        if (equalsIgnoreCase(req.method, "OPTIONS")) {
+            res.statusCode = 204;
+            res.statusText = "No Content";
+            res.body.clear();
+            return false; // Intercept preflight OPTIONS
+        }
+        return true;
+    };
+}
+
+HttpMiddleware HttpServer::logger() {
+    return [](const HttpRequest& /*req*/, HttpResponse& /*res*/) -> bool {
+        return true;
+    };
+}
+
+HttpMiddleware HttpServer::recovery() {
+    return [](const HttpRequest& /*req*/, HttpResponse& /*res*/) -> bool {
+        return true;
+    };
+}
+
+HttpMiddleware HttpServer::requestId() {
+    return [](const HttpRequest& req, HttpResponse& res) -> bool {
+        std::string id = req.getHeader("x-request-id");
+        if (id.empty()) {
+            id = crypto::randomUuid();
+        }
+        res.setHeader("X-Request-ID", id);
+        return true;
+    };
+}
+
+HttpMiddleware HttpServer::rateLimiter(RateLimiterOptions opts) {
+    struct RateLimitState {
+        std::mutex mtx;
+        std::unordered_map<std::string, std::vector<std::chrono::steady_clock::time_point>> clients;
+    };
+    auto state = std::make_shared<RateLimitState>();
+
+    return [opts, state](const HttpRequest& req, HttpResponse& res) -> bool {
+        std::string key = req.getHeader("x-forwarded-for");
+        if (key.empty()) key = req.getHeader("authorization");
+        if (key.empty()) key = "default-client";
+
+        auto now = std::chrono::steady_clock::now();
+        auto cutoff = now - std::chrono::seconds(opts.windowSeconds);
+
+        std::lock_guard<std::mutex> lock(state->mtx);
+        auto& timestamps = state->clients[key];
+        std::vector<std::chrono::steady_clock::time_point> valid;
+        for (const auto& tp : timestamps) {
+            if (tp >= cutoff) {
+                valid.push_back(tp);
+            }
+        }
+        timestamps = std::move(valid);
+
+        if (timestamps.size() >= static_cast<size_t>(opts.maxRequests)) {
+            res = HttpResponse::tooManyRequests("Rate limit exceeded. Try again later.", opts.windowSeconds);
+            return false;
+        }
+
+        timestamps.push_back(now);
+        return true;
+    };
 }
 
 } // namespace sp::rt::http

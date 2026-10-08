@@ -39,6 +39,18 @@ extern "C" {
     fn sp_rt_http_server_port(ptr srv) -> int;
     fn sp_rt_http_server_stop(ptr srv);
     fn sp_rt_http_server_destroy(ptr srv);
+
+    // Route Groups & Middlewares (SP 2.3)
+    fn sp_rt_http_server_group(ptr srv, string prefix) -> ptr;
+    fn sp_rt_http_group_group(ptr grp, string prefix) -> ptr;
+    fn sp_rt_http_group_route(ptr grp, string method, string path, ptr handlerFnPtr);
+    fn sp_rt_http_group_destroy(ptr grp);
+
+    fn sp_rt_http_server_use_cors(ptr srv, string origins, string methods, string headers);
+    fn sp_rt_http_server_use_logger(ptr srv);
+    fn sp_rt_http_server_use_recovery(ptr srv);
+    fn sp_rt_http_server_use_request_id(ptr srv);
+    fn sp_rt_http_server_use_rate_limiter(ptr srv, int maxReqs, int windowSecs);
 }
 
 public class HttpRequest {
@@ -202,8 +214,50 @@ public class HttpServer {
         this.route("PUT", path, handlerFnPtr);
     }
 
+    public fn patch(string path, ptr handlerFnPtr) {
+        this.route("PATCH", path, handlerFnPtr);
+    }
+
     public fn deleteRoute(string path, ptr handlerFnPtr) {
         this.route("DELETE", path, handlerFnPtr);
+    }
+
+    public fn options(string path, ptr handlerFnPtr) {
+        this.route("OPTIONS", path, handlerFnPtr);
+    }
+
+    public fn head(string path, ptr handlerFnPtr) {
+        this.route("HEAD", path, handlerFnPtr);
+    }
+
+    public fn group(string prefix) -> RouteGroup {
+        let g = new RouteGroup();
+        g.handle = sp_rt_http_server_group(this.handle, prefix);
+        return g;
+    }
+
+    public fn useCors(string origins, string methods, string headers) {
+        sp_rt_http_server_use_cors(this.handle, origins, methods, headers);
+    }
+
+    public fn useCorsDefault() {
+        sp_rt_http_server_use_cors(this.handle, "*", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD", "Content-Type, Authorization, X-Requested-With, X-Request-ID");
+    }
+
+    public fn useLogger() {
+        sp_rt_http_server_use_logger(this.handle);
+    }
+
+    public fn useRecovery() {
+        sp_rt_http_server_use_recovery(this.handle);
+    }
+
+    public fn useRequestId() {
+        sp_rt_http_server_use_request_id(this.handle);
+    }
+
+    public fn useRateLimiter(int maxRequests, int windowSeconds) {
+        sp_rt_http_server_use_rate_limiter(this.handle, maxRequests, windowSeconds);
     }
 
     public fn listen(int port) -> bool {
@@ -231,3 +285,83 @@ public class HttpServer {
         }
     }
 }
+
+public class RouteGroup {
+    public ptr handle;
+
+    public fn group(string subPrefix) -> RouteGroup {
+        let child = new RouteGroup();
+        child.handle = sp_rt_http_group_group(this.handle, subPrefix);
+        return child;
+    }
+
+    public fn get(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "GET", path, handlerFnPtr);
+    }
+
+    public fn post(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "POST", path, handlerFnPtr);
+    }
+
+    public fn put(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "PUT", path, handlerFnPtr);
+    }
+
+    public fn patch(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "PATCH", path, handlerFnPtr);
+    }
+
+    public fn deleteRoute(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "DELETE", path, handlerFnPtr);
+    }
+
+    public fn options(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "OPTIONS", path, handlerFnPtr);
+    }
+
+    public fn head(string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route(this.handle, "HEAD", path, handlerFnPtr);
+    }
+
+    public fn destroy() {
+        if (this.handle != null) {
+            sp_rt_http_group_destroy(this.handle);
+            this.handle = null;
+        }
+    }
+}
+
+public class CorsMiddleware {
+    public static fn apply(ptr serverHandle, string origins, string methods, string headers) {
+        sp_rt_http_server_use_cors(serverHandle, origins, methods, headers);
+    }
+
+    public static fn applyDefault(ptr serverHandle) {
+        sp_rt_http_server_use_cors(serverHandle, "*", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD", "Content-Type, Authorization, X-Requested-With, X-Request-ID");
+    }
+}
+
+public class LoggerMiddleware {
+    public static fn apply(ptr serverHandle) {
+        sp_rt_http_server_use_logger(serverHandle);
+    }
+}
+
+public class RecoveryMiddleware {
+    public static fn apply(ptr serverHandle) {
+        sp_rt_http_server_use_recovery(serverHandle);
+    }
+}
+
+public class RequestIdMiddleware {
+    public static fn apply(ptr serverHandle) {
+        sp_rt_http_server_use_request_id(serverHandle);
+    }
+}
+
+public class RateLimiterMiddleware {
+    public static fn apply(ptr serverHandle, int maxRequests, int windowSeconds) {
+        sp_rt_http_server_use_rate_limiter(serverHandle, maxRequests, windowSeconds);
+    }
+}
+

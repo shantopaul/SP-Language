@@ -124,6 +124,44 @@ public:
         return res;
     }
 
+    static HttpResponse noContent() {
+        HttpResponse res;
+        res.statusCode = 204;
+        res.statusText = "No Content";
+        return res;
+    }
+
+    static HttpResponse methodNotAllowed(const std::vector<std::string>& allowed) {
+        HttpResponse res;
+        res.statusCode = 405;
+        res.statusText = "Method Not Allowed";
+        std::string allowHeader;
+        for (size_t i = 0; i < allowed.size(); ++i) {
+            if (i > 0) allowHeader += ", ";
+            allowHeader += allowed[i];
+        }
+        if (allowHeader.find("OPTIONS") == std::string::npos) {
+            if (!allowHeader.empty()) allowHeader += ", ";
+            allowHeader += "OPTIONS";
+        }
+        if (allowHeader.find("HEAD") == std::string::npos) {
+            if (!allowHeader.empty()) allowHeader += ", ";
+            allowHeader += "HEAD";
+        }
+        res.setHeader("Allow", allowHeader);
+        res.setBody("Method Not Allowed");
+        return res;
+    }
+
+    static HttpResponse tooManyRequests(std::string msg = "Too Many Requests", int retryAfter = 60) {
+        HttpResponse res;
+        res.statusCode = 429;
+        res.statusText = "Too Many Requests";
+        res.setHeader("Retry-After", std::to_string(retryAfter));
+        res.setBody(std::move(msg));
+        return res;
+    }
+
     static HttpResponse internalError(std::string msg = "Internal Server Error") {
         HttpResponse res;
         res.statusCode = 500;
@@ -144,6 +182,107 @@ public:
 using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
 using HttpMiddleware = std::function<bool(const HttpRequest&, HttpResponse&)>;
 
+// ----------------------------------------------------------------------------
+// Radix-Tree Router & Route Groups (SP 2.3)
+// ----------------------------------------------------------------------------
+
+struct RouteMatchResult {
+    bool found{false};
+    bool methodNotAllowed{false};
+    std::vector<std::string> allowedMethods;
+    HttpHandler handler;
+    std::vector<HttpMiddleware> middlewares;
+    std::unordered_map<std::string, std::string> pathParams;
+};
+
+class RadixRouter {
+public:
+    enum class NodeType {
+        Exact,
+        Param,    // :id
+        Wildcard  // *filepath
+    };
+
+    struct StringHash {
+        using is_transparent = void;
+        size_t operator()(std::string_view sv) const noexcept {
+            return std::hash<std::string_view>{}(sv);
+        }
+        size_t operator()(const std::string& s) const noexcept {
+            return std::hash<std::string_view>{}(s);
+        }
+    };
+
+    struct StringEqual {
+        using is_transparent = void;
+        bool operator()(std::string_view a, std::string_view b) const noexcept {
+            return a == b;
+        }
+    };
+
+    struct Node {
+        NodeType type{NodeType::Exact};
+        std::string segment;
+        std::string paramName;
+        std::unordered_map<std::string, HttpHandler, StringHash, StringEqual> handlers;
+        std::vector<HttpMiddleware> middlewares;
+        std::vector<std::unique_ptr<Node>> children;
+
+        // O(1) indexed children
+        std::unordered_map<std::string, Node*, StringHash, StringEqual> exactChildren;
+        Node* paramChild{nullptr};
+        Node* wildcardChild{nullptr};
+
+        Node* findChild(NodeType t, std::string_view seg) const;
+    };
+
+    RadixRouter();
+
+    void addRoute(const std::string& method, const std::string& pattern, 
+                  HttpHandler handler, std::vector<HttpMiddleware> middlewares = {});
+
+    [[nodiscard]] RouteMatchResult match(const std::string& method, const std::string& path) const;
+
+    [[nodiscard]] size_t routeCount() const noexcept { return m_routeCount; }
+
+private:
+    std::unique_ptr<Node> m_root;
+    size_t m_routeCount{0};
+
+    static std::vector<std::string_view> splitPath(std::string_view path);
+    void matchRecursive(const Node* node, const std::vector<std::string_view>& segments, size_t segIdx,
+                        const std::string& method,
+                        std::vector<HttpMiddleware>& accumulatedMiddlewares,
+                        std::vector<std::pair<std::string_view, std::string>>& accumulatedParams,
+                        RouteMatchResult& bestResult) const;
+};
+
+class RouteGroup {
+public:
+    RouteGroup(std::string prefix, RadixRouter* router, std::vector<HttpMiddleware> middlewares = {});
+
+    RouteGroup group(const std::string& subPrefix);
+    void use(HttpMiddleware middleware);
+
+    void get(const std::string& pattern, HttpHandler handler);
+    void post(const std::string& pattern, HttpHandler handler);
+    void put(const std::string& pattern, HttpHandler handler);
+    void patch(const std::string& pattern, HttpHandler handler);
+    void deleteRoute(const std::string& pattern, HttpHandler handler);
+    void options(const std::string& pattern, HttpHandler handler);
+    void head(const std::string& pattern, HttpHandler handler);
+    void route(const std::string& method, const std::string& pattern, HttpHandler handler);
+
+    [[nodiscard]] const std::string& getPrefix() const noexcept { return m_prefix; }
+
+private:
+    std::string m_prefix;
+    RadixRouter* m_router{nullptr};
+    std::vector<HttpMiddleware> m_middlewares;
+
+    std::string fullPath(const std::string& pattern) const;
+};
+
 struct HttpServerConfig {
     int workerThreads{4};
     size_t maxBodySize{10 * 1024 * 1024};    // 10 MB limit
@@ -151,6 +290,20 @@ struct HttpServerConfig {
     int idleTimeoutMs{15000};                // 15 seconds keep-alive timeout
     int requestTimeoutMs{30000};             // 30 seconds
     int maxKeepAliveRequests{1000};          // Requests before closing connection
+};
+
+struct CorsOptions {
+    std::string allowedOrigins{"*"};
+    std::string allowedMethods{"GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"};
+    std::string allowedHeaders{"Content-Type, Authorization, X-Requested-With, X-Request-ID"};
+    std::string exposedHeaders{"Content-Length, X-Request-ID"};
+    bool allowCredentials{true};
+    int maxAge{86400};
+};
+
+struct RateLimiterOptions {
+    int maxRequests{100};
+    int windowSeconds{60};
 };
 
 class HttpServer {
@@ -166,7 +319,11 @@ public:
     void put(const std::string& pattern, HttpHandler handler);
     void patch(const std::string& pattern, HttpHandler handler);
     void deleteRoute(const std::string& pattern, HttpHandler handler);
+    void options(const std::string& pattern, HttpHandler handler);
+    void head(const std::string& pattern, HttpHandler handler);
     void route(const std::string& method, const std::string& pattern, HttpHandler handler);
+
+    RouteGroup group(const std::string& prefix);
 
     void use(HttpMiddleware middleware);
 
@@ -179,21 +336,24 @@ public:
     void setConfig(const HttpServerConfig& config) { m_config = config; }
     [[nodiscard]] const HttpServerConfig& getConfig() const noexcept { return m_config; }
 
-private:
-    struct Route {
-        std::string method;
-        std::string pattern;
-        std::vector<std::string> paramNames;
-        HttpHandler handler;
-    };
+    [[nodiscard]] RadixRouter& getRouter() noexcept { return m_router; }
+    [[nodiscard]] const RadixRouter& getRouter() const noexcept { return m_router; }
 
+    // Built-in Middleware factories
+    static HttpMiddleware cors(CorsOptions opts = {});
+    static HttpMiddleware logger();
+    static HttpMiddleware recovery();
+    static HttpMiddleware requestId();
+    static HttpMiddleware rateLimiter(RateLimiterOptions opts = {});
+
+private:
     void serverLoop();
     void workerLoop();
     void handleClient(std::unique_ptr<net::TcpSocket> client);
     HttpResponse dispatch(const HttpRequest& req);
 
     HttpServerConfig m_config;
-    std::vector<Route> m_routes;
+    RadixRouter m_router;
     std::vector<HttpMiddleware> m_middlewares;
     net::TcpListener m_listener;
     std::atomic<bool> m_running{false};
