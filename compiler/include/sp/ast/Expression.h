@@ -284,4 +284,48 @@ private:
     ExprPtr m_expr;
 };
 
+class AwaitExpr : public ExpressionNode {
+public:
+    AwaitExpr(ExprPtr expr, diagnostics::SourceLocation loc)
+        : ExpressionNode(ASTNodeKind::AwaitExpr, std::move(loc)),
+          m_expr(std::move(expr)) {}
+
+    [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
+    [[nodiscard]] const ExprPtr& getExprPtr() const noexcept { return m_expr; }
+    [[nodiscard]] ExprPtr& getExprPtr() noexcept { return m_expr; }
+
+    void accept(ASTVisitor& visitor) const override;
+
+private:
+    ExprPtr m_expr;
+};
+
+class BlockStmt;
+
+class ComptimeExpr : public ExpressionNode {
+public:
+    ComptimeExpr(ExprPtr expr, diagnostics::SourceLocation loc)
+        : ExpressionNode(ASTNodeKind::ComptimeExpr, std::move(loc)),
+          m_expr(std::move(expr)), m_isBlock(false) {}
+
+    ComptimeExpr(std::unique_ptr<BlockStmt> block, diagnostics::SourceLocation loc);
+    ~ComptimeExpr() override;
+
+    [[nodiscard]] bool isBlock() const noexcept { return m_isBlock; }
+    [[nodiscard]] bool hasExpr() const noexcept { return m_expr != nullptr; }
+    [[nodiscard]] const ExpressionNode* getExpr() const noexcept { return m_expr.get(); }
+    [[nodiscard]] const ExprPtr& getExprPtr() const noexcept { return m_expr; }
+    [[nodiscard]] ExprPtr& getExprPtr() noexcept { return m_expr; }
+
+    [[nodiscard]] const BlockStmt* getBlock() const noexcept { return m_block.get(); }
+    [[nodiscard]] std::unique_ptr<BlockStmt>& getBlockPtr() noexcept { return m_block; }
+
+    void accept(ASTVisitor& visitor) const override;
+
+private:
+    ExprPtr m_expr;
+    std::unique_ptr<BlockStmt> m_block;
+    bool m_isBlock{false};
+};
+
 } // namespace sp::ast

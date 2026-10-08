@@ -78,6 +78,7 @@ enum class TokenType {
     KeywordThrow,
     KeywordUnsafe,
     KeywordExtern,
+    KeywordComptime,
 
     // Keywords - Testing
     KeywordTest,

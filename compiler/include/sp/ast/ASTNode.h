@@ -50,7 +50,9 @@ enum class ASTNodeKind {
     TernaryExpr,
     AssignExpr,
     NewExpr,
-    TryExpr
+    TryExpr,
+    AwaitExpr,
+    ComptimeExpr
 };
 
 class ASTNode {

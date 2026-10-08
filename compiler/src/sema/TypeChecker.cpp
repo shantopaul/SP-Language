@@ -1316,6 +1316,56 @@ void TypeChecker::visit(const ast::TryExpr& node) {
     m_currentExprType = unwrappedType;
 }
 
+void TypeChecker::visit(const ast::AwaitExpr& node) {
+    if (!m_inAsyncContext) {
+        m_diagnostics.reportError("E1802", "'await' can only be used inside an 'async' function", node.getLocation());
+    }
+
+    auto operandType = checkExpr(node.getExpr());
+    if (operandType->isError()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
+
+    std::string opTypeName = operandType->toString();
+    if (opTypeName.rfind("Task<", 0) == 0) {
+        auto args = TypeContext::splitTypeArgs(opTypeName.substr(5, opTypeName.size() - 6));
+        if (!args.empty()) {
+            auto innerType = m_typeCtx.resolveType(args[0]);
+            if (innerType) {
+                m_currentExprType = innerType;
+                return;
+            }
+        }
+    } else if (opTypeName.rfind("Future<", 0) == 0) {
+        auto args = TypeContext::splitTypeArgs(opTypeName.substr(7, opTypeName.size() - 8));
+        if (!args.empty()) {
+            auto innerType = m_typeCtx.resolveType(args[0]);
+            if (innerType) {
+                m_currentExprType = innerType;
+                return;
+            }
+        }
+    }
+
+    m_currentExprType = operandType;
+}
+
+void TypeChecker::visit(const ast::ComptimeExpr& node) {
+    if (m_edition == ast::Edition::Edition2026) {
+        m_diagnostics.reportWarning("W1801", "'comptime' is experimental in Edition 2026; fully stabilized in Edition 2028. Add edition = \"2028\" to sp.toml or pass --edition 2028", node.getLocation());
+    }
+
+    if (node.hasExpr()) {
+        m_currentExprType = checkExpr(*node.getExpr());
+    } else if (node.isBlock() && node.getBlock()) {
+        checkStmt(*node.getBlock());
+        m_currentExprType = m_typeCtx.getVoid();
+    } else {
+        m_currentExprType = m_typeCtx.getVoid();
+    }
+}
+
 // Statements
 void TypeChecker::visit(const ast::BlockStmt& node) {
     bool prevUnsafe = m_inUnsafeContext;
@@ -1657,6 +1707,8 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
     if (node.isUnsafe()) {
         m_inUnsafeContext = true;
     }
+    bool prevAsync = m_inAsyncContext;
+    m_inAsyncContext = node.isAsync();
 
     TypePtr returnType = m_typeCtx.getVoid();
     if (!node.getReturnType().empty()) {
@@ -1749,6 +1801,7 @@ void TypeChecker::visit(const ast::FunctionDecl& node) {
     m_symbolTable.exitScope();
     m_currentFunctionReturnType = prevReturnType;
     m_inUnsafeContext = prevUnsafe;
+    m_inAsyncContext = prevAsync;
 }
 
 void TypeChecker::verifyInterfaceImplementations(const ast::ClassDecl& decl, const std::shared_ptr<ClassType>& clsType) {

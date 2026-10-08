@@ -4,6 +4,7 @@
 #include "sp/ast/Expression.h"
 #include "sp/ast/Statement.h"
 #include "sp/ast/Declaration.h"
+#include "sp/ast/Edition.h"
 #include "sp/lexer/Token.h"
 #include "sp/parser/Precedence.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
@@ -18,6 +19,9 @@ namespace sp::parser {
 class Parser {
 public:
     Parser(const std::vector<lexer::Token>& tokens, std::string filename = "<anonymous>", diagnostics::DiagnosticEngine* diagnostics = nullptr);
+
+    void setEdition(ast::Edition edition) noexcept { m_edition = edition; }
+    [[nodiscard]] ast::Edition getEdition() const noexcept { return m_edition; }
 
     /// Parses the entire token stream into a Program AST node.
     std::unique_ptr<ast::Program> parseProgram();
@@ -90,7 +94,7 @@ private:
     // Declarations & Compatibility
     ast::ASTNodePtr parseModuleDecl();
     ast::ASTNodePtr parseImportDecl();
-    ast::ASTNodePtr parseFunctionDecl(std::string visibility = "", bool isStatic = false, bool isOverride = false, bool isAbstract = false, bool isUnsafe = false);
+    ast::ASTNodePtr parseFunctionDecl(std::string visibility = "", bool isStatic = false, bool isOverride = false, bool isAbstract = false, bool isUnsafe = false, bool isAsync = false, bool isComptime = false);
     ast::ASTNodePtr parseClassDecl(std::string visibility = "", bool isAbstract = false);
     ast::ASTNodePtr parseInterfaceDecl(std::string visibility = "");
     ast::ASTNodePtr parseStructDecl(std::string visibility = "", bool isReprC = false);
@@ -101,6 +105,8 @@ private:
     std::vector<ast::Parameter> parseParameters();
 
     static bool isTypeKeyword(lexer::TokenType type) noexcept;
+
+    ast::Edition m_edition{ast::Edition::Edition2026};
 };
 
 } // namespace sp::parser

@@ -6652,4 +6652,16 @@ void IRBuilder::visit(const ast::TryExpr& node) {
     m_lastExprType = targetType;
 }
 
+void IRBuilder::visit(const ast::AwaitExpr& node) {
+    node.getExpr().accept(*this);
+}
+
+void IRBuilder::visit(const ast::ComptimeExpr& node) {
+    if (node.hasExpr()) {
+        node.getExpr()->accept(*this);
+    } else if (node.isBlock() && node.getBlock()) {
+        node.getBlock()->accept(*this);
+    }
+}
+
 } // namespace sp::ir

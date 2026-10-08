@@ -17,6 +17,8 @@ class TernaryExpr;
 class AssignExpr;
 class NewExpr;
 class TryExpr;
+class AwaitExpr;
+class ComptimeExpr;
 
 class BlockStmt;
 class ExprStmt;
@@ -62,6 +64,8 @@ public:
     virtual void visit(const AssignExpr& node) = 0;
     virtual void visit(const NewExpr& node) = 0;
     virtual void visit(const TryExpr& node) = 0;
+    virtual void visit(const AwaitExpr& /*node*/) {}
+    virtual void visit(const ComptimeExpr& /*node*/) {}
 
     // Statements
     virtual void visit(const BlockStmt& node) = 0;

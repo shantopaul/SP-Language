@@ -21,6 +21,11 @@ LLVMGenerator::LLVMGenerator(CodegenOptions options)
     if (m_options.targetTriple.empty()) {
         m_options.targetTriple = getHostTargetTriple();
     }
+    if (m_options.targetTriple.find("wasm") != std::string::npos) {
+        if (m_options.dataLayout.empty()) {
+            m_options.dataLayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20";
+        }
+    }
     if (m_options.clangPath.empty()) {
         m_options.clangPath = findClangCompiler();
     }

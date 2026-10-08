@@ -65,6 +65,10 @@ add_executable(sp_tests
     debugger/DapServerTest.cpp
     bindgen/BindgenTest.cpp
     benchmark/BenchmarkTest.cpp
+    sema/ComptimeEvaluatorTest.cpp
+    edition/EditionTest.cpp
+    wasm/WasmTargetTest.cpp
+    self_hosted/SelfHostedTest.cpp
 )
 
 target_include_directories(sp_tests

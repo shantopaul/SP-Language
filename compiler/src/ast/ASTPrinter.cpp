@@ -167,6 +167,24 @@ void ASTPrinter::visit(const TryExpr& node) {
     m_indent--;
 }
 
+void ASTPrinter::visit(const AwaitExpr& node) {
+    line("AwaitExpr:");
+    m_indent++;
+    node.getExpr().accept(*this);
+    m_indent--;
+}
+
+void ASTPrinter::visit(const ComptimeExpr& node) {
+    line("ComptimeExpr:");
+    m_indent++;
+    if (node.hasExpr()) {
+        node.getExpr()->accept(*this);
+    } else if (node.isBlock() && node.getBlock()) {
+        node.getBlock()->accept(*this);
+    }
+    m_indent--;
+}
+
 void ASTPrinter::visit(const BlockStmt& node) {
     line("BlockStmt (" + std::to_string(node.getStatements().size()) + " statements):");
     m_indent++;

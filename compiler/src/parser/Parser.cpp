@@ -405,6 +405,24 @@ ast::ExprPtr Parser::parsePrefix() {
         return parseNewExpr();
     }
 
+    // Await Expression: await expr
+    if (match(lexer::TokenType::KeywordAwait)) {
+        diagnostics::SourceLocation loc = previous().location;
+        ast::ExprPtr operand = parseExpression(Precedence::Unary);
+        return std::make_unique<ast::AwaitExpr>(std::move(operand), loc);
+    }
+
+    // Comptime Expression: comptime { ... } or comptime expr
+    if (match(lexer::TokenType::KeywordComptime)) {
+        diagnostics::SourceLocation loc = previous().location;
+        if (check(lexer::TokenType::OpenBrace)) {
+            auto block = parseBlock();
+            return std::make_unique<ast::ComptimeExpr>(std::move(block), loc);
+        }
+        ast::ExprPtr operand = parseExpression(Precedence::Unary);
+        return std::make_unique<ast::ComptimeExpr>(std::move(operand), loc);
+    }
+
     // Prefix unary operators (!, -, +, ~, ++, --, *, &)
     if (matchAny({lexer::TokenType::Bang, lexer::TokenType::Minus, lexer::TokenType::Plus,
                   lexer::TokenType::Tilde, lexer::TokenType::PlusPlus, lexer::TokenType::MinusMinus,
@@ -1103,6 +1121,8 @@ ast::ASTNodePtr Parser::parseDeclaration() {
     bool isAbstract = false;
     bool isWeak = false;
     bool isUnsafe = false;
+    bool isAsync = false;
+    bool isComptime = false;
 
     // Modifiers
     while (true) {
@@ -1115,6 +1135,8 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         if (match(lexer::TokenType::KeywordAbstract)) { isAbstract = true; continue; }
         if (match(lexer::TokenType::KeywordWeak)) { isWeak = true; continue; }
         if (match(lexer::TokenType::KeywordUnsafe)) { isUnsafe = true; continue; }
+        if (match(lexer::TokenType::KeywordAsync)) { isAsync = true; continue; }
+        if (match(lexer::TokenType::KeywordComptime)) { isComptime = true; continue; }
         break;
     }
 
@@ -1124,9 +1146,15 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         return block;
     }
 
+    if (isComptime && check(lexer::TokenType::OpenBrace)) {
+        diagnostics::SourceLocation loc = previous().location;
+        auto block = parseBlock();
+        return std::make_unique<ast::ComptimeExpr>(std::move(block), loc);
+    }
+
     if (match(lexer::TokenType::KeywordModule)) return parseModuleDecl();
     if (match(lexer::TokenType::KeywordImport)) return parseImportDecl();
-    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract, isUnsafe);
+    if (match(lexer::TokenType::KeywordFn)) return parseFunctionDecl(visibility, isStatic, isOverride, isAbstract, isUnsafe, isAsync, isComptime);
     if (match(lexer::TokenType::KeywordClass)) return parseClassDecl(visibility, isAbstract);
     if (match(lexer::TokenType::KeywordInterface)) return parseInterfaceDecl(visibility);
     if (match(lexer::TokenType::KeywordStruct)) return parseStructDecl(visibility, isReprC);
@@ -1284,7 +1312,7 @@ ast::ASTNodePtr Parser::parseImportDecl() {
     return std::make_unique<ast::ImportDecl>(importPath, isWildcard, loc);
 }
 
-ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract, bool isUnsafe) {
+ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic, bool isOverride, bool isAbstract, bool isUnsafe, bool isAsync, bool isComptime) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type) || peek().type == lexer::TokenType::KeywordSpawn)
         ? advance()
@@ -1325,8 +1353,9 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
     auto fnDecl = std::make_unique<ast::FunctionDecl>(
         name, std::move(typeParams), std::move(params), returnType,
         std::move(body), std::move(shortBody),
-        visibility, isStatic, isOverride, isAbstract, false, loc);
+        visibility, isStatic, isOverride, isAbstract, isAsync, loc);
     fnDecl->setUnsafe(isUnsafe);
+    fnDecl->setComptime(isComptime);
     return fnDecl;
 }
 

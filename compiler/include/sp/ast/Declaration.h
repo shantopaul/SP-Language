@@ -87,6 +87,8 @@ public:
     [[nodiscard]] bool isAsync() const noexcept { return m_isAsync; }
     [[nodiscard]] bool isUnsafe() const noexcept { return m_isUnsafe; }
     void setUnsafe(bool unsafe) noexcept { m_isUnsafe = unsafe; }
+    [[nodiscard]] bool isComptime() const noexcept { return m_isComptime; }
+    void setComptime(bool comptime) noexcept { m_isComptime = comptime; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -103,6 +105,7 @@ private:
     bool m_isAbstract;
     bool m_isAsync;
     bool m_isUnsafe{false};
+    bool m_isComptime{false};
 };
 
 class ClassDecl : public StatementNode {
