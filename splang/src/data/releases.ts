@@ -27,6 +27,7 @@ export const CURRENT_RELEASE: ReleaseInfo = {
   announcementUrl: "https://docs.splang.shantopaul.com/backend/overview",
   highlights: [
     "Universal zero-configuration 1-click installation across any Windows drive (C:, D:, E:), directory, Linux, and macOS",
+    "Complete native uninstaller suite: standalone uninstall.exe, 'spc uninstall' CLI command, and Windows Installed Apps integration",
     "Self-healing project compilation and automated lockfile resolution (spm build & verify)",
     "Strict LLVM Clang backend detection and multi-drive static runtime library discovery (libsp_runtime.a)",
     "Bundled precompiled static OpenSSL (libssl.a, libcrypto.a) and system cryptography runtime bindings",
@@ -58,8 +59,8 @@ export const CURRENT_RELEASE: ReleaseInfo = {
       arch: "x64 (64-bit)",
       filename: "sp-3.1.0-windows-x64.zip",
       format: ".zip (Portable)",
-      size: "7.49 MB",
-      sha256: "08B3403E8C7835D51F7127A0C983928B6E402A72FCE7FA624E9838CECD6C9B5C",
+      size: "7.77 MB",
+      sha256: "63DEC3EE6D4A285A4541CEAC98574B203741BEC8DE01A5B7EE144AE8E0AC7928",
       url: "https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip",
     },
     {

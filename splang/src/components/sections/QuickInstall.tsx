@@ -13,18 +13,11 @@ interface InstallTab {
 
 const INSTALL_TABS: InstallTab[] = [
   {
-    id: "windows-winget",
-    label: "Windows (winget)",
-    os: "Windows 10/11",
-    command: "winget install SPLang.SP",
-    description: "Installs official SP compiler and packages to system PATH.",
-  },
-  {
     id: "windows-ps",
-    label: "PowerShell",
-    os: "Windows",
+    label: "PowerShell (Windows)",
+    os: "Windows 10/11",
     command: "irm https://dl.splang.shantopaul.com/install.ps1 | iex",
-    description: "Instant PowerShell installer with zero-dependency auto-setup.",
+    description: "Instant 1-click Windows installer with auto toolchain provisioning.",
   },
   {
     id: "unix-curl",
@@ -34,8 +27,22 @@ const INSTALL_TABS: InstallTab[] = [
     description: "Direct shell installer detecting OS and CPU architecture.",
   },
   {
+    id: "uninstall",
+    label: "Uninstall",
+    os: "Windows / Linux / macOS",
+    command: "spc uninstall",
+    description: "Full clean removal: spc uninstall (or irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex).",
+  },
+  {
+    id: "windows-winget",
+    label: "winget",
+    os: "Windows 10/11",
+    command: "winget install SPLang.SP",
+    description: "Installs official SP compiler package via Windows Package Manager.",
+  },
+  {
     id: "docker",
-    label: "Docker Container",
+    label: "Docker",
     os: "Multi-arch (x86_64, arm64)",
     command: "docker pull shantopaul/splang:3.1.0",
     description: "Pre-configured isolated container with full LLVM toolchain.",
