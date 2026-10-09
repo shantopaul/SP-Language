@@ -1172,12 +1172,12 @@ Every runtime dependency, standard library module, precompiled runtime static li
 - [x] 2. Prevent compiler driver from passing LLVM-specific flags (such as `--target=x86_64-w64-windows-gnu`) to GNU GCC compilers, eliminating all unrecognized command-line option failures.
 - [x] 3. If Clang is not present on the host computer, automatically trigger the portable toolchain auto-provisioning workflow (`spc setup`) or provide clear 1-click provisioning instructions across Windows, Linux, and macOS.
 
-#### Phase 29.4: Direct Linker Driver Translation & `lld-link` / `ld.lld` Flag Compatibility
-- [ ] 1. In `LinkerDriver.cpp`, inspect the resolved linker executable flavor (GNU-compatible `ld.lld` / `clang++` vs MSVC-compatible `lld-link.exe`).
-- [ ] 2. Adapt linker arguments conditionally based on linker type:
-  - For `lld-link`: use MSVC syntax `/out:<path>`, `/libpath:<dir>`, omit GNU-only `--target` and `-o` flags.
+#### Phase 29.4: Direct Linker Driver Translation & `lld-link` / `ld.lld` Flag Compatibility ✅
+- [x] 1. In `LinkerDriver.cpp`, inspect the resolved linker executable flavor (GNU-compatible `ld.lld` / `clang++` vs MSVC-compatible `lld-link.exe`).
+- [x] 2. Adapt linker arguments conditionally based on linker type:
+  - For `lld-link`: use MSVC syntax `/out:<path>`, `/libpath:<dir>`, `/nologo /subsystem:console`, `.lib`, omit GNU-only `--target` and `-o` flags.
   - For `ld.lld` / `clang++`: use standard GNU syntax `-o <path>`, `-L<dir>`, `-l<lib>`, `--target=<triple>`.
-- [ ] 3. Eliminate all `lld-link: warning: ignoring unknown argument '-o'` warnings and linker failures when building native standalone executables.
+- [x] 3. Eliminate all `lld-link: warning: ignoring unknown argument '-o'` warnings and linker failures when building native standalone executables.
 
 #### Phase 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention
 - [ ] 1. Enhance `LinkerDriver::findPrecompiledRuntimeLib` and `util::getRuntimeLibPath` with full multi-drive scanning (`C:`, `D:`, `E:`, `F:`, and executable drive).

@@ -453,7 +453,6 @@ fs::path findClangCompiler(const std::string& customPath) {
 }
 
 fs::path findLinker(const std::string& targetTriple, const std::string& customPath) {
-    (void)targetTriple;
     if (!customPath.empty() && fs::exists(customPath)) {
         return fs::absolute(customPath);
     }
@@ -463,18 +462,19 @@ fs::path findLinker(const std::string& targetTriple, const std::string& customPa
         return fs::absolute(envLinker);
     }
 
+    bool isMsvc = (targetTriple.find("msvc") != std::string::npos);
+
     // 1. Check bundled toolchain in SP_HOME/toolchain/bin
     auto home = getSPHome();
     if (!home.empty()) {
 #if defined(_WIN32)
-        if (fs::exists(home / "toolchain" / "bin" / "lld-link.exe")) {
-            return fs::absolute(home / "toolchain" / "bin" / "lld-link.exe");
-        }
-        if (fs::exists(home / "toolchain" / "bin" / "ld.lld.exe")) {
-            return fs::absolute(home / "toolchain" / "bin" / "ld.lld.exe");
-        }
-        if (fs::exists(home / "toolchain" / "bin" / "clang++.exe")) {
-            return fs::absolute(home / "toolchain" / "bin" / "clang++.exe");
+        if (isMsvc) {
+            if (fs::exists(home / "toolchain" / "bin" / "lld-link.exe")) return fs::absolute(home / "toolchain" / "bin" / "lld-link.exe");
+            if (fs::exists(home / "toolchain" / "bin" / "clang++.exe")) return fs::absolute(home / "toolchain" / "bin" / "clang++.exe");
+        } else {
+            if (fs::exists(home / "toolchain" / "bin" / "clang++.exe")) return fs::absolute(home / "toolchain" / "bin" / "clang++.exe");
+            if (fs::exists(home / "toolchain" / "bin" / "ld.lld.exe")) return fs::absolute(home / "toolchain" / "bin" / "ld.lld.exe");
+            if (fs::exists(home / "toolchain" / "bin" / "lld-link.exe")) return fs::absolute(home / "toolchain" / "bin" / "lld-link.exe");
         }
 #else
         if (fs::exists(home / "toolchain" / "bin" / "ld.lld")) {
@@ -488,6 +488,12 @@ fs::path findLinker(const std::string& targetTriple, const std::string& customPa
 
     auto exeDir = getExecutableDir();
 #if defined(_WIN32)
+    if (fs::exists(exeDir / ".." / "toolchain" / "bin" / "clang++.exe")) {
+        return fs::absolute(exeDir / ".." / "toolchain" / "bin" / "clang++.exe");
+    }
+    if (fs::exists(exeDir / "toolchain" / "bin" / "clang++.exe")) {
+        return fs::absolute(exeDir / "toolchain" / "bin" / "clang++.exe");
+    }
     if (fs::exists(exeDir / ".." / "toolchain" / "bin" / "lld-link.exe")) {
         return fs::absolute(exeDir / ".." / "toolchain" / "bin" / "lld-link.exe");
     }
@@ -512,27 +518,42 @@ fs::path findLinker(const std::string& targetTriple, const std::string& customPa
     }
 
     for (const auto& d : drives) {
-        fs::path p1 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "lld-link.exe";
-        if (fs::exists(p1)) return fs::absolute(p1);
-        fs::path p2 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "ld.lld.exe";
-        if (fs::exists(p2)) return fs::absolute(p2);
-        fs::path p3 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "clang++.exe";
-        if (fs::exists(p3)) return fs::absolute(p3);
-        fs::path p4 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "ld.lld.exe";
+        if (isMsvc) {
+            fs::path p1 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "lld-link.exe";
+            if (fs::exists(p1)) return fs::absolute(p1);
+        } else {
+            fs::path p3 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "clang++.exe";
+            if (fs::exists(p3)) return fs::absolute(p3);
+            fs::path p2 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "ld.lld.exe";
+            if (fs::exists(p2)) return fs::absolute(p2);
+        }
+        fs::path p4 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "clang++.exe";
         if (fs::exists(p4)) return fs::absolute(p4);
-        fs::path p5 = fs::path(d) / "msys64" / "clang64" / "bin" / "ld.lld.exe";
+        fs::path p5 = fs::path(d) / "msys64" / "clang64" / "bin" / "clang++.exe";
         if (fs::exists(p5)) return fs::absolute(p5);
-        fs::path p6 = fs::path(d) / "msys64" / "mingw64" / "bin" / "ld.lld.exe";
+        fs::path p6 = fs::path(d) / "msys64" / "mingw64" / "bin" / "clang++.exe";
         if (fs::exists(p6)) return fs::absolute(p6);
-        fs::path p7 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "clang++.exe";
+        fs::path p7 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "ld.lld.exe";
         if (fs::exists(p7)) return fs::absolute(p7);
+        fs::path p8 = fs::path(d) / "msys64" / "clang64" / "bin" / "ld.lld.exe";
+        if (fs::exists(p8)) return fs::absolute(p8);
+        fs::path p9 = fs::path(d) / "msys64" / "mingw64" / "bin" / "ld.lld.exe";
+        if (fs::exists(p9)) return fs::absolute(p9);
+        fs::path p10 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "lld-link.exe";
+        if (fs::exists(p10)) return fs::absolute(p10);
     }
 
-    auto inPathLld = findInPath("lld-link");
-    if (!inPathLld.empty()) return inPathLld;
-
-    auto inPathLd = findInPath("ld.lld");
-    if (!inPathLd.empty()) return inPathLd;
+    if (isMsvc) {
+        auto inPathLld = findInPath("lld-link");
+        if (!inPathLld.empty()) return inPathLld;
+    } else {
+        auto inPathClang = findInPath("clang++");
+        if (!inPathClang.empty()) return inPathClang;
+        auto inPathLd = findInPath("ld.lld");
+        if (!inPathLd.empty()) return inPathLd;
+        auto inPathLld = findInPath("lld-link");
+        if (!inPathLld.empty()) return inPathLld;
+    }
 
     return findClangCompiler();
 #else
