@@ -60,7 +60,7 @@ spm --version`;
         </p>
         <CodeBlock code={verifyCmd} language="bash" />
         <Callout type="tip" title="Output Expectation">
-          Both commands should return version <code>1.0.0</code>.
+          Both commands should return version <code>3.x</code> (e.g. <code>spc version 2.0.0 / 3.1.0</code>).
         </Callout>
       </div>
 

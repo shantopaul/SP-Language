@@ -37,7 +37,7 @@ const INSTALL_TABS: InstallTab[] = [
     id: "docker",
     label: "Docker Container",
     os: "Multi-arch (x86_64, arm64)",
-    command: "docker pull shantopaul/splang:1.0.0",
+    command: "docker pull shantopaul/splang:3.1.0",
     description: "Pre-configured isolated container with full LLVM toolchain.",
   },
 ];

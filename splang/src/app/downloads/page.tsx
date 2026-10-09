@@ -55,13 +55,13 @@ export default function DownloadsPage() {
               </Button>
             </a>
             <a
-              href="https://dl.splang.shantopaul.com/sp-1.0.0-windows-x64.zip"
+              href="https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip"
               target="_blank"
               rel="noopener noreferrer"
             >
               <Button className="w-full justify-center bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
                 <Download className="w-4 h-4 mr-1.5" />
-                Download Portable (.zip) (2.62 MB)
+                Download Portable (.zip) (7.49 MB)
               </Button>
             </a>
           </div>
@@ -195,7 +195,7 @@ export default function DownloadsPage() {
             Open PowerShell in your downloads folder and execute:
           </p>
           <pre className="bg-black/60 p-3 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto">
-            Get-FileHash sp-1.0.0-windows-x64.zip -Algorithm SHA256
+            Get-FileHash sp-3.1.0-windows-x64.zip -Algorithm SHA256
           </pre>
         </div>
 
