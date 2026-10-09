@@ -28,7 +28,16 @@ fn distance(double x1, double y1, double x2, double y2) -> double {
 spc doc src/ --out docs/ --format markdown
 
 # Generate modern standalone HTML portal
-spc doc src/ --out site/ --format html`;
+spc doc src/ --out site/ --format html
+
+# Generate OpenAPI 3.0.3 specification JSON
+spc doc src/main.sp --openapi -o docs/openapi.json
+
+# Generate interactive Swagger UI HTML viewer
+spc doc src/main.sp --swagger -o docs/
+
+# Generate interactive Redoc HTML viewer
+spc doc src/main.sp --redoc -o docs/`;
 
   return (
     <div className="space-y-6">

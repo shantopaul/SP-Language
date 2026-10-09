@@ -49,6 +49,24 @@ spc test -v`;
       <h2 className="text-xl font-bold text-white pt-4">Running Tests</h2>
       <CodeBlock code={cliUsage} language="bash" />
 
+      <h2 className="text-xl font-bold text-white pt-4">In-Memory HTTP Integration Testing</h2>
+      <p className="text-sm text-slate-300">
+        Using <code>std.test.http</code>, you can run full-stack HTTP integration tests without opening network sockets or encountering port conflicts:
+      </p>
+      <CodeBlock code={`import std.web;
+import std.test.http;
+
+test "HTTP API Integration" {
+    let app = new App();
+    app.get("/ping", (ptr req) => Context.create(req).json("{\\"pong\\":true}"));
+
+    let client = TestClient.fromApp(app);
+    let res = client.get("/ping");
+    res.assertOk().assertBodyContains("pong");
+    res.destroy();
+    client.destroy();
+}`} filename="tests/api_test.sp" />
+
       <PrevNextNav
         prev={{ title: "Code Formatter (spc fmt)", href: "/tools/formatter" }}
         next={{ title: "Doc Generator (spc doc)", href: "/tools/doc-generator" }}

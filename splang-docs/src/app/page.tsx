@@ -27,17 +27,33 @@ fn main() -> void {
         </p>
       </div>
 
-      <Callout type="tip" title="SP 2.0.0 General Availability Now Live">
+      <Callout type="tip" title="SP 3.0 Enterprise Backend Platform GA Now Available">
         <p>
-          SP 2.0.0 is officially released! Introducing <strong>Language Editions</strong> (<code>edition = &quot;2026&quot;</code> / <code>edition = &quot;2028&quot;</code>), <strong>Compile-Time Function Execution</strong> (<code>comptime</code>), <strong>First-Class WebAssembly</strong> (<code>wasm32-wasi</code>), <strong>Structured Coroutines</strong> (<code>async</code>/<code>await</code>), and automated migration tooling (<code>spc fix</code>).{" "}
-          <Link href="/sp2/overview" className="underline font-semibold hover:text-white">
-            Read the SP 2.0.0 Release Notes &rarr;
+          SP 3.0 is officially released! Featuring the official <strong>Web Framework</strong> (<code>std.web</code>), <strong>Radix Tree Routing</strong>, <strong>In-Memory HTTP Testing</strong> (<code>std.test.http</code>), <strong>Database Pooling</strong> (SQLite &amp; PostgreSQL), <strong>Redis Caching &amp; Pub/Sub</strong>, <strong>RFC 6455 WebSockets</strong>, <strong>Argon2id &amp; JWT Security</strong>, <strong>Prometheus Metrics</strong>, and <strong>Automated OpenAPI 3.0 Docs</strong>.{" "}
+          <Link href="/backend/overview" className="underline font-semibold hover:text-white">
+            Explore the SP 3.0 Backend Platform &rarr;
           </Link>
         </p>
       </Callout>
 
       {/* Quick Start Card Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Link
+          href="/backend/overview"
+          className="p-5 rounded-xl border border-cyan-800/60 bg-cyan-950/20 hover:bg-cyan-950/40 hover:border-cyan-500 transition-all group sm:col-span-2"
+        >
+          <div className="w-10 h-10 rounded-lg bg-cyan-900/60 border border-cyan-700/60 flex items-center justify-center text-cyan-400 mb-3">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+            <span>SP 3.0 Enterprise Backend Platform</span>
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+          </h3>
+          <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+            Build production-grade web services, microservices, and real-time APIs sustaining 185k req/s with sub-microsecond routing, SQL pooling, and zero-socket integration testing.
+          </p>
+        </Link>
+
         <Link
           href="/getting-started/installation"
           className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
@@ -78,11 +94,11 @@ fn main() -> void {
             <Boxes className="w-5 h-5" />
           </div>
           <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
-            <span>Standard Library</span>
+            <span>Standard Library (17 Modules)</span>
             <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Explore 8 core native modules: I/O, Strings, Math, Collections, FS, and OS.
+            Explore 17 native modules: Web, DB, Redis, Crypto, WebSockets, Logging, and Metrics.
           </p>
         </Link>
 
@@ -98,7 +114,7 @@ fn main() -> void {
             <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Master the spc compiler, spm package manager, formatter, and debugger.
+            Master the spc compiler, spm package manager, formatter, test runner, and debugger.
           </p>
         </Link>
       </div>

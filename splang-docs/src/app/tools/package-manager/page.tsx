@@ -26,7 +26,13 @@ spm build
 spm search http
 
 # 6. Verify lockfile checksums
-spm verify`;
+spm verify
+
+# 7. Scaffold enterprise backend application
+spm new my-api --template api
+
+# 8. Run development server with instant hot reload (< 50ms)
+spm dev`;
 
   return (
     <div className="space-y-6">

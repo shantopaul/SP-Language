@@ -19,9 +19,9 @@ export const HeroSection: React.FC = () => {
           <Link href="/blog/v1.0.0-release">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-950/40 text-xs sm:text-sm font-medium text-cyan-300 hover:border-cyan-400/50 hover:bg-cyan-950/60 transition-all shadow-[0_0_15px_rgba(6,182,212,0.15)] group cursor-pointer">
               <span className="flex h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
-              <span className="font-semibold text-white">SP 2.0.0 General Availability is officially released!</span>
+              <span className="font-semibold text-white">SP 3.0 Enterprise Backend Platform is officially released!</span>
               <span className="text-slate-400 group-hover:text-cyan-300 flex items-center transition-colors">
-                Read Announcement <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                Read Documentation <ArrowRight className="w-3.5 h-3.5 ml-1" />
               </span>
             </div>
           </Link>
@@ -31,14 +31,14 @@ export const HeroSection: React.FC = () => {
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1] max-w-5xl mx-auto">
           The Modern, High-Performance{" "}
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500">
-            Systems & WebAssembly
+            Systems &amp; Backend Platform
           </span>{" "}
           Language
         </h1>
 
         {/* Sub-Headline */}
         <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-3xl mx-auto leading-relaxed">
-          SP 2.0 merges bare-metal LLVM & WebAssembly performance with compile-time function execution (comptime), language editions (2026/2028), structured async/await coroutines, and leak-free ARC memory management.
+          SP 3.0 merges bare-metal LLVM speed with an official enterprise Web Framework (std.web), sub-microsecond Radix routing, connection pooling (SQLite &amp; PostgreSQL), WebSockets, and zero-socket in-memory HTTP integration testing.
         </p>
 
         {/* Call to Actions */}

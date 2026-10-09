@@ -10,6 +10,15 @@ export const metadata = {
 };
 
 const MODULES = [
+  { name: "std.web", href: "/stdlib/web", desc: "Official web application framework, Radix routing, middlewares, and Context ergonomics." },
+  { name: "std.db", href: "/stdlib/db", desc: "SQLite and PostgreSQL thread-safe connection pools, transactions, and SQL queries." },
+  { name: "std.redis", href: "/stdlib/redis", desc: "RESP2/3 Redis in-memory caching, connection pool, and distributed Pub/Sub messaging." },
+  { name: "std.security", href: "/stdlib/security", desc: "Argon2id password hashing, JWT HS256 tokens, and constant-time cryptography." },
+  { name: "std.net.ws", href: "/stdlib/ws", desc: "RFC 6455 full-duplex WebSockets, WebSocketHub broadcasting, and Server-Sent Events." },
+  { name: "std.log", href: "/stdlib/log", desc: "Structured JSON logging with severity levels and rotating file appenders." },
+  { name: "std.metrics", href: "/stdlib/metrics", desc: "Prometheus Counter, Gauge, Histogram registry and /metrics exporter." },
+  { name: "std.health", href: "/stdlib/health", desc: "Kubernetes /healthz (liveness) and /readyz (readiness) probe registry." },
+  { name: "std.queue", href: "/stdlib/queue", desc: "In-process background workers, exponential backoff retries, and cron scheduling." },
   { name: "std.io", href: "/stdlib/io", desc: "Console printing, input reading, and formatted streaming." },
   { name: "std.string", href: "/stdlib/string", desc: "String manipulation, UTF-8 parsing, search, and transforms." },
   { name: "std.math", href: "/stdlib/math", desc: "Trigonometric functions, square roots, powers, min/max, constants." },
@@ -27,7 +36,7 @@ export default function StdlibOverviewPage() {
 
       <h1 className="text-3xl font-extrabold text-white">SP Core Standard Library</h1>
       <p className="text-sm text-slate-300">
-        SP ships with 8 self-contained, native standard library modules designed for day-to-day systems and application development without external C dependencies.
+        SP ships with 17 self-contained, native standard library modules designed for day-to-day systems, backend web services, and high-concurrency microservices without external C dependencies.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
@@ -50,7 +59,7 @@ export default function StdlibOverviewPage() {
 
       <PrevNextNav
         prev={{ title: "Null Safety", href: "/syntax-guide/null-safety" }}
-        next={{ title: "std.io Reference", href: "/stdlib/io" }}
+        next={{ title: "std.web Reference", href: "/stdlib/web" }}
       />
     </div>
   );

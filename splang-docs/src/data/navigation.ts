@@ -11,9 +11,28 @@ export interface NavSection {
 
 export const DOCS_NAVIGATION: NavSection[] = [
   {
+    title: "SP 3.0 Backend Platform",
+    items: [
+      { title: "Platform Overview", href: "/backend/overview", badge: "v3.0 GA" },
+      { title: "Web Framework (std.web)", href: "/backend/framework" },
+      { title: "Context & Ergonomics (ctx)", href: "/backend/context" },
+      { title: "Dependency Injection (di)", href: "/backend/di" },
+      { title: "OpenAPI 3.0 & Swagger UI", href: "/backend/openapi" },
+      { title: "In-Memory HTTP Testing", href: "/backend/testing" },
+      { title: "Database & Pooling (std.db)", href: "/backend/database" },
+      { title: "Security, JWT & Argon2id", href: "/backend/security" },
+      { title: "WebSockets & Real-Time", href: "/backend/websockets" },
+      { title: "Redis Caching & Pub/Sub", href: "/backend/redis" },
+      { title: "Observability & Prometheus", href: "/backend/observability" },
+      { title: "Job Queues & Schedulers", href: "/backend/queue" },
+      { title: "Static Compilation & Docker", href: "/backend/docker" },
+      { title: "TechEmpower Benchmarks", href: "/backend/benchmarks", badge: "185k req/s" },
+    ],
+  },
+  {
     title: "SP 2.0 Evolution",
     items: [
-      { title: "SP 2.0 Release Overview", href: "/sp2/overview", badge: "v2.0 GA" },
+      { title: "SP 2.0 Release Overview", href: "/sp2/overview" },
       { title: "Language Editions (2026/2028)", href: "/sp2/editions" },
       { title: "Compile-Time Execution (comptime)", href: "/sp2/comptime" },
       { title: "WebAssembly (wasm32-wasi)", href: "/sp2/wasm" },
@@ -48,7 +67,16 @@ export const DOCS_NAVIGATION: NavSection[] = [
   {
     title: "Standard Library (stdlib)",
     items: [
-      { title: "Stdlib Overview", href: "/stdlib" },
+      { title: "Stdlib Overview", href: "/stdlib", badge: "17 Modules" },
+      { title: "std.web (Web App Framework)", href: "/stdlib/web" },
+      { title: "std.db (Database & Pooling)", href: "/stdlib/db" },
+      { title: "std.redis (Redis & Pub/Sub)", href: "/stdlib/redis" },
+      { title: "std.security (Crypto & JWT)", href: "/stdlib/security" },
+      { title: "std.net.ws (WebSockets & SSE)", href: "/stdlib/ws" },
+      { title: "std.log (Structured Logs)", href: "/stdlib/log" },
+      { title: "std.metrics (Prometheus)", href: "/stdlib/metrics" },
+      { title: "std.health (K8s Probes)", href: "/stdlib/health" },
+      { title: "std.queue (Job Queues)", href: "/stdlib/queue" },
       { title: "std.io (Console I/O)", href: "/stdlib/io" },
       { title: "std.string (String Utils)", href: "/stdlib/string" },
       { title: "std.math (Math & Trig)", href: "/stdlib/math" },
@@ -77,6 +105,7 @@ export const DOCS_NAVIGATION: NavSection[] = [
     title: "Performance & Architecture",
     items: [
       { title: "7-Language Benchmarks", href: "/benchmarks" },
+      { title: "TechEmpower Backend Benchmarks", href: "/backend/benchmarks", badge: "New" },
     ],
   },
 ];

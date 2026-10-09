@@ -52,6 +52,14 @@ spc build main.sp -o my_app_linux --target x86_64-unknown-linux-gnu`;
           <code className="text-cyan-400 font-bold">spc check &lt;file&gt;</code>
           <p className="text-slate-400 mt-1">Performs Lexer, Parser, and TypeChecker passes without emitting binary files. Useful for fast CI validation.</p>
         </div>
+        <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40">
+          <code className="text-cyan-400 font-bold">spc build &lt;file&gt; --static [-o &lt;out&gt;]</code>
+          <p className="text-slate-400 mt-1">Statically links runtime routines against musl libc on Linux, producing a self-contained single binary with zero external shared libraries.</p>
+        </div>
+        <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40">
+          <code className="text-cyan-400 font-bold">spc run &lt;file&gt; --watch</code>
+          <p className="text-slate-400 mt-1">Monitors workspace directory for source modifications and auto-restarts development servers in under 50ms.</p>
+        </div>
       </div>
 
       <PrevNextNav

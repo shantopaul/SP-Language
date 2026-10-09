@@ -195,5 +195,32 @@ mode=production
 threads=8
 Calculated root: 16`,
   },
+  {
+    id: "backend",
+    title: "Enterprise Web Service",
+    subtitle: "High-throughput HTTP service with routing, context ergonomics, and OpenAPI Swagger documentation.",
+    code: `import std.io;
+import std.web;
+
+fn main() {
+    let app = new App();
+    app.use(new Logger());
+    app.use(new Cors());
+
+    // Interactive OpenAPI Swagger docs at /docs
+    app.swagger("/docs", "/openapi.json", "User Service");
+
+    app.get("/api/v1/users/:id", (ptr req) => {
+        let ctx = Context.create(req);
+        let id = ctx.param("id");
+        return ctx.json("{\\"id\\":\\"" + id + "\\",\\"name\\":\\"Alice\\",\\"status\\":\\"active\\"}");
+    });
+
+    println("Listening on http://127.0.0.1:8080");
+    app.listen(8080);
+}`,
+    output: `Listening on http://127.0.0.1:8080
+[INFO] GET /api/v1/users/42 -> 200 OK (0.28ms)`,
+  },
 ];
 

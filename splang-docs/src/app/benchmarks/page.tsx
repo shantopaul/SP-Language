@@ -126,8 +126,26 @@ export default function BenchmarksPage() {
         ))}
       </div>
 
+      {/* TechEmpower Section Link */}
+      <div className="p-6 rounded-xl border border-cyan-800/40 bg-gradient-to-r from-cyan-950/30 to-slate-900/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400">Web Performance</span>
+          <h3 className="text-lg font-bold text-white mt-0.5">TechEmpower Backend Benchmarks</h3>
+          <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
+            Comparing HTTP/1.1 throughput across Plaintext (185k req/s), JSON (142k req/s), and Database queries (118k req/s) against Rust Actix, Go Gin, and Node.js Fastify.
+          </p>
+        </div>
+        <a
+          href="/backend/benchmarks"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition-colors shrink-0"
+        >
+          <span>View TechEmpower Results</span>
+        </a>
+      </div>
+
       <PrevNextNav
         prev={{ title: "VS Code Extension", href: "/tools/vscode-extension" }}
+        next={{ title: "TechEmpower Backend Benchmarks", href: "/backend/benchmarks" }}
       />
     </div>
   );

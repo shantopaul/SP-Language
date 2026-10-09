@@ -54,7 +54,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
             </Link>
 
             <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800 ml-2">
-              v1.0.0
+              v3.0.0
             </span>
           </div>
 

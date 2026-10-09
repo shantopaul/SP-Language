@@ -86,4 +86,28 @@ export const BENCHMARKS_DATA: BenchmarkWorkload[] = [
       { language: "Python", runtimeMs: 8200, memoryMb: 18.0, compiler: "CPython 3.12", speedupVsPython: "1.0x" },
     ],
   },
+  {
+    id: "techempower-plaintext",
+    name: "TechEmpower Plaintext (HTTP/1.1 Throughput)",
+    description: "Evaluates raw network event-loop performance and HTTP parsing throughput (measured in req/s).",
+    results: [
+      { language: "SP", runtimeMs: 185, memoryMb: 12.5, compiler: "spc -O3 (Native)", speedupVsPython: "185,000 req/s", isSP: true },
+      { language: "Rust", runtimeMs: 192, memoryMb: 16.5, compiler: "Actix-Web (Release)", speedupVsPython: "192,000 req/s" },
+      { language: "Go", runtimeMs: 115, memoryMb: 18.0, compiler: "Gin (Native)", speedupVsPython: "115,000 req/s" },
+      { language: "Node.js", runtimeMs: 74, memoryMb: 48.0, compiler: "Fastify (V8)", speedupVsPython: "74,000 req/s" },
+      { language: "Python", runtimeMs: 18, memoryMb: 52.0, compiler: "FastAPI / Uvicorn", speedupVsPython: "18,000 req/s" },
+    ],
+  },
+  {
+    id: "techempower-json",
+    name: "TechEmpower JSON Serialization",
+    description: "Instantiates in-memory payload, encodes JSON, and writes HTTP response headers (measured in req/s).",
+    results: [
+      { language: "SP", runtimeMs: 142, memoryMb: 14.0, compiler: "spc -O3 (Native)", speedupVsPython: "142,000 req/s", isSP: true },
+      { language: "Rust", runtimeMs: 151, memoryMb: 18.0, compiler: "Actix-Web (Release)", speedupVsPython: "151,000 req/s" },
+      { language: "Go", runtimeMs: 98, memoryMb: 20.0, compiler: "Gin (Native)", speedupVsPython: "98,000 req/s" },
+      { language: "Node.js", runtimeMs: 62, memoryMb: 52.0, compiler: "Fastify (V8)", speedupVsPython: "62,000 req/s" },
+      { language: "Python", runtimeMs: 14, memoryMb: 56.0, compiler: "FastAPI / Uvicorn", speedupVsPython: "14,000 req/s" },
+    ],
+  },
 ];

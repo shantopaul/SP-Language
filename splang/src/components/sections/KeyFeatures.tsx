@@ -8,11 +8,20 @@ import {
   Terminal,
   Layers,
   Sparkles,
+  Server,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 
 export const KeyFeatures: React.FC = () => {
   const features = [
+    {
+      icon: Server,
+      title: "Enterprise Backend Platform (std.web)",
+      description:
+        "Official high-throughput backend framework with sub-microsecond Radix routing, connection pooling (SQLite & Postgres), automated OpenAPI 3.0, and zero-socket in-memory testing.",
+      color: "text-rose-400",
+      border: "hover:border-rose-500/50",
+    },
     {
       icon: Cpu,
       title: "Native LLVM & WebAssembly Backend",
