@@ -241,7 +241,7 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     cmd << "-std=c++20 ";
     cmd << "-pthread ";
 #if defined(_WIN32)
-    cmd << "-lws2_32 -lcrypt32 ";
+    cmd << "-lws2_32 -lcrypt32 -lbcrypt -lsecur32 -ladvapi32 -luser32 -lshell32 ";
 #endif
     auto sslInfo = util::findOpenSsl(m_options.librarySearchPaths);
     if (sslInfo.found) {

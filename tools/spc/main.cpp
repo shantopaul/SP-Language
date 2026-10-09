@@ -619,10 +619,25 @@ int main(int argc, char* argv[]) {
         }
 
         if (filename.empty()) {
-            diagEngine.reportError("E1000", "Missing input source file",
-                                   sp::diagnostics::SourceLocation("cli", 1, 1),
-                                   "Specify an input file: spc " + std::string(command) + " main.sp");
-            return 1;
+            if (fs::exists("src/main.sp")) {
+                filename = "src/main.sp";
+            } else if (fs::exists("main.sp")) {
+                filename = "main.sp";
+            } else {
+                diagEngine.reportError("E1000", "Missing input source file",
+                                       sp::diagnostics::SourceLocation("cli", 1, 1),
+                                       "Specify an input file: spc " + std::string(command) + " <file.sp> (or create 'src/main.sp')");
+                return 1;
+            }
+        }
+
+        // Auto-resolve main.sp -> src/main.sp if file does not exist directly in current directory
+        if (!fs::exists(filename)) {
+            if (filename == "main.sp" && fs::exists("src/main.sp")) {
+                filename = "src/main.sp";
+            } else if (fs::exists(fs::path("src") / filename)) {
+                filename = (fs::path("src") / filename).string();
+            }
         }
 
         // Auto-detect edition from sp.toml if not explicitly specified
@@ -639,9 +654,15 @@ int main(int argc, char* argv[]) {
 
         std::string source = readFile(filename);
         if (source.empty()) {
+            std::string hint = "Check that the file exists and is accessible";
+            if (!fs::exists(filename)) {
+                if (fs::exists(fs::path("src") / filename)) {
+                    hint = "File '" + filename + "' not found, but 'src/" + filename + "' exists. Did you mean 'src/" + filename + "'?";
+                }
+            }
             diagEngine.reportError("E1009", "Could not open or read source file: " + filename,
                                    sp::diagnostics::SourceLocation(filename, 1, 1),
-                                   "Check that the file exists and is accessible");
+                                   hint);
             return 1;
         }
 

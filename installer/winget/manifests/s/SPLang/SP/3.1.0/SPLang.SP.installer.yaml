@@ -9,7 +9,7 @@ Installers:
   - Architecture: x64
     InstallerType: zip
     InstallerUrl: https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip
-    InstallerSha256: 6281327710A5DF0A4419C8B4E92CED290D715B7EBF7DDC0E749A7404B1BFE737
+    InstallerSha256: 08B3403E8C7835D51F7127A0C983928B6E402A72FCE7FA624E9838CECD6C9B5C
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: bin\spc.exe

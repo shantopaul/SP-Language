@@ -148,7 +148,7 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
         }
 
 #if defined(_WIN32)
-        cmd << "-lws2_32 -lcrypt32 ";
+        cmd << "-lws2_32 -lcrypt32 -lbcrypt -lsecur32 -ladvapi32 -luser32 -lshell32 ";
 #endif
 
         for (const auto& spath : m_options.librarySearchPaths) {
