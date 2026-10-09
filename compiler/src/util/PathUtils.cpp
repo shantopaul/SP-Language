@@ -94,14 +94,43 @@ fs::path getSPHome() {
         fs::path p = fs::path(localApp) / "SP-Language";
         if (fs::exists(p)) return fs::absolute(p);
     }
-    if (fs::exists("C:\\SP-Language")) {
-        return fs::path("C:\\SP-Language");
+
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:", "G:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
+        }
+        if (!foundDrive) drives.insert(drives.begin(), exeDrive);
+    }
+
+    for (const auto& d : drives) {
+        for (const auto& folder : {"SP-Language", "SP-Lang", "splang", "Program Files/SP-Language"}) {
+            fs::path p = fs::path(d) / folder;
+            if (fs::exists(p / "stdlib") || fs::exists(p / "lib") || fs::exists(p / "bin")) {
+                return fs::absolute(p);
+            }
+        }
     }
 #else
     const char* home = std::getenv("HOME");
     if (home && *home) {
         fs::path p = fs::path(home) / ".sp";
         if (fs::exists(p)) return fs::absolute(p);
+    }
+    const std::vector<std::string> unixDirs = {
+        "/usr/local/share/sp",
+        "/usr/share/sp",
+        "/opt/sp",
+        "/usr/local"
+    };
+    for (const auto& u : unixDirs) {
+        fs::path p(u);
+        if (fs::exists(p / "stdlib")) return fs::absolute(p);
     }
 #endif
 
@@ -129,6 +158,53 @@ fs::path getStdlibDir() {
     if (fs::exists(exeDir / ".." / "stdlib")) {
         return fs::absolute(exeDir / ".." / "stdlib");
     }
+
+#if defined(_WIN32)
+    const char* userProfile = std::getenv("USERPROFILE");
+    if (userProfile && *userProfile) {
+        fs::path p = fs::path(userProfile) / ".sp" / "stdlib";
+        if (fs::exists(p)) return fs::absolute(p);
+    }
+    const char* localApp = std::getenv("LOCALAPPDATA");
+    if (localApp && *localApp) {
+        fs::path p = fs::path(localApp) / "SP-Language" / "stdlib";
+        if (fs::exists(p)) return fs::absolute(p);
+    }
+
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:", "G:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
+        }
+        if (!foundDrive) drives.insert(drives.begin(), exeDrive);
+    }
+
+    for (const auto& d : drives) {
+        for (const auto& folder : {"SP-Language", "SP-Lang", "splang", "Program Files/SP-Language"}) {
+            fs::path p = fs::path(d) / folder / "stdlib";
+            if (fs::exists(p)) return fs::absolute(p);
+        }
+    }
+#else
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        fs::path p = fs::path(home) / ".sp" / "stdlib";
+        if (fs::exists(p)) return fs::absolute(p);
+    }
+    const std::vector<std::string> unixDirs = {
+        "/usr/local/share/sp/stdlib",
+        "/usr/share/sp/stdlib",
+        "/opt/sp/stdlib"
+    };
+    for (const auto& u : unixDirs) {
+        if (fs::exists(u)) return fs::absolute(u);
+    }
+#endif
 
 #ifdef SP_PROJECT_ROOT
     fs::path proj(SP_PROJECT_ROOT);
@@ -168,6 +244,61 @@ fs::path getRuntimeLibPath(const std::string& customPath) {
     if (fs::exists(exeDir / "lib" / "libsp_runtime.a")) {
         return fs::absolute(exeDir / "lib" / "libsp_runtime.a");
     }
+    if (fs::exists(exeDir / ".." / "build" / "lib" / "libsp_runtime.a")) {
+        return fs::absolute(exeDir / ".." / "build" / "lib" / "libsp_runtime.a");
+    }
+    if (fs::exists(exeDir / "build" / "lib" / "libsp_runtime.a")) {
+        return fs::absolute(exeDir / "build" / "lib" / "libsp_runtime.a");
+    }
+
+#if defined(_WIN32)
+    const char* userProfile = std::getenv("USERPROFILE");
+    if (userProfile && *userProfile) {
+        fs::path p = fs::path(userProfile) / ".sp" / "lib" / "libsp_runtime.a";
+        if (fs::exists(p)) return fs::absolute(p);
+    }
+    const char* localApp = std::getenv("LOCALAPPDATA");
+    if (localApp && *localApp) {
+        fs::path p = fs::path(localApp) / "SP-Language" / "lib" / "libsp_runtime.a";
+        if (fs::exists(p)) return fs::absolute(p);
+    }
+
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:", "G:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
+        }
+        if (!foundDrive) drives.insert(drives.begin(), exeDrive);
+    }
+
+    for (const auto& d : drives) {
+        for (const auto& folder : {"SP-Language", "SP-Lang", "splang", "Program Files/SP-Language"}) {
+            fs::path p1 = fs::path(d) / folder / "lib" / "libsp_runtime.a";
+            if (fs::exists(p1)) return fs::absolute(p1);
+            fs::path p2 = fs::path(d) / folder / "build" / "lib" / "libsp_runtime.a";
+            if (fs::exists(p2)) return fs::absolute(p2);
+        }
+    }
+#else
+    const char* homeDir = std::getenv("HOME");
+    if (homeDir && *homeDir) {
+        fs::path p = fs::path(homeDir) / ".sp" / "lib" / "libsp_runtime.a";
+        if (fs::exists(p)) return fs::absolute(p);
+    }
+    const std::vector<std::string> unixLibDirs = {
+        "/usr/local/lib/libsp_runtime.a",
+        "/usr/lib/libsp_runtime.a",
+        "/opt/sp/lib/libsp_runtime.a"
+    };
+    for (const auto& u : unixLibDirs) {
+        if (fs::exists(u)) return fs::absolute(u);
+    }
+#endif
 
 #ifdef SP_PROJECT_ROOT
     fs::path proj(SP_PROJECT_ROOT);

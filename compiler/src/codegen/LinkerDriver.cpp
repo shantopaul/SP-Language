@@ -26,7 +26,7 @@ std::string LinkerDriver::findPrecompiledRuntimeLib(const std::string& customPat
     if (!p.empty() && fs::exists(p)) {
         return p.string();
     }
-    return "libsp_runtime.a";
+    return "";
 }
 
 std::string LinkerDriver::findLinker(const std::string& targetTriple, const std::string& customPath) {
@@ -56,6 +56,17 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
         linker = findLinker(m_options.targetTriple);
     }
 
+    // Precompiled runtime library verification
+    std::string rtLib = m_options.runtimeLibPath;
+    if (rtLib.empty()) {
+        rtLib = findPrecompiledRuntimeLib();
+    }
+    if (rtLib.empty() || !fs::exists(rtLib)) {
+        m_lastError = "Precompiled runtime library 'libsp_runtime.a' was not found on this system. "
+                      "Run 'spc setup' or check toolchain health with 'spc doctor'.";
+        return false;
+    }
+
     std::string linkerName = fs::path(linker).filename().string();
     for (auto& c : linkerName) c = std::tolower(static_cast<unsigned char>(c));
     bool isMsvc = (linkerName.find("lld-link") != std::string::npos || linkerName == "link.exe");
@@ -75,13 +86,7 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
         }
 
         // Precompiled runtime library
-        std::string rtLib = m_options.runtimeLibPath;
-        if (rtLib.empty()) {
-            rtLib = findPrecompiledRuntimeLib();
-        }
-        if (fs::exists(rtLib)) {
-            cmd << "\"" << rtLib << "\" ";
-        }
+        cmd << "\"" << rtLib << "\" ";
 
         // OpenSSL libraries in MSVC syntax
         auto sslInfo = util::findOpenSsl(m_options.librarySearchPaths);
@@ -124,13 +129,7 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
         }
 
         // Precompiled runtime library
-        std::string rtLib = m_options.runtimeLibPath;
-        if (rtLib.empty()) {
-            rtLib = findPrecompiledRuntimeLib();
-        }
-        if (fs::exists(rtLib)) {
-            cmd << "\"" << rtLib << "\" ";
-        }
+        cmd << "\"" << rtLib << "\" ";
 
         if (isClang) {
             cmd << "-pthread ";

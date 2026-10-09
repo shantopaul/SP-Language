@@ -1179,10 +1179,10 @@ Every runtime dependency, standard library module, precompiled runtime static li
   - For `ld.lld` / `clang++`: use standard GNU syntax `-o <path>`, `-L<dir>`, `-l<lib>`, `--target=<triple>`.
 - [x] 3. Eliminate all `lld-link: warning: ignoring unknown argument '-o'` warnings and linker failures when building native standalone executables.
 
-#### Phase 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention
-- [ ] 1. Enhance `LinkerDriver::findPrecompiledRuntimeLib` and `util::getRuntimeLibPath` with full multi-drive scanning (`C:`, `D:`, `E:`, `F:`, and executable drive).
-- [ ] 2. Ensure `libsp_runtime.a` is discovered in `SP_HOME/lib`, `~/.sp/lib`, `%LOCALAPPDATA%/SP-Language/lib`, or relative to `spc.exe` (`../lib`).
-- [ ] 3. Ensure `sp_rt_println_string` and all standard runtime symbols are linked statically without missing symbol errors on any project drive location (e.g. `D:\SP Lang\demo`).
+#### Phase 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention ✅
+- [x] 1. Enhance `LinkerDriver::findPrecompiledRuntimeLib` and `util::getRuntimeLibPath` with full multi-drive scanning (`C:`, `D:`, `E:`, `F:`, and executable drive).
+- [x] 2. Ensure `libsp_runtime.a` is discovered in `SP_HOME/lib`, `~/.sp/lib`, `%LOCALAPPDATA%/SP-Language/lib`, or relative to `spc.exe` (`../lib`).
+- [x] 3. Ensure `sp_rt_println_string` and all standard runtime symbols are linked statically without missing symbol errors on any project drive location (e.g. `D:\SP Lang\demo`).
 
 #### Phase 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation
 - [ ] 1. Fix `spm add <pkg>@<ver>` parsing in `ProjectConfig.cpp` to accurately split package name and semver constraint (e.g., `json@^1.2.0` -> name: `json`, constraint: `^1.2.0`).
