@@ -1154,12 +1154,13 @@ Every runtime dependency, standard library module, precompiled runtime static li
 
 ### Tasks & Remediation Plan
 
-#### Phase 29.1: Unified Project Initialization & Scaffolding (`spc init` & `spc new`)
-- [ ] 1. Add native `init` and `new` subcommands directly to `spc` CLI.
-- [ ] 2. Forward `spc init [path]` and `spc new <name>` to project scaffolding logic (`sp::spm::scaffoldProject`), ensuring identical zero-confusion behavior between `spc` and `spm`.
-- [ ] 3. Support `--template` / `-t` flag in `spc init` (options: `app`, `lib`, `api`, `fullstack`).
-- [ ] 4. Link `spm_core` library directly into `spc` executable.
-- [ ] 5. Provide friendly command suggestion when a user mistypes commands or target folder paths.
+#### Phase 29.1: Unified Project Initialization & Scaffolding (`spc init` & `spc new`) ✅
+- [x] 1. Add native `init` and `new` subcommands directly to `spc` CLI.
+- [x] 2. Forward `spc init [path]` and `spc new <name>` to project scaffolding logic (`sp::spm::scaffoldProject`), ensuring identical zero-confusion behavior between `spc` and `spm`.
+- [x] 3. Support `--template` / `-t` flag in `spc init` (options: `app`, `lib`, `api`, `fullstack`).
+- [x] 4. Link `spm_core` library directly into `spc` executable.
+- [x] 5. Provide friendly command suggestion when a user mistypes commands or target folder paths.
+
 
 #### Phase 29.2: Temp File Resiliency & Safe Smoke Test Execution
 - [ ] 1. Update `LLVMGenerator::compileToExecutable` and `emitObjectFile` to generate temporary files (`.tmp.ll`, `.tmp.o`) inside the OS system temp directory (`fs::temp_directory_path()`) instead of the current working directory.

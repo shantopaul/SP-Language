@@ -22,7 +22,9 @@
 #include "bindgen/Bindgen.h"
 #include "benchmark/Benchmark.h"
 #include "sp/util/PathUtils.h"
+#include "spm/ProjectConfig.h"
 #include <iostream>
+
 #include <fstream>
 #include <sstream>
 #include <string_view>
@@ -71,8 +73,10 @@ void printHelp() {
               << "  test [path]     Execute SP unit and integration tests\n"
               << "  bench [path]    Execute micro-benchmarks with statistical regression tracking\n"
               << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
-              << "  init [name]     Initialize a new SP project with sp.toml\n"
+              << "  init [path]     Initialize an SP project with sp.toml in directory\n"
+              << "  new <name>      Create a new SP project in a new directory\n"
               << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n"
+
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
               << "  setup           Check, auto-provision, or update portable backend toolchain\n"
               << "  fix [path]      Migrate/modernize SP codebase to target edition (e.g. 2028)\n\n"
@@ -377,6 +381,80 @@ int handleFix(int argc, char* argv[]) {
     return 0;
 }
 
+int handleInit(int argc, char* argv[]) {
+    std::string path = ".";
+    std::string name;
+    std::string templateType;
+    bool isLib = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--lib") {
+            isLib = true;
+        } else if ((arg == "--template" || arg == "-t") && i + 1 < argc) {
+            templateType = argv[++i];
+        } else if (arg == "--name" && i + 1 < argc) {
+            name = argv[++i];
+        } else if (!arg.starts_with("-")) {
+            path = arg;
+        }
+    }
+
+    if (name.empty()) {
+        fs::path p = fs::absolute(path);
+        name = p.filename().string();
+        if (name == "." || name.empty()) {
+            name = "my_project";
+        }
+    }
+
+    std::string errorMsg;
+    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg, templateType)) {
+        std::cerr << "error: " << errorMsg << "\n";
+        return 1;
+    }
+
+    std::cout << "Created " << (isLib ? "library" : (templateType == "api" ? "REST API" : "binary (application)"))
+              << " package '" << name << "' at " << path << "\n";
+    return 0;
+}
+
+int handleNew(int argc, char* argv[]) {
+    std::string name;
+    std::string templateType;
+    bool isLib = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--lib") {
+            isLib = true;
+        } else if ((arg == "--template" || arg == "-t") && i + 1 < argc) {
+            templateType = argv[++i];
+        } else if (!arg.starts_with("-")) {
+            if (name.empty()) {
+                name = arg;
+            }
+        }
+    }
+
+    if (name.empty()) {
+        std::cerr << "error: missing project name for 'spc new'\n"
+                  << "usage: spc new <project_name> [--template <app|api|lib>]\n";
+        return 1;
+    }
+
+    std::string path = name;
+    std::string errorMsg;
+    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg, templateType)) {
+        std::cerr << "error: " << errorMsg << "\n";
+        return 1;
+    }
+
+    std::cout << "Created " << (isLib ? "library" : (templateType == "api" ? "REST API" : "binary (application)"))
+              << " package '" << name << "' at ./" << path << "\n";
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -409,10 +487,19 @@ int main(int argc, char* argv[]) {
         return handleFix(argc, argv);
     }
 
+    if (command == "init") {
+        return handleInit(argc, argv);
+    }
+
+    if (command == "new") {
+        return handleNew(argc, argv);
+    }
+
     sp::diagnostics::DiagnosticEngine diagEngine(std::cerr);
 
     if (command == "tokens" || command == "ast" || command == "sema" ||
         command == "check" || command == "ir" || command == "llvm" ||
+
         command == "obj" || command == "build" || command == "run") {
 
         // Parse options and identify input source file
@@ -1119,8 +1206,40 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    const std::vector<std::string> validCommands = {
+        "build", "run", "check", "init", "new", "fmt", "test", "bench",
+        "doc", "doctor", "setup", "fix", "bindgen", "tokens", "ast", "sema",
+        "ir", "llvm", "obj"
+    };
+
+    auto calcLevenshtein = [](std::string_view s1, std::string_view s2) -> size_t {
+        const size_t m = s1.size();
+        const size_t n = s2.size();
+        std::vector<std::vector<size_t>> d(m + 1, std::vector<size_t>(n + 1));
+        for (size_t i = 0; i <= m; ++i) d[i][0] = i;
+        for (size_t j = 0; j <= n; ++j) d[0][j] = j;
+        for (size_t i = 1; i <= m; ++i) {
+            for (size_t j = 1; j <= n; ++j) {
+                size_t cost = (s1[i - 1] == s2[j - 1]) ? 0 : 1;
+                d[i][j] = std::min({d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost});
+            }
+        }
+        return d[m][n];
+    };
+
+    std::string hint = "Run 'spc --help' to see valid compiler commands";
+    for (const auto& valid : validCommands) {
+        if (valid.starts_with(command) || command.starts_with(valid) || calcLevenshtein(command, valid) <= 2) {
+            hint = "Did you mean '" + valid + "'? " + hint;
+            break;
+        }
+    }
+
+
+
     diagEngine.reportError("E1000", "Unknown command: " + std::string(command),
                            sp::diagnostics::SourceLocation("cli", 1, 1),
-                           "Run 'spc --help' to see valid compiler commands");
+                           hint);
     return 1;
 }
+
