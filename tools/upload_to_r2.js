@@ -66,6 +66,7 @@ async function uploadFileToR2(filePath, objectKey, contentType = 'application/oc
 
   // Headers must be sorted by lowercase name
   const headers = {
+    'cache-control': 'public, max-age=300, must-revalidate',
     'content-type': contentType,
     'host': host,
     'x-amz-content-sha256': payloadHash,

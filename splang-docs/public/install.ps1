@@ -159,13 +159,14 @@ if ($isLocalRepo) {
     )
     $TempZip = Join-Path $env:TEMP "sp_download_$([Guid]::NewGuid().ToString('N')).zip"
     
+    $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $Urls = @()
     foreach ($zn in $ZipNames) {
-        $Urls += "https://dl.splang.shantopaul.com/$zn"
-        $Urls += "https://splang.shantopaul.com/downloads/$zn"
-        $Urls += "https://downloads.splang.shantopaul.com/$zn"
-        $Urls += "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$zn"
-        $Urls += "https://github.com/shantopaul/SP-Language/releases/latest/download/$zn"
+        $Urls += "https://dl.splang.shantopaul.com/$($zn)?v=$($Version)&t=$($ts)"
+        $Urls += "https://splang.shantopaul.com/downloads/$($zn)?v=$($Version)&t=$($ts)"
+        $Urls += "https://downloads.splang.shantopaul.com/$($zn)?v=$($Version)&t=$($ts)"
+        $Urls += "https://github.com/shantopaul/SP-Language/releases/download/v$($Version)/$($zn)"
+        $Urls += "https://github.com/shantopaul/SP-Language/releases/latest/download/$($zn)"
     }
     
     $Downloaded = $false
@@ -193,12 +194,17 @@ if ($isLocalRepo) {
         $fallbackPaths = @("C:\SP-Language", "D:\SP-Language", "$env:LOCALAPPDATA\SP-Language")
         $foundFallback = $false
         foreach ($fb in $fallbackPaths) {
-            if (Test-Path (Join-Path $fb "bin\spc.exe")) {
-                Write-Host "     Using pre-existing local distribution from $fb..." -ForegroundColor Yellow
-                Copy-Item -Path "$fb\*" -Destination $InstallDir -Recurse -Force
-                $foundFallback = $true
-                break
-            }
+            try {
+                if (-not [string]::IsNullOrEmpty($fb) -and (Test-Path $fb -ErrorAction SilentlyContinue)) {
+                    $candSpc = Join-Path $fb "bin\spc.exe"
+                    if (Test-Path $candSpc -ErrorAction SilentlyContinue) {
+                        Write-Host "     Using pre-existing local distribution from $fb..." -ForegroundColor Yellow
+                        Copy-Item -Path "$fb\*" -Destination $InstallDir -Recurse -Force
+                        $foundFallback = $true
+                        break
+                    }
+                }
+            } catch {}
         }
         if (-not $foundFallback) {
             throw "Failed to download SP Language distribution package from all release mirrors."
