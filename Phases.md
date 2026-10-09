@@ -1162,10 +1162,10 @@ Every runtime dependency, standard library module, precompiled runtime static li
 - [x] 5. Provide friendly command suggestion when a user mistypes commands or target folder paths.
 
 
-#### Phase 29.2: Temp File Resiliency & Safe Smoke Test Execution
-- [ ] 1. Update `LLVMGenerator::compileToExecutable` and `emitObjectFile` to generate temporary files (`.tmp.ll`, `.tmp.o`) inside the OS system temp directory (`fs::temp_directory_path()`) instead of the current working directory.
-- [ ] 2. Include unique process ID and monotonic timestamp in temporary filenames to prevent file collision, lock conflicts, and write permission failures in read-only folders (e.g. `C:\Program Files`, root system directories, or automated installer contexts).
-- [ ] 3. Ensure automatic cleanup of temporary files upon successful build or failure.
+#### Phase 29.2: Temp File Resiliency & Safe Smoke Test Execution ✅
+- [x] 1. Update `LLVMGenerator::compileToExecutable` and `emitObjectFile` to generate temporary files (`.tmp.ll`, `.tmp.o`) inside the OS system temp directory (`fs::temp_directory_path()`) instead of the current working directory.
+- [x] 2. Include unique process ID, monotonic timestamp, and atomic nonce in temporary filenames and default `spc run` executables to prevent file collision, lock conflicts, and write permission failures in read-only folders (e.g. `C:\Windows\System32`, `C:\Program Files`, root system directories, or automated installer contexts).
+- [x] 3. Ensure automatic cleanup of temporary files upon successful build or failure.
 
 #### Phase 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation
 - [ ] 1. Audit and patch `sp::util::findClangCompiler` in `PathUtils.cpp` to strictly select LLVM Clang binaries (`clang++`, `clang`), never falling back to `g++.exe` for LLVM IR code generation.

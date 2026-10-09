@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <cstdlib>
 #include <chrono>
+#include <atomic>
 #include <thread>
 
 #if defined(_WIN32)
@@ -764,16 +765,33 @@ int main(int argc, char* argv[]) {
         }
 
         // 6. Native Binary Compilation (build / run)
+        bool isTempExe = false;
         if (outputPath.empty()) {
             fs::path p = fs::path(filename).stem();
+            std::string ext = "";
             if (targetTriple.find("wasm") != std::string::npos) {
-                p.replace_extension(".wasm");
+                ext = ".wasm";
             } else {
 #if defined(_WIN32)
-                p.replace_extension(".exe");
+                ext = ".exe";
 #endif
             }
-            outputPath = p.string();
+            if (command == "run") {
+                std::error_code ec;
+                fs::path tempDir = fs::temp_directory_path(ec);
+                if (!ec && fs::exists(tempDir)) {
+                    static std::atomic<uint64_t> s_runNonce{0};
+                    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+                    outputPath = (tempDir / ("sp_run_" + p.string() + "_" + std::to_string(now) + "_" + std::to_string(++s_runNonce) + ext)).string();
+                    isTempExe = true;
+                } else {
+                    p.replace_extension(ext);
+                    outputPath = p.string();
+                }
+            } else {
+                p.replace_extension(ext);
+                outputPath = p.string();
+            }
         }
 
         bool buildSuccess = llvmGen.compileToExecutable(*irModule, outputPath);
@@ -801,6 +819,10 @@ int main(int argc, char* argv[]) {
 #else
                 int exitCode = std::system(runCmd.c_str());
 #endif
+                if (isTempExe) {
+                    std::error_code rmEc;
+                    fs::remove(outputPath, rmEc);
+                }
                 return exitCode;
             }
 

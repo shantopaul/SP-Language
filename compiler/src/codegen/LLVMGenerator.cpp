@@ -9,6 +9,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <atomic>
+#include <chrono>
+
 
 #include "sp/util/PathUtils.h"
 
@@ -166,11 +169,22 @@ bool LLVMGenerator::emitObjectFile(const ir::IRModule& module, const std::string
 }
 
 bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::string& outputExePath) {
+    // Determine safe temporary files in system temp directory to prevent write-permission failures
+    std::error_code ec;
+    fs::path tempDir = fs::temp_directory_path(ec);
+    if (ec || !fs::exists(tempDir)) {
+        tempDir = ".";
+    }
+    static std::atomic<uint64_t> s_tempNonce{0};
+    uint64_t nonce = ++s_tempNonce;
+    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    std::string baseTemp = "sp_tmp_" + std::to_string(now) + "_" + std::to_string(nonce);
+
     // Phase 12 Fast Path: Direct Object Emission + LinkerDriver with precompiled runtime library
     if (m_options.useDirectLinker) {
         std::string rtLib = m_options.runtimeLibPath.empty() ? findRuntimeLibPath() : m_options.runtimeLibPath;
         if (!rtLib.empty() && fs::exists(rtLib)) {
-            std::string tempObj = outputExePath + ObjectEmitter::getObjectFileExtension(m_options.targetTriple);
+            std::string tempObj = (tempDir / (baseTemp + ObjectEmitter::getObjectFileExtension(m_options.targetTriple))).string();
             if (emitObjectFile(module, tempObj)) {
                 LinkerDriverOptions linkOpts;
                 linkOpts.targetTriple = m_options.targetTriple;
@@ -181,8 +195,8 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
 
                 LinkerDriver linker(linkOpts);
                 bool linked = linker.linkSingle(tempObj, outputExePath);
-                std::error_code ec;
-                fs::remove(tempObj, ec);
+                std::error_code rmEc;
+                fs::remove(tempObj, rmEc);
 
                 if (linked && fs::exists(outputExePath)) {
                     return true;
@@ -193,11 +207,16 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     }
 
     // Fallback: Legacy Clang driver compilation with Runtime.cpp
-    // 1. Emit LLVM IR to a temporary file
-    std::string tempLLPath = outputExePath + ".tmp.ll";
+    // 1. Emit LLVM IR to a safe temporary file
+    std::string tempLLPath = (tempDir / (baseTemp + ".tmp.ll")).string();
     if (!emitLLVMIRToFile(module, tempLLPath)) {
-        return false;
+        // Fallback: attempt writing next to output executable if temp folder was blocked
+        tempLLPath = outputExePath + ".tmp.ll";
+        if (!emitLLVMIRToFile(module, tempLLPath)) {
+            return false;
+        }
     }
+
 
     // 2. Resolve clang compiler
     std::string clang = m_options.clangPath;
@@ -276,11 +295,11 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     int exitCode = std::system(cmd.str().c_str());
 #endif
 
-    // 6. Clean up temporary LL file if successful
-    if (exitCode == 0) {
-        std::error_code ec;
-        fs::remove(tempLLPath, ec);
-    } else {
+    // 6. Clean up temporary LL file
+    std::error_code rmTempEc;
+    fs::remove(tempLLPath, rmTempEc);
+
+    if (exitCode != 0) {
         m_lastError = "Clang compilation failed with exit code: " + std::to_string(exitCode);
         return false;
     }
