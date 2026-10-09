@@ -88,3 +88,9 @@ next-env.d.ts
 dist/
 *.vsix
 editors/vscode/out/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+

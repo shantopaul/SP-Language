@@ -224,6 +224,18 @@ public class App {
         return this.server.listenHost(host, port);
     }
 
+    public fn wait() {
+        this.server.wait();
+    }
+
+    public fn run(int port) -> bool {
+        let bound = this.server.listen(port);
+        if (bound) {
+            this.server.wait();
+        }
+        return bound;
+    }
+
     public fn port() -> int {
         return this.server.port();
     }
@@ -238,17 +250,17 @@ public class App {
 
     // Phase 28: OpenAPI / Swagger UI / Redoc Documentation Endpoints
     public fn swagger(string path = "/docs", string openApiJsonUrl = "/openapi.json", string title = "API Documentation") {
-        let htmlContent = sp_rt_openapi_swagger_html(title, openApiJsonUrl);
         this.get(path, (ptr req) => {
             let ctx = Context.create(req);
+            let htmlContent = sp_rt_openapi_swagger_html("SP Lang Backend API (Swagger UI)", "/openapi.json");
             return ctx.html(htmlContent);
         });
     }
 
     public fn redoc(string path = "/redoc", string openApiJsonUrl = "/openapi.json", string title = "API Documentation") {
-        let htmlContent = sp_rt_openapi_redoc_html(title, openApiJsonUrl);
         this.get(path, (ptr req) => {
             let ctx = Context.create(req);
+            let htmlContent = sp_rt_openapi_redoc_html("SP Lang Backend API (Redoc)", "/openapi.json");
             return ctx.html(htmlContent);
         });
     }

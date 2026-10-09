@@ -1,0 +1,13 @@
+{
+  "name": "backend-test-app",
+  "version": "1.0.0",
+  "description": "Fullstack CRUD Application: SP Lang 3.0 Backend & Next.js 14 Frontend",
+  "scripts": {
+    "dev:backend": "npm --prefix backend-splang run dev",
+    "dev:frontend": "npm --prefix fontend-next run dev",
+    "dev": "npm run dev:backend",
+    "build:backend": "npm --prefix backend-splang run build",
+    "build:frontend": "npm --prefix fontend-next run build",
+    "build": "npm run build:backend && npm run build:frontend"
+  }
+}

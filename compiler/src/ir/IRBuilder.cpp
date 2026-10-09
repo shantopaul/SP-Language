@@ -6226,7 +6226,7 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
     IRTypePtr retIRType = nullptr;
     if (semaType && semaType->isFunction()) {
         auto fnType = std::dynamic_pointer_cast<sema::FunctionType>(semaType);
-        if (fnType && fnType->getReturnType() && !fnType->getReturnType()->isInteger()) {
+        if (fnType && fnType->getReturnType() && !fnType->getReturnType()->isUnknown()) {
             retIRType = mapType(fnType->getReturnType().get());
         }
     } else if (!node.getReturnType().empty()) {

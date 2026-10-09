@@ -302,9 +302,11 @@ TEST(ObservabilityTest, CAbiObservabilityBridges) {
     // 4. Job queue bridge
     void* q = sp_rt_job_queue_create(1);
     ASSERT_NE(q, nullptr);
+    sp_rt_job_queue_stop(q);
     const char* jobId = sp_rt_job_queue_enqueue(q, "test_job", "{\"data\":\"1\"}", 1, 10, 0);
     EXPECT_NE(jobId, nullptr);
     EXPECT_EQ(sp_rt_job_queue_pending_count(q), 1);
+    sp_rt_job_queue_start(q);
     sp_rt_job_queue_wait_idle(q);
     EXPECT_EQ(sp_rt_job_queue_dlq_count(q), 1); // no handler registered -> went to DLQ
     sp_rt_job_queue_destroy(q);

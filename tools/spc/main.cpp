@@ -92,9 +92,13 @@ void printHelp() {
               << "  -g, --debug     Build with debug symbols (-g) enabled\n"
               << "  --target <arch> Cross-compile for target architecture triple (e.g. wasm32-wasi)\n"
               << "  -I <dir>        Add search directory for module resolution\n"
+              << "  -L <dir>        Add search directory for library resolution (OpenSSL, etc.)\n"
+              << "  --lib-path <d>  Add search directory for library resolution\n"
               << "  --stdlib <path> Specify custom standard library directory path\n"
+
               << "  -h, --help      Display this help message\n"
               << "  -v, --version   Display compiler version information\n";
+
 }
 
 std::string readFile(const std::string& path) {
@@ -179,7 +183,18 @@ int handleDoctor() {
                   << "    Action:         Run 'spc setup' to auto-provision a portable toolchain.\n\n";
     }
 
+    // 6. OpenSSL TLS & Cryptography Subsystem
+    std::cout << "[6] OpenSSL TLS & Cryptography Engine:\n"
+              << "    Library Dir:    " << (health.openSslLibDir.empty() ? "(none / system standard)" : health.openSslLibDir.string()) << "\n";
+    if (health.hasOpenSsl) {
+        std::cout << "    Link Mode:      " << (health.isOpenSslStatic ? "Static Archive (Zero external DLL dependencies)" : "Shared / Import Library") << "\n"
+                  << "    Status:         [OK] PostgreSQL TLS, HTTPS & Cryptography ready\n\n";
+    } else {
+        std::cout << "    Status:         [INFO] Standard system fallback active (-lssl -lcrypto)\n\n";
+    }
+
     std::cout << "------------------------------------------------------------------------\n";
+
     if (health.isOperational) {
         std::cout << "Diagnosis: ALL SYSTEMS OPERATIONAL\n"
                   << "Your computer is 100% ready to build and run native SP applications!\n";
@@ -414,6 +429,7 @@ int main(int argc, char* argv[]) {
         sp::ast::Edition edition = sp::ast::Edition::Edition2026;
         bool explicitEdition = false;
         std::vector<std::string> includeDirs;
+        std::vector<std::string> librarySearchPaths;
         std::string customStdlibDir;
 
         for (int i = 2; i < argc; ++i) {
@@ -442,6 +458,14 @@ int main(int argc, char* argv[]) {
                 includeDirs.push_back(argv[++i]);
             } else if (arg.starts_with("--include-dir=")) {
                 includeDirs.push_back(std::string(arg.substr(14)));
+            } else if (arg == "-L" && i + 1 < argc) {
+                librarySearchPaths.push_back(argv[++i]);
+            } else if (arg.starts_with("-L")) {
+                librarySearchPaths.push_back(std::string(arg.substr(2)));
+            } else if ((arg == "--lib-path") && i + 1 < argc) {
+                librarySearchPaths.push_back(argv[++i]);
+            } else if (arg.starts_with("--lib-path=")) {
+                librarySearchPaths.push_back(std::string(arg.substr(11)));
             } else if (arg == "--stdlib" && i + 1 < argc) {
                 customStdlibDir = argv[++i];
             } else if (arg.starts_with("--stdlib=")) {
@@ -615,6 +639,7 @@ int main(int argc, char* argv[]) {
         codegenOpts.releaseMode = releaseMode;
         codegenOpts.debugSymbols = debugMode;
         codegenOpts.isStatic = isStatic;
+        codegenOpts.librarySearchPaths = librarySearchPaths;
         if (!targetTriple.empty()) {
             codegenOpts.targetTriple = targetTriple;
         }
@@ -622,6 +647,7 @@ int main(int argc, char* argv[]) {
             codegenOpts.optLevel = optLevel;
         }
         sp::codegen::LLVMGenerator llvmGen(codegenOpts);
+
 
         if (command == "llvm" || emitIROnly) {
             std::string ir = llvmGen.generateLLVMIR(*irModule);

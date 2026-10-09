@@ -1,0 +1,10 @@
+{
+  "name": "backend-splang",
+  "version": "1.0.0",
+  "description": "SP Lang 3.0 Native Backend with Neon Cloud PostgreSQL",
+  "scripts": {
+    "dev": "powershell -ExecutionPolicy Bypass -Command \"Get-Process -Name server -ErrorAction SilentlyContinue | Stop-Process -Force; ..\\..\\build\\bin\\spc.exe build src/main.sp -o server.exe --std ..\\..\\stdlib; .\\server.exe\"",
+    "build": "powershell -ExecutionPolicy Bypass -Command \"Get-Process -Name server -ErrorAction SilentlyContinue | Stop-Process -Force; ..\\..\\build\\bin\\spc.exe build src/main.sp -o server.exe --std ..\\..\\stdlib\"",
+    "start": ".\\server.exe"
+  }
+}

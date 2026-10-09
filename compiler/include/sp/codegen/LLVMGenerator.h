@@ -20,6 +20,7 @@ struct CodegenOptions {
     std::string runtimeIncludePath;
     std::string runtimeLibPath;
     std::string customLinkerPath;
+    std::vector<std::string> librarySearchPaths;
     bool isStatic{false};
 };
 

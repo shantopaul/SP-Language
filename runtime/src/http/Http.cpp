@@ -912,6 +912,12 @@ bool HttpServer::listen(const std::string& host, int port, const HttpServerConfi
     return true;
 }
 
+void HttpServer::wait() {
+    if (m_acceptThread && m_acceptThread->joinable()) {
+        m_acceptThread->join();
+    }
+}
+
 void HttpServer::stop() {
     if (m_running.exchange(false)) {
         m_listener.close();

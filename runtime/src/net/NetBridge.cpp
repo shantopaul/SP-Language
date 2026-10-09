@@ -628,23 +628,34 @@ void sp_rt_http_resp_set_text(void* resp, const char* text) {
 
 static sp::rt::http::HttpResponse extractResponse(void* respHandle) {
     if (!respHandle) return sp::rt::http::HttpResponse::ok();
+
+    // 1. Direct C++ HttpResponse pointer check (statusCode at offset 0: 100..599)
     auto* respPtr = static_cast<sp::rt::http::HttpResponse*>(respHandle);
     if (respPtr->statusCode >= 100 && respPtr->statusCode <= 599) {
-        sp::rt::http::HttpResponse copy = *respPtr;
-        delete respPtr;
-        return copy;
+        return *respPtr;
     }
-    // Check if slot 1 contains inner HttpResponse* handle (SP class layout: slot 0 vtable, slot 1 field 0)
+
+    // 2. In SP Lang, HttpResponse object has:
+    // slot 0 = vtable pointer
+    // slot 1 = this.handle (pointer to C++ sp::rt::http::HttpResponse created by sp_rt_http_resp_create)
     void** spObjSlots = reinterpret_cast<void**>(respHandle);
     void* innerHandle = spObjSlots[1];
     if (innerHandle) {
         auto* innerPtr = static_cast<sp::rt::http::HttpResponse*>(innerHandle);
         if (innerPtr->statusCode >= 100 && innerPtr->statusCode <= 599) {
-            sp::rt::http::HttpResponse copy = *innerPtr;
-            delete innerPtr;
-            return copy;
+            return *innerPtr;
         }
     }
+
+    // 3. Also check slot 0 if non-vtable layout
+    void* slot0Handle = spObjSlots[0];
+    if (slot0Handle && slot0Handle != innerHandle) {
+        auto* slot0Ptr = static_cast<sp::rt::http::HttpResponse*>(slot0Handle);
+        if (slot0Ptr->statusCode >= 100 && slot0Ptr->statusCode <= 599) {
+            return *slot0Ptr;
+        }
+    }
+
     return sp::rt::http::HttpResponse::ok();
 }
 
@@ -665,6 +676,12 @@ bool sp_rt_http_server_listen(void* srv, const char* host, int64_t port) {
     auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
     std::string h = host ? host : "0.0.0.0";
     return s->listen(h, static_cast<int>(port));
+}
+
+void sp_rt_http_server_wait(void* srv) {
+    if (!srv) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    s->wait();
 }
 
 int64_t sp_rt_http_server_port(void* srv) {

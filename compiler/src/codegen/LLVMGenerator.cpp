@@ -177,6 +177,7 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
                 linkOpts.runtimeLibPath = rtLib;
                 linkOpts.linkerPath = m_options.customLinkerPath;
                 linkOpts.isStatic = m_options.isStatic;
+                linkOpts.librarySearchPaths = m_options.librarySearchPaths;
 
                 LinkerDriver linker(linkOpts);
                 bool linked = linker.linkSingle(tempObj, outputExePath);
@@ -214,8 +215,23 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     cmd << "-std=c++20 ";
     cmd << "-pthread ";
 #if defined(_WIN32)
-    cmd << "-lws2_32 ";
+    cmd << "-lws2_32 -lcrypt32 ";
 #endif
+    auto sslInfo = util::findOpenSsl(m_options.librarySearchPaths);
+    if (sslInfo.found) {
+        cmd << "-L\"" << sslInfo.libDir.string() << "\" ";
+        if (!sslInfo.sslLib.empty() && !sslInfo.cryptoLib.empty()) {
+            cmd << "\"" << sslInfo.sslLib.string() << "\" \"" << sslInfo.cryptoLib.string() << "\" ";
+        } else {
+            cmd << "-lssl -lcrypto ";
+        }
+    } else {
+        cmd << "-lssl -lcrypto ";
+    }
+    for (const auto& spath : m_options.librarySearchPaths) {
+        cmd << "-L\"" << spath << "\" ";
+    }
+
 
     if (m_options.isStatic) {
         cmd << "-static ";

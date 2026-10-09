@@ -102,8 +102,12 @@ private:
     bool handleScramAuth(const std::vector<uint8_t>& saslList);
     bool readMessage(char& msgType, std::vector<uint8_t>& payload);
     bool sendMessage(char msgType, const std::vector<uint8_t>& payload);
+    bool readBytes(uint8_t* buf, size_t len);
+    bool writeBytes(const uint8_t* buf, size_t len);
 
     uintptr_t m_socket{0}; // Native OS socket descriptor
+    void* m_sslCtx{nullptr};
+    void* m_ssl{nullptr};
     PgConfig m_config;
     std::string m_lastError;
     bool m_connected{false};

@@ -462,6 +462,7 @@ extern "C" {
     void        sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
                                                 void* (*handler_fn)(void* req));
     bool        sp_rt_http_server_listen(void* srv, const char* host, int64_t port);
+    void        sp_rt_http_server_wait(void* srv);
     int64_t     sp_rt_http_server_port(void* srv);
     void        sp_rt_http_server_stop(void* srv);
     void        sp_rt_http_server_destroy(void* srv);

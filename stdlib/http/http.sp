@@ -39,6 +39,7 @@ extern "C" {
     fn sp_rt_http_server_route(ptr srv, string method, string path, ptr handlerFnPtr);
     fn sp_rt_http_server_route_handler(ptr srv, string method, string path, ptr handlerFnPtr);
     fn sp_rt_http_server_listen(ptr srv, string host, int port) -> bool;
+    fn sp_rt_http_server_wait(ptr srv);
     fn sp_rt_http_server_port(ptr srv) -> int;
     fn sp_rt_http_server_stop(ptr srv);
     fn sp_rt_http_server_destroy(ptr srv);
@@ -356,6 +357,12 @@ public class HttpServer {
 
     public fn listenHost(string host, int port) -> bool {
         return sp_rt_http_server_listen(this.handle, host, port);
+    }
+
+    public fn wait() {
+        if (this.handle != null) {
+            sp_rt_http_server_wait(this.handle);
+        }
     }
 
     public fn port() -> int {

@@ -80,9 +80,22 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
 
     // Enable multi-threading runtime libraries
     cmd << "-pthread ";
+    // Multi-tier OpenSSL discovery (environment vars, SP_HOME, package managers, system drives)
+    auto sslInfo = util::findOpenSsl(m_options.librarySearchPaths);
+    if (sslInfo.found) {
+        cmd << "-L\"" << sslInfo.libDir.string() << "\" ";
+        if (!sslInfo.sslLib.empty() && !sslInfo.cryptoLib.empty()) {
+            cmd << "\"" << sslInfo.sslLib.string() << "\" \"" << sslInfo.cryptoLib.string() << "\" ";
+        } else {
+            cmd << "-lssl -lcrypto ";
+        }
+    } else {
+        cmd << "-lssl -lcrypto ";
+    }
 #if defined(_WIN32)
-    cmd << "-lws2_32 ";
+    cmd << "-lws2_32 -lcrypt32 ";
 #endif
+
 
     // Search paths
     for (const auto& spath : m_options.librarySearchPaths) {

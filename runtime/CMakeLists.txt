@@ -49,8 +49,10 @@ target_compile_definitions(sp_runtime PRIVATE
 
 target_compile_features(sp_runtime PUBLIC cxx_std_20)
 target_link_libraries(sp_runtime PUBLIC Threads::Threads)
+find_package(OpenSSL REQUIRED)
+target_link_libraries(sp_runtime PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 if(WIN32)
-    target_link_libraries(sp_runtime PUBLIC ws2_32)
+    target_link_libraries(sp_runtime PUBLIC ws2_32 crypt32)
 endif()
 
 

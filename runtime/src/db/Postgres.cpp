@@ -5,6 +5,8 @@
 #include <cstring>
 #include <chrono>
 #include <algorithm>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -405,6 +407,8 @@ PgConnection::~PgConnection() {
 
 PgConnection::PgConnection(PgConnection&& other) noexcept
     : m_socket(other.m_socket),
+      m_sslCtx(other.m_sslCtx),
+      m_ssl(other.m_ssl),
       m_config(std::move(other.m_config)),
       m_lastError(std::move(other.m_lastError)),
       m_connected(other.m_connected),
@@ -412,6 +416,8 @@ PgConnection::PgConnection(PgConnection&& other) noexcept
       m_backendPid(other.m_backendPid),
       m_backendKey(other.m_backendKey) {
     other.m_socket = 0;
+    other.m_sslCtx = nullptr;
+    other.m_ssl = nullptr;
     other.m_connected = false;
 }
 
@@ -419,6 +425,8 @@ PgConnection& PgConnection::operator=(PgConnection&& other) noexcept {
     if (this != &other) {
         close();
         m_socket = other.m_socket;
+        m_sslCtx = other.m_sslCtx;
+        m_ssl = other.m_ssl;
         m_config = std::move(other.m_config);
         m_lastError = std::move(other.m_lastError);
         m_connected = other.m_connected;
@@ -426,6 +434,8 @@ PgConnection& PgConnection::operator=(PgConnection&& other) noexcept {
         m_backendPid = other.m_backendPid;
         m_backendKey = other.m_backendKey;
         other.m_socket = 0;
+        other.m_sslCtx = nullptr;
+        other.m_ssl = nullptr;
         other.m_connected = false;
     }
     return *this;
@@ -437,8 +447,16 @@ bool PgConnection::isConnected() const {
 
 void PgConnection::close() {
     if (isConnected()) {
-        // Send terminate message 'X'
         sendMessage('X', {});
+        if (m_ssl) {
+            SSL_shutdown(static_cast<SSL*>(m_ssl));
+            SSL_free(static_cast<SSL*>(m_ssl));
+            m_ssl = nullptr;
+        }
+        if (m_sslCtx) {
+            SSL_CTX_free(static_cast<SSL_CTX*>(m_sslCtx));
+            m_sslCtx = nullptr;
+        }
         CLOSE_SOCK(static_cast<socket_t>(m_socket));
     }
     m_socket = 0;
@@ -493,6 +511,63 @@ bool PgConnection::connect(const PgConfig& config) {
 
     m_socket = static_cast<uintptr_t>(sock);
 
+    // Negotiate TLS/SSL if requested
+    if (m_config.sslmode != "disable") {
+        std::vector<uint8_t> sslReq;
+        writeInt32BE(sslReq, 8);
+        writeInt32BE(sslReq, 80877103); // SSLRequest code
+        if (::send(sock, reinterpret_cast<const char*>(sslReq.data()), static_cast<int>(sslReq.size()), 0) != 8) {
+            m_lastError = "Failed to send SSLRequest to " + m_config.host;
+            close();
+            return false;
+        }
+
+        char sslReply = 0;
+        if (::recv(sock, &sslReply, 1, 0) != 1) {
+            m_lastError = "Failed to receive SSL response from " + m_config.host;
+            close();
+            return false;
+        }
+
+        if (sslReply == 'S') {
+            OPENSSL_init_ssl(0, NULL);
+            const SSL_METHOD* method = TLS_client_method();
+            SSL_CTX* ctx = SSL_CTX_new(method);
+            if (!ctx) {
+                m_lastError = "Failed to create OpenSSL context";
+                close();
+                return false;
+            }
+            SSL* ssl = SSL_new(ctx);
+            if (!ssl) {
+                SSL_CTX_free(ctx);
+                m_lastError = "Failed to create OpenSSL structure";
+                close();
+                return false;
+            }
+            SSL_set_fd(ssl, static_cast<int>(sock));
+            // SNI: Server Name Indication (Required by cloud tenants including Neon)
+            SSL_set_tlsext_host_name(ssl, m_config.host.c_str());
+
+            if (SSL_connect(ssl) <= 0) {
+                char errBuf[256];
+                ERR_error_string_n(ERR_get_error(), errBuf, sizeof(errBuf));
+                m_lastError = std::string("TLS handshake failed: ") + errBuf;
+                SSL_free(ssl);
+                SSL_CTX_free(ctx);
+                close();
+                return false;
+            }
+
+            m_sslCtx = ctx;
+            m_ssl = ssl;
+        } else if (m_config.sslmode == "require") {
+            m_lastError = "Server does not support SSL but sslmode=require was specified";
+            close();
+            return false;
+        }
+    }
+
     if (!sendStartupMessage()) {
         close();
         return false;
@@ -507,10 +582,40 @@ bool PgConnection::connect(const PgConfig& config) {
     return true;
 }
 
+bool PgConnection::writeBytes(const uint8_t* buf, size_t len) {
+    if (!m_socket) return false;
+    size_t total = 0;
+    while (total < len) {
+        int sent = 0;
+        if (m_ssl) {
+            sent = SSL_write(static_cast<SSL*>(m_ssl), buf + total, static_cast<int>(len - total));
+        } else {
+            sent = send(static_cast<socket_t>(m_socket), reinterpret_cast<const char*>(buf + total), static_cast<int>(len - total), 0);
+        }
+        if (sent <= 0) return false;
+        total += sent;
+    }
+    return true;
+}
+
+bool PgConnection::readBytes(uint8_t* buf, size_t len) {
+    if (!m_socket) return false;
+    size_t total = 0;
+    while (total < len) {
+        int n = 0;
+        if (m_ssl) {
+            n = SSL_read(static_cast<SSL*>(m_ssl), buf + total, static_cast<int>(len - total));
+        } else {
+            n = recv(static_cast<socket_t>(m_socket), reinterpret_cast<char*>(buf + total), static_cast<int>(len - total), 0);
+        }
+        if (n <= 0) return false;
+        total += n;
+    }
+    return true;
+}
+
 bool PgConnection::sendMessage(char msgType, const std::vector<uint8_t>& payload) {
     if (!m_socket) return false;
-    socket_t sock = static_cast<socket_t>(m_socket);
-
     std::vector<uint8_t> buffer;
     buffer.reserve(payload.size() + 5);
     if (msgType != 0) {
@@ -519,50 +624,30 @@ bool PgConnection::sendMessage(char msgType, const std::vector<uint8_t>& payload
     uint32_t len = static_cast<uint32_t>(payload.size() + 4);
     writeInt32BE(buffer, len);
     buffer.insert(buffer.end(), payload.begin(), payload.end());
-
-    int sent = send(sock, reinterpret_cast<const char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
-    return sent == static_cast<int>(buffer.size());
+    return writeBytes(buffer.data(), buffer.size());
 }
 
 bool PgConnection::readMessage(char& msgType, std::vector<uint8_t>& payload) {
     if (!m_socket) return false;
-    socket_t sock = static_cast<socket_t>(m_socket);
+    uint8_t typeBuf[1];
+    if (!readBytes(typeBuf, 1)) return false;
+    msgType = static_cast<char>(typeBuf[0]);
 
-    // Read 1-byte message type
-    char typeBuf[1];
-    int n = recv(sock, typeBuf, 1, 0);
-    if (n <= 0) return false;
-    msgType = typeBuf[0];
-
-    // Read 4-byte length
     uint8_t lenBuf[4];
-    int readLen = 0;
-    while (readLen < 4) {
-        int r = recv(sock, reinterpret_cast<char*>(lenBuf + readLen), 4 - readLen, 0);
-        if (r <= 0) return false;
-        readLen += r;
-    }
-
+    if (!readBytes(lenBuf, 4)) return false;
     uint32_t totalLen = readInt32BE(lenBuf);
     if (totalLen < 4) return false;
     uint32_t payloadLen = totalLen - 4;
 
     payload.resize(payloadLen);
-    size_t totalPayloadRead = 0;
-    while (totalPayloadRead < payloadLen) {
-        int r = recv(sock, reinterpret_cast<char*>(payload.data() + totalPayloadRead),
-                     static_cast<int>(payloadLen - totalPayloadRead), 0);
-        if (r <= 0) return false;
-        totalPayloadRead += r;
+    if (payloadLen > 0) {
+        if (!readBytes(payload.data(), payloadLen)) return false;
     }
-
     return true;
 }
 
 bool PgConnection::sendStartupMessage() {
     if (!m_socket) return false;
-    socket_t sock = static_cast<socket_t>(m_socket);
-
     std::vector<uint8_t> body;
     // Protocol version 3.0 = 196608 (0x00030000)
     writeInt32BE(body, 196608);
@@ -586,8 +671,7 @@ bool PgConnection::sendStartupMessage() {
     writeInt32BE(packet, totalLen);
     packet.insert(packet.end(), body.begin(), body.end());
 
-    int sent = send(sock, reinterpret_cast<const char*>(packet.data()), static_cast<int>(packet.size()), 0);
-    return sent == static_cast<int>(packet.size());
+    return writeBytes(packet.data(), packet.size());
 }
 
 bool PgConnection::processAuthMessages() {

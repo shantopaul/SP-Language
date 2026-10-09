@@ -64,17 +64,17 @@ public class PgResult {
         return sp_rt_pg_res_col_count(this.handle);
     }
 
-    public fn columnName(int col) -> string {
+    public fn columnName(int64 col) -> string {
         if (this.handle == null) return "";
         return sp_rt_pg_res_col_name(this.handle, col);
     }
 
-    public fn getValue(int row, int col) -> string {
+    public fn getValue(int64 row, int64 col) -> string {
         if (this.handle == null) return "";
         return sp_rt_pg_res_get_value(this.handle, row, col);
     }
 
-    public fn isNull(int row, int col) -> bool {
+    public fn isNull(int64 row, int64 col) -> bool {
         if (this.handle == null) return true;
         return sp_rt_pg_res_is_null(this.handle, row, col);
     }

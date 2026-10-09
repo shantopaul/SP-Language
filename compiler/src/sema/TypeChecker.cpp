@@ -1057,7 +1057,7 @@ void TypeChecker::visit(const ast::LambdaExpr& node) {
     TypePtr returnType = m_typeCtx.resolveType(node.getReturnType());
     TypePtr prevReturnType = m_currentFunctionReturnType;
 
-    if (!returnType) {
+    if (!returnType || returnType->isUnknown()) {
         if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
             returnType = checkExpr(*exprBody);
         } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {

@@ -3,6 +3,7 @@
 #include <sstream>
 #include <vector>
 #include <iostream>
+#include <optional>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -480,6 +481,230 @@ bool hasBackendToolchain() {
     return false;
 }
 
+OpenSslPaths findOpenSsl(const std::vector<std::string>& customSearchPaths) {
+    auto checkDir = [](const fs::path& dir) -> std::optional<OpenSslPaths> {
+        if (dir.empty()) return std::nullopt;
+        std::error_code ec;
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return std::nullopt;
+
+        OpenSslPaths paths;
+        paths.libDir = fs::absolute(dir);
+
+#if defined(_WIN32)
+        // 1. Static archives (libssl.a and libcrypto.a) - HIGHEST PREFERENCE for portable standalone binaries
+        fs::path staticSsl = dir / "libssl.a";
+        fs::path staticCrypto = dir / "libcrypto.a";
+        if (fs::exists(staticSsl, ec) && fs::exists(staticCrypto, ec)) {
+            paths.sslLib = fs::absolute(staticSsl);
+            paths.cryptoLib = fs::absolute(staticCrypto);
+            paths.isStatic = true;
+            paths.found = true;
+            return paths;
+        }
+
+        // 2. MinGW import libraries (libssl.dll.a and libcrypto.dll.a)
+        fs::path dllSsl = dir / "libssl.dll.a";
+        fs::path dllCrypto = dir / "libcrypto.dll.a";
+        if (fs::exists(dllSsl, ec) && fs::exists(dllCrypto, ec)) {
+            paths.sslLib = fs::absolute(dllSsl);
+            paths.cryptoLib = fs::absolute(dllCrypto);
+            paths.isStatic = false;
+            paths.found = true;
+            return paths;
+        }
+
+        // 3. MSVC import libraries (libssl.lib and libcrypto.lib)
+        fs::path msvcSsl = dir / "libssl.lib";
+        fs::path msvcCrypto = dir / "libcrypto.lib";
+        if (fs::exists(msvcSsl, ec) && fs::exists(msvcCrypto, ec)) {
+            paths.sslLib = fs::absolute(msvcSsl);
+            paths.cryptoLib = fs::absolute(msvcCrypto);
+            paths.isStatic = false;
+            paths.found = true;
+            return paths;
+        }
+#else
+        // 1. Static archives first
+        fs::path staticSsl = dir / "libssl.a";
+        fs::path staticCrypto = dir / "libcrypto.a";
+        if (fs::exists(staticSsl, ec) && fs::exists(staticCrypto, ec)) {
+            paths.sslLib = fs::absolute(staticSsl);
+            paths.cryptoLib = fs::absolute(staticCrypto);
+            paths.isStatic = true;
+            paths.found = true;
+            return paths;
+        }
+
+        // 2. Shared libraries (.so / .dylib)
+#if defined(__APPLE__)
+        fs::path sharedSsl = dir / "libssl.dylib";
+        fs::path sharedCrypto = dir / "libcrypto.dylib";
+#else
+        fs::path sharedSsl = dir / "libssl.so";
+        fs::path sharedCrypto = dir / "libcrypto.so";
+#endif
+        if (fs::exists(sharedSsl, ec) && fs::exists(sharedCrypto, ec)) {
+            paths.sslLib = fs::absolute(sharedSsl);
+            paths.cryptoLib = fs::absolute(sharedCrypto);
+            paths.isStatic = false;
+            paths.found = true;
+            return paths;
+        }
+#endif
+        return std::nullopt;
+    };
+
+    // Tier 1: User explicitly passed custom paths (e.g., via CLI -L / --lib-path)
+    for (const auto& p : customSearchPaths) {
+        if (auto res = checkDir(p)) return *res;
+    }
+
+    // Tier 2: Standard cross-platform environment variables
+    const char* envRoot = std::getenv("OPENSSL_ROOT_DIR");
+    if (!envRoot) envRoot = std::getenv("OPENSSL_DIR");
+    if (envRoot && *envRoot) {
+        fs::path root(envRoot);
+        if (auto res = checkDir(root / "lib")) return *res;
+        if (auto res = checkDir(root / "lib64")) return *res;
+        if (auto res = checkDir(root)) return *res;
+    }
+
+    const char* envLib = std::getenv("OPENSSL_LIB_DIR");
+    if (envLib && *envLib) {
+        if (auto res = checkDir(envLib)) return *res;
+    }
+
+    // Check LIBRARY_PATH or LIB env vars
+    for (const char* envVar : {"LIBRARY_PATH", "LIB"}) {
+        const char* val = std::getenv(envVar);
+        if (val && *val) {
+            std::stringstream ss(val);
+            std::string item;
+#if defined(_WIN32)
+            const char sep = ';';
+#else
+            const char sep = ':';
+#endif
+            while (std::getline(ss, item, sep)) {
+                if (!item.empty()) {
+                    if (auto res = checkDir(item)) return *res;
+                }
+            }
+        }
+    }
+
+    // Tier 3: SP Lang self-contained / portable toolchain paths
+    auto spHome = getSPHome();
+    if (!spHome.empty()) {
+        if (auto res = checkDir(spHome / "lib")) return *res;
+        if (auto res = checkDir(spHome / "toolchain" / "lib")) return *res;
+        if (auto res = checkDir(spHome / "toolchain" / "x86_64-w64-mingw32" / "lib")) return *res;
+    }
+
+    auto exeDir = getExecutableDir();
+    if (!exeDir.empty()) {
+        if (auto res = checkDir(exeDir / ".." / "lib")) return *res;
+        if (auto res = checkDir(exeDir / "lib")) return *res;
+        if (auto res = checkDir(exeDir / ".." / "toolchain" / "lib")) return *res;
+    }
+
+    // Tier 4: Windows package managers (Scoop, vcpkg, Chocolatey)
+#if defined(_WIN32)
+    const char* userProfile = std::getenv("USERPROFILE");
+    if (userProfile && *userProfile) {
+        fs::path prof(userProfile);
+        if (auto res = checkDir(prof / "scoop" / "apps" / "openssl" / "current" / "lib")) return *res;
+        if (auto res = checkDir(prof / "scoop" / "apps" / "mingw-winlibs" / "current" / "lib")) return *res;
+        if (auto res = checkDir(prof / "scoop" / "apps" / "mingw-winlibs-ucrt" / "current" / "lib")) return *res;
+        if (auto res = checkDir(prof / "scoop" / "apps" / "msys2" / "current" / "ucrt64" / "lib")) return *res;
+        if (auto res = checkDir(prof / "scoop" / "apps" / "msys2" / "current" / "mingw64" / "lib")) return *res;
+        if (auto res = checkDir(prof / "vcpkg" / "installed" / "x64-windows" / "lib")) return *res;
+        if (auto res = checkDir(prof / "vcpkg" / "installed" / "x64-windows-static" / "lib")) return *res;
+    }
+
+    const char* vcpkgRoot = std::getenv("VCPKG_ROOT");
+    if (vcpkgRoot && *vcpkgRoot) {
+        fs::path vr(vcpkgRoot);
+        if (auto res = checkDir(vr / "installed" / "x64-windows" / "lib")) return *res;
+        if (auto res = checkDir(vr / "installed" / "x64-windows-static" / "lib")) return *res;
+    }
+
+    const char* chocoInstall = std::getenv("ChocolateyInstall");
+    if (chocoInstall && *chocoInstall) {
+        fs::path ch(chocoInstall);
+        if (auto res = checkDir(ch / "lib" / "openssl" / "lib")) return *res;
+    }
+
+    // Tier 5: Windows multi-drive detection across known system installations
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
+        }
+        if (!foundDrive) {
+            drives.insert(drives.begin(), exeDrive);
+        }
+    }
+
+    for (const auto& drive : drives) {
+        const std::vector<std::string> relDirs = {
+            "/msys64/ucrt64/lib",
+            "/msys64/mingw64/lib",
+            "/msys64/clang64/lib",
+            "/Program Files/OpenSSL-Win64/lib",
+            "/Program Files/OpenSSL/lib",
+            "/OpenSSL-Win64/lib",
+            "/OpenSSL/lib",
+            "/mingw64/lib"
+        };
+        for (const auto& rel : relDirs) {
+            fs::path p = drive + rel;
+            if (auto res = checkDir(p)) return *res;
+        }
+    }
+#endif
+
+    // Tier 6: macOS standard paths (Homebrew, MacPorts)
+#if defined(__APPLE__)
+    const std::vector<std::string> macDirs = {
+        "/opt/homebrew/opt/openssl/lib",
+        "/opt/homebrew/opt/openssl@3/lib",
+        "/opt/homebrew/opt/openssl@1.1/lib",
+        "/usr/local/opt/openssl/lib",
+        "/usr/local/opt/openssl@3/lib",
+        "/opt/homebrew/lib",
+        "/opt/local/lib"
+    };
+    for (const auto& mdir : macDirs) {
+        if (auto res = checkDir(mdir)) return *res;
+    }
+#endif
+
+    // Tier 7: Linux standard paths
+#if !defined(_WIN32) && !defined(__APPLE__)
+    const std::vector<std::string> linuxDirs = {
+        "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
+        "/usr/lib64",
+        "/usr/local/lib64",
+        "/usr/local/lib",
+        "/usr/lib"
+    };
+    for (const auto& ldir : linuxDirs) {
+        if (auto res = checkDir(ldir)) return *res;
+    }
+#endif
+
+    OpenSslPaths notFound;
+    notFound.found = false;
+    return notFound;
+}
+
 ToolchainHealth inspectToolchainHealth() {
     ToolchainHealth h;
     h.spcPath = getExecutablePath();
@@ -489,6 +714,11 @@ ToolchainHealth inspectToolchainHealth() {
     h.runtimeInc = getRuntimeIncludePath();
     h.clangPath = findClangCompiler();
     h.linkerPath = findLinker();
+
+    auto ssl = findOpenSsl();
+    h.hasOpenSsl = ssl.found;
+    h.openSslLibDir = ssl.libDir;
+    h.isOpenSslStatic = ssl.isStatic;
 
     h.hasStdlib = !h.stdlibDir.empty() && fs::exists(h.stdlibDir);
     h.hasRuntimeLib = !h.runtimeLib.empty() && fs::exists(h.runtimeLib);
@@ -508,3 +738,4 @@ ToolchainHealth inspectToolchainHealth() {
 }
 
 } // namespace sp::util
+

@@ -4,8 +4,20 @@
 #include "sp/runtime/DbPool.h"
 #include <iostream>
 #include <vector>
+#include <cstring>
+#include <cstdlib>
 
 using namespace sp::runtime;
+
+namespace {
+const char* alloc_str(const std::string& s) {
+    char* copy = static_cast<char*>(malloc(s.size() + 1));
+    if (copy) {
+        std::memcpy(copy, s.c_str(), s.size() + 1);
+    }
+    return copy;
+}
+} // namespace
 
 extern "C" {
 
@@ -212,12 +224,14 @@ void sp_rt_sqlite_finalize(void* stmt) {
 // PostgreSQL C-ABI Bindings
 // ============================================================================
 
+static thread_local std::string g_lastPgConnectError;
+
 void* sp_rt_pg_connect(const char* conn_str) {
     if (!conn_str) return nullptr;
     auto conn = new PgConnection();
     if (!conn->connect(conn_str)) {
-        delete conn;
-        return nullptr;
+        g_lastPgConnectError = conn->lastError();
+        return conn;
     }
     return conn;
 }
@@ -235,7 +249,10 @@ bool sp_rt_pg_is_connected(void* conn) {
 }
 
 const char* sp_rt_pg_last_error(void* conn) {
-    if (!conn) return "Invalid connection handle";
+    if (!conn) {
+        if (!g_lastPgConnectError.empty()) return g_lastPgConnectError.c_str();
+        return "Invalid connection handle";
+    }
     static thread_local std::string err;
     err = static_cast<PgConnection*>(conn)->lastError();
     return err.c_str();
@@ -327,21 +344,17 @@ int64_t sp_rt_pg_res_col_count(void* res) {
 }
 
 const char* sp_rt_pg_res_col_name(void* res, int64_t col) {
-    if (!res) return "";
+    if (!res) return alloc_str("");
     auto r = *static_cast<std::shared_ptr<PgResult>*>(res);
-    if (!r) return "";
-    static thread_local std::string name;
-    name = r->columnName(static_cast<int>(col));
-    return name.c_str();
+    if (!r) return alloc_str("");
+    return alloc_str(r->columnName(static_cast<int>(col)));
 }
 
 const char* sp_rt_pg_res_get_value(void* res, int64_t row, int64_t col) {
-    if (!res) return "";
+    if (!res) return alloc_str("");
     auto r = *static_cast<std::shared_ptr<PgResult>*>(res);
-    if (!r) return "";
-    static thread_local std::string val;
-    val = r->getValue(static_cast<int>(row), static_cast<int>(col));
-    return val.c_str();
+    if (!r) return alloc_str("");
+    return alloc_str(r->getValue(static_cast<int>(row), static_cast<int>(col)));
 }
 
 bool sp_rt_pg_res_is_null(void* res, int64_t row, int64_t col) {

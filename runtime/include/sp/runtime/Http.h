@@ -329,6 +329,7 @@ public:
 
     bool listen(const std::string& host, int port, int workerThreads = 4);
     bool listen(const std::string& host, int port, const HttpServerConfig& config);
+    void wait();
     void stop();
     [[nodiscard]] bool isRunning() const { return m_running.load(); }
     [[nodiscard]] int getPort() const { return m_port; }

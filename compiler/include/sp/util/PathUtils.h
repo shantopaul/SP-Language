@@ -45,6 +45,18 @@ std::filesystem::path findLinker(const std::string& targetTriple = "", const std
 /// Returns true if a functional backend C/LLVM compiler or linker was detected
 bool hasBackendToolchain();
 
+/// Universal detection information for OpenSSL cryptographic libraries
+struct OpenSslPaths {
+    std::filesystem::path libDir;
+    std::filesystem::path sslLib;     // libssl.a / libssl.dll.a / libssl.lib / libssl.so
+    std::filesystem::path cryptoLib;  // libcrypto.a / libcrypto.dll.a / libcrypto.lib / libcrypto.so
+    bool isStatic{false};
+    bool found{false};
+};
+
+/// Universal multi-tier discovery for OpenSSL libraries across all platforms, drives, environment variables, and package managers
+OpenSslPaths findOpenSsl(const std::vector<std::string>& customSearchPaths = {});
+
 /// Returns a human-readable diagnosis of toolchain and library health
 struct ToolchainHealth {
     std::filesystem::path spcPath;
@@ -54,14 +66,18 @@ struct ToolchainHealth {
     std::filesystem::path runtimeInc;
     std::filesystem::path clangPath;
     std::filesystem::path linkerPath;
+    std::filesystem::path openSslLibDir;
     std::string targetTriple;
     bool hasStdlib{false};
     bool hasRuntimeLib{false};
     bool hasClang{false};
     bool hasLinker{false};
+    bool hasOpenSsl{false};
+    bool isOpenSslStatic{false};
     bool isOperational{false};
 };
 
 ToolchainHealth inspectToolchainHealth();
 
 } // namespace sp::util
+
