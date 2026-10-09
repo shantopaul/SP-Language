@@ -185,25 +185,9 @@ public class App {
         return g;
     }
 
-    // Composable Middleware overloads (app.use(...))
-    public fn use(Cors c) {
+    // Composable Middleware Helpers
+    public fn useCorsConfig(Cors c) {
         this.server.useCors(c.origins, c.methods, c.headers);
-    }
-
-    public fn use(Logger l) {
-        this.server.useLogger();
-    }
-
-    public fn use(Recovery r) {
-        this.server.useRecovery();
-    }
-
-    public fn use(RequestId reqId) {
-        this.server.useRequestId();
-    }
-
-    public fn use(RateLimiter rl) {
-        this.server.useRateLimiter(rl.maxRequests, rl.windowSeconds);
     }
 
     // Explicit Middleware helpers

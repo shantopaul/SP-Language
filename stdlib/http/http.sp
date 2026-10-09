@@ -146,7 +146,7 @@ public class HttpResponse {
 
     public static fn redirect(string url, int status = 302) -> HttpResponse {
         let res = HttpResponse.create(status, "");
-        res.redirect(url, status);
+        res.setRedirect(url, status);
         return res;
     }
 
@@ -203,7 +203,7 @@ public class HttpResponse {
         sp_rt_http_resp_set_html(this.handle, html);
     }
 
-    public fn redirect(string url, int status = 302) {
+    public fn setRedirect(string url, int status = 302) {
         sp_rt_http_resp_redirect(this.handle, url, status);
     }
 

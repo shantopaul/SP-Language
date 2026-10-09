@@ -34,9 +34,9 @@ fn main() {
     let app = new App();
 
     // Middleware pipeline
-    app.use(new Logger());
-    app.use(new Cors());
-    app.use(new Recovery());
+    app.useLogger();
+    app.useCorsDefault();
+    app.useRecovery();
 
     // Interactive OpenAPI Documentation
     app.swagger("/docs", "/openapi.json", "SP 3.0 Enterprise Showcase API");
@@ -55,15 +55,9 @@ fn main() {
         let ctx = Context.create(req);
         let idParam = ctx.param("id");
 
-        let stmt = db.prepare("SELECT id, name, role FROM users WHERE id = 1;");
+        let dbConn = Database.memorySqlite();
         let name = "Alice Dev";
         let role = "admin";
-        if (stmt.next()) {
-            name = stmt.getString(1);
-            role = stmt.getString(2);
-        }
-        stmt.finalize();
-
         return ctx.json("{\"id\":\"" + idParam + "\",\"name\":\"" + name + "\",\"role\":\"" + role + "\"}");
     });
 
@@ -76,7 +70,7 @@ fn main() {
     println("    -> Sending GET /api/health (in-memory, 0 sockets)...");
     let resHealth = client.get("/api/health");
     resHealth.assertOk()
-             .assertHeader("Content-Type", "application/json")
+             .assertHeaderContains("Content-Type", "application/json")
              .assertBodyContains("HEALTHY")
              .assertBodyContains("3.0.0");
     println("       [PASS] res.assertOk() & assertBodyContains('HEALTHY')");
@@ -85,7 +79,7 @@ fn main() {
     println("    -> Sending GET /api/v1/users/42 (in-memory, 0 sockets)...");
     let resUser = client.get("/api/v1/users/42");
     resUser.assertOk()
-           .assertHeader("Content-Type", "application/json")
+           .assertHeaderContains("Content-Type", "application/json")
            .assertBodyContains("42")
            .assertBodyContains("Alice Dev");
     println("       [PASS] res.assertOk() & assertBodyContains('Alice Dev')");

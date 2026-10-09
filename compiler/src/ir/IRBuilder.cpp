@@ -459,6 +459,11 @@ void IRBuilder::visit(const ast::Program& node) {
     // Index functions and generic classes/functions
     for (const auto& decl : node.getDeclarations()) {
         if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(decl.get())) {
+            for (const auto& member : cls->getMembers()) {
+                if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(member.get())) {
+                    m_astFunctions[cls->getName() + "_" + fn->getName()] = fn;
+                }
+            }
             if (cls->isGeneric()) {
                 m_genericClasses[cls->getName()] = cls;
             }
@@ -477,7 +482,16 @@ void IRBuilder::visit(const ast::Program& node) {
             }
         } else if (const auto* block = dynamic_cast<const ast::BlockStmt*>(decl.get())) {
             for (const auto& inner : block->getStatements()) {
-                if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(inner.get())) {
+                if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(inner.get())) {
+                    for (const auto& member : cls->getMembers()) {
+                        if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(member.get())) {
+                            m_astFunctions[cls->getName() + "_" + fn->getName()] = fn;
+                        }
+                    }
+                    if (cls->isGeneric()) {
+                        m_genericClasses[cls->getName()] = cls;
+                    }
+                } else if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(inner.get())) {
                     m_astFunctions[fn->getName()] = fn;
                     if (!fn->hasBody() && !fn->isShortForm()) {
                         std::vector<std::shared_ptr<ParameterValue>> params;
@@ -4205,11 +4219,16 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
             if (methodName == "substring") {
-                if (node.getArgs().size() >= 2) {
+                if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     auto startVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
-                    node.getArgs()[1]->accept(*this);
-                    auto endVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    IRValuePtr endVal = nullptr;
+                    if (node.getArgs().size() >= 2) {
+                        node.getArgs()[1]->accept(*this);
+                        endVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+                    } else {
+                        endVal = std::make_shared<ConstantInt>(IRType::getInt64(), 1000000000LL);
+                    }
                     std::string subReg = m_currentFunction->nextTempName("ssub");
                     auto callInst = std::make_shared<CallInst>(
                         IRType::getPointer(IRType::getInt8()),
@@ -4852,7 +4871,16 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             // Direct/static call
             std::string mangledName = (className.empty() ? "" : className + "_") + methodName;
             auto* targetFunc = m_module->getFunction(mangledName);
-            IRTypePtr returnType = targetFunc ? targetFunc->getReturnType() : IRType::getInt32();
+            IRTypePtr returnType = nullptr;
+            if (targetFunc) {
+                returnType = targetFunc->getReturnType();
+            } else if (m_astFunctions.count(mangledName)) {
+                returnType = mapType(m_astFunctions.at(mangledName)->getReturnType());
+            } else if (auto nodeType = m_sema.getNodeType(&node)) {
+                returnType = mapType(nodeType.get());
+            } else {
+                returnType = IRType::getInt32();
+            }
 
             std::vector<IRValuePtr> loweredArgs;
             if (targetFunc && !targetFunc->getParams().empty() && targetFunc->getParams()[0]->getName() == "%this") {
@@ -6195,14 +6223,36 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
 
     // Determine return type
     auto semaType = m_sema.getNodeType(&node);
-    IRTypePtr retIRType = IRType::getInt64();
+    IRTypePtr retIRType = nullptr;
     if (semaType && semaType->isFunction()) {
         auto fnType = std::dynamic_pointer_cast<sema::FunctionType>(semaType);
-        if (fnType && fnType->getReturnType()) {
+        if (fnType && fnType->getReturnType() && !fnType->getReturnType()->isInteger()) {
             retIRType = mapType(fnType->getReturnType().get());
         }
     } else if (!node.getReturnType().empty()) {
         retIRType = mapType(node.getReturnType());
+    }
+
+    if (!retIRType) {
+        if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
+            auto bodyType = m_sema.getNodeType(exprBody);
+            if (bodyType) retIRType = mapType(bodyType.get());
+        } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
+            for (const auto& stmt : blockBody->getStatements()) {
+                if (const auto* retStmt = dynamic_cast<const ast::ReturnStmt*>(stmt.get())) {
+                    if (retStmt->hasValue()) {
+                        auto valType = m_sema.getNodeType(retStmt->getValue());
+                        if (valType) {
+                            retIRType = mapType(valType.get());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (!retIRType) {
+        retIRType = IRType::getInt64();
     }
 
     // Determine parameter types
@@ -6225,7 +6275,9 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
     auto prevFunc = m_currentFunction;
     auto prevBlock = m_currentBlock;
     auto prevScopes = std::move(m_scopes);
+    auto prevRefCountedScopes = std::move(m_refCountedScopes);
     m_scopes.clear();
+    m_refCountedScopes.clear();
 
     auto lambdaFunc = m_module->createFunction(lambdaName, retIRType, lambdaParams);
     m_currentFunction = lambdaFunc;
@@ -6270,6 +6322,7 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
 
     popScope();
     m_scopes = std::move(prevScopes);
+    m_refCountedScopes = std::move(prevRefCountedScopes);
     m_currentFunction = prevFunc;
     m_currentBlock = prevBlock;
 
