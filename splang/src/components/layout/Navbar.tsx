@@ -53,7 +53,7 @@ export const Navbar: React.FC = () => {
             </Link>
             <Badge variant="success" className="hidden sm:inline-flex ml-2">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              v1.0.0 GA
+              v3.0.0 GA
             </Badge>
           </div>
 
