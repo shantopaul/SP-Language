@@ -24,23 +24,60 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 
 function Download-File([string]$Url, [string]$Destination) {
+    if (Test-Path $Destination) { Remove-Item $Destination -Force -ErrorAction SilentlyContinue }
+
+    # Attempt 1: curl.exe (built into modern Windows)
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
         try {
-            & curl.exe -s -L -o $Destination $Url
-            if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 10000)) {
-                return $true
+            & curl.exe -f -s -S -L --retry 2 -o $Destination $Url
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
+                try {
+                    $z = [System.IO.Compression.ZipFile]::OpenRead($Destination)
+                    $z.Dispose()
+                    return $true
+                } catch {
+                    Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+                }
             }
         } catch {}
     }
+
+    # Attempt 2: .NET WebClient (fast and synchronous)
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -TimeoutSec 120
-        return ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 10000))
-    } catch {
-        return $false
-    }
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("User-Agent", "SPLang-Installer/3.1.0")
+        $wc.DownloadFile($Url, $Destination)
+        if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
+            try {
+                $z = [System.IO.Compression.ZipFile]::OpenRead($Destination)
+                $z.Dispose()
+                return $true
+            } catch {
+                Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    # Attempt 3: PowerShell Invoke-WebRequest
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -TimeoutSec 180
+        if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
+            try {
+                $z = [System.IO.Compression.ZipFile]::OpenRead($Destination)
+                $z.Dispose()
+                return $true
+            } catch {
+                Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    return $false
 }
 
 function Write-Banner {
