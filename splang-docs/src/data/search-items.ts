@@ -21,8 +21,16 @@ export const SEARCH_INDEX: SearchItem[] = [
     title: "Installing the SP Toolchain",
     category: "Getting Started",
     href: "/getting-started/installation",
-    keywords: ["install", "windows", "linux", "macos", "winget", "curl", "brew"],
+    keywords: ["install", "windows", "linux", "macos", "winget", "curl", "powershell", "doctor", "setup"],
     excerpt: "Step-by-step installation instructions for Windows, Linux, and macOS platforms.",
+  },
+  {
+    id: "gs-uninstall",
+    title: "Uninstalling SP Language",
+    category: "Getting Started",
+    href: "/getting-started/installation",
+    keywords: ["uninstall", "remove", "delete", "uninstaller", "spc uninstall", "uninstall.exe", "clean"],
+    excerpt: "Completely and cleanly remove SP Language compiler, toolchains, SP_HOME, and PATH entries.",
   },
   {
     id: "gs-first",

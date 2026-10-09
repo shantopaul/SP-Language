@@ -37,10 +37,10 @@ export default function DownloadsPage() {
               </span>
             </div>
             <p className="text-xs text-slate-400 mb-6">
-              Compatible with Windows 10 & 11 (64-bit). Includes installer & zip distribution.
+              Compatible with Windows 10 & 11 (64-bit). Instant 1-click installer & portable zip.
             </p>
-            <div className="bg-black/50 p-3 rounded-xl border border-slate-800 font-mono text-xs text-emerald-400 mb-6">
-              winget install SPLang.SP
+            <div className="bg-black/50 p-3 rounded-xl border border-slate-800 font-mono text-xs text-emerald-400 mb-6 overflow-x-auto whitespace-nowrap">
+              irm https://dl.splang.shantopaul.com/install.ps1 | iex
             </div>
           </div>
           <div className="flex flex-col gap-2.5">
@@ -61,7 +61,7 @@ export default function DownloadsPage() {
             >
               <Button className="w-full justify-center bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
                 <Download className="w-4 h-4 mr-1.5" />
-                Download Portable (.zip) (7.49 MB)
+                Download Portable (.zip) (7.77 MB)
               </Button>
             </a>
           </div>
@@ -210,6 +210,37 @@ export default function DownloadsPage() {
           <pre className="bg-black/60 p-3 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto">
             sha256sum sp-1.0.0-linux-x86_64.tar.gz
           </pre>
+        </div>
+      </div>
+
+      {/* Complete Uninstallation Guide */}
+      <div className="mt-16 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 sm:p-8">
+        <div className="flex items-center gap-2 mb-3">
+          <Terminal className="w-5 h-5 text-red-400" />
+          <h2 className="text-xl font-bold text-white">Clean Uninstallation</h2>
+        </div>
+        <p className="text-sm text-slate-300 mb-6">
+          SP includes a 100% clean uninstaller that removes all compiler binaries, runtimes, environment variables (<code>SP_HOME</code>), and user <code>PATH</code> entries with zero residue.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs sm:text-sm">
+          <div className="p-4 rounded-xl border border-slate-800 bg-black/40">
+            <span className="font-semibold text-white block mb-1">1. Native CLI Command</span>
+            <p className="text-slate-400 text-xs mb-3">Run directly from any terminal:</p>
+            <pre className="bg-black/60 p-2.5 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400">spc uninstall</pre>
+          </div>
+
+          <div className="p-4 rounded-xl border border-slate-800 bg-black/40">
+            <span className="font-semibold text-white block mb-1">2. Online One-Liner (PowerShell)</span>
+            <p className="text-slate-400 text-xs mb-3">Instant removal without local files:</p>
+            <pre className="bg-black/60 p-2.5 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto">irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex</pre>
+          </div>
+
+          <div className="p-4 rounded-xl border border-slate-800 bg-black/40">
+            <span className="font-semibold text-white block mb-1">3. Windows Installed Apps / GUI</span>
+            <p className="text-slate-400 text-xs mb-3">Via Windows Settings or standalone .exe:</p>
+            <p className="text-slate-300 text-xs font-mono">Settings &rarr; Apps &rarr; Installed apps &rarr; SP Programming Language &rarr; Uninstall</p>
+          </div>
         </div>
       </div>
     </div>

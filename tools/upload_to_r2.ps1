@@ -58,11 +58,40 @@ $assetsToUpload = @(
     @{ Path = (Join-Path $repoRoot "install.sh"); Key = "install.sh" }
 )
 
-# 2. Check upload methods
-# Method A: AWS CLI (S3 compatible)
+# 2. Check and load .env file if credentials not yet present in environment
+$envFile = Join-Path $repoRoot ".env"
+if (Test-Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+            $parts = $line.Split("=", 2)
+            $k = $parts[0].Trim()
+            $v = $parts[1].Trim().Trim('"').Trim("'")
+            if ($k -eq "R2_ACCESS_KEY_ID" -and -not $AccessKeyId) { $AccessKeyId = $v }
+            if ($k -eq "R2_SECRET_ACCESS_KEY" -and -not $SecretAccessKey) { $SecretAccessKey = $v }
+            if ($k -eq "R2_ACCOUNT_ID" -and -not $AccountId) { $AccountId = $v }
+            if ($k -eq "R2_BUCKET_NAME" -and -not $BucketName) { $BucketName = $v }
+        }
+    }
+}
+
+# 3. Check upload methods
+# Method A: Automated Pure Node.js Standard Library Engine (Fastest, zero external CLI deps)
+$nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+$jsScript = Join-Path $PSScriptRoot "upload_to_r2.js"
+if ($nodeCmd -and (Test-Path $jsScript)) {
+    Write-Host "`n[Method 1] Uploading directly to Cloudflare R2 via Node.js S3 Engine..." -ForegroundColor Green
+    & node $jsScript $Version
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "`n[SUCCESS] Cloudflare R2 Release Upload Complete!" -ForegroundColor Green
+        exit 0
+    }
+}
+
+# Method B: AWS CLI (S3 compatible)
 $awsCmd = Get-Command aws.exe -ErrorAction SilentlyContinue
 if ($awsCmd -and $AccessKeyId -and $SecretAccessKey) {
-    Write-Host "`n[A] Uploading via AWS CLI to Cloudflare R2..." -ForegroundColor Green
+    Write-Host "`n[Method 2] Uploading via AWS CLI to Cloudflare R2..." -ForegroundColor Green
     $env:AWS_ACCESS_KEY_ID = $AccessKeyId
     $env:AWS_SECRET_ACCESS_KEY = $SecretAccessKey
     $endpoint = "https://$AccountId.r2.cloudflarestorage.com"
@@ -77,10 +106,10 @@ if ($awsCmd -and $AccessKeyId -and $SecretAccessKey) {
     exit 0
 }
 
-# Method B: Cloudflare Wrangler via npx
+# Method C: Cloudflare Wrangler via npx
 $hasNode = (Get-Command node.exe -ErrorAction SilentlyContinue) -ne $null
 if ($hasNode -and $env:CLOUDFLARE_API_TOKEN) {
-    Write-Host "`n[B] Uploading via Cloudflare Wrangler CLI..." -ForegroundColor Green
+    Write-Host "`n[Method 3] Uploading via Cloudflare Wrangler CLI..." -ForegroundColor Green
     foreach ($asset in $assetsToUpload) {
         if (Test-Path $asset.Path) {
             Write-Host "    Uploading $($asset.Key)..." -ForegroundColor Cyan

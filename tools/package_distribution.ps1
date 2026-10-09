@@ -23,7 +23,7 @@ Write-Host "====================================================================
 if (-not $SkipBuild) {
     Write-Host "`n[1/4] Building core targets (Release)..." -ForegroundColor Green
     $buildDir = Join-Path $repoRoot "build"
-    cmake --build $buildDir --config Release --target spc spm sp_runtime
+    cmake --build $buildDir --config Release --target spc spm sp_runtime sp_uninstall
 }
 
 # 2. Prepare staging directory
@@ -41,13 +41,20 @@ New-Item -ItemType Directory -Path "$stageDir\stdlib" -Force | Out-Null
 New-Item -ItemType Directory -Path "$stageDir\examples" -Force | Out-Null
 
 # Copy binaries
-$binFiles = @("spc.exe", "spm.exe", "spd.exe", "spls.exe")
+$binFiles = @("spc.exe", "spm.exe", "spd.exe", "spls.exe", "uninstall.exe")
 foreach ($bin in $binFiles) {
     $srcBin = Join-Path $repoRoot "build\bin\$bin"
     if (Test-Path $srcBin) {
         Copy-Item -Path $srcBin -Destination "$stageDir\bin" -Force
         Write-Host "  -> Bundled binary: $bin" -ForegroundColor Gray
     }
+}
+
+# Copy standalone uninstaller to root of package (for direct access in ~/.sp/uninstall.exe)
+$srcUninstaller = Join-Path $repoRoot "build\bin\uninstall.exe"
+if (Test-Path $srcUninstaller) {
+    Copy-Item -Path $srcUninstaller -Destination "$stageDir\uninstall.exe" -Force
+    Write-Host "  -> Bundled root uninstaller: uninstall.exe" -ForegroundColor Gray
 }
 
 # Copy runtime library
@@ -110,6 +117,12 @@ if (Test-Path $examplesDir) {
 Copy-Item -Path (Join-Path $repoRoot "install.ps1") -Destination $stageDir -Force
 if (Test-Path (Join-Path $repoRoot "install.sh")) {
     Copy-Item -Path (Join-Path $repoRoot "install.sh") -Destination $stageDir -Force
+}
+if (Test-Path (Join-Path $repoRoot "uninstall.ps1")) {
+    Copy-Item -Path (Join-Path $repoRoot "uninstall.ps1") -Destination $stageDir -Force
+}
+if (Test-Path (Join-Path $repoRoot "uninstall.sh")) {
+    Copy-Item -Path (Join-Path $repoRoot "uninstall.sh") -Destination $stageDir -Force
 }
 if (Test-Path (Join-Path $repoRoot "README.md")) {
     Copy-Item -Path (Join-Path $repoRoot "README.md") -Destination $stageDir -Force
