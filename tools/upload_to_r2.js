@@ -149,6 +149,11 @@ async function main() {
     { path: installSh, key: 'install.sh', type: 'text/x-shellscript; charset=utf-8' }
   ];
 
+  const toolchainZip = path.join(distDir, 'toolchain-win64.zip');
+  if (fs.existsSync(toolchainZip)) {
+    filesToUpload.push({ path: toolchainZip, key: 'toolchain-win64.zip', type: 'application/zip' });
+  }
+
   for (const item of filesToUpload) {
     await uploadFileToR2(item.path, item.key, item.type);
   }

@@ -301,39 +301,46 @@ if ($hasClang -or $hasClangC -or $hasBundled) {
     Write-Host "  -> Backend LLVM Clang toolchain is detected and ready." -ForegroundColor Green
 } elseif (-not $SkipToolchain) {
     Write-Host "  -> No backend LLVM Clang compiler detected on this PC." -ForegroundColor Yellow
-    Write-Host "     Auto-provisioning Windows backend toolchain..." -ForegroundColor Yellow
+    Write-Host "     Auto-provisioning lightweight portable toolchain from CDN..." -ForegroundColor Yellow
     
     $provisioned = $false
-    # Step A: Windows Package Manager (winget) - standard on Windows 10 & 11
-    $hasWinget = (Get-Command winget.exe -ErrorAction SilentlyContinue) -ne $null
-    if ($hasWinget) {
+    # Step A: High-speed portable toolchain from SP Language CDN (Direct from Cloudflare R2)
+    $tcUrls = @(
+        "https://dl.splang.shantopaul.com/toolchain-win64.zip",
+        "https://splang.shantopaul.com/downloads/toolchain-win64.zip",
+        "https://github.com/shantopaul/SP-Language/releases/download/v$($Version)/toolchain-win64.zip"
+    )
+    $tcZip = Join-Path $env:TEMP "sp_toolchain_$([Guid]::NewGuid().ToString('N')).zip"
+
+    foreach ($tcu in $tcUrls) {
         try {
-            Write-Host "     Installing official LLVM Clang toolchain via winget (silent)..." -ForegroundColor Cyan
-            winget install --id LLVM.LLVM -e --silent --accept-source-agreements --accept-package-agreements
-            
-            $llvmPaths = @("C:\Program Files\LLVM\bin", "C:\Program Files (x86)\LLVM\bin", "D:\Program Files\LLVM\bin")
-            foreach ($lp in $llvmPaths) {
-                if (Test-Path (Join-Path $lp "clang++.exe")) {
+            Write-Host "     Connecting to high-speed CDN: $tcu" -ForegroundColor Gray
+            Invoke-WebRequest -Uri $tcu -OutFile $tcZip -UseBasicParsing -TimeoutSec 120
+            if ((Test-Path $tcZip) -and ((Get-Item $tcZip).Length -gt 5000000)) {
+                Write-Host "     Extracting portable toolchain to $ToolchainDir..." -ForegroundColor Cyan
+                Expand-Archive -Path $tcZip -DestinationPath $ToolchainDir -Force
+                Remove-Item -Path $tcZip -Force -ErrorAction SilentlyContinue
+                if (Test-Path (Join-Path $ToolchainBin "clang++.exe")) {
                     $provisioned = $true
-                    if ($env:Path -notlike "*$lp*") {
-                        $env:Path = "$lp;$env:Path"
+                    if ($env:Path -notlike "*$ToolchainBin*") {
+                        $env:Path = "$ToolchainBin;$env:Path"
                     }
-                    Write-Host "     LLVM Clang installed successfully: $lp\clang++.exe" -ForegroundColor Green
+                    Write-Host "     Portable LLVM Clang toolchain installed and ready!" -ForegroundColor Green
                     break
                 }
             }
         } catch {
-            Write-Host "     winget installation deferred, attempting portable toolchain..." -ForegroundColor DarkGray
+            Write-Host "     CDN mirror busy, trying next option..." -ForegroundColor DarkGray
         }
     }
 
-    # Step B: Portable Toolchain Fallback via 'spc setup'
+    # Step B: Fallback to winget only if CDN toolchain was unreachable
     if (-not $provisioned) {
-        $SpcExe = Join-Path $BinDir "spc.exe"
-        if (Test-Path $SpcExe) {
-            Write-Host "     Invoking 'spc setup'..." -ForegroundColor Cyan
+        $hasWinget = (Get-Command winget.exe -ErrorAction SilentlyContinue) -ne $null
+        if ($hasWinget) {
             try {
-                & $SpcExe setup
+                Write-Host "     Falling back to Windows Package Manager (winget)..." -ForegroundColor Cyan
+                winget install --id LLVM.LLVM -e --silent --accept-source-agreements --accept-package-agreements
             } catch {}
         }
     }
