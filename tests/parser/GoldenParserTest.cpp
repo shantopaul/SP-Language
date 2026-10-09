@@ -136,4 +136,24 @@ TEST(GoldenParserTest, ParseStdlibHttp) {
     assertFileParsesCleanly("stdlib/http/http.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibPassword) {
+    assertFileParsesCleanly("stdlib/crypto/password.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibJwt) {
+    assertFileParsesCleanly("stdlib/security/jwt.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibSession) {
+    assertFileParsesCleanly("stdlib/security/session.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibSecurityMiddleware) {
+    assertFileParsesCleanly("stdlib/security/middleware.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibSecurity) {
+    assertFileParsesCleanly("stdlib/security/security.sp");
+}
+
 } // namespace sp::parser::test

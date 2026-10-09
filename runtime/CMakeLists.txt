@@ -10,6 +10,11 @@ add_library(sp_runtime
     src/net/EventLoop.cpp
     src/net/NetBridge.cpp
     src/crypto/Crypto.cpp
+    src/crypto/Argon2.cpp
+    src/crypto/Bcrypt.cpp
+    src/crypto/Jwt.cpp
+    src/crypto/Session.cpp
+    src/crypto/SecurityBridge.cpp
     src/json/Json.cpp
     src/http/Http.cpp
     src/db/Sqlite.cpp

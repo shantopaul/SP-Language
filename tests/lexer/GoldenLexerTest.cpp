@@ -141,4 +141,24 @@ TEST(GoldenLexerTest, TokenizeStdlibHttp) {
     assertFileTokenizesWithoutErrors("stdlib/http/http.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibPassword) {
+    assertFileTokenizesWithoutErrors("stdlib/crypto/password.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibJwt) {
+    assertFileTokenizesWithoutErrors("stdlib/security/jwt.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibSession) {
+    assertFileTokenizesWithoutErrors("stdlib/security/session.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibSecurityMiddleware) {
+    assertFileTokenizesWithoutErrors("stdlib/security/middleware.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibSecurity) {
+    assertFileTokenizesWithoutErrors("stdlib/security/security.sp");
+}
+
 } // namespace sp::lexer::test

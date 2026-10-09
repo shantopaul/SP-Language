@@ -19,6 +19,15 @@ std::string base64Encode(const std::string& input);
 std::string base64EncodeBytes(const uint8_t* data, size_t length);
 std::string base64Decode(const std::string& input);
 
+// Base64Url (RFC 4648 §5, URL-safe and unpadded for JWTs)
+std::string base64UrlEncode(const std::string& input);
+std::string base64UrlEncodeBytes(const uint8_t* data, size_t length);
+std::string base64UrlDecode(const std::string& input);
+
+// Constant-Time Equality (Protects against timing attacks)
+bool timingSafeEqual(const std::string& a, const std::string& b);
+bool timingSafeEqualBytes(const uint8_t* a, size_t aLen, const uint8_t* b, size_t bLen);
+
 // Cryptographically secure random numbers & tokens
 std::vector<uint8_t> randomBytes(size_t count);
 std::string randomHex(size_t byteCount);
