@@ -1189,9 +1189,9 @@ Every runtime dependency, standard library module, precompiled runtime static li
 - [x] 2. Automatically detect when a requested package is an existing standard library module (`std.json`, `std.http`, `std.crypto`, `std.fs`, `std.io`, `std.db`) and notify the developer that it is already built-in without requiring registry download.
 - [x] 3. Ensure semver constraint resolution in `DependencyResolver.cpp` resolves matching registry versions accurately without throwing `No compatible version found`.
 
-#### Phase 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds
-- [ ] 1. Update `spm build` and `spm verify` to automatically generate `sp.lock` if it is missing rather than failing with a hard error.
-- [ ] 2. Allow zero-dependency projects to build immediately without requiring manual `spm install`.
+#### Phase 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds ✅
+- [x] 1. Update `spm build` and `spm verify` to automatically generate `sp.lock` if it is missing rather than failing with a hard error.
+- [x] 2. Allow zero-dependency projects to build immediately without requiring manual `spm install`.
 
 #### Phase 29.8: Universal 1-Click All-Inclusive Installers (Windows, Linux, macOS)
 - [ ] 1. Update Windows instant installer `install.ps1`:

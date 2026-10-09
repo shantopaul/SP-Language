@@ -120,7 +120,7 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
         }
     }
 
-    if (needsResolution && !config.getDependencies().empty()) {
+    if (needsResolution) {
         DependencyResolver resolver;
         auto res = resolver.resolve(config, projectDir, false);
         if (!res.success) {
@@ -490,13 +490,18 @@ VerifyResult BuildOrchestrator::verify(const std::string& projectDir) {
 
     fs::path lockPath = fs::path(projectDir) / "sp.lock";
     if (!fs::exists(lockPath)) {
-        if (config.getDependencies().empty()) {
-            result.success = true;
-            result.packagesVerified = 0;
+        // Self-healing: auto-resolve and generate lockfile
+        DependencyResolver resolver;
+        auto res = resolver.resolve(config, projectDir, false);
+        if (!res.success) {
+            result.errorMessage = "Auto-generating 'sp.lock' failed: " + res.errorMessage;
             return result;
         }
-        result.errorMessage = "Missing lockfile 'sp.lock'. Run 'spm install' to resolve dependencies.";
-        return result;
+        Lockfile autoLock = Lockfile::fromResolution(res);
+        if (!autoLock.saveToFile(lockPath.string())) {
+            result.errorMessage = "Failed to write 'sp.lock': " + autoLock.getLastError();
+            return result;
+        }
     }
 
     Lockfile lock;
