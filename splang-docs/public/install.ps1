@@ -301,24 +301,40 @@ if ($hasClang -or $hasClangC -or $hasBundled) {
     Write-Host "  -> Backend LLVM Clang toolchain is detected and ready." -ForegroundColor Green
 } elseif (-not $SkipToolchain) {
     Write-Host "  -> No backend LLVM Clang compiler detected on this PC." -ForegroundColor Yellow
-    Write-Host "     Auto-provisioning portable Windows toolchain for instant out-of-the-box native compilation..." -ForegroundColor Yellow
+    Write-Host "     Auto-provisioning Windows backend toolchain..." -ForegroundColor Yellow
     
-    $SpcExe = Join-Path $BinDir "spc.exe"
-    if (Test-Path $SpcExe) {
-        Write-Host "     Invoking 'spc setup'..." -ForegroundColor Cyan
-        & $SpcExe setup
-    } else {
-        # Check if winget can install LLVM
-        $hasWinget = (Get-Command winget.exe -ErrorAction SilentlyContinue) -ne $null
-        if ($hasWinget) {
-            try {
-                Write-Host "     Installing LLVM Clang via Windows Package Manager (winget)..." -ForegroundColor Cyan
-                winget install --id LLVM.LLVM -e --silent --accept-source-agreements --accept-package-agreements
-            } catch {
-                Write-Host "     winget installation deferred. You can run 'spc setup' anytime." -ForegroundColor DarkGray
+    $provisioned = $false
+    # Step A: Windows Package Manager (winget) - standard on Windows 10 & 11
+    $hasWinget = (Get-Command winget.exe -ErrorAction SilentlyContinue) -ne $null
+    if ($hasWinget) {
+        try {
+            Write-Host "     Installing official LLVM Clang toolchain via winget (silent)..." -ForegroundColor Cyan
+            winget install --id LLVM.LLVM -e --silent --accept-source-agreements --accept-package-agreements
+            
+            $llvmPaths = @("C:\Program Files\LLVM\bin", "C:\Program Files (x86)\LLVM\bin", "D:\Program Files\LLVM\bin")
+            foreach ($lp in $llvmPaths) {
+                if (Test-Path (Join-Path $lp "clang++.exe")) {
+                    $provisioned = $true
+                    if ($env:Path -notlike "*$lp*") {
+                        $env:Path = "$lp;$env:Path"
+                    }
+                    Write-Host "     LLVM Clang installed successfully: $lp\clang++.exe" -ForegroundColor Green
+                    break
+                }
             }
-        } else {
-            Write-Host "     Toolchain can be provisioned at any time by running 'spc setup'." -ForegroundColor DarkGray
+        } catch {
+            Write-Host "     winget installation deferred, attempting portable toolchain..." -ForegroundColor DarkGray
+        }
+    }
+
+    # Step B: Portable Toolchain Fallback via 'spc setup'
+    if (-not $provisioned) {
+        $SpcExe = Join-Path $BinDir "spc.exe"
+        if (Test-Path $SpcExe) {
+            Write-Host "     Invoking 'spc setup'..." -ForegroundColor Cyan
+            try {
+                & $SpcExe setup
+            } catch {}
         }
     }
 }
