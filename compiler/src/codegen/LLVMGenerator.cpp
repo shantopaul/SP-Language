@@ -65,11 +65,7 @@ std::string LLVMGenerator::findClangCompiler() {
     if (!p.empty() && fs::exists(p)) {
         return p.string();
     }
-#if defined(_WIN32)
-    return "clang++.exe";
-#else
-    return "clang++";
-#endif
+    return "";
 }
 
 std::string LLVMGenerator::findRuntimeSourcePath() {
@@ -222,6 +218,17 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     std::string clang = m_options.clangPath;
     if (clang.empty()) {
         clang = findClangCompiler();
+    }
+    if (clang.empty() || !fs::exists(clang)) {
+        m_lastError = "No LLVM Clang compiler found on this system. Please run 'spc setup' to auto-provision a portable toolchain, or install LLVM Clang.";
+        return false;
+    }
+
+    std::string clangLower = clang;
+    for (auto& c : clangLower) c = std::tolower(static_cast<unsigned char>(c));
+    if (clangLower.find("g++") != std::string::npos || clangLower.find("gcc") != std::string::npos) {
+        m_lastError = "Unsupported backend compiler '" + clang + "'. GCC cannot compile LLVM IR and does not support '--target'. Please use LLVM Clang (clang++) or run 'spc setup'.";
+        return false;
     }
 
     // 3. Resolve runtime source and include

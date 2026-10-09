@@ -322,12 +322,22 @@ fs::path findClangCompiler(const std::string& customPath) {
 
     const char* envClang = std::getenv("SP_CLANG");
     if (envClang && *envClang && fs::exists(envClang)) {
-        return fs::absolute(envClang);
+        std::string s(envClang);
+        std::string lower = s;
+        for (auto& c : lower) c = std::tolower(static_cast<unsigned char>(c));
+        if (lower.find("g++") == std::string::npos && lower.find("gcc") == std::string::npos) {
+            return fs::absolute(s);
+        }
     }
 
     const char* envClang2 = std::getenv("CLANG");
     if (envClang2 && *envClang2 && fs::exists(envClang2)) {
-        return fs::absolute(envClang2);
+        std::string s(envClang2);
+        std::string lower = s;
+        for (auto& c : lower) c = std::tolower(static_cast<unsigned char>(c));
+        if (lower.find("g++") == std::string::npos && lower.find("gcc") == std::string::npos) {
+            return fs::absolute(s);
+        }
     }
 
     // 1. Check bundled toolchain in SP_HOME/toolchain/bin
@@ -361,35 +371,65 @@ fs::path findClangCompiler(const std::string& customPath) {
     }
 #endif
 
-    // 2. Check standard system installation paths on Windows
+    // 2. Multi-drive scan and standard system installation paths on Windows
 #if defined(_WIN32)
-    const std::vector<std::string> knownPaths = {
-        "C:/Program Files/LLVM/bin/clang++.exe",
-        "C:/Program Files/LLVM/bin/clang.exe",
-        "C:/Program Files (x86)/LLVM/bin/clang++.exe",
-        "C:/msys64/ucrt64/bin/clang++.exe",
-        "C:/msys64/mingw64/bin/clang++.exe",
-        "C:/msys64/clang64/bin/clang++.exe",
-        "C:/mingw64/bin/clang++.exe",
-        "C:/w64devkit/bin/g++.exe"
-    };
-    for (const auto& path : knownPaths) {
-        if (fs::exists(path)) {
-            return fs::absolute(path);
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:", "G:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
+        }
+        if (!foundDrive) {
+            drives.insert(drives.begin(), exeDrive);
         }
     }
 
-    // 3. Check PATH
+    for (const auto& d : drives) {
+        fs::path p1 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "clang++.exe";
+        if (fs::exists(p1)) return fs::absolute(p1);
+        fs::path p2 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "clang.exe";
+        if (fs::exists(p2)) return fs::absolute(p2);
+        fs::path p3 = fs::path(d) / "Program Files (x86)" / "LLVM" / "bin" / "clang++.exe";
+        if (fs::exists(p3)) return fs::absolute(p3);
+        fs::path p4 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "clang++.exe";
+        if (fs::exists(p4)) return fs::absolute(p4);
+        fs::path p5 = fs::path(d) / "msys64" / "clang64" / "bin" / "clang++.exe";
+        if (fs::exists(p5)) return fs::absolute(p5);
+        fs::path p6 = fs::path(d) / "msys64" / "mingw64" / "bin" / "clang++.exe";
+        if (fs::exists(p6)) return fs::absolute(p6);
+        fs::path p7 = fs::path(d) / "mingw64" / "bin" / "clang++.exe";
+        if (fs::exists(p7)) return fs::absolute(p7);
+        fs::path p8 = fs::path(d) / "LLVM" / "bin" / "clang++.exe";
+        if (fs::exists(p8)) return fs::absolute(p8);
+        fs::path p9 = fs::path(d) / "LLVM" / "bin" / "clang.exe";
+        if (fs::exists(p9)) return fs::absolute(p9);
+    }
+
+    const char* userProfile = std::getenv("USERPROFILE");
+    if (userProfile && *userProfile) {
+        fs::path prof(userProfile);
+        fs::path sc1 = prof / "scoop" / "apps" / "llvm" / "current" / "bin" / "clang++.exe";
+        if (fs::exists(sc1)) return fs::absolute(sc1);
+        fs::path sc2 = prof / "scoop" / "apps" / "mingw-winlibs-llvm" / "current" / "bin" / "clang++.exe";
+        if (fs::exists(sc2)) return fs::absolute(sc2);
+        fs::path sc3 = prof / "scoop" / "apps" / "msys2" / "current" / "ucrt64" / "bin" / "clang++.exe";
+        if (fs::exists(sc3)) return fs::absolute(sc3);
+        fs::path sc4 = prof / "scoop" / "apps" / "msys2" / "current" / "clang64" / "bin" / "clang++.exe";
+        if (fs::exists(sc4)) return fs::absolute(sc4);
+    }
+
+    // 3. Check PATH strictly for LLVM Clang (never g++)
     auto inPath = findInPath("clang++");
     if (!inPath.empty()) return inPath;
 
     auto inPathClang = findInPath("clang");
     if (!inPathClang.empty()) return inPathClang;
 
-    auto inPathGpp = findInPath("g++");
-    if (!inPathGpp.empty()) return inPathGpp;
-
-    return "clang++.exe";
+    return "";
 #else
     auto inPath = findInPath("clang++");
     if (!inPath.empty()) return inPath;
@@ -397,10 +437,18 @@ fs::path findClangCompiler(const std::string& customPath) {
     auto inPathClang = findInPath("clang");
     if (!inPathClang.empty()) return inPathClang;
 
-    auto inPathGpp = findInPath("g++");
-    if (!inPathGpp.empty()) return inPathGpp;
+    const std::vector<std::string> unixPaths = {
+        "/usr/bin/clang++",
+        "/usr/local/bin/clang++",
+        "/opt/homebrew/bin/clang++",
+        "/usr/bin/clang",
+        "/usr/local/bin/clang"
+    };
+    for (const auto& u : unixPaths) {
+        if (fs::exists(u)) return fs::absolute(u);
+    }
 
-    return "clang++";
+    return "";
 #endif
 }
 
@@ -438,20 +486,46 @@ fs::path findLinker(const std::string& targetTriple, const std::string& customPa
 #endif
     }
 
-    // 2. Check standard system installations
+    auto exeDir = getExecutableDir();
 #if defined(_WIN32)
-    const std::vector<std::string> knownLinkers = {
-        "C:/Program Files/LLVM/bin/lld-link.exe",
-        "C:/Program Files/LLVM/bin/clang++.exe",
-        "C:/msys64/ucrt64/bin/clang++.exe",
-        "C:/msys64/mingw64/bin/clang++.exe",
-        "C:/msys64/ucrt64/bin/ld.lld.exe",
-        "C:/msys64/mingw64/bin/ld.lld.exe"
-    };
-    for (const auto& path : knownLinkers) {
-        if (fs::exists(path)) {
-            return fs::absolute(path);
+    if (fs::exists(exeDir / ".." / "toolchain" / "bin" / "lld-link.exe")) {
+        return fs::absolute(exeDir / ".." / "toolchain" / "bin" / "lld-link.exe");
+    }
+    if (fs::exists(exeDir / "toolchain" / "bin" / "lld-link.exe")) {
+        return fs::absolute(exeDir / "toolchain" / "bin" / "lld-link.exe");
+    }
+#endif
+
+    // 2. Multi-drive scan and standard system installations
+#if defined(_WIN32)
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:", "G:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
         }
+        if (!foundDrive) drives.insert(drives.begin(), exeDrive);
+    }
+
+    for (const auto& d : drives) {
+        fs::path p1 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "lld-link.exe";
+        if (fs::exists(p1)) return fs::absolute(p1);
+        fs::path p2 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "ld.lld.exe";
+        if (fs::exists(p2)) return fs::absolute(p2);
+        fs::path p3 = fs::path(d) / "Program Files" / "LLVM" / "bin" / "clang++.exe";
+        if (fs::exists(p3)) return fs::absolute(p3);
+        fs::path p4 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "ld.lld.exe";
+        if (fs::exists(p4)) return fs::absolute(p4);
+        fs::path p5 = fs::path(d) / "msys64" / "clang64" / "bin" / "ld.lld.exe";
+        if (fs::exists(p5)) return fs::absolute(p5);
+        fs::path p6 = fs::path(d) / "msys64" / "mingw64" / "bin" / "ld.lld.exe";
+        if (fs::exists(p6)) return fs::absolute(p6);
+        fs::path p7 = fs::path(d) / "msys64" / "ucrt64" / "bin" / "clang++.exe";
+        if (fs::exists(p7)) return fs::absolute(p7);
     }
 
     auto inPathLld = findInPath("lld-link");

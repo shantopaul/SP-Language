@@ -1,10 +1,14 @@
 #include "sp/codegen/ObjectEmitter.h"
 #include "sp/ir/IRPrinter.h"
+#include "sp/util/PathUtils.h"
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <atomic>
+#include <chrono>
+#include <cstring>
 
 namespace fs = std::filesystem;
 
@@ -60,28 +64,35 @@ std::string ObjectEmitter::findLLVMTool(const std::string& toolName, const std::
         if (fs::exists(customPath)) return customPath;
     }
 
-    // 1. Check environment variables
+    // 1. Check environment variables (rejecting GCC fallbacks)
     std::string envVarName = "SP_" + toolName;
     for (auto& c : envVarName) c = static_cast<char>(std::toupper(c));
     const char* envTool = std::getenv(envVarName.c_str());
-    if (envTool && fs::exists(envTool)) return envTool;
+    if (envTool && fs::exists(envTool)) {
+        std::string s(envTool);
+        std::string lower = s;
+        for (auto& c : lower) c = std::tolower(static_cast<unsigned char>(c));
+        if (lower.find("g++") == std::string::npos && lower.find("gcc") == std::string::npos) {
+            return s;
+        }
+    }
 
     if (toolName == "clang" || toolName == "clang++") {
         const char* cEnv = std::getenv("CLANG");
-        if (cEnv && fs::exists(cEnv)) return cEnv;
+        if (cEnv && fs::exists(cEnv)) {
+            std::string s(cEnv);
+            std::string lower = s;
+            for (auto& c : lower) c = std::tolower(static_cast<unsigned char>(c));
+            if (lower.find("g++") == std::string::npos && lower.find("gcc") == std::string::npos) {
+                return s;
+            }
+        }
     }
 
-    // 2. Known local toolchain directories
-    const std::vector<std::string> knownDirs = {
-        "K:/AndroidDev/tools/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin",
-        "C:/msys64/ucrt64/bin",
-        "C:/msys64/mingw64/bin",
-        "C:/Program Files/LLVM/bin",
-        "C:/Program Files (x86)/LLVM/bin"
-    };
-
-    for (const auto& dir : knownDirs) {
-        fs::path p = fs::path(dir) / (toolName +
+    // 2. Check bundled toolchain in SP_HOME/toolchain/bin
+    auto home = util::getSPHome();
+    if (!home.empty()) {
+        fs::path p = home / "toolchain" / "bin" / (toolName +
 #if defined(_WIN32)
             ".exe"
 #else
@@ -91,12 +102,63 @@ std::string ObjectEmitter::findLLVMTool(const std::string& toolName, const std::
         if (fs::exists(p)) return p.string();
     }
 
-    // 3. PATH fallback
+    auto exeDir = util::getExecutableDir();
+    if (!exeDir.empty()) {
+        fs::path p = exeDir / ".." / "toolchain" / "bin" / (toolName +
 #if defined(_WIN32)
-    return toolName + ".exe";
+            ".exe"
 #else
-    return toolName;
+            ""
 #endif
+        );
+        if (fs::exists(p)) return p.string();
+    }
+
+    // 3. Multi-drive scanning on Windows
+#if defined(_WIN32)
+    std::vector<std::string> drives = {"C:", "D:", "E:", "F:", "G:"};
+    if (!exeDir.empty() && exeDir.has_root_name()) {
+        std::string exeDrive = exeDir.root_name().string();
+        bool foundDrive = false;
+        for (const auto& d : drives) {
+            if (_stricmp(d.c_str(), exeDrive.c_str()) == 0) {
+                foundDrive = true;
+                break;
+            }
+        }
+        if (!foundDrive) drives.insert(drives.begin(), exeDrive);
+    }
+
+    for (const auto& d : drives) {
+        fs::path p1 = fs::path(d) / "Program Files" / "LLVM" / "bin" / (toolName + ".exe");
+        if (fs::exists(p1)) return p1.string();
+        fs::path p2 = fs::path(d) / "Program Files (x86)" / "LLVM" / "bin" / (toolName + ".exe");
+        if (fs::exists(p2)) return p2.string();
+        fs::path p3 = fs::path(d) / "msys64" / "ucrt64" / "bin" / (toolName + ".exe");
+        if (fs::exists(p3)) return p3.string();
+        fs::path p4 = fs::path(d) / "msys64" / "clang64" / "bin" / (toolName + ".exe");
+        if (fs::exists(p4)) return p4.string();
+        fs::path p5 = fs::path(d) / "msys64" / "mingw64" / "bin" / (toolName + ".exe");
+        if (fs::exists(p5)) return p5.string();
+        fs::path p6 = fs::path(d) / "mingw64" / "bin" / (toolName + ".exe");
+        if (fs::exists(p6)) return p6.string();
+        fs::path p7 = fs::path(d) / "LLVM" / "bin" / (toolName + ".exe");
+        if (fs::exists(p7)) return p7.string();
+    }
+#endif
+
+    // 4. PATH search
+    auto inPath = util::findInPath(toolName);
+    if (!inPath.empty() && fs::exists(inPath)) {
+        std::string s = inPath.string();
+        std::string lower = s;
+        for (auto& c : lower) c = std::tolower(static_cast<unsigned char>(c));
+        if (lower.find("g++") == std::string::npos && lower.find("gcc") == std::string::npos) {
+            return s;
+        }
+    }
+
+    return "";
 }
 
 bool ObjectEmitter::emitObjectFile(const ir::IRModule& module, const std::string& outputObjPath) {
@@ -127,8 +189,15 @@ bool ObjectEmitter::emitObjectFile(const ir::IRModule& module, const std::string
 }
 
 bool ObjectEmitter::emitObjectFromIR(const std::string& llvmIR, const std::string& outputObjPath) {
-    // Write temporary IR file next to target object
-    std::string tempIRPath = outputObjPath + ".tmp.ll";
+    // Write temporary IR file into system temp directory to prevent write conflicts
+    std::error_code ec;
+    fs::path tempDir = fs::temp_directory_path(ec);
+    if (ec || !fs::exists(tempDir)) {
+        tempDir = ".";
+    }
+    static std::atomic<uint64_t> s_objNonce{0};
+    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    std::string tempIRPath = (tempDir / ("sp_ir_" + std::to_string(now) + "_" + std::to_string(++s_objNonce) + ".tmp.ll")).string();
     {
         std::ofstream irFile(tempIRPath, std::ios::out | std::ios::trunc);
         if (!irFile.is_open()) {
@@ -139,6 +208,27 @@ bool ObjectEmitter::emitObjectFromIR(const std::string& llvmIR, const std::strin
     }
 
     std::string clangTool = findLLVMTool("clang", m_options.llvmToolsPath);
+    if (clangTool.empty() || !fs::exists(clangTool)) {
+        auto clangCompiler = util::findClangCompiler();
+        if (!clangCompiler.empty() && fs::exists(clangCompiler)) {
+            clangTool = clangCompiler.string();
+        }
+    }
+    if (clangTool.empty() || !fs::exists(clangTool)) {
+        std::error_code rmEc;
+        fs::remove(tempIRPath, rmEc);
+        m_lastError = "No LLVM Clang compiler found on this system. Run 'spc setup' to auto-provision a portable toolchain.";
+        return false;
+    }
+
+    std::string lowerTool = clangTool;
+    for (auto& c : lowerTool) c = std::tolower(static_cast<unsigned char>(c));
+    if (lowerTool.find("g++") != std::string::npos || lowerTool.find("gcc") != std::string::npos) {
+        std::error_code rmEc;
+        fs::remove(tempIRPath, rmEc);
+        m_lastError = "Unsupported backend compiler '" + clangTool + "'. SP Lang requires LLVM Clang to compile LLVM IR and handle target triples. Please run 'spc setup'.";
+        return false;
+    }
 
     std::ostringstream cmd;
     cmd << "\"" << clangTool << "\" -c ";
@@ -164,8 +254,8 @@ bool ObjectEmitter::emitObjectFromIR(const std::string& llvmIR, const std::strin
 #endif
 
     // Clean up temporary IR file
-    std::error_code ec;
-    fs::remove(tempIRPath, ec);
+    std::error_code rmEc;
+    fs::remove(tempIRPath, rmEc);
 
     if (exitCode != 0) {
         m_lastError = "Object emission failed with exit code: " + std::to_string(exitCode);

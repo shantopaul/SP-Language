@@ -235,19 +235,49 @@ int handleSetup() {
             // Execute toolchain provisioning script
             std::string psCmd = 
                 "powershell -ExecutionPolicy Bypass -Command \""
-                "Write-Host 'Downloading portable toolchain for Windows x64...'; "
+                "Write-Host 'Downloading portable LLVM Clang toolchain for Windows x64...'; "
                 "$tc = '" + tcDir.string() + "'; "
-                "$url = 'https://splang.shantopaul.com/downloads/toolchain-win64.zip'; "
+                "$urls = @("
+                "  'https://dl.splang.shantopaul.com/downloads/toolchain-win64.zip',"
+                "  'https://splang.shantopaul.com/downloads/toolchain-win64.zip'"
+                "); "
                 "$tmp = Join-Path $env:TEMP 'sp_toolchain.zip'; "
-                "try { "
-                "  Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 120; "
-                "  Expand-Archive -Path $tmp -DestinationPath $tc -Force; "
-                "  Remove-Item $tmp -Force -ErrorAction SilentlyContinue; "
-                "  Write-Host 'Portable toolchain provisioned successfully!'; "
-                "} catch { "
-                "  Write-Host 'Notice: Online download unreachable. If using offline package, toolchain is bundled in toolchain/ directory.'; "
+                "$downloaded = $false; "
+                "foreach ($u in $urls) { "
+                "  try { "
+                "    Invoke-WebRequest -Uri $u -OutFile $tmp -UseBasicParsing -TimeoutSec 120; "
+                "    Expand-Archive -Path $tmp -DestinationPath $tc -Force; "
+                "    Remove-Item $tmp -Force -ErrorAction SilentlyContinue; "
+                "    $downloaded = $true; "
+                "    Write-Host 'Portable toolchain provisioned successfully!'; "
+                "    break; "
+                "  } catch {} "
+                "} "
+                "if (-not $downloaded) { "
+                "  Write-Host 'Notice: Online download unreachable. You can also run: winget install LLVM.LLVM'; "
                 "}\"";
             std::system(psCmd.c_str());
+        }
+#else
+        if (!health.hasClang && !health.hasLinker) {
+            std::cout << "[*] No backend toolchain found. Attempting to install Clang via system package manager...\n";
+            std::string shCmd = 
+                "if command -v apt-get >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via apt...'; sudo apt-get update && sudo apt-get install -y clang lld; "
+                "elif command -v dnf >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via dnf...'; sudo dnf install -y clang lld; "
+                "elif command -v brew >/dev/null 2>&1; then "
+                "  echo 'Installing llvm via brew...'; brew install llvm; "
+                "elif command -v pacman >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via pacman...'; sudo pacman -S --noconfirm clang lld; "
+                "elif command -v apk >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via apk...'; sudo apk add clang lld; "
+                "elif command -v zypper >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via zypper...'; sudo zypper install -y clang lld; "
+                "else "
+                "  echo 'Notice: Please install LLVM Clang using your system package manager (e.g. clang / lld).'; "
+                "fi";
+            std::system(shCmd.c_str());
         }
 #endif
     }

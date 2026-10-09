@@ -1167,10 +1167,10 @@ Every runtime dependency, standard library module, precompiled runtime static li
 - [x] 2. Include unique process ID, monotonic timestamp, and atomic nonce in temporary filenames and default `spc run` executables to prevent file collision, lock conflicts, and write permission failures in read-only folders (e.g. `C:\Windows\System32`, `C:\Program Files`, root system directories, or automated installer contexts).
 - [x] 3. Ensure automatic cleanup of temporary files upon successful build or failure.
 
-#### Phase 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation
-- [ ] 1. Audit and patch `sp::util::findClangCompiler` in `PathUtils.cpp` to strictly select LLVM Clang binaries (`clang++`, `clang`), never falling back to `g++.exe` for LLVM IR code generation.
-- [ ] 2. Prevent compiler driver from passing LLVM-specific flags (such as `--target=x86_64-w64-windows-gnu`) to GNU GCC compilers.
-- [ ] 3. If Clang is not present on the host computer, automatically trigger the portable toolchain auto-provisioning workflow (`spc setup`) or provide clear 1-click provisioning instructions.
+#### Phase 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation ✅
+- [x] 1. Audit and patch `sp::util::findClangCompiler` in `PathUtils.cpp` to strictly select LLVM Clang binaries (`clang++`, `clang`), never falling back to `g++.exe` for LLVM IR code generation.
+- [x] 2. Prevent compiler driver from passing LLVM-specific flags (such as `--target=x86_64-w64-windows-gnu`) to GNU GCC compilers, eliminating all unrecognized command-line option failures.
+- [x] 3. If Clang is not present on the host computer, automatically trigger the portable toolchain auto-provisioning workflow (`spc setup`) or provide clear 1-click provisioning instructions across Windows, Linux, and macOS.
 
 #### Phase 29.4: Direct Linker Driver Translation & `lld-link` / `ld.lld` Flag Compatibility
 - [ ] 1. In `LinkerDriver.cpp`, inspect the resolved linker executable flavor (GNU-compatible `ld.lld` / `clang++` vs MSVC-compatible `lld-link.exe`).
