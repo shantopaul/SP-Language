@@ -1184,10 +1184,10 @@ Every runtime dependency, standard library module, precompiled runtime static li
 - [x] 2. Ensure `libsp_runtime.a` is discovered in `SP_HOME/lib`, `~/.sp/lib`, `%LOCALAPPDATA%/SP-Language/lib`, or relative to `spc.exe` (`../lib`).
 - [x] 3. Ensure `sp_rt_println_string` and all standard runtime symbols are linked statically without missing symbol errors on any project drive location (e.g. `D:\SP Lang\demo`).
 
-#### Phase 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation
-- [ ] 1. Fix `spm add <pkg>@<ver>` parsing in `ProjectConfig.cpp` to accurately split package name and semver constraint (e.g., `json@^1.2.0` -> name: `json`, constraint: `^1.2.0`).
-- [ ] 2. Automatically detect when a requested package is an existing standard library module (`std.json`, `std.http`, `std.crypto`, `std.fs`, `std.io`, `std.db`) and notify the developer that it is already built-in without requiring registry download.
-- [ ] 3. Ensure semver constraint resolution in `DependencyResolver.cpp` resolves matching registry versions accurately without throwing `No compatible version found`.
+#### Phase 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation ✅
+- [x] 1. Fix `spm add <pkg>@<ver>` parsing in `tools/spm/main.cpp` to accurately split package name and semver constraint (e.g., `json@^1.2.0` -> name: `json`, constraint: `^1.2.0`).
+- [x] 2. Automatically detect when a requested package is an existing standard library module (`std.json`, `std.http`, `std.crypto`, `std.fs`, `std.io`, `std.db`) and notify the developer that it is already built-in without requiring registry download.
+- [x] 3. Ensure semver constraint resolution in `DependencyResolver.cpp` resolves matching registry versions accurately without throwing `No compatible version found`.
 
 #### Phase 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds
 - [ ] 1. Update `spm build` and `spm verify` to automatically generate `sp.lock` if it is missing rather than failing with a hard error.
