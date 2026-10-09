@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: SPLang.SP
+PackageVersion: 3.1.0
+MinimumOSVersion: 10.0.0.0
+InstallModes:
+  - interactive
+  - silent
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip
+    InstallerSha256: 08B3403E8C7835D51F7127A0C983928B6E402A72FCE7FA624E9838CECD6C9B5C
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: bin\spc.exe
+        PortableCommandAlias: spc
+      - RelativeFilePath: bin\spm.exe
+        PortableCommandAlias: spm
+      - RelativeFilePath: bin\spls.exe
+        PortableCommandAlias: spls
+      - RelativeFilePath: bin\spd.exe
+        PortableCommandAlias: spd
+ManifestType: installer
+ManifestVersion: 1.6.0

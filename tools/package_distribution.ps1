@@ -8,7 +8,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.0",
+    [string]$Version = "3.1.0",
     [switch]$SkipBuild
 )
 
@@ -57,6 +57,34 @@ if (Test-Path $runtimeLib) {
     Write-Host "  -> Bundled runtime: libsp_runtime.a" -ForegroundColor Gray
 }
 
+# Copy static OpenSSL libraries (libssl.a, libcrypto.a)
+$sslLibCandidates = @(
+    (Join-Path $repoRoot "build\lib\libssl.a"),
+    "C:\msys64\ucrt64\lib\libssl.a",
+    "C:\msys64\mingw64\lib\libssl.a"
+)
+$cryptoLibCandidates = @(
+    (Join-Path $repoRoot "build\lib\libcrypto.a"),
+    "C:\msys64\ucrt64\lib\libcrypto.a",
+    "C:\msys64\mingw64\lib\libcrypto.a"
+)
+
+foreach ($s in $sslLibCandidates) {
+    if (Test-Path $s) {
+        Copy-Item -Path $s -Destination "$stageDir\lib\libssl.a" -Force
+        Write-Host "  -> Bundled static OpenSSL: libssl.a" -ForegroundColor Gray
+        break
+    }
+}
+
+foreach ($c in $cryptoLibCandidates) {
+    if (Test-Path $c) {
+        Copy-Item -Path $c -Destination "$stageDir\lib\libcrypto.a" -Force
+        Write-Host "  -> Bundled static OpenSSL: libcrypto.a" -ForegroundColor Gray
+        break
+    }
+}
+
 # Copy runtime headers
 $runtimeHeaders = Join-Path $repoRoot "runtime\include"
 if (Test-Path $runtimeHeaders) {
@@ -80,6 +108,9 @@ if (Test-Path $examplesDir) {
 
 # Copy installer and docs
 Copy-Item -Path (Join-Path $repoRoot "install.ps1") -Destination $stageDir -Force
+if (Test-Path (Join-Path $repoRoot "install.sh")) {
+    Copy-Item -Path (Join-Path $repoRoot "install.sh") -Destination $stageDir -Force
+}
 if (Test-Path (Join-Path $repoRoot "README.md")) {
     Copy-Item -Path (Join-Path $repoRoot "README.md") -Destination $stageDir -Force
 }
@@ -97,6 +128,10 @@ if (Test-Path $zipOutput) {
 Compress-Archive -Path "$stageDir\*" -DestinationPath $zipOutput -CompressionLevel Optimal
 $zipItem = Get-Item $zipOutput
 $zipHash = (Get-FileHash -Path $zipOutput -Algorithm SHA256).Hash
+
+# Alias for unversioned latest download
+$latestZip = Join-Path $distDir "sp-windows-x64.zip"
+Copy-Item -Path $zipOutput -Destination $latestZip -Force
 
 Write-Host "  -> Archive created: $zipOutput" -ForegroundColor Cyan
 Write-Host "     Size:   $([math]::Round($zipItem.Length / 1MB, 2)) MB" -ForegroundColor Gray

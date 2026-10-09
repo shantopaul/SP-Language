@@ -22,7 +22,9 @@
 #include "bindgen/Bindgen.h"
 #include "benchmark/Benchmark.h"
 #include "sp/util/PathUtils.h"
+#include "spm/ProjectConfig.h"
 #include <iostream>
+
 #include <fstream>
 #include <sstream>
 #include <string_view>
@@ -31,6 +33,7 @@
 #include <filesystem>
 #include <cstdlib>
 #include <chrono>
+#include <atomic>
 #include <thread>
 
 #if defined(_WIN32)
@@ -71,8 +74,10 @@ void printHelp() {
               << "  test [path]     Execute SP unit and integration tests\n"
               << "  bench [path]    Execute micro-benchmarks with statistical regression tracking\n"
               << "  doc <path>      Generate HTML/Markdown documentation from /// comments\n"
-              << "  init [name]     Initialize a new SP project with sp.toml\n"
+              << "  init [path]     Initialize an SP project with sp.toml in directory\n"
+              << "  new <name>      Create a new SP project in a new directory\n"
               << "  bindgen <hdr.h> Generate SP FFI bindings from C header file (.h)\n"
+
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
               << "  setup           Check, auto-provision, or update portable backend toolchain\n"
               << "  fix [path]      Migrate/modernize SP codebase to target edition (e.g. 2028)\n\n"
@@ -230,19 +235,49 @@ int handleSetup() {
             // Execute toolchain provisioning script
             std::string psCmd = 
                 "powershell -ExecutionPolicy Bypass -Command \""
-                "Write-Host 'Downloading portable toolchain for Windows x64...'; "
+                "Write-Host 'Downloading portable LLVM Clang toolchain for Windows x64...'; "
                 "$tc = '" + tcDir.string() + "'; "
-                "$url = 'https://splang.shantopaul.com/downloads/toolchain-win64.zip'; "
+                "$urls = @("
+                "  'https://dl.splang.shantopaul.com/downloads/toolchain-win64.zip',"
+                "  'https://splang.shantopaul.com/downloads/toolchain-win64.zip'"
+                "); "
                 "$tmp = Join-Path $env:TEMP 'sp_toolchain.zip'; "
-                "try { "
-                "  Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 120; "
-                "  Expand-Archive -Path $tmp -DestinationPath $tc -Force; "
-                "  Remove-Item $tmp -Force -ErrorAction SilentlyContinue; "
-                "  Write-Host 'Portable toolchain provisioned successfully!'; "
-                "} catch { "
-                "  Write-Host 'Notice: Online download unreachable. If using offline package, toolchain is bundled in toolchain/ directory.'; "
+                "$downloaded = $false; "
+                "foreach ($u in $urls) { "
+                "  try { "
+                "    Invoke-WebRequest -Uri $u -OutFile $tmp -UseBasicParsing -TimeoutSec 120; "
+                "    Expand-Archive -Path $tmp -DestinationPath $tc -Force; "
+                "    Remove-Item $tmp -Force -ErrorAction SilentlyContinue; "
+                "    $downloaded = $true; "
+                "    Write-Host 'Portable toolchain provisioned successfully!'; "
+                "    break; "
+                "  } catch {} "
+                "} "
+                "if (-not $downloaded) { "
+                "  Write-Host 'Notice: Online download unreachable. You can also run: winget install LLVM.LLVM'; "
                 "}\"";
             std::system(psCmd.c_str());
+        }
+#else
+        if (!health.hasClang && !health.hasLinker) {
+            std::cout << "[*] No backend toolchain found. Attempting to install Clang via system package manager...\n";
+            std::string shCmd = 
+                "if command -v apt-get >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via apt...'; sudo apt-get update && sudo apt-get install -y clang lld; "
+                "elif command -v dnf >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via dnf...'; sudo dnf install -y clang lld; "
+                "elif command -v brew >/dev/null 2>&1; then "
+                "  echo 'Installing llvm via brew...'; brew install llvm; "
+                "elif command -v pacman >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via pacman...'; sudo pacman -S --noconfirm clang lld; "
+                "elif command -v apk >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via apk...'; sudo apk add clang lld; "
+                "elif command -v zypper >/dev/null 2>&1; then "
+                "  echo 'Installing clang and lld via zypper...'; sudo zypper install -y clang lld; "
+                "else "
+                "  echo 'Notice: Please install LLVM Clang using your system package manager (e.g. clang / lld).'; "
+                "fi";
+            std::system(shCmd.c_str());
         }
 #endif
     }
@@ -377,6 +412,80 @@ int handleFix(int argc, char* argv[]) {
     return 0;
 }
 
+int handleInit(int argc, char* argv[]) {
+    std::string path = ".";
+    std::string name;
+    std::string templateType;
+    bool isLib = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--lib") {
+            isLib = true;
+        } else if ((arg == "--template" || arg == "-t") && i + 1 < argc) {
+            templateType = argv[++i];
+        } else if (arg == "--name" && i + 1 < argc) {
+            name = argv[++i];
+        } else if (!arg.starts_with("-")) {
+            path = arg;
+        }
+    }
+
+    if (name.empty()) {
+        fs::path p = fs::absolute(path);
+        name = p.filename().string();
+        if (name == "." || name.empty()) {
+            name = "my_project";
+        }
+    }
+
+    std::string errorMsg;
+    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg, templateType)) {
+        std::cerr << "error: " << errorMsg << "\n";
+        return 1;
+    }
+
+    std::cout << "Created " << (isLib ? "library" : (templateType == "api" ? "REST API" : "binary (application)"))
+              << " package '" << name << "' at " << path << "\n";
+    return 0;
+}
+
+int handleNew(int argc, char* argv[]) {
+    std::string name;
+    std::string templateType;
+    bool isLib = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--lib") {
+            isLib = true;
+        } else if ((arg == "--template" || arg == "-t") && i + 1 < argc) {
+            templateType = argv[++i];
+        } else if (!arg.starts_with("-")) {
+            if (name.empty()) {
+                name = arg;
+            }
+        }
+    }
+
+    if (name.empty()) {
+        std::cerr << "error: missing project name for 'spc new'\n"
+                  << "usage: spc new <project_name> [--template <app|api|lib>]\n";
+        return 1;
+    }
+
+    std::string path = name;
+    std::string errorMsg;
+    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg, templateType)) {
+        std::cerr << "error: " << errorMsg << "\n";
+        return 1;
+    }
+
+    std::cout << "Created " << (isLib ? "library" : (templateType == "api" ? "REST API" : "binary (application)"))
+              << " package '" << name << "' at ./" << path << "\n";
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -409,10 +518,19 @@ int main(int argc, char* argv[]) {
         return handleFix(argc, argv);
     }
 
+    if (command == "init") {
+        return handleInit(argc, argv);
+    }
+
+    if (command == "new") {
+        return handleNew(argc, argv);
+    }
+
     sp::diagnostics::DiagnosticEngine diagEngine(std::cerr);
 
     if (command == "tokens" || command == "ast" || command == "sema" ||
         command == "check" || command == "ir" || command == "llvm" ||
+
         command == "obj" || command == "build" || command == "run") {
 
         // Parse options and identify input source file
@@ -501,10 +619,25 @@ int main(int argc, char* argv[]) {
         }
 
         if (filename.empty()) {
-            diagEngine.reportError("E1000", "Missing input source file",
-                                   sp::diagnostics::SourceLocation("cli", 1, 1),
-                                   "Specify an input file: spc " + std::string(command) + " main.sp");
-            return 1;
+            if (fs::exists("src/main.sp")) {
+                filename = "src/main.sp";
+            } else if (fs::exists("main.sp")) {
+                filename = "main.sp";
+            } else {
+                diagEngine.reportError("E1000", "Missing input source file",
+                                       sp::diagnostics::SourceLocation("cli", 1, 1),
+                                       "Specify an input file: spc " + std::string(command) + " <file.sp> (or create 'src/main.sp')");
+                return 1;
+            }
+        }
+
+        // Auto-resolve main.sp -> src/main.sp if file does not exist directly in current directory
+        if (!fs::exists(filename)) {
+            if (filename == "main.sp" && fs::exists("src/main.sp")) {
+                filename = "src/main.sp";
+            } else if (fs::exists(fs::path("src") / filename)) {
+                filename = (fs::path("src") / filename).string();
+            }
         }
 
         // Auto-detect edition from sp.toml if not explicitly specified
@@ -521,9 +654,15 @@ int main(int argc, char* argv[]) {
 
         std::string source = readFile(filename);
         if (source.empty()) {
+            std::string hint = "Check that the file exists and is accessible";
+            if (!fs::exists(filename)) {
+                if (fs::exists(fs::path("src") / filename)) {
+                    hint = "File '" + filename + "' not found, but 'src/" + filename + "' exists. Did you mean 'src/" + filename + "'?";
+                }
+            }
             diagEngine.reportError("E1009", "Could not open or read source file: " + filename,
                                    sp::diagnostics::SourceLocation(filename, 1, 1),
-                                   "Check that the file exists and is accessible");
+                                   hint);
             return 1;
         }
 
@@ -677,16 +816,33 @@ int main(int argc, char* argv[]) {
         }
 
         // 6. Native Binary Compilation (build / run)
+        bool isTempExe = false;
         if (outputPath.empty()) {
             fs::path p = fs::path(filename).stem();
+            std::string ext = "";
             if (targetTriple.find("wasm") != std::string::npos) {
-                p.replace_extension(".wasm");
+                ext = ".wasm";
             } else {
 #if defined(_WIN32)
-                p.replace_extension(".exe");
+                ext = ".exe";
 #endif
             }
-            outputPath = p.string();
+            if (command == "run") {
+                std::error_code ec;
+                fs::path tempDir = fs::temp_directory_path(ec);
+                if (!ec && fs::exists(tempDir)) {
+                    static std::atomic<uint64_t> s_runNonce{0};
+                    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+                    outputPath = (tempDir / ("sp_run_" + p.string() + "_" + std::to_string(now) + "_" + std::to_string(++s_runNonce) + ext)).string();
+                    isTempExe = true;
+                } else {
+                    p.replace_extension(ext);
+                    outputPath = p.string();
+                }
+            } else {
+                p.replace_extension(ext);
+                outputPath = p.string();
+            }
         }
 
         bool buildSuccess = llvmGen.compileToExecutable(*irModule, outputPath);
@@ -714,6 +870,10 @@ int main(int argc, char* argv[]) {
 #else
                 int exitCode = std::system(runCmd.c_str());
 #endif
+                if (isTempExe) {
+                    std::error_code rmEc;
+                    fs::remove(outputPath, rmEc);
+                }
                 return exitCode;
             }
 
@@ -1119,8 +1279,40 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    const std::vector<std::string> validCommands = {
+        "build", "run", "check", "init", "new", "fmt", "test", "bench",
+        "doc", "doctor", "setup", "fix", "bindgen", "tokens", "ast", "sema",
+        "ir", "llvm", "obj"
+    };
+
+    auto calcLevenshtein = [](std::string_view s1, std::string_view s2) -> size_t {
+        const size_t m = s1.size();
+        const size_t n = s2.size();
+        std::vector<std::vector<size_t>> d(m + 1, std::vector<size_t>(n + 1));
+        for (size_t i = 0; i <= m; ++i) d[i][0] = i;
+        for (size_t j = 0; j <= n; ++j) d[0][j] = j;
+        for (size_t i = 1; i <= m; ++i) {
+            for (size_t j = 1; j <= n; ++j) {
+                size_t cost = (s1[i - 1] == s2[j - 1]) ? 0 : 1;
+                d[i][j] = std::min({d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost});
+            }
+        }
+        return d[m][n];
+    };
+
+    std::string hint = "Run 'spc --help' to see valid compiler commands";
+    for (const auto& valid : validCommands) {
+        if (valid.starts_with(command) || command.starts_with(valid) || calcLevenshtein(command, valid) <= 2) {
+            hint = "Did you mean '" + valid + "'? " + hint;
+            break;
+        }
+    }
+
+
+
     diagEngine.reportError("E1000", "Unknown command: " + std::string(command),
                            sp::diagnostics::SourceLocation("cli", 1, 1),
-                           "Run 'spc --help' to see valid compiler commands");
+                           hint);
     return 1;
 }
+
