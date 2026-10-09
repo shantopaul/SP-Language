@@ -1136,6 +1136,62 @@ Following the completion of the SP 2.0 core language and compiler milestones, SP
 
 ---
 
+## Phase 29: User Field Test Remediation & Cross-Platform Instant Experience (SP 3.1) 🛠️
+**Duration:** Ongoing / Immediate Hardening  
+**Goal:** Address and eliminate every bug and friction point reported in user field testing (Report: 08 Oct 2026), ensuring seamless zero-configuration installation, building, and running on Windows and Linux across all host devices and drive configurations.
+
+### Tasks & Remediation Plan
+
+#### Phase 29.1: Unified Project Initialization & Scaffolding (`spc init` & `spc new`)
+- [ ] 1. Add `init` and `new` subcommands directly to `spc` CLI.
+- [ ] 2. Forward `spc init [name]` and `spc new [name]` to project initialization logic, ensuring identical behavior to `spm init`.
+- [ ] 3. Support `--template` / `-t` flag in `spc init` (options: `app`, `lib`, `api`, `fullstack`).
+- [ ] 4. Provide friendly typo correction when users mistype directory names.
+
+#### Phase 29.2: Temp File Resiliency & Safe Smoke Test Execution
+- [ ] 1. Update `LLVMGenerator::compileToExecutable` to write temporary LLVM IR files (`.tmp.ll`) to system temp directory (`fs::temp_directory_path()`) instead of current working directory.
+- [ ] 2. Ensure temp file names use process PID and random nonce to avoid collisions and permission errors in read-only folders (e.g. `C:\Program Files` or installer context).
+- [ ] 3. Update installer smoke test execution in `install.ps1` and `spc setup` to run from temp directories safely.
+
+#### Phase 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation
+- [ ] 1. Audit and fix `sp::util::findClangCompiler` in `PathUtils.cpp` to never substitute `g++.exe` for Clang compilation of LLVM IR.
+- [ ] 2. Ensure compiler driver never passes LLVM-only flags (like `--target=...`) to GNU GCC.
+- [ ] 3. If Clang is missing on host, automatically engage portable toolchain provisioning (`spc setup`) or provide clear download instructions.
+
+#### Phase 29.4: Direct Linker Driver Translation & `lld-link` / `ld.lld` Flag Compatibility
+- [ ] 1. In `LinkerDriver.cpp`, detect linker flavor (LLD MinGW/ELF `ld.lld` vs MSVC `lld-link` vs `clang++`).
+- [ ] 2. Format linker arguments conditionally:
+  - For `lld-link`: use `/out:<path>`, `/libpath:<dir>`, avoid unrecognized `--target` and `-o` flags.
+  - For `ld.lld` / `clang++`: use standard GNU syntax `-o <path>`, `-L<dir>`, `-l<lib>`.
+- [ ] 3. Eliminate linker argument warnings (`lld-link: warning: ignoring unknown argument '-o'`) and output file creation failures.
+
+#### Phase 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention
+- [ ] 1. Strengthen `LinkerDriver::findPrecompiledRuntimeLib` and `util::getRuntimeLibPath` to scan multi-drive paths (`C:`, `D:`, `E:`), `%USERPROFILE%/.sp/lib`, and executable relative paths.
+- [ ] 2. Ensure `libsp_runtime.a` is always linked so runtime symbols (`sp_rt_println_string`, `sp_rt_alloc`, etc.) never produce undefined reference errors.
+- [ ] 3. Verify static library integrity in user projects on secondary drives (e.g. `D:\SP Lang\demo`).
+
+#### Phase 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation
+- [ ] 1. Fix `spm add <pkg>@<ver>` parsing in `ProjectConfig.cpp` to accurately split package name and version requirement (e.g. `json@^1.2.0` -> name: `json`, constraint: `^1.2.0`).
+- [ ] 2. Recognize standard library modules (`std.json`, `std.http`, `std.crypto`, `std.fs`, `std.io`, `std.db`) and inform users that they are built-in without requiring external installation.
+- [ ] 3. Ensure registry fallback matches semver constraints properly without failing with `No compatible version found`.
+
+#### Phase 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds
+- [ ] 1. Update `spm build` and `spm verify` to automatically generate `sp.lock` if it is missing rather than failing with a hard error.
+- [ ] 2. Allow zero-dependency projects to build immediately without requiring manual `spm install`.
+
+#### Phase 29.8: 1-Click Instant Installers & Cross-Platform Distribution (Windows & Linux)
+- [ ] 1. Update and verify `install.ps1` for instant Windows installation (`irm https://dl.splang.shantopaul.com/install.ps1 | iex`).
+- [ ] 2. Update and verify `install.sh` for instant Linux/macOS installation (`curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh`).
+- [ ] 3. Create official Winget manifest package definition (`SPLang.SP.yaml`) for `winget install SPLang.SP`.
+- [ ] 4. Verify offline portable zip package with all required libraries bundled.
+
+### Deliverables
+- Fully remediated SP 3.1 compiler, runtime, package manager, and installer ecosystem.
+- 100% passing tests across all test suites on Windows and Linux.
+- Zero-friction developer onboarding on any machine or drive letter.
+
+---
+
 ## Phase Progression Summary
 
 ```
@@ -1178,4 +1234,17 @@ Professional Backend Platform (Direction B Prime: Cloud & API Engine) 🌐
   ├── Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis) (SP 2.8) ✅
   ├── Phase 27: Observability, Background Workers & Production DevOps (SP 2.9) ✅
   └── Phase 28: Developer Experience, OpenAPI & TechEmpower Benchmarks (SP 3.0) ✅
+           │
+           ▼
+Field Test Remediation & Instant Cross-Platform Experience 🛠️
+  └── Phase 29: User Field Test Remediation & Cross-Platform Instant Experience (SP 3.1) 🚧
+       ├── 29.1: Unified Project Initialization & Scaffolding (spc init & new)
+       ├── 29.2: Temp File Resiliency & Safe Smoke Test Execution
+       ├── 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation
+       ├── 29.4: Direct Linker Driver Translation & lld-link / ld.lld Flag Compatibility
+       ├── 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention
+       ├── 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation
+       ├── 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds
+       └── 29.8: 1-Click Instant Installers & Cross-Platform Distribution (Windows & Linux)
 ```
+
