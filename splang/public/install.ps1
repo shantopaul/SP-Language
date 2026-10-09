@@ -23,6 +23,25 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'
+
+function Download-File([string]$Url, [string]$Destination) {
+    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+        try {
+            & curl.exe -s -L -o $Destination $Url
+            if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 10000)) {
+                return $true
+            }
+        } catch {}
+    }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -TimeoutSec 120
+        return ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 10000))
+    } catch {
+        return $false
+    }
+}
 
 function Write-Banner {
     Write-Host ""
@@ -170,17 +189,13 @@ if ($isLocalRepo) {
     }
     
     $Downloaded = $false
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     foreach ($Url in $Urls) {
-        try {
-            Write-Host "     Connecting to: $Url" -ForegroundColor Gray
-            Invoke-WebRequest -Uri $Url -OutFile $TempZip -UseBasicParsing -TimeoutSec 60
-            if ((Test-Path $TempZip) -and ((Get-Item $TempZip).Length -gt 50000)) {
-                $Downloaded = $true
-                Write-Host "     Package downloaded successfully!" -ForegroundColor Green
-                break
-            }
-        } catch {
+        Write-Host "     Connecting to: $Url" -ForegroundColor Gray
+        if (Download-File -Url $Url -Destination $TempZip) {
+            $Downloaded = $true
+            Write-Host "     Package downloaded successfully!" -ForegroundColor Green
+            break
+        } else {
             Write-Host "     Mirror unreachable, attempting next mirror..." -ForegroundColor DarkGray
         }
     }
@@ -313,23 +328,20 @@ if ($hasClang -or $hasClangC -or $hasBundled) {
     $tcZip = Join-Path $env:TEMP "sp_toolchain_$([Guid]::NewGuid().ToString('N')).zip"
 
     foreach ($tcu in $tcUrls) {
-        try {
-            Write-Host "     Connecting to high-speed CDN: $tcu" -ForegroundColor Gray
-            Invoke-WebRequest -Uri $tcu -OutFile $tcZip -UseBasicParsing -TimeoutSec 120
-            if ((Test-Path $tcZip) -and ((Get-Item $tcZip).Length -gt 5000000)) {
-                Write-Host "     Extracting portable toolchain to $ToolchainDir..." -ForegroundColor Cyan
-                Expand-Archive -Path $tcZip -DestinationPath $ToolchainDir -Force
-                Remove-Item -Path $tcZip -Force -ErrorAction SilentlyContinue
-                if (Test-Path (Join-Path $ToolchainBin "clang++.exe")) {
-                    $provisioned = $true
-                    if ($env:Path -notlike "*$ToolchainBin*") {
-                        $env:Path = "$ToolchainBin;$env:Path"
-                    }
-                    Write-Host "     Portable LLVM Clang toolchain installed and ready!" -ForegroundColor Green
-                    break
+        Write-Host "     Connecting to high-speed CDN: $tcu" -ForegroundColor Gray
+        if (Download-File -Url $tcu -Destination $tcZip) {
+            Write-Host "     Extracting portable toolchain to $ToolchainDir..." -ForegroundColor Cyan
+            Expand-Archive -Path $tcZip -DestinationPath $ToolchainDir -Force
+            Remove-Item -Path $tcZip -Force -ErrorAction SilentlyContinue
+            if (Test-Path (Join-Path $ToolchainBin "clang++.exe")) {
+                $provisioned = $true
+                if ($env:Path -notlike "*$ToolchainBin*") {
+                    $env:Path = "$ToolchainBin;$env:Path"
                 }
+                Write-Host "     Portable LLVM Clang toolchain installed and ready!" -ForegroundColor Green
+                break
             }
-        } catch {
+        } else {
             Write-Host "     CDN mirror busy, trying next option..." -ForegroundColor DarkGray
         }
     }
