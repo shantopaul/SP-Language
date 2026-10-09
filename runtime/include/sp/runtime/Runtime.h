@@ -543,5 +543,37 @@ extern "C" {
     int64_t     sp_rt_db_pool_total(void* pool);
     int64_t     sp_rt_db_pool_available(void* pool);
     int64_t     sp_rt_db_pool_in_use(void* pool);
+
+    // ========================================================================
+    // Phase 24: Security, Authentication & Cryptography (SP 2.6)
+    // ========================================================================
+    // Base64Url & Constant-Time Comparison
+    const char* sp_rt_crypto_base64url_encode(const char* data);
+    const char* sp_rt_crypto_base64url_decode(const char* data);
+    bool        sp_rt_crypto_timing_safe_equal(const char* a, const char* b);
+
+    // Password Hashing (Argon2id & Bcrypt)
+    const char* sp_rt_password_hash(const char* password, const char* algorithm, int64_t cost_or_memory, int64_t iterations, int64_t parallelism);
+    bool        sp_rt_password_verify(const char* password, const char* hash);
+
+    // JWT (JSON Web Tokens - RFC 7519)
+    const char* sp_rt_jwt_sign(const char* payload_json, const char* secret, const char* algorithm, int64_t expires_in_seconds, const char* issuer, const char* audience);
+    void*       sp_rt_jwt_verify(const char* token, const char* secret, const char* expected_issuer, const char* expected_audience);
+    bool        sp_rt_jwt_res_is_valid(void* res);
+    const char* sp_rt_jwt_res_error(void* res);
+    const char* sp_rt_jwt_res_payload(void* res);
+    const char* sp_rt_jwt_res_claim(void* res, const char* claim_name);
+    void        sp_rt_jwt_res_free(void* res);
+
+    // Signed Cookies & Session Management
+    const char* sp_rt_cookie_sign(const char* val, const char* secret);
+    const char* sp_rt_cookie_unsign(const char* signed_val, const char* secret);
+    void*       sp_rt_session_store_create(int64_t default_ttl_secs);
+    const char* sp_rt_session_create(void* store, const char* data_json, int64_t ttl_secs);
+    const char* sp_rt_session_get(void* store, const char* session_id);
+    bool        sp_rt_session_set(void* store, const char* session_id, const char* data_json, int64_t ttl_secs);
+    bool        sp_rt_session_destroy(void* store, const char* session_id);
+    const char* sp_rt_session_regenerate(void* store, const char* old_session_id, int64_t ttl_secs);
+    void        sp_rt_session_store_destroy(void* store);
 }
 

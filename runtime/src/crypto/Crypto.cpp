@@ -241,6 +241,73 @@ std::string base64Decode(const std::string& input) {
 }
 
 // ============================================================================
+// Base64Url Implementation (RFC 4648 §5, URL-safe and unpadded for JWT)
+// ============================================================================
+
+std::string base64UrlEncodeBytes(const uint8_t* data, size_t length) {
+    std::string b64 = base64EncodeBytes(data, length);
+    std::string urlSafe;
+    urlSafe.reserve(b64.size());
+    for (char c : b64) {
+        if (c == '+') {
+            urlSafe.push_back('-');
+        } else if (c == '/') {
+            urlSafe.push_back('_');
+        } else if (c != '=') {
+            urlSafe.push_back(c);
+        }
+    }
+    return urlSafe;
+}
+
+std::string base64UrlEncode(const std::string& input) {
+    return base64UrlEncodeBytes(reinterpret_cast<const uint8_t*>(input.data()), input.size());
+}
+
+std::string base64UrlDecode(const std::string& input) {
+    std::string b64;
+    b64.reserve(input.size() + 4);
+    for (char c : input) {
+        if (c == '-') {
+            b64.push_back('+');
+        } else if (c == '_') {
+            b64.push_back('/');
+        } else {
+            b64.push_back(c);
+        }
+    }
+    size_t rem = b64.size() % 4;
+    if (rem == 2) {
+        b64.append("==");
+    } else if (rem == 3) {
+        b64.append("=");
+    }
+    return base64Decode(b64);
+}
+
+// ============================================================================
+// Constant-Time Equality (Protects against timing attacks)
+// ============================================================================
+
+bool timingSafeEqualBytes(const uint8_t* a, size_t aLen, const uint8_t* b, size_t bLen) {
+    if (aLen != bLen) {
+        return false;
+    }
+    uint8_t result = 0;
+    for (size_t i = 0; i < aLen; ++i) {
+        result |= (a[i] ^ b[i]);
+    }
+    return result == 0;
+}
+
+bool timingSafeEqual(const std::string& a, const std::string& b) {
+    return timingSafeEqualBytes(
+        reinterpret_cast<const uint8_t*>(a.data()), a.size(),
+        reinterpret_cast<const uint8_t*>(b.data()), b.size()
+    );
+}
+
+// ============================================================================
 // Secure Random Bytes & UUID v4
 // ============================================================================
 
