@@ -55,7 +55,7 @@ export default function RegistryHomePage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-950/40 text-cyan-400 text-xs font-mono mb-6">
             <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Official Package Registry for SP 1.0</span>
+            <span>Official Package Registry for SP 3.0</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight">

@@ -2,6 +2,80 @@ import { Package } from "@/types/package";
 
 export const PACKAGES: Package[] = [
   {
+    name: "web",
+    version: "3.0.0",
+    description: "Official enterprise backend application framework, Radix tree routing, middlewares, and Context ergonomics.",
+    author: "SP Core Team <core@splang.shantopaul.com>",
+    license: "MIT",
+    category: "web",
+    keywords: ["web", "framework", "router", "context", "openapi", "middleware"],
+    totalDownloads: 185000,
+    publishedAt: "2026-10-09",
+    official: true,
+    repositoryUrl: "https://github.com/shantopaul/SP-Language/tree/main/stdlib/web",
+    dependencies: [],
+    versions: [
+      {
+        version: "3.0.0",
+        publishedAt: "2026-10-09",
+        checksum: "8791133000000000000000000000000000000000000000000000000000000001",
+        size: "48.2 KB",
+        spmMinVersion: "1.0.0",
+        changelog: "SP 3.0 Enterprise GA: Radix router, Context API, Dependency Injection, and OpenAPI 3.0 support.",
+      },
+    ],
+    readme: `# web for SP Language (SP 3.0)
+
+High-performance backend application framework for the SP Programming Language.
+
+## Quick Example
+\`\`\`sp
+import std.web;
+
+fn main() {
+    let app = new App();
+    app.use(new Logger());
+    app.use(new Cors());
+
+    app.get("/api/ping", (ptr req) => {
+        let ctx = Context.create(req);
+        return ctx.json("{\\"pong\\": true}");
+    });
+
+    app.listen(8080);
+}
+\`\`\`
+`,
+  },
+  {
+    name: "db",
+    version: "3.0.0",
+    description: "High-concurrency SQLite and PostgreSQL connection pooling, query builder, and atomic transactions.",
+    author: "Database WG <core@splang.shantopaul.com>",
+    license: "Apache-2.0",
+    category: "database",
+    keywords: ["database", "sqlite", "postgres", "pool", "sql", "transactions"],
+    totalDownloads: 118000,
+    publishedAt: "2026-10-09",
+    official: true,
+    repositoryUrl: "https://github.com/shantopaul/SP-Language/tree/main/stdlib/db",
+    dependencies: [],
+    versions: [
+      {
+        version: "3.0.0",
+        publishedAt: "2026-10-09",
+        checksum: "8791133000000000000000000000000000000000000000000000000000000002",
+        size: "62.4 KB",
+        spmMinVersion: "1.0.0",
+        changelog: "High-throughput thread-safe connection pooling for SQLite and PostgreSQL.",
+      },
+    ],
+    readme: `# db for SP Language (SP 3.0)
+
+Thread-safe database connection pooling for SQLite and PostgreSQL.
+`,
+  },
+  {
     name: "json",
     version: "1.2.0",
     description: "High-performance streaming JSON parser and serializer with native SP type mapping.",

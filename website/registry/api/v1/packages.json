@@ -1,8 +1,28 @@
 {
   "registry": "https://registry.splang.shantopaul.com",
-  "version": "1.0.0",
-  "total_packages": 7,
+  "version": "3.0.0",
+  "total_packages": 9,
   "packages": [
+    {
+      "name": "sp_web",
+      "version": "3.0.0",
+      "description": "High-throughput backend application framework with Radix tree routing and OpenAPI 3.0",
+      "author": "SP Core Team",
+      "license": "MIT",
+      "downloads": 185000,
+      "checksum": "8791133000000000000000000000000000000000000000000000000000000001",
+      "dependencies": ["sp_json"]
+    },
+    {
+      "name": "sp_db",
+      "version": "3.0.0",
+      "description": "High-concurrency SQLite and PostgreSQL connection pooling and transactions",
+      "author": "Database WG",
+      "license": "Apache-2.0",
+      "downloads": 118000,
+      "checksum": "8791133000000000000000000000000000000000000000000000000000000002",
+      "dependencies": []
+    },
     {
       "name": "sp_math",
       "version": "1.0.0",
