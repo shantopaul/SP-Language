@@ -59,23 +59,27 @@ foreach ($dir in $directories) {
 # 2. Deploy SP Binaries, Standard Library & Runtime
 Write-Host "`n[2/5] Deploying SP Language Core Components..." -ForegroundColor Green
 
-# Scan for local repository build artifacts
-$repoRoot = $PSScriptRoot
+# Scan for local repository build artifacts (only when executed from a saved local script file)
+$repoRoot = $null
 $isLocalRepo = $false
-$candidateRoots = @(
-    $repoRoot,
-    (Split-Path $repoRoot -Parent),
-    (Split-Path (Split-Path $repoRoot -Parent) -Parent),
-    $PWD.Path
-)
 
-foreach ($cand in $candidateRoots) {
-    if (-not [string]::IsNullOrEmpty($cand)) {
-        $candBin = Join-Path $cand "build\bin"
-        if (Test-Path (Join-Path $candBin "spc.exe")) {
-            $repoRoot = $cand
-            $isLocalRepo = $true
-            break
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+    $candidateRoots = @($PSScriptRoot)
+    try {
+        $parent = Split-Path $PSScriptRoot -Parent
+        if (-not [string]::IsNullOrEmpty($parent)) {
+            $candidateRoots += $parent
+        }
+    } catch {}
+
+    foreach ($cand in $candidateRoots) {
+        if (-not [string]::IsNullOrEmpty($cand)) {
+            $candBin = Join-Path $cand "build\bin"
+            if (Test-Path (Join-Path $candBin "spc.exe")) {
+                $repoRoot = $cand
+                $isLocalRepo = $true
+                break
+            }
         }
     }
 }
