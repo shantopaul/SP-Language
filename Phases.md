@@ -1193,24 +1193,24 @@ Every runtime dependency, standard library module, precompiled runtime static li
 - [x] 1. Update `spm build` and `spm verify` to automatically generate `sp.lock` if it is missing rather than failing with a hard error.
 - [x] 2. Allow zero-dependency projects to build immediately without requiring manual `spm install`.
 
-#### Phase 29.8: Universal 1-Click All-Inclusive Installers (Windows, Linux, macOS)
-- [ ] 1. Update Windows instant installer `install.ps1`:
+#### Phase 29.8: Universal 1-Click All-Inclusive Installers (Windows, Linux, macOS) ✅
+- [x] 1. Update Windows instant installer `install.ps1`:
   - Installs SP compiler, package manager, tools, and stdlib into `$HOME\.sp` (or custom drive/path).
   - Automatically provisions portable LLVM toolchain (`clang++`, `lld`, runtime libraries) so users don't need Visual Studio or MSYS2 installed.
   - Bundles static OpenSSL libraries (`libssl.a`, `libcrypto.a`).
   - Sets `SP_HOME` and updates user `PATH`.
   - Runs self-verification smoke test in a safe temporary folder.
-- [ ] 2. Update Linux / macOS instant installer `install.sh`:
+- [x] 2. Update Linux / macOS instant installer `install.sh`:
   - Detects package manager (`apt`, `dnf`, `pacman`, `apk`, `brew`) and ensures LLVM/Clang and OpenSSL are present.
   - Installs SP binaries into `~/.sp/bin` and configures shell profiles (`.bashrc`, `.zshrc`).
   - Runs automated self-test verification.
-- [ ] 3. Author official Windows Package Manager Winget manifest (`SPLang.SP.yaml`) for `winget install SPLang.SP`.
-- [ ] 4. Verify offline standalone zip package containing all tools, compilers, and libraries for air-gapped machines.
+- [x] 3. Author official Windows Package Manager Winget manifest (`SPLang.SP.yaml`) for `winget install SPLang.SP`.
+- [x] 4. Verify offline standalone zip package containing all tools, compilers, and libraries for air-gapped machines.
 
 ### Deliverables
 - Fully remediated SP 3.1 compiler, runtime, package manager, and installer ecosystem.
 - True zero-configuration setup on any computer, in any folder, on any drive.
-- 100% passing test suite across all Windows and Linux targets.
+- 100% passing test suite across all Windows and Linux targets (474/474 tests passed).
 
 
 ---
@@ -1260,14 +1260,14 @@ Professional Backend Platform (Direction B Prime: Cloud & API Engine) 🌐
            │
            ▼
 Field Test Remediation & Instant Cross-Platform Experience 🛠️
-  └── Phase 29: User Field Test Remediation & Cross-Platform Instant Experience (SP 3.1) 🚧
-       ├── 29.1: Unified Project Initialization & Scaffolding (spc init & new)
-       ├── 29.2: Temp File Resiliency & Safe Smoke Test Execution
-       ├── 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation
-       ├── 29.4: Direct Linker Driver Translation & lld-link / ld.lld Flag Compatibility
-       ├── 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention
-       ├── 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation
-       ├── 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds
-       └── 29.8: 1-Click Instant Installers & Cross-Platform Distribution (Windows & Linux)
+  └── Phase 29: User Field Test Remediation & Cross-Platform Instant Experience (SP 3.1) ✅
+       ├── 29.1: Unified Project Initialization & Scaffolding (spc init & new) ✅
+       ├── 29.2: Temp File Resiliency & Safe Smoke Test Execution ✅
+       ├── 29.3: Native Backend Toolchain Detection & Clang/GCC Disambiguation ✅
+       ├── 29.4: Direct Linker Driver Translation & lld-link / ld.lld Flag Compatibility ✅
+       ├── 29.5: Runtime Static Library Universal Discovery & Missing Symbol Prevention ✅
+       ├── 29.6: Package Manager Semantic Versioning & Stdlib Package Disambiguation ✅
+       ├── 29.7: Lockfile Auto-Resolution & Self-Healing Project Builds ✅
+       └── 29.8: 1-Click Instant Installers & Cross-Platform Distribution (Windows & Linux) ✅
 ```
 

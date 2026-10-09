@@ -2,22 +2,24 @@
 # SP Programming Language - Universal Windows Installer
 # ==============================================================================
 # One-command installation for any Windows Desktop (Windows 10, 11, Server).
-# Zero pre-requisites required. Automatically sets up compiler, standard library,
-# runtime, environment variables, and auto-provisions portable backend toolchains
-# if missing.
+# Zero pre-requisites required. Automatically sets up compiler, package manager,
+# standard library, runtime, static OpenSSL libraries, environment variables,
+# and auto-provisions portable backend LLVM Clang toolchains if missing.
 #
 # Usage (Online One-Liner):
+#   irm https://dl.splang.shantopaul.com/install.ps1 | iex
 #   irm https://splang.shantopaul.com/install.ps1 | iex
 #
-# Usage (Local Repository):
-#   powershell -ExecutionPolicy Bypass -File install.ps1 [-InstallDir "C:\SP-Language"]
+# Usage (Custom Drive / Path):
+#   powershell -ExecutionPolicy Bypass -File install.ps1 -InstallDir "D:\SP-Language"
 # ==============================================================================
 
 [CmdletBinding()]
 param(
-    [string]$InstallDir = "$env:USERPROFILE\.sp",
-    [string]$Version = "1.0.0",
-    [switch]$Force
+    [string]$InstallDir = $(if ($env:SP_INSTALL_DIR) { $env:SP_INSTALL_DIR } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE ".sp" } else { "C:\SP-Language" }),
+    [string]$Version = "3.1.0",
+    [switch]$Force,
+    [switch]$SkipToolchain
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +32,7 @@ function Write-Banner {
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host "  Target Location : $InstallDir" -ForegroundColor Yellow
     Write-Host "  OS Architecture : $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Gray
+    Write-Host "  Operating System: $([System.Environment]::OSVersion.VersionString)" -ForegroundColor Gray
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host ""
 }
@@ -44,6 +47,7 @@ $IncludeDir = Join-Path $InstallDir "runtime\include"
 $StdlibDir = Join-Path $InstallDir "stdlib"
 $ExamplesDir = Join-Path $InstallDir "examples"
 $ToolchainDir = Join-Path $InstallDir "toolchain"
+$ToolchainBin = Join-Path $ToolchainDir "bin"
 
 $directories = @($InstallDir, $BinDir, $LibDir, $IncludeDir, $StdlibDir, $ExamplesDir)
 foreach ($dir in $directories) {
@@ -52,32 +56,75 @@ foreach ($dir in $directories) {
     }
 }
 
-# 2. Deploy SP Binaries and Standard Library
+# 2. Deploy SP Binaries, Standard Library & Runtime
 Write-Host "`n[2/5] Deploying SP Language Core Components..." -ForegroundColor Green
 
+# Scan for local repository build artifacts
 $repoRoot = $PSScriptRoot
 $isLocalRepo = $false
-if (-not [string]::IsNullOrEmpty($repoRoot)) {
-    $localBuildBin = Join-Path $repoRoot "build\bin"
-    if (Test-Path (Join-Path $localBuildBin "spc.exe")) {
-        $isLocalRepo = $true
+$candidateRoots = @(
+    $repoRoot,
+    (Split-Path $repoRoot -Parent),
+    (Split-Path (Split-Path $repoRoot -Parent) -Parent),
+    $PWD.Path
+)
+
+foreach ($cand in $candidateRoots) {
+    if (-not [string]::IsNullOrEmpty($cand)) {
+        $candBin = Join-Path $cand "build\bin"
+        if (Test-Path (Join-Path $candBin "spc.exe")) {
+            $repoRoot = $cand
+            $isLocalRepo = $true
+            break
+        }
     }
 }
 
 if ($isLocalRepo) {
-    Write-Host "  -> Installing from local repository build artifacts..." -ForegroundColor Cyan
+    Write-Host "  -> Installing from local repository build artifacts: $repoRoot" -ForegroundColor Cyan
+    $localBuildBin = Join-Path $repoRoot "build\bin"
     
-    # Copy binaries
+    # Copy core binaries
     Get-ChildItem -Path $localBuildBin -Filter "*.exe" | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $BinDir -Force
         Write-Host "     Installed binary: $($_.Name)" -ForegroundColor Gray
     }
     
-    # Copy runtime library
+    # Copy precompiled runtime static library
     $localRuntimeLib = Join-Path $repoRoot "build\lib\libsp_runtime.a"
     if (Test-Path $localRuntimeLib) {
         Copy-Item -Path $localRuntimeLib -Destination $LibDir -Force
         Write-Host "     Installed runtime library: libsp_runtime.a" -ForegroundColor Gray
+    }
+    
+    # Copy or bundle static OpenSSL libraries (libssl.a, libcrypto.a)
+    $sslCandidates = @(
+        (Join-Path $repoRoot "build\lib\libssl.a"),
+        "C:\msys64\ucrt64\lib\libssl.a",
+        "C:\msys64\mingw64\lib\libssl.a",
+        "C:\msys64\clang64\lib\libssl.a"
+    )
+    $cryptoCandidates = @(
+        (Join-Path $repoRoot "build\lib\libcrypto.a"),
+        "C:\msys64\ucrt64\lib\libcrypto.a",
+        "C:\msys64\mingw64\lib\libcrypto.a",
+        "C:\msys64\clang64\lib\libcrypto.a"
+    )
+
+    foreach ($s in $sslCandidates) {
+        if (Test-Path $s) {
+            Copy-Item -Path $s -Destination (Join-Path $LibDir "libssl.a") -Force
+            Write-Host "     Installed OpenSSL library: libssl.a" -ForegroundColor Gray
+            break
+        }
+    }
+
+    foreach ($c in $cryptoCandidates) {
+        if (Test-Path $c) {
+            Copy-Item -Path $c -Destination (Join-Path $LibDir "libcrypto.a") -Force
+            Write-Host "     Installed OpenSSL library: libcrypto.a" -ForegroundColor Gray
+            break
+        }
     }
     
     # Copy runtime headers
@@ -87,7 +134,7 @@ if ($isLocalRepo) {
         Write-Host "     Installed runtime headers" -ForegroundColor Gray
     }
     
-    # Copy standard library
+    # Copy standard library modules
     $localStdlib = Join-Path $repoRoot "stdlib"
     if (Test-Path $localStdlib) {
         Copy-Item -Path "$localStdlib\*" -Destination $StdlibDir -Recurse -Force
@@ -101,23 +148,29 @@ if ($isLocalRepo) {
     }
 } else {
     Write-Host "  -> Downloading SP distribution package ($Version)..." -ForegroundColor Cyan
-    $ZipName = "sp-$Version-windows-x64.zip"
-    $TempZip = Join-Path $env:TEMP $ZipName
-    
-    $Urls = @(
-        "https://dl.splang.shantopaul.com/$ZipName",
-        "https://splang.shantopaul.com/downloads/$ZipName",
-        "https://downloads.splang.shantopaul.com/$ZipName",
-        "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$ZipName"
+    $ZipNames = @(
+        "sp-$Version-windows-x64.zip",
+        "sp-windows-x64.zip",
+        "sp-1.0.0-windows-x64.zip"
     )
+    $TempZip = Join-Path $env:TEMP "sp_download_$([Guid]::NewGuid().ToString('N')).zip"
+    
+    $Urls = @()
+    foreach ($zn in $ZipNames) {
+        $Urls += "https://dl.splang.shantopaul.com/$zn"
+        $Urls += "https://splang.shantopaul.com/downloads/$zn"
+        $Urls += "https://downloads.splang.shantopaul.com/$zn"
+        $Urls += "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$zn"
+        $Urls += "https://github.com/shantopaul/SP-Language/releases/latest/download/$zn"
+    }
     
     $Downloaded = $false
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     foreach ($Url in $Urls) {
         try {
             Write-Host "     Connecting to: $Url" -ForegroundColor Gray
-            Invoke-WebRequest -Uri $Url -OutFile $TempZip -UseBasicParsing -TimeoutSec 90
-            if ((Test-Path $TempZip) -and ((Get-Item $TempZip).Length -gt 1000)) {
+            Invoke-WebRequest -Uri $Url -OutFile $TempZip -UseBasicParsing -TimeoutSec 60
+            if ((Test-Path $TempZip) -and ((Get-Item $TempZip).Length -gt 50000)) {
                 $Downloaded = $true
                 Write-Host "     Package downloaded successfully!" -ForegroundColor Green
                 break
@@ -132,11 +185,18 @@ if ($isLocalRepo) {
         Expand-Archive -Path $TempZip -DestinationPath $InstallDir -Force
         Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
     } else {
-        # Fallback check: check if C:\SP-Language has pre-existing binaries
-        if (Test-Path "C:\SP-Language\bin\spc.exe") {
-            Write-Host "     Using pre-existing local binaries from C:\SP-Language..." -ForegroundColor Yellow
-            Copy-Item -Path "C:\SP-Language\*" -Destination $InstallDir -Recurse -Force
-        } else {
+        # Fallback check: check if C:\SP-Language or ~/.sp has pre-existing binaries
+        $fallbackPaths = @("C:\SP-Language", "D:\SP-Language", "$env:LOCALAPPDATA\SP-Language")
+        $foundFallback = $false
+        foreach ($fb in $fallbackPaths) {
+            if (Test-Path (Join-Path $fb "bin\spc.exe")) {
+                Write-Host "     Using pre-existing local distribution from $fb..." -ForegroundColor Yellow
+                Copy-Item -Path "$fb\*" -Destination $InstallDir -Recurse -Force
+                $foundFallback = $true
+                break
+            }
+        }
+        if (-not $foundFallback) {
             throw "Failed to download SP Language distribution package from all release mirrors."
         }
     }
@@ -144,16 +204,15 @@ if ($isLocalRepo) {
 
 # Ensure hello.sp example exists
 $HelloSp = Join-Path $ExamplesDir "hello.sp"
-if (-not (Test-Path $HelloSp)) {
-    @"
+    $helloCode = @"
 import std.io;
 
 fn main() {
     println("Hello, World from SP Programming Language!");
     println("Native compilation on Windows Desktop is fully operational.");
 }
-"@ | Out-File -FilePath $HelloSp -Encoding utf8
-}
+"@
+    [System.IO.File]::WriteAllText($HelloSp, $helloCode, [System.Text.Encoding]::ASCII)
 
 # 3. Environment Variables Configuration
 Write-Host "`n[3/5] Configuring System / User Environment Variables..." -ForegroundColor Green
@@ -165,9 +224,8 @@ $UserPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTa
 $PathEntries = if ([string]::IsNullOrEmpty($UserPath)) { @() } else { $UserPath -split ";" }
 
 $PathsToAdd = @($BinDir)
-$toolchainBin = Join-Path $ToolchainDir "bin"
-if (Test-Path $toolchainBin) {
-    $PathsToAdd += $toolchainBin
+if (Test-Path $ToolchainBin) {
+    $PathsToAdd += $ToolchainBin
 }
 
 $PathModified = $false
@@ -206,41 +264,81 @@ Write-Host "`n[4/5] Checking Native C/LLVM Backend Toolchain..." -ForegroundColo
 
 $hasClang = (Get-Command clang++.exe -ErrorAction SilentlyContinue) -ne $null
 $hasClangC = (Get-Command clang.exe -ErrorAction SilentlyContinue) -ne $null
-$hasGcc = (Get-Command gcc.exe -ErrorAction SilentlyContinue) -ne $null
-$hasBundled = (Test-Path (Join-Path $toolchainBin "clang++.exe")) -or (Test-Path (Join-Path $toolchainBin "clang.exe"))
+$hasBundled = (Test-Path (Join-Path $ToolchainBin "clang++.exe")) -or (Test-Path (Join-Path $ToolchainBin "clang.exe"))
 
-if ($hasClang -or $hasClangC -or $hasGcc -or $hasBundled) {
-    Write-Host "  -> Backend C/LLVM toolchain is detected and ready." -ForegroundColor Green
-} else {
-    Write-Host "  -> No backend C/LLVM compiler detected on this PC." -ForegroundColor Yellow
-    Write-Host "     Auto-provisioning portable Windows toolchain for instant out-of-the-box native compilation..." -ForegroundColor Yellow
-    
-    $SpcExe = Join-Path $BinDir "spc.exe"
-    if (Test-Path $SpcExe) {
-        & $SpcExe setup
-    } else {
-        # Direct PowerShell fallback download if spc.exe setup hasn't run
-        try {
-            $toolchainUrl = "https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64ucrt-12.0.0-r2.7z"
-            Write-Host "     Downloading portable toolchain archive..." -ForegroundColor Gray
-        } catch {
-            Write-Host "     Toolchain can be provisioned at any time by running 'spc setup'." -ForegroundColor Gray
+# Also check common standard installation paths
+if (-not ($hasClang -or $hasClangC -or $hasBundled)) {
+    $standardClangPaths = @(
+        "C:\Program Files\LLVM\bin\clang++.exe",
+        "C:\Program Files (x86)\LLVM\bin\clang++.exe",
+        "C:\msys64\ucrt64\bin\clang++.exe",
+        "C:\msys64\clang64\bin\clang++.exe",
+        "D:\Program Files\LLVM\bin\clang++.exe"
+    )
+    foreach ($candClang in $standardClangPaths) {
+        if (Test-Path $candClang) {
+            $hasClang = $true
+            $foundDir = Split-Path $candClang -Parent
+            if ($env:Path -notlike "*$foundDir*") {
+                $env:Path = "$foundDir;$env:Path"
+            }
+            break
         }
     }
 }
 
-# 5. Self-Diagnosis and Smoke Test
+if ($hasClang -or $hasClangC -or $hasBundled) {
+    Write-Host "  -> Backend LLVM Clang toolchain is detected and ready." -ForegroundColor Green
+} elseif (-not $SkipToolchain) {
+    Write-Host "  -> No backend LLVM Clang compiler detected on this PC." -ForegroundColor Yellow
+    Write-Host "     Auto-provisioning portable Windows toolchain for instant out-of-the-box native compilation..." -ForegroundColor Yellow
+    
+    $SpcExe = Join-Path $BinDir "spc.exe"
+    if (Test-Path $SpcExe) {
+        Write-Host "     Invoking 'spc setup'..." -ForegroundColor Cyan
+        & $SpcExe setup
+    } else {
+        # Check if winget can install LLVM
+        $hasWinget = (Get-Command winget.exe -ErrorAction SilentlyContinue) -ne $null
+        if ($hasWinget) {
+            try {
+                Write-Host "     Installing LLVM Clang via Windows Package Manager (winget)..." -ForegroundColor Cyan
+                winget install --id LLVM.LLVM -e --silent --accept-source-agreements --accept-package-agreements
+            } catch {
+                Write-Host "     winget installation deferred. You can run 'spc setup' anytime." -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host "     Toolchain can be provisioned at any time by running 'spc setup'." -ForegroundColor DarkGray
+        }
+    }
+}
+
+# 5. Self-Diagnosis and Safe Smoke Test Execution
 Write-Host "`n[5/5] Performing System Verification & Smoke Test..." -ForegroundColor Green
 
 $SpcExe = Join-Path $BinDir "spc.exe"
 if (Test-Path $SpcExe) {
+    # Run spc doctor to display system health
     & $SpcExe doctor
     
-    Write-Host "`n[*] Executing native smoke test ($HelloSp)..." -ForegroundColor Cyan
+    # Run smoke test in a safe temporary folder (never CWD which might be read-only)
+    $tempSmokeSp = Join-Path $env:TEMP "sp_install_smoke_$([Guid]::NewGuid().ToString('N')).sp"
+    $smokeCode = @"
+import std.io;
+
+fn main() {
+    println("SP Native Compilation Verification: SUCCESS!");
+}
+"@
+    [System.IO.File]::WriteAllText($tempSmokeSp, $smokeCode, [System.Text.Encoding]::ASCII)
+
+    Write-Host "`n[*] Executing native smoke test..." -ForegroundColor Cyan
     try {
-        & $SpcExe run $HelloSp
+        & $SpcExe run $tempSmokeSp
     } catch {
-        Write-Host "Notice: Smoke test invocation finished. Run 'spc run $HelloSp' to re-test." -ForegroundColor Gray
+        Write-Host "Notice: Smoke test invocation finished. Run 'spc run examples\hello.sp' to re-test." -ForegroundColor Gray
+    } finally {
+        Remove-Item -Path $tempSmokeSp -Force -ErrorAction SilentlyContinue
     }
 } else {
     Write-Error "spc.exe was not found in $BinDir"

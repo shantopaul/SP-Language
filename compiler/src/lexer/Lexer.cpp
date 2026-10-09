@@ -5,7 +5,17 @@
 namespace sp::lexer {
 
 Lexer::Lexer(std::string_view source, std::string filename, diagnostics::DiagnosticEngine* diagnostics)
-    : m_source(source), m_filename(std::move(filename)), m_diagnostics(diagnostics) {}
+    : m_source(source), m_filename(std::move(filename)), m_diagnostics(diagnostics) {
+    // Skip UTF-8 Byte Order Mark (BOM: \xEF\xBB\xBF) if present at start of source
+    if (m_source.size() >= 3 &&
+        static_cast<unsigned char>(m_source[0]) == 0xEF &&
+        static_cast<unsigned char>(m_source[1]) == 0xBB &&
+        static_cast<unsigned char>(m_source[2]) == 0xBF) {
+        m_start = 3;
+        m_current = 3;
+        m_column = 1;
+    }
+}
 
 bool Lexer::isAtEnd() const noexcept {
     return m_current >= m_source.size();
