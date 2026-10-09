@@ -552,6 +552,9 @@ ast::ExprPtr Parser::parseGroupedOrLambda() {
             std::string type;
             if (isTypeKeyword(peek().type)) {
                 type = parseType();
+            } else if (check(lexer::TokenType::Identifier) && m_current + 1 < m_tokens.size() &&
+                       m_tokens[m_current + 1].type == lexer::TokenType::Identifier) {
+                type = advance().lexeme;
             }
             if (match(lexer::TokenType::Identifier)) {
                 std::string name = previous().lexeme;

@@ -156,4 +156,20 @@ TEST(GoldenParserTest, ParseStdlibSecurity) {
     assertFileParsesCleanly("stdlib/security/security.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibWebContext) {
+    assertFileParsesCleanly("stdlib/web/context.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibWebDi) {
+    assertFileParsesCleanly("stdlib/web/di.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibWebApp) {
+    assertFileParsesCleanly("stdlib/web/app.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibWeb) {
+    assertFileParsesCleanly("stdlib/web/web.sp");
+}
+
 } // namespace sp::parser::test

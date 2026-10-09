@@ -451,6 +451,9 @@ extern "C" {
                                            bool secure, bool http_only, const char* same_site);
     void        sp_rt_http_resp_set_body(void* resp, const char* body);
     void        sp_rt_http_resp_set_json(void* resp, const char* json_str);
+    void        sp_rt_http_resp_set_html(void* resp, const char* html);
+    void        sp_rt_http_resp_set_text(void* resp, const char* text);
+    void        sp_rt_http_resp_redirect(void* resp, const char* url, int64_t status);
 
     void*       sp_rt_http_server_create();
     void*       sp_rt_http_server_create_advanced(int64_t workers, int64_t max_body_bytes, int64_t max_header_bytes);
@@ -468,6 +471,8 @@ extern "C" {
     void*       sp_rt_http_group_group(void* grp, const char* prefix);
     void        sp_rt_http_group_route(void* grp, const char* method, const char* path, 
                                        const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body));
+    void        sp_rt_http_group_route_handler(void* grp, const char* method, const char* path, 
+                                               void* (*handler_fn)(void* req));
     void        sp_rt_http_group_destroy(void* grp);
 
     void        sp_rt_http_server_use_cors(void* srv, const char* origins, const char* methods, const char* headers);

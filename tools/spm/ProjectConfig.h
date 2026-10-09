@@ -73,6 +73,6 @@ private:
 };
 
 // Project scaffolding helper
-bool scaffoldProject(const std::string& projectDir, const std::string& name, bool isLib, std::string& errorMsg);
+bool scaffoldProject(const std::string& projectDir, const std::string& name, bool isLib, std::string& errorMsg, const std::string& templateType = "");
 
 } // namespace sp::spm

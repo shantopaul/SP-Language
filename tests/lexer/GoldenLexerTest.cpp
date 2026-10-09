@@ -161,4 +161,20 @@ TEST(GoldenLexerTest, TokenizeStdlibSecurity) {
     assertFileTokenizesWithoutErrors("stdlib/security/security.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibWebContext) {
+    assertFileTokenizesWithoutErrors("stdlib/web/context.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibWebDi) {
+    assertFileTokenizesWithoutErrors("stdlib/web/di.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibWebApp) {
+    assertFileTokenizesWithoutErrors("stdlib/web/app.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibWeb) {
+    assertFileTokenizesWithoutErrors("stdlib/web/web.sp");
+}
+
 } // namespace sp::lexer::test

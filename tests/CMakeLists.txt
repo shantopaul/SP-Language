@@ -55,6 +55,7 @@ add_executable(sp_tests
     runtime/HttpTest.cpp
     runtime/DatabaseTest.cpp
     runtime/SecurityTest.cpp
+    runtime/WebTest.cpp
     spm/ProjectConfigTest.cpp
     spm/DependencyResolverTest.cpp
     spm/LockfileTest.cpp

@@ -222,6 +222,7 @@ bool FunctionType::equals(const Type& other) const {
 }
 
 bool FunctionType::isAssignableTo(const Type& target) const {
+    if (target.getKind() == TypeKind::Pointer) return true;
     return equals(target) || Type::isAssignableTo(target);
 }
 

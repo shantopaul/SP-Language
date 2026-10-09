@@ -335,7 +335,7 @@ bool ProjectConfig::hasDependency(const std::string& name) const {
     return findDependency(name, false) != nullptr || findDependency(name, true) != nullptr;
 }
 
-bool scaffoldProject(const std::string& projectDir, const std::string& name, bool isLib, std::string& errorMsg) {
+bool scaffoldProject(const std::string& projectDir, const std::string& name, bool isLib, std::string& errorMsg, const std::string& templateType) {
     fs::path pDir = fs::absolute(projectDir);
     std::error_code ec;
 
@@ -361,6 +361,12 @@ bool scaffoldProject(const std::string& projectDir, const std::string& name, boo
     }
 
     ProjectConfig config = ProjectConfig::createDefault(projName, isLib);
+    if (templateType == "api") {
+        config.getPackage().description = "High-performance SP REST API service";
+        config.addDependency({"std.http", ">=2.3.0", "", ""});
+        config.addDependency({"std.web", ">=2.7.0", "", ""});
+        config.addDependency({"std.json", ">=2.4.0", "", ""});
+    }
     if (!config.saveToFile(tomlPath.string())) {
         errorMsg = config.getLastError();
         return false;
@@ -375,10 +381,35 @@ bool scaffoldProject(const std::string& projectDir, const std::string& name, boo
         fs::path mainPath = srcDir / "main.sp";
         if (!fs::exists(mainPath)) {
             std::ofstream mainFile(mainPath);
-            mainFile << "import std.io;\n\n"
-                     << "fn main() {\n"
-                     << "    println(\"Hello, SP World from " << projName << "!\");\n"
-                     << "}\n";
+            if (templateType == "api") {
+                mainFile << "module main;\n\n"
+                         << "import std.io;\n"
+                         << "import std.web;\n\n"
+                         << "fn main() {\n"
+                         << "    let app = new App();\n\n"
+                         << "    // Production middleware pipeline\n"
+                         << "    app.use(new Logger());\n"
+                         << "    app.use(new Cors());\n"
+                         << "    app.use(new Recovery());\n\n"
+                         << "    // REST endpoints\n"
+                         << "    app.get(\"/api/health\", (ptr req) => {\n"
+                         << "        let ctx = Context.create(req);\n"
+                         << "        return ctx.json(\"{\\\"status\\\":\\\"ok\\\",\\\"service\\\":\\\"" << projName << "\\\"}\");\n"
+                         << "    });\n\n"
+                         << "    app.get(\"/api/v1/info\", (ptr req) => {\n"
+                         << "        let ctx = Context.create(req);\n"
+                         << "        return ctx.json(\"{\\\"version\\\":\\\"0.1.0\\\",\\\"framework\\\":\\\"sp-web\\\"}\");\n"
+                         << "    });\n\n"
+                         << "    let port = 8080;\n"
+                         << "    println(\"[+] " << projName << " listening at http://127.0.0.1:\" + port);\n"
+                         << "    app.listen(port);\n"
+                         << "}\n";
+            } else {
+                mainFile << "import std.io;\n\n"
+                         << "fn main() {\n"
+                         << "    println(\"Hello, SP World from " << projName << "!\");\n"
+                         << "}\n";
+            }
         }
     } else {
         fs::path libPath = srcDir / "lib.sp";

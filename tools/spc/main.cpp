@@ -29,6 +29,18 @@
 #include <iomanip>
 #include <filesystem>
 #include <cstdlib>
+#include <chrono>
+#include <thread>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -68,6 +80,7 @@ void printHelp() {
               << "  --save-baseline Save current benchmark results as new historical baseline\n"
               << "  --warmup <n>    Number of warmup iterations (default: 5)\n"
               << "  --samples <n>   Number of sample measurement runs (default: 50)\n"
+              << "  --watch, -w     Watch file for changes and auto-restart process\n"
               << "  -o <path>       Specify output binary path (for build/obj command)\n"
               << "  -c, --emit-obj  Emit relocatable object file (.o / .obj) directly\n"
               << "  -S, --emit-ir   Emit LLVM IR (.ll) directly\n"
@@ -392,6 +405,7 @@ int main(int argc, char* argv[]) {
         std::string optLevel;
         bool releaseMode = false;
         bool debugMode = false;
+        bool watchMode = false;
         bool emitObjOnly = false;
         bool emitIROnly = false;
         sp::ast::Edition edition = sp::ast::Edition::Edition2026;
@@ -403,6 +417,8 @@ int main(int argc, char* argv[]) {
             std::string_view arg = argv[i];
             if (arg == "-o" && i + 1 < argc) {
                 outputPath = argv[++i];
+            } else if (arg == "-w" || arg == "--watch") {
+                watchMode = true;
             } else if (arg == "-c" || arg == "--emit-obj") {
                 emitObjOnly = true;
             } else if (arg == "-S" || arg == "--emit-ir") {
@@ -658,14 +674,136 @@ int main(int argc, char* argv[]) {
         }
 
         if (command == "run") {
-            std::string runCmd = "\"" + fs::absolute(outputPath).string() + "\"";
+            if (!watchMode) {
+                std::string runCmd = "\"" + fs::absolute(outputPath).string() + "\"";
 #if defined(_WIN32)
-            std::string fullCmd = "\"" + runCmd + "\"";
-            int exitCode = std::system(fullCmd.c_str());
+                std::string fullCmd = "\"" + runCmd + "\"";
+                int exitCode = std::system(fullCmd.c_str());
 #else
-            int exitCode = std::system(runCmd.c_str());
+                int exitCode = std::system(runCmd.c_str());
 #endif
-            return exitCode;
+                return exitCode;
+            }
+
+            // Watch mode: monitoring input file and directory
+            fs::path watchFile = fs::absolute(filename);
+            fs::path watchDir = watchFile.parent_path();
+            std::cout << "[spc --watch] Watching " << watchFile.string() << " (Ctrl+C to quit)...\n";
+
+            auto getLatestTime = [&]() -> fs::file_time_type {
+                fs::file_time_type latest = fs::file_time_type::min();
+                std::error_code ec;
+                for (const auto& entry : fs::directory_iterator(watchDir, ec)) {
+                    if (ec) continue;
+                    if (entry.is_regular_file() && entry.path().extension() == ".sp") {
+                        auto t = entry.last_write_time(ec);
+                        if (!ec && t > latest) latest = t;
+                    }
+                }
+                return latest;
+            };
+
+            auto lastCheck = getLatestTime();
+
+#if defined(_WIN32)
+            PROCESS_INFORMATION procInfo{};
+            bool hasChild = false;
+            auto spawnProc = [&](const std::string& bin) {
+                STARTUPINFOA si{};
+                si.cb = sizeof(si);
+                std::string cmd = "\"" + fs::absolute(bin).string() + "\"";
+                std::vector<char> buf(cmd.begin(), cmd.end());
+                buf.push_back('\0');
+                if (CreateProcessA(NULL, buf.data(), NULL, NULL, FALSE, 0, NULL, watchDir.string().c_str(), &si, &procInfo)) {
+                    hasChild = true;
+                }
+            };
+            auto killProc = [&]() {
+                if (hasChild && procInfo.hProcess) {
+                    TerminateProcess(procInfo.hProcess, 0);
+                    WaitForSingleObject(procInfo.hProcess, 100);
+                    CloseHandle(procInfo.hProcess);
+                    CloseHandle(procInfo.hThread);
+                    procInfo = {};
+                    hasChild = false;
+                }
+            };
+#else
+            pid_t childPid = -1;
+            bool hasChild = false;
+            auto spawnProc = [&](const std::string& bin) {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    std::string absBin = fs::absolute(bin).string();
+                    char* args[] = {const_cast<char*>(absBin.c_str()), nullptr};
+                    execvp(absBin.c_str(), args);
+                    _exit(1);
+                } else if (pid > 0) {
+                    childPid = pid;
+                    hasChild = true;
+                }
+            };
+            auto killProc = [&]() {
+                if (hasChild && childPid > 0) {
+                    kill(childPid, SIGTERM);
+                    int st = 0;
+                    waitpid(childPid, &st, WNOHANG);
+                    childPid = -1;
+                    hasChild = false;
+                }
+            };
+#endif
+
+            spawnProc(outputPath);
+
+            while (true) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                auto cur = getLatestTime();
+                if (cur > lastCheck) {
+                    lastCheck = cur;
+                    auto startReboot = std::chrono::high_resolution_clock::now();
+                    std::cout << "\n[spc --watch] File change detected, recompiling...\n";
+
+                    killProc();
+
+                    // Re-parse and compile
+                    std::string newSource = readFile(watchFile.string());
+                    sp::diagnostics::DiagnosticEngine reDiag(std::cerr);
+                    sp::lexer::Lexer reLexer(newSource, watchFile.string(), &reDiag);
+                    auto reTokens = reLexer.tokenizeAll();
+                    if (!reDiag.hasErrors()) {
+                        sp::parser::Parser reParser(reTokens, watchFile.string(), &reDiag);
+                        reParser.setEdition(edition);
+                        auto reAst = reParser.parseProgram();
+                        if (!reDiag.hasErrors() && reAst) {
+                            sp::sema::ModuleLoader reModLoader(reDiag);
+                            reModLoader.setEdition(edition);
+                            for (const auto& inc : includeDirs) reModLoader.addSearchPath(inc);
+                            if (!customStdlibDir.empty()) reModLoader.setStdlibPath(customStdlibDir);
+                            if (reModLoader.loadAndMergeAll(*reAst, watchFile.string())) {
+                                sp::sema::SemanticAnalyzer reSema(reDiag);
+                                reSema.setEdition(edition);
+                                if (reSema.analyze(*reAst) && !reDiag.hasErrors()) {
+                                    std::string mName = fs::path(watchFile).stem().string();
+                                    sp::ir::IRBuilder reBuilder(reSema);
+                                    auto reIr = reBuilder.build(*reAst, mName);
+                                    if (reIr && llvmGen.compileToExecutable(*reIr, outputPath)) {
+                                        spawnProc(outputPath);
+                                        auto endReboot = std::chrono::high_resolution_clock::now();
+                                        double ms = std::chrono::duration<double, std::milli>(endReboot - startReboot).count();
+                                        std::cout << "[spc --watch] Server recompiled and restarted in " << std::fixed << std::setprecision(1) << ms << " ms.\n";
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    std::cerr << "[spc --watch] Compilation error, waiting for fixes...\n";
+                }
+            }
+
+            killProc();
+            return 0;
         }
 
         return 0;

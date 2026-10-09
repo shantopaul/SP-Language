@@ -53,6 +53,9 @@ public:
     // Run the package at projectDir (builds first if needed, then executes with args)
     static int run(const std::string& projectDir, const BuildOptions& options, const std::vector<std::string>& runArgs);
 
+    // Development server with file watcher and hot-reloading
+    static int dev(const std::string& projectDir, const BuildOptions& options, const std::vector<std::string>& runArgs);
+
     // Clean target directory
     static bool clean(const std::string& projectDir, std::string& errorMsg);
 

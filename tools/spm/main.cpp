@@ -26,7 +26,9 @@ void printVersion() {
 void printHelp() {
     std::cout << "Usage: spm [command] [options]\n\n"
               << "Commands:\n"
+              << "  new <name>          Create a new SP project in a new directory\n"
               << "  init [path]         Initialize a new SP project (default: binary app)\n"
+              << "  dev [args...]       Run in development mode with automatic hot-reloading\n"
               << "  add <package>       Add a dependency to sp.toml\n"
               << "  remove <package>    Remove a dependency from sp.toml\n"
               << "  install             Install and resolve locked dependencies\n"
@@ -40,6 +42,7 @@ void printHelp() {
               << "  publish             Publish current package to registry\n"
               << "  search <query>      Search for packages in registry\n\n"
               << "Options:\n"
+              << "  --template <type>   Project template: 'api' (REST backend) or 'default'\n"
               << "  --lib               Scaffold a library package instead of application binary\n"
               << "  --dev               Specify dependency as a development dependency\n"
               << "  --version <ver>     Specify version requirement when adding dependency\n"
@@ -57,15 +60,58 @@ void printHelp() {
               << "  -v, --version       Show version information\n";
 }
 
-int handleInit(int argc, char* argv[]) {
-    std::string path = ".";
+int handleNew(int argc, char* argv[]) {
+    if (argc < 3) {
+        std::cerr << "error: 'spm new' requires a project name\n"
+                  << "Usage: spm new <name> [--template <api|default>] [--lib]\n";
+        return 1;
+    }
     std::string name;
+    std::string templateType;
     bool isLib = false;
 
     for (int i = 2; i < argc; ++i) {
         std::string_view arg = argv[i];
         if (arg == "--lib") {
             isLib = true;
+        } else if ((arg == "--template" || arg == "-t") && i + 1 < argc) {
+            templateType = argv[++i];
+        } else if (!arg.starts_with("-")) {
+            if (name.empty()) {
+                name = arg;
+            }
+        }
+    }
+
+    if (name.empty()) {
+        std::cerr << "error: missing project name for 'spm new'\n";
+        return 1;
+    }
+
+    std::string path = name;
+    std::string errorMsg;
+    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg, templateType)) {
+        std::cerr << "error: " << errorMsg << "\n";
+        return 1;
+    }
+
+    std::cout << "Created " << (isLib ? "library" : (templateType == "api" ? "REST API" : "binary (application)"))
+              << " package '" << name << "' at ./" << path << "\n";
+    return 0;
+}
+
+int handleInit(int argc, char* argv[]) {
+    std::string path = ".";
+    std::string name;
+    std::string templateType;
+    bool isLib = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "--lib") {
+            isLib = true;
+        } else if ((arg == "--template" || arg == "-t") && i + 1 < argc) {
+            templateType = argv[++i];
         } else if (arg == "--name" && i + 1 < argc) {
             name = argv[++i];
         } else if (!arg.starts_with("-")) {
@@ -82,14 +128,37 @@ int handleInit(int argc, char* argv[]) {
     }
 
     std::string errorMsg;
-    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg)) {
+    if (!sp::spm::scaffoldProject(path, name, isLib, errorMsg, templateType)) {
         std::cerr << "error: " << errorMsg << "\n";
         return 1;
     }
 
-    std::cout << "Created " << (isLib ? "library" : "binary (application)")
+    std::cout << "Created " << (isLib ? "library" : (templateType == "api" ? "REST API" : "binary (application)"))
               << " package '" << name << "' at " << path << "\n";
     return 0;
+}
+
+int handleDev(int argc, char* argv[]) {
+    sp::spm::BuildOptions opts;
+    std::vector<std::string> runArgs;
+    bool collectingArgs = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (collectingArgs) {
+            runArgs.push_back(std::string(arg));
+        } else if (arg == "--") {
+            collectingArgs = true;
+        } else if (arg == "--release") {
+            opts.releaseMode = true;
+        } else if (arg == "--debug") {
+            opts.debugMode = true;
+        } else {
+            runArgs.push_back(std::string(arg));
+        }
+    }
+
+    return sp::spm::BuildOrchestrator::dev(".", opts, runArgs);
 }
 
 int handleAdd(int argc, char* argv[]) {
@@ -552,8 +621,16 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (cmd == "new") {
+        return handleNew(argc, argv);
+    }
+
     if (cmd == "init") {
         return handleInit(argc, argv);
+    }
+
+    if (cmd == "dev") {
+        return handleDev(argc, argv);
     }
 
     if (cmd == "add") {

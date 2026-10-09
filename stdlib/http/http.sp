@@ -29,6 +29,9 @@ extern "C" {
     fn sp_rt_http_resp_set_cookie(ptr resp, string name, string val, string path, int maxAge, bool secure, bool httpOnly, string sameSite);
     fn sp_rt_http_resp_set_body(ptr resp, string body);
     fn sp_rt_http_resp_set_json(ptr resp, string jsonStr);
+    fn sp_rt_http_resp_set_html(ptr resp, string html);
+    fn sp_rt_http_resp_set_text(ptr resp, string text);
+    fn sp_rt_http_resp_redirect(ptr resp, string url, int status);
 
     // Server
     fn sp_rt_http_server_create() -> ptr;
@@ -44,6 +47,7 @@ extern "C" {
     fn sp_rt_http_server_group(ptr srv, string prefix) -> ptr;
     fn sp_rt_http_group_group(ptr grp, string prefix) -> ptr;
     fn sp_rt_http_group_route(ptr grp, string method, string path, ptr handlerFnPtr);
+    fn sp_rt_http_group_route_handler(ptr grp, string method, string path, ptr handlerFnPtr);
     fn sp_rt_http_group_destroy(ptr grp);
 
     fn sp_rt_http_server_use_cors(ptr srv, string origins, string methods, string headers);
@@ -83,6 +87,30 @@ public class HttpRequest {
     public fn cookie(string name) -> string {
         return sp_rt_http_req_cookie(this.handle, name);
     }
+
+    public fn json(string jsonContent, int status = 200) -> HttpResponse {
+        let res = HttpResponse.create(status, jsonContent);
+        res.setJson(jsonContent);
+        return res;
+    }
+
+    public fn text(string textContent, int status = 200) -> HttpResponse {
+        let res = HttpResponse.create(status, textContent);
+        res.setText(textContent);
+        return res;
+    }
+
+    public fn html(string htmlContent, int status = 200) -> HttpResponse {
+        let res = HttpResponse.create(status, htmlContent);
+        res.setHtml(htmlContent);
+        return res;
+    }
+
+    public fn redirect(string url, int status = 302) -> HttpResponse {
+        let res = HttpResponse.create(status, "");
+        res.redirect(url, status);
+        return res;
+    }
 }
 
 public class HttpResponse {
@@ -101,6 +129,24 @@ public class HttpResponse {
     public static fn json(string jsonContent) -> HttpResponse {
         let res = HttpResponse.create(200, jsonContent);
         sp_rt_http_resp_set_header(res.handle, "Content-Type", "application/json; charset=utf-8");
+        return res;
+    }
+
+    public static fn text(string textContent) -> HttpResponse {
+        let res = HttpResponse.create(200, textContent);
+        res.setText(textContent);
+        return res;
+    }
+
+    public static fn html(string htmlContent) -> HttpResponse {
+        let res = HttpResponse.create(200, htmlContent);
+        res.setHtml(htmlContent);
+        return res;
+    }
+
+    public static fn redirect(string url, int status = 302) -> HttpResponse {
+        let res = HttpResponse.create(status, "");
+        res.redirect(url, status);
         return res;
     }
 
@@ -147,6 +193,18 @@ public class HttpResponse {
 
     public fn setJson(string jsonStr) {
         sp_rt_http_resp_set_json(this.handle, jsonStr);
+    }
+
+    public fn setText(string text) {
+        sp_rt_http_resp_set_text(this.handle, text);
+    }
+
+    public fn setHtml(string html) {
+        sp_rt_http_resp_set_html(this.handle, html);
+    }
+
+    public fn redirect(string url, int status = 302) {
+        sp_rt_http_resp_redirect(this.handle, url, status);
     }
 
     public fn destroy() {
@@ -200,6 +258,38 @@ public class HttpServer {
 
     public fn route(string method, string path, ptr handlerFnPtr) {
         sp_rt_http_server_route(this.handle, method, path, handlerFnPtr);
+    }
+
+    public fn routeHandler(string method, string path, ptr handlerFnPtr) {
+        sp_rt_http_server_route_handler(this.handle, method, path, handlerFnPtr);
+    }
+
+    public fn getHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("GET", path, handlerFnPtr);
+    }
+
+    public fn postHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("POST", path, handlerFnPtr);
+    }
+
+    public fn putHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("PUT", path, handlerFnPtr);
+    }
+
+    public fn patchHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("PATCH", path, handlerFnPtr);
+    }
+
+    public fn deleteHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("DELETE", path, handlerFnPtr);
+    }
+
+    public fn optionsHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("OPTIONS", path, handlerFnPtr);
+    }
+
+    public fn headHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("HEAD", path, handlerFnPtr);
     }
 
     public fn get(string path, ptr handlerFnPtr) {
@@ -293,6 +383,38 @@ public class RouteGroup {
         let child = new RouteGroup();
         child.handle = sp_rt_http_group_group(this.handle, subPrefix);
         return child;
+    }
+
+    public fn routeHandler(string method, string path, ptr handlerFnPtr) {
+        sp_rt_http_group_route_handler(this.handle, method, path, handlerFnPtr);
+    }
+
+    public fn getHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("GET", path, handlerFnPtr);
+    }
+
+    public fn postHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("POST", path, handlerFnPtr);
+    }
+
+    public fn putHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("PUT", path, handlerFnPtr);
+    }
+
+    public fn patchHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("PATCH", path, handlerFnPtr);
+    }
+
+    public fn deleteHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("DELETE", path, handlerFnPtr);
+    }
+
+    public fn optionsHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("OPTIONS", path, handlerFnPtr);
+    }
+
+    public fn headHandler(string path, ptr handlerFnPtr) {
+        this.routeHandler("HEAD", path, handlerFnPtr);
     }
 
     public fn get(string path, ptr handlerFnPtr) {

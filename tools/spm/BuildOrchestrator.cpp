@@ -17,6 +17,19 @@
 #include <iostream>
 #include <cstdlib>
 #include <algorithm>
+#include <chrono>
+#include <thread>
+#include <iomanip>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -241,6 +254,145 @@ int BuildOrchestrator::run(const std::string& projectDir, const BuildOptions& op
 
     int exitCode = std::system(runCmd.c_str());
     return exitCode;
+}
+
+int BuildOrchestrator::dev(const std::string& projectDir, const BuildOptions& options, const std::vector<std::string>& runArgs) {
+    fs::path pDir = fs::absolute(projectDir);
+    std::cout << "[sp dev] Starting development server with hot-reload for: " << pDir.string() << "\n";
+
+    auto getLatestModTime = [&](const fs::path& dir) -> fs::file_time_type {
+        fs::file_time_type latestTime = fs::file_time_type::min();
+        std::error_code ec;
+        if (!fs::exists(dir, ec)) return latestTime;
+        for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
+            if (ec) continue;
+            if (entry.is_regular_file()) {
+                std::string ext = entry.path().extension().string();
+                std::string fname = entry.path().filename().string();
+                if (ext == ".sp" || fname == "sp.toml") {
+                    auto t = entry.last_write_time(ec);
+                    if (!ec && t > latestTime) {
+                        latestTime = t;
+                    }
+                }
+            }
+        }
+        return latestTime;
+    };
+
+    auto lastCheckTime = getLatestModTime(pDir);
+
+    auto res = build(projectDir, options);
+    if (!res.success) {
+        std::cerr << "error: initial build failed:\n" << res.errorMessage << "\n";
+        std::cout << "[sp dev] Waiting for file changes to retry...\n";
+    }
+
+#if defined(_WIN32)
+    PROCESS_INFORMATION procInfo{};
+    bool hasChild = false;
+
+    auto spawnProcess = [&](const std::string& binaryPath) -> bool {
+        STARTUPINFOA si{};
+        si.cb = sizeof(si);
+        std::string cmd = "\"" + fs::absolute(binaryPath).string() + "\"";
+        for (const auto& a : runArgs) {
+            cmd += " \"" + a + "\"";
+        }
+        std::vector<char> cmdBuf(cmd.begin(), cmd.end());
+        cmdBuf.push_back('\0');
+
+        BOOL success = CreateProcessA(
+            NULL, cmdBuf.data(), NULL, NULL, FALSE,
+            0, NULL, pDir.string().c_str(), &si, &procInfo
+        );
+        if (success) {
+            hasChild = true;
+            return true;
+        }
+        return false;
+    };
+
+    auto killChild = [&]() {
+        if (hasChild && procInfo.hProcess) {
+            TerminateProcess(procInfo.hProcess, 0);
+            WaitForSingleObject(procInfo.hProcess, 100);
+            CloseHandle(procInfo.hProcess);
+            CloseHandle(procInfo.hThread);
+            procInfo = {};
+            hasChild = false;
+        }
+    };
+#else
+    pid_t childPid = -1;
+    bool hasChild = false;
+
+    auto spawnProcess = [&](const std::string& binaryPath) -> bool {
+        pid_t pid = fork();
+        if (pid == 0) {
+            std::vector<char*> argvList;
+            std::string absBin = fs::absolute(binaryPath).string();
+            argvList.push_back(const_cast<char*>(absBin.c_str()));
+            for (const auto& a : runArgs) {
+                argvList.push_back(const_cast<char*>(a.c_str()));
+            }
+            argvList.push_back(nullptr);
+            execvp(absBin.c_str(), argvList.data());
+            _exit(1);
+        } else if (pid > 0) {
+            childPid = pid;
+            hasChild = true;
+            return true;
+        }
+        return false;
+    };
+
+    auto killChild = [&]() {
+        if (hasChild && childPid > 0) {
+            kill(childPid, SIGTERM);
+            int status = 0;
+            waitpid(childPid, &status, WNOHANG);
+            childPid = -1;
+            hasChild = false;
+        }
+    };
+#endif
+
+    if (res.success) {
+        if (spawnProcess(res.targetBinary)) {
+            std::cout << "[sp dev] Application started: " << res.targetBinary << "\n";
+            std::cout << "[sp dev] Watching for changes in " << pDir.string() << " (Ctrl+C to quit)...\n";
+        }
+    }
+
+    // Watch loop (runs until process interrupted)
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        auto curTime = getLatestModTime(pDir);
+        if (curTime > lastCheckTime) {
+            lastCheckTime = curTime;
+            auto startReboot = std::chrono::high_resolution_clock::now();
+            std::cout << "\n[sp dev] File change detected, recompiling...\n";
+
+            killChild();
+
+            auto rebuildRes = build(projectDir, options);
+            if (rebuildRes.success) {
+                if (spawnProcess(rebuildRes.targetBinary)) {
+                    auto endReboot = std::chrono::high_resolution_clock::now();
+                    double rebootMs = std::chrono::duration<double, std::milli>(endReboot - startReboot).count();
+                    std::cout << "[sp dev] Server recompiled and restarted in " << std::fixed << std::setprecision(1) << rebootMs << " ms.\n";
+                }
+            } else {
+                std::cerr << "error: build failed during hot-reload:\n" << rebuildRes.errorMessage << "\n";
+                std::cout << "[sp dev] Waiting for fixes...\n";
+            }
+        }
+    }
+
+    killChild();
+    return 0;
 }
 
 bool BuildOrchestrator::clean(const std::string& projectDir, std::string& errorMsg) {

@@ -5,10 +5,7 @@ module std.security.middleware;
 // ============================================================================
 
 import std.security.jwt;
-
-extern "C" {
-    fn sp_rt_http_resp_set_header(ptr resp, string name, string val);
-}
+import std.http;
 
 public class SecurityHeaders {
     public static fn apply(ptr respHandle) {

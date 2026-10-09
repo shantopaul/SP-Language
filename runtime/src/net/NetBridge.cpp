@@ -577,6 +577,22 @@ void sp_rt_http_resp_set_json(void* resp, const char* json_str) {
     static_cast<sp::rt::http::HttpResponse*>(resp)->setJson(json_str ? json_str : "{}");
 }
 
+void sp_rt_http_resp_set_html(void* resp, const char* html) {
+    if (!resp) return;
+    auto* r = static_cast<sp::rt::http::HttpResponse*>(resp);
+    r->setHeader("Content-Type", "text/html; charset=utf-8");
+    r->setBody(html ? html : "");
+}
+
+void sp_rt_http_resp_redirect(void* resp, const char* url, int64_t status) {
+    if (!resp) return;
+    auto* r = static_cast<sp::rt::http::HttpResponse*>(resp);
+    r->statusCode = (status > 0) ? static_cast<int>(status) : 302;
+    r->statusText = (status == 301) ? "Moved Permanently" : "Found";
+    r->setHeader("Location", url ? url : "/");
+    r->setBody("");
+}
+
 void sp_rt_http_server_route(void* srv, const char* method, const char* path, 
                              const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body)) {
     if (!srv || !path || !handler_fn) return;
@@ -600,6 +616,35 @@ void sp_rt_http_server_route(void* srv, const char* method, const char* path,
     });
 }
 
+void sp_rt_http_resp_set_text(void* resp, const char* text) {
+    if (!resp) return;
+    auto* r = static_cast<sp::rt::http::HttpResponse*>(resp);
+    r->setHeader("Content-Type", "text/plain; charset=utf-8");
+    r->setBody(text ? text : "");
+}
+
+static sp::rt::http::HttpResponse extractResponse(void* respHandle) {
+    if (!respHandle) return sp::rt::http::HttpResponse::ok();
+    auto* respPtr = static_cast<sp::rt::http::HttpResponse*>(respHandle);
+    if (respPtr->statusCode >= 100 && respPtr->statusCode <= 599) {
+        sp::rt::http::HttpResponse copy = *respPtr;
+        delete respPtr;
+        return copy;
+    }
+    // Check if slot 1 contains inner HttpResponse* handle (SP class layout: slot 0 vtable, slot 1 field 0)
+    void** spObjSlots = reinterpret_cast<void**>(respHandle);
+    void* innerHandle = spObjSlots[1];
+    if (innerHandle) {
+        auto* innerPtr = static_cast<sp::rt::http::HttpResponse*>(innerHandle);
+        if (innerPtr->statusCode >= 100 && innerPtr->statusCode <= 599) {
+            sp::rt::http::HttpResponse copy = *innerPtr;
+            delete innerPtr;
+            return copy;
+        }
+    }
+    return sp::rt::http::HttpResponse::ok();
+}
+
 void sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
                                      void* (*handler_fn)(void* req)) {
     if (!srv || !path || !handler_fn) return;
@@ -608,11 +653,7 @@ void sp_rt_http_server_route_handler(void* srv, const char* method, const char* 
     std::string p = path;
     s->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
         void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
-        if (!respHandle) return sp::rt::http::HttpResponse::ok();
-        auto* respPtr = static_cast<sp::rt::http::HttpResponse*>(respHandle);
-        sp::rt::http::HttpResponse copy = *respPtr;
-        delete respPtr; // cleanup temporary response
-        return copy;
+        return extractResponse(respHandle);
     });
 }
 
@@ -677,6 +718,18 @@ void sp_rt_http_group_route(void* grp, const char* method, const char* path,
             return sp::rt::http::HttpResponse::json(resContent);
         }
         return sp::rt::http::HttpResponse::ok(resContent);
+    });
+}
+
+void sp_rt_http_group_route_handler(void* grp, const char* method, const char* path, 
+                                     void* (*handler_fn)(void* req)) {
+    if (!grp || !path || !handler_fn) return;
+    auto* g = static_cast<sp::rt::http::RouteGroup*>(grp);
+    std::string m = method ? method : "GET";
+    std::string p = path;
+    g->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
+        void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
+        return extractResponse(respHandle);
     });
 }
 
