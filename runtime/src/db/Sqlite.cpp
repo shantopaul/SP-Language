@@ -54,6 +54,36 @@ bool SqliteStmt::bindNull(int index) {
     return sqlite3_bind_null(m_stmt, index) == SQLITE_OK;
 }
 
+int SqliteStmt::parameterIndex(const std::string& name) const {
+    if (!m_stmt || name.empty()) return 0;
+    int idx = sqlite3_bind_parameter_index(m_stmt, name.c_str());
+    if (idx == 0 && name[0] != ':' && name[0] != '@' && name[0] != '$') {
+        std::string prefixed = ":" + name;
+        idx = sqlite3_bind_parameter_index(m_stmt, prefixed.c_str());
+    }
+    return idx;
+}
+
+bool SqliteStmt::bindNamedInt(const std::string& name, int64_t val) {
+    int idx = parameterIndex(name);
+    return idx > 0 ? bindInt(idx, val) : false;
+}
+
+bool SqliteStmt::bindNamedDouble(const std::string& name, double val) {
+    int idx = parameterIndex(name);
+    return idx > 0 ? bindDouble(idx, val) : false;
+}
+
+bool SqliteStmt::bindNamedString(const std::string& name, const std::string& val) {
+    int idx = parameterIndex(name);
+    return idx > 0 ? bindString(idx, val) : false;
+}
+
+bool SqliteStmt::bindNamedNull(const std::string& name) {
+    int idx = parameterIndex(name);
+    return idx > 0 ? bindNull(idx) : false;
+}
+
 int SqliteStmt::step() {
     if (!m_stmt) return SQLITE_MISUSE;
     return sqlite3_step(m_stmt);

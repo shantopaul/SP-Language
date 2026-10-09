@@ -493,6 +493,11 @@ extern "C" {
     bool        sp_rt_sqlite_bind_double(void* stmt, int64_t index, double val);
     bool        sp_rt_sqlite_bind_string(void* stmt, int64_t index, const char* val);
     bool        sp_rt_sqlite_bind_null(void* stmt, int64_t index);
+    int64_t     sp_rt_sqlite_param_index(void* stmt, const char* name);
+    bool        sp_rt_sqlite_bind_named_int(void* stmt, const char* name, int64_t val);
+    bool        sp_rt_sqlite_bind_named_double(void* stmt, const char* name, double val);
+    bool        sp_rt_sqlite_bind_named_string(void* stmt, const char* name, const char* val);
+    bool        sp_rt_sqlite_bind_named_null(void* stmt, const char* name);
     int64_t     sp_rt_sqlite_step(void* stmt); // 100 = Row, 101 = Done
     int64_t     sp_rt_sqlite_col_count(void* stmt);
     const char* sp_rt_sqlite_col_name(void* stmt, int64_t index);

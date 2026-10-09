@@ -20,6 +20,11 @@ extern "C" {
     fn sp_rt_sqlite_bind_double(ptr stmt, int64 index, double val) -> bool;
     fn sp_rt_sqlite_bind_string(ptr stmt, int64 index, string val) -> bool;
     fn sp_rt_sqlite_bind_null(ptr stmt, int64 index) -> bool;
+    fn sp_rt_sqlite_param_index(ptr stmt, string name) -> int64;
+    fn sp_rt_sqlite_bind_named_int(ptr stmt, string name, int64 val) -> bool;
+    fn sp_rt_sqlite_bind_named_double(ptr stmt, string name, double val) -> bool;
+    fn sp_rt_sqlite_bind_named_string(ptr stmt, string name, string val) -> bool;
+    fn sp_rt_sqlite_bind_named_null(ptr stmt, string name) -> bool;
     fn sp_rt_sqlite_step(ptr stmt) -> int64;
     fn sp_rt_sqlite_col_count(ptr stmt) -> int64;
     fn sp_rt_sqlite_col_name(ptr stmt, int64 index) -> string;
@@ -54,6 +59,26 @@ public class SqliteStatement {
 
     public fn bindNull(int index) -> bool {
         return sp_rt_sqlite_bind_null(this.handle, index);
+    }
+
+    public fn parameterIndex(string name) -> int64 {
+        return sp_rt_sqlite_param_index(this.handle, name);
+    }
+
+    public fn bindNamedInt(string name, int64 val) -> bool {
+        return sp_rt_sqlite_bind_named_int(this.handle, name, val);
+    }
+
+    public fn bindNamedDouble(string name, double val) -> bool {
+        return sp_rt_sqlite_bind_named_double(this.handle, name, val);
+    }
+
+    public fn bindNamedString(string name, string val) -> bool {
+        return sp_rt_sqlite_bind_named_string(this.handle, name, val);
+    }
+
+    public fn bindNamedNull(string name) -> bool {
+        return sp_rt_sqlite_bind_named_null(this.handle, name);
     }
 
     public fn step() -> int64 {
