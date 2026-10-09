@@ -9,6 +9,9 @@ add_library(sp_runtime
     src/net/Net.cpp
     src/net/EventLoop.cpp
     src/net/NetBridge.cpp
+    src/net/WebSocket.cpp
+    src/net/Sse.cpp
+    src/net/Redis.cpp
     src/crypto/Crypto.cpp
     src/crypto/Argon2.cpp
     src/crypto/Bcrypt.cpp

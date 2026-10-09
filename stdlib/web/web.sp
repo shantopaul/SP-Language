@@ -7,6 +7,7 @@ module std.web;
 import std.web.context;
 import std.web.di;
 import std.web.app;
+import std.web.sse;
 import std.http;
 import std.security.middleware;
 

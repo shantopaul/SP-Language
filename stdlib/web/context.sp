@@ -107,6 +107,15 @@ public class Context {
         return this.res;
     }
 
+    public fn sse(string sseData) -> HttpResponse {
+        this.res.setStatus(200);
+        this.res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        this.res.setHeader("Cache-Control", "no-cache");
+        this.res.setHeader("Connection", "keep-alive");
+        this.res.setBody(sseData);
+        return this.res;
+    }
+
     public fn redirect(string url) -> HttpResponse {
         this.res.redirect(url, 302);
         return this.res;

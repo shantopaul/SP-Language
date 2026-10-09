@@ -3,6 +3,9 @@
 #include "sp/runtime/Crypto.h"
 #include "sp/runtime/Json.h"
 #include "sp/runtime/Http.h"
+#include "sp/runtime/WebSocket.h"
+#include "sp/runtime/Sse.h"
+#include "sp/runtime/Redis.h"
 #include "sp/runtime/Runtime.h"
 #include <cstdlib>
 #include <cstring>
@@ -774,6 +777,214 @@ void sp_rt_http_server_use_rate_limiter(void* srv, int64_t max_reqs, int64_t win
     if (max_reqs > 0) opts.maxRequests = static_cast<int>(max_reqs);
     if (window_secs > 0) opts.windowSeconds = static_cast<int>(window_secs);
     s->use(sp::rt::http::HttpServer::rateLimiter(opts));
+}
+
+// ========================================================================
+// Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis)
+// ========================================================================
+
+// WebSocket
+const char* sp_rt_ws_accept_key(const char* client_key) {
+    if (!client_key) return alloc_str("");
+    return alloc_str(sp::rt::ws::computeWebSocketAccept(client_key));
+}
+
+void* sp_rt_ws_hub_create() {
+    return new sp::rt::ws::WebSocketHub();
+}
+
+void sp_rt_ws_hub_destroy(void* hub) {
+    if (hub) delete static_cast<sp::rt::ws::WebSocketHub*>(hub);
+}
+
+void sp_rt_ws_hub_broadcast(void* hub, const char* msg) {
+    if (!hub || !msg) return;
+    static_cast<sp::rt::ws::WebSocketHub*>(hub)->broadcast(msg);
+}
+
+void sp_rt_ws_hub_broadcast_room(void* hub, const char* room, const char* msg) {
+    if (!hub || !room || !msg) return;
+    static_cast<sp::rt::ws::WebSocketHub*>(hub)->broadcastTo(room, msg);
+}
+
+void sp_rt_ws_hub_join(void* hub, int64_t conn_id, const char* room) {
+    if (!hub || !room) return;
+    static_cast<sp::rt::ws::WebSocketHub*>(hub)->joinRoom(static_cast<uint64_t>(conn_id), room);
+}
+
+void sp_rt_ws_hub_leave(void* hub, int64_t conn_id, const char* room) {
+    if (!hub || !room) return;
+    static_cast<sp::rt::ws::WebSocketHub*>(hub)->leaveRoom(static_cast<uint64_t>(conn_id), room);
+}
+
+int64_t sp_rt_ws_hub_size(void* hub) {
+    if (!hub) return 0;
+    return static_cast<int64_t>(static_cast<sp::rt::ws::WebSocketHub*>(hub)->size());
+}
+
+int64_t sp_rt_ws_hub_room_size(void* hub, const char* room) {
+    if (!hub || !room) return 0;
+    return static_cast<int64_t>(static_cast<sp::rt::ws::WebSocketHub*>(hub)->roomSize(room));
+}
+
+// Server-Sent Events (SSE)
+const char* sp_rt_sse_format(const char* event, const char* data, const char* id, int64_t retry) {
+    return alloc_str(sp::rt::sse::formatEvent(
+        event ? event : "",
+        data ? data : "",
+        id ? id : "",
+        retry
+    ));
+}
+
+const char* sp_rt_sse_heartbeat() {
+    return alloc_str(sp::rt::sse::formatHeartbeat());
+}
+
+// Redis Client
+void* sp_rt_redis_create(const char* host, int64_t port) {
+    auto* client = new sp::rt::redis::RedisClient();
+    std::string h = host ? host : "127.0.0.1";
+    int p = (port > 0) ? static_cast<int>(port) : 6379;
+    client->connect(h, p);
+    return client;
+}
+
+void sp_rt_redis_destroy(void* client) {
+    if (client) delete static_cast<sp::rt::redis::RedisClient*>(client);
+}
+
+bool sp_rt_redis_connect(void* client) {
+    if (!client) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->isConnected();
+}
+
+const char* sp_rt_redis_ping(void* client) {
+    if (!client) return alloc_str("");
+    return alloc_str(static_cast<sp::rt::redis::RedisClient*>(client)->ping());
+}
+
+const char* sp_rt_redis_get(void* client, const char* key) {
+    if (!client || !key) return alloc_str("");
+    auto val = static_cast<sp::rt::redis::RedisClient*>(client)->get(key);
+    return alloc_str(val.value_or(""));
+}
+
+bool sp_rt_redis_set(void* client, const char* key, const char* val) {
+    if (!client || !key) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->set(key, val ? val : "");
+}
+
+bool sp_rt_redis_setex(void* client, const char* key, int64_t seconds, const char* val) {
+    if (!client || !key) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->setEx(key, seconds, val ? val : "");
+}
+
+bool sp_rt_redis_del(void* client, const char* key) {
+    if (!client || !key) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->del(key);
+}
+
+bool sp_rt_redis_exists(void* client, const char* key) {
+    if (!client || !key) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->exists(key);
+}
+
+int64_t sp_rt_redis_ttl(void* client, const char* key) {
+    if (!client || !key) return -2;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->ttl(key);
+}
+
+int64_t sp_rt_redis_incr(void* client, const char* key) {
+    if (!client || !key) return 0;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->incr(key);
+}
+
+int64_t sp_rt_redis_decr(void* client, const char* key) {
+    if (!client || !key) return 0;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->decr(key);
+}
+
+const char* sp_rt_redis_hget(void* client, const char* key, const char* field) {
+    if (!client || !key || !field) return alloc_str("");
+    auto val = static_cast<sp::rt::redis::RedisClient*>(client)->hget(key, field);
+    return alloc_str(val.value_or(""));
+}
+
+bool sp_rt_redis_hset(void* client, const char* key, const char* field, const char* val) {
+    if (!client || !key || !field) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->hset(key, field, val ? val : "");
+}
+
+bool sp_rt_redis_hdel(void* client, const char* key, const char* field) {
+    if (!client || !key || !field) return false;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->hdel(key, field);
+}
+
+int64_t sp_rt_redis_lpush(void* client, const char* key, const char* val) {
+    if (!client || !key) return 0;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->lpush(key, val ? val : "");
+}
+
+int64_t sp_rt_redis_rpush(void* client, const char* key, const char* val) {
+    if (!client || !key) return 0;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->rpush(key, val ? val : "");
+}
+
+const char* sp_rt_redis_lpop(void* client, const char* key) {
+    if (!client || !key) return alloc_str("");
+    auto val = static_cast<sp::rt::redis::RedisClient*>(client)->lpop(key);
+    return alloc_str(val.value_or(""));
+}
+
+const char* sp_rt_redis_rpop(void* client, const char* key) {
+    if (!client || !key) return alloc_str("");
+    auto val = static_cast<sp::rt::redis::RedisClient*>(client)->rpop(key);
+    return alloc_str(val.value_or(""));
+}
+
+int64_t sp_rt_redis_llen(void* client, const char* key) {
+    if (!client || !key) return 0;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->llen(key);
+}
+
+int64_t sp_rt_redis_publish(void* client, const char* channel, const char* message) {
+    if (!client || !channel || !message) return 0;
+    return static_cast<sp::rt::redis::RedisClient*>(client)->publish(channel, message);
+}
+
+// Redis Pool
+void* sp_rt_redis_pool_create(const char* host, int64_t port, int64_t min_conn, int64_t max_conn) {
+    sp::rt::redis::RedisPoolConfig cfg;
+    if (host && *host) cfg.host = host;
+    if (port > 0) cfg.port = static_cast<int>(port);
+    if (min_conn > 0) cfg.minConnections = static_cast<size_t>(min_conn);
+    if (max_conn > 0) cfg.maxConnections = static_cast<size_t>(max_conn);
+    return new sp::rt::redis::RedisPool(cfg);
+}
+
+void sp_rt_redis_pool_destroy(void* pool) {
+    if (pool) delete static_cast<sp::rt::redis::RedisPool*>(pool);
+}
+
+void* sp_rt_redis_pool_acquire(void* pool) {
+    if (!pool) return nullptr;
+    auto client = static_cast<sp::rt::redis::RedisPool*>(pool)->acquire();
+    return client.get();
+}
+
+void sp_rt_redis_pool_release(void* pool, void* client) {
+    (void)pool; (void)client;
+}
+
+int64_t sp_rt_redis_pool_available(void* pool) {
+    if (!pool) return 0;
+    return static_cast<int64_t>(static_cast<sp::rt::redis::RedisPool*>(pool)->available());
+}
+
+int64_t sp_rt_redis_pool_total(void* pool) {
+    if (!pool) return 0;
+    return static_cast<int64_t>(static_cast<sp::rt::redis::RedisPool*>(pool)->total());
 }
 
 } // extern "C"

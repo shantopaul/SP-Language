@@ -177,4 +177,20 @@ TEST(GoldenLexerTest, TokenizeStdlibWeb) {
     assertFileTokenizesWithoutErrors("stdlib/web/web.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibWebSocket) {
+    assertFileTokenizesWithoutErrors("stdlib/net/websocket.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibWs) {
+    assertFileTokenizesWithoutErrors("stdlib/net/ws.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibWebSse) {
+    assertFileTokenizesWithoutErrors("stdlib/web/sse.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibRedis) {
+    assertFileTokenizesWithoutErrors("stdlib/redis/redis.sp");
+}
+
 } // namespace sp::lexer::test

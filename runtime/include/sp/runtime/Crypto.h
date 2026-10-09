@@ -10,6 +10,10 @@ namespace sp::rt::crypto {
 std::string sha256(const std::string& input);
 std::string sha256Bytes(const uint8_t* data, size_t length);
 
+// SHA-1 (RFC 3174, required for RFC 6455 WebSocket Handshake)
+std::string sha1(const std::string& input);
+std::vector<uint8_t> sha1RawBytes(const uint8_t* data, size_t length);
+
 // HMAC-SHA256
 std::string hmacSha256(const std::string& key, const std::string& message);
 std::string hmacSha256Bytes(const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t msgLen);

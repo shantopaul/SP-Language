@@ -580,5 +580,54 @@ extern "C" {
     bool        sp_rt_session_destroy(void* store, const char* session_id);
     const char* sp_rt_session_regenerate(void* store, const char* old_session_id, int64_t ttl_secs);
     void        sp_rt_session_store_destroy(void* store);
+
+    // ========================================================================
+    // Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis) (SP 2.8)
+    // ========================================================================
+    // WebSocket (RFC 6455)
+    const char* sp_rt_ws_accept_key(const char* client_key);
+    void*       sp_rt_ws_hub_create();
+    void        sp_rt_ws_hub_destroy(void* hub);
+    void        sp_rt_ws_hub_broadcast(void* hub, const char* msg);
+    void        sp_rt_ws_hub_broadcast_room(void* hub, const char* room, const char* msg);
+    void        sp_rt_ws_hub_join(void* hub, int64_t conn_id, const char* room);
+    void        sp_rt_ws_hub_leave(void* hub, int64_t conn_id, const char* room);
+    int64_t     sp_rt_ws_hub_size(void* hub);
+    int64_t     sp_rt_ws_hub_room_size(void* hub, const char* room);
+
+    // Server-Sent Events (SSE)
+    const char* sp_rt_sse_format(const char* event, const char* data, const char* id, int64_t retry);
+    const char* sp_rt_sse_heartbeat();
+
+    // Redis (RESP2 / RESP3)
+    void*       sp_rt_redis_create(const char* host, int64_t port);
+    void        sp_rt_redis_destroy(void* client);
+    bool        sp_rt_redis_connect(void* client);
+    const char* sp_rt_redis_ping(void* client);
+    const char* sp_rt_redis_get(void* client, const char* key);
+    bool        sp_rt_redis_set(void* client, const char* key, const char* val);
+    bool        sp_rt_redis_setex(void* client, const char* key, int64_t seconds, const char* val);
+    bool        sp_rt_redis_del(void* client, const char* key);
+    bool        sp_rt_redis_exists(void* client, const char* key);
+    int64_t     sp_rt_redis_ttl(void* client, const char* key);
+    int64_t     sp_rt_redis_incr(void* client, const char* key);
+    int64_t     sp_rt_redis_decr(void* client, const char* key);
+    const char* sp_rt_redis_hget(void* client, const char* key, const char* field);
+    bool        sp_rt_redis_hset(void* client, const char* key, const char* field, const char* val);
+    bool        sp_rt_redis_hdel(void* client, const char* key, const char* field);
+    int64_t     sp_rt_redis_lpush(void* client, const char* key, const char* val);
+    int64_t     sp_rt_redis_rpush(void* client, const char* key, const char* val);
+    const char* sp_rt_redis_lpop(void* client, const char* key);
+    const char* sp_rt_redis_rpop(void* client, const char* key);
+    int64_t     sp_rt_redis_llen(void* client, const char* key);
+    int64_t     sp_rt_redis_publish(void* client, const char* channel, const char* message);
+
+    // Redis Connection Pool
+    void*       sp_rt_redis_pool_create(const char* host, int64_t port, int64_t min_conn, int64_t max_conn);
+    void        sp_rt_redis_pool_destroy(void* pool);
+    void*       sp_rt_redis_pool_acquire(void* pool);
+    void        sp_rt_redis_pool_release(void* pool, void* client);
+    int64_t     sp_rt_redis_pool_available(void* pool);
+    int64_t     sp_rt_redis_pool_total(void* pool);
 }
 

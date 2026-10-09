@@ -172,4 +172,20 @@ TEST(GoldenParserTest, ParseStdlibWeb) {
     assertFileParsesCleanly("stdlib/web/web.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibWebSocket) {
+    assertFileParsesCleanly("stdlib/net/websocket.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibWs) {
+    assertFileParsesCleanly("stdlib/net/ws.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibWebSse) {
+    assertFileParsesCleanly("stdlib/web/sse.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibRedis) {
+    assertFileParsesCleanly("stdlib/redis/redis.sp");
+}
+
 } // namespace sp::parser::test
