@@ -12,6 +12,8 @@ add_library(sp_runtime
     src/net/WebSocket.cpp
     src/net/Sse.cpp
     src/net/Redis.cpp
+    src/net/TestHttp.cpp
+    src/net/OpenApi.cpp
     src/crypto/Crypto.cpp
     src/crypto/Argon2.cpp
     src/crypto/Bcrypt.cpp

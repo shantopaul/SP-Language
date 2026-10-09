@@ -17,6 +17,7 @@ target_compile_features(sp_test_runner PRIVATE cxx_std_20)
 # SP Documentation Generator Library (sp_doc_generator)
 add_library(sp_doc_generator
     doc/DocGenerator.cpp
+    doc/OpenApiGenerator.cpp
 )
 target_include_directories(sp_doc_generator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_doc_generator PUBLIC sp_compiler)

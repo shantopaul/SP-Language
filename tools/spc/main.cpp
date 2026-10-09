@@ -18,6 +18,7 @@
 #include "fmt/Formatter.h"
 #include "test/TestRunner.h"
 #include "doc/DocGenerator.h"
+#include "doc/OpenApiGenerator.h"
 #include "bindgen/Bindgen.h"
 #include "benchmark/Benchmark.h"
 #include "sp/util/PathUtils.h"
@@ -941,7 +942,13 @@ int main(int argc, char* argv[]) {
         std::string outputDir = "docs";
         bool onlyHtml = false;
         bool onlyMd = false;
+        bool openApiMode = false;
+        bool swaggerMode = false;
+        bool redocMode = false;
         std::string projectName = "SP Documentation";
+        std::string apiTitle = "SP Application API";
+        std::string apiVersion = "1.0.0";
+        std::string apiUrl = "http://localhost:8080";
 
         for (int i = 2; i < argc; ++i) {
             std::string_view arg = argv[i];
@@ -951,11 +958,67 @@ int main(int argc, char* argv[]) {
                 onlyHtml = true;
             } else if (arg == "--md") {
                 onlyMd = true;
+            } else if (arg == "--openapi") {
+                openApiMode = true;
+            } else if (arg == "--swagger") {
+                swaggerMode = true;
+            } else if (arg == "--redoc") {
+                redocMode = true;
             } else if ((arg == "--title" || arg == "--project") && i + 1 < argc) {
                 projectName = argv[++i];
+                apiTitle = projectName;
+            } else if (arg == "--api-version" && i + 1 < argc) {
+                apiVersion = argv[++i];
+            } else if (arg == "--api-url" && i + 1 < argc) {
+                apiUrl = argv[++i];
             } else if (!arg.starts_with("-")) {
                 inputPath = arg;
             }
+        }
+
+        if (openApiMode || swaggerMode || redocMode) {
+            sp::doc::OpenApiOptions apiOpts;
+            apiOpts.title = apiTitle;
+            apiOpts.version = apiVersion;
+            apiOpts.serverUrl = apiUrl;
+            sp::doc::OpenApiGenerator oapiGen(apiOpts);
+
+            if (fs::is_directory(inputPath)) {
+                oapiGen.scanDirectory(inputPath);
+            } else if (fs::exists(inputPath)) {
+                oapiGen.scanFile(inputPath);
+            } else {
+                std::cerr << "Error: Input path '" << inputPath << "' does not exist.\n";
+                return 1;
+            }
+
+            fs::create_directories(outputDir);
+            std::string jsonPath = (fs::path(outputDir) / "openapi.json").string();
+            if (outputDir.ends_with(".json")) {
+                jsonPath = outputDir;
+            }
+
+            bool ok = oapiGen.saveJson(jsonPath);
+            if (!ok) {
+                std::cerr << "Error writing OpenAPI specification to " << jsonPath << "\n";
+                return 1;
+            }
+            std::cout << "Generated OpenAPI 3.0.3 specification: " << jsonPath
+                      << " (" << oapiGen.getRoutes().size() << " routes detected)\n";
+
+            if (swaggerMode || (!redocMode && !openApiMode)) {
+                std::string swaggerPath = (fs::path(outputDir) / "swagger.html").string();
+                oapiGen.saveSwaggerHtml(swaggerPath, "openapi.json");
+                std::cout << "Generated Swagger UI viewer: " << swaggerPath << "\n";
+            }
+
+            if (redocMode) {
+                std::string redocPath = (fs::path(outputDir) / "redoc.html").string();
+                oapiGen.saveRedocHtml(redocPath, "openapi.json");
+                std::cout << "Generated Redoc viewer: " << redocPath << "\n";
+            }
+
+            return 0;
         }
 
         sp::doc::DocOptions opts;

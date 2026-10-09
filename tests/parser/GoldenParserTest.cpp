@@ -208,4 +208,16 @@ TEST(GoldenParserTest, ParseObservabilityDevopsExample) {
     assertFileParsesCleanly("examples/observability_devops.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibTestHttp) {
+    assertFileParsesCleanly("stdlib/test/http.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibTest) {
+    assertFileParsesCleanly("stdlib/test/test.sp");
+}
+
+TEST(GoldenParserTest, ParseEnterpriseShowcase) {
+    assertFileParsesCleanly("examples/sp3_enterprise_showcase.sp");
+}
+
 } // namespace sp::parser::test

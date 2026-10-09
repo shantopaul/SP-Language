@@ -213,4 +213,16 @@ TEST(GoldenLexerTest, TokenizeObservabilityDevopsExample) {
     assertFileTokenizesWithoutErrors("examples/observability_devops.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibTestHttp) {
+    assertFileTokenizesWithoutErrors("stdlib/test/http.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibTest) {
+    assertFileTokenizesWithoutErrors("stdlib/test/test.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeEnterpriseShowcase) {
+    assertFileTokenizesWithoutErrors("examples/sp3_enterprise_showcase.sp");
+}
+
 } // namespace sp::lexer::test

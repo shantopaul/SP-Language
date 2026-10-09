@@ -339,6 +339,10 @@ public:
     [[nodiscard]] RadixRouter& getRouter() noexcept { return m_router; }
     [[nodiscard]] const RadixRouter& getRouter() const noexcept { return m_router; }
 
+    // In-memory request handling (e.g. for testing and direct routing)
+    HttpResponse handle(const HttpRequest& req);
+    HttpResponse dispatch(const HttpRequest& req);
+
     // Built-in Middleware factories
     static HttpMiddleware cors(CorsOptions opts = {});
     static HttpMiddleware logger();
@@ -350,7 +354,6 @@ private:
     void serverLoop();
     void workerLoop();
     void handleClient(std::unique_ptr<net::TcpSocket> client);
-    HttpResponse dispatch(const HttpRequest& req);
 
     HttpServerConfig m_config;
     RadixRouter m_router;

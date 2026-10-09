@@ -694,6 +694,27 @@ extern "C" {
     void        sp_rt_cron_start(void* cron);
     void        sp_rt_cron_stop(void* cron);
     int32_t     sp_rt_cron_task_count(void* cron);
+
+    // ========================================================================
+    // Phase 28: In-Memory HTTP Test Client (std.test.http) & OpenAPI Docs
+    // ========================================================================
+    void*       sp_rt_test_client_create(void* srv_handle);
+    void        sp_rt_test_client_destroy(void* client_handle);
+    void*       sp_rt_test_client_request(void* client_handle, const char* method, const char* path, const char* body, const char* headers_json);
+    void*       sp_rt_test_client_get(void* client_handle, const char* path);
+    void*       sp_rt_test_client_post(void* client_handle, const char* path, const char* body);
+    void*       sp_rt_test_client_put(void* client_handle, const char* path, const char* body);
+    void*       sp_rt_test_client_delete(void* client_handle, const char* path);
+    void*       sp_rt_test_client_patch(void* client_handle, const char* path, const char* body);
+    int32_t     sp_rt_test_response_status(void* resp_handle);
+    const char* sp_rt_test_response_body(void* resp_handle);
+    const char* sp_rt_test_response_header(void* resp_handle, const char* name);
+    int32_t     sp_rt_test_response_has_header(void* resp_handle, const char* name);
+    void        sp_rt_test_response_destroy(void* resp_handle);
+
+    // OpenAPI & Swagger UI / Redoc HTML
+    const char* sp_rt_openapi_swagger_html(const char* title, const char* spec_url);
+    const char* sp_rt_openapi_redoc_html(const char* title, const char* spec_url);
 }
 
 

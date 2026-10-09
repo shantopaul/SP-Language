@@ -1052,6 +1052,28 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
     client->close();
 }
 
+HttpResponse HttpServer::handle(const HttpRequest& req) {
+    HttpResponse res;
+    HttpResponse mwRes;
+    bool proceed = true;
+    for (const auto& mw : m_middlewares) {
+        if (!mw(req, mwRes)) {
+            proceed = false;
+            res = std::move(mwRes);
+            break;
+        }
+    }
+    if (proceed) {
+        res = dispatch(req);
+        for (const auto& h : mwRes.headers) {
+            if (res.getHeader(h.name).empty()) {
+                res.setHeader(h.name, h.value);
+            }
+        }
+    }
+    return res;
+}
+
 HttpResponse HttpServer::dispatch(const HttpRequest& req) {
     std::string upperMethod = req.method;
     std::transform(upperMethod.begin(), upperMethod.end(), upperMethod.begin(), ::toupper);

@@ -106,6 +106,7 @@ private:
     std::vector<ast::Parameter> parseParameters();
 
     static bool isTypeKeyword(lexer::TokenType type) noexcept;
+    static bool isModulePathSegment(lexer::TokenType type) noexcept;
 
     ast::Edition m_edition{ast::Edition::Edition2026};
 };

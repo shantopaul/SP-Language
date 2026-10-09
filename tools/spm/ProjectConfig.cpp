@@ -391,6 +391,9 @@ bool scaffoldProject(const std::string& projectDir, const std::string& name, boo
                          << "    app.use(new Logger());\n"
                          << "    app.use(new Cors());\n"
                          << "    app.use(new Recovery());\n\n"
+                         << "    // Interactive API Documentation (OpenAPI 3.0.3)\n"
+                         << "    app.swagger(\"/docs\", \"/openapi.json\", \"" << projName << " API\");\n"
+                         << "    app.redoc(\"/redoc\", \"/openapi.json\", \"" << projName << " API\");\n\n"
                          << "    // REST endpoints\n"
                          << "    app.get(\"/api/health\", (ptr req) => {\n"
                          << "        let ctx = Context.create(req);\n"
@@ -398,10 +401,12 @@ bool scaffoldProject(const std::string& projectDir, const std::string& name, boo
                          << "    });\n\n"
                          << "    app.get(\"/api/v1/info\", (ptr req) => {\n"
                          << "        let ctx = Context.create(req);\n"
-                         << "        return ctx.json(\"{\\\"version\\\":\\\"0.1.0\\\",\\\"framework\\\":\\\"sp-web\\\"}\");\n"
+                         << "        return ctx.json(\"{\\\"version\\\":\\\"1.0.0\\\",\\\"framework\\\":\\\"sp-web\\\",\\\"edition\\\":\\\"2028\\\"}\");\n"
                          << "    });\n\n"
                          << "    let port = 8080;\n"
                          << "    println(\"[+] " << projName << " listening at http://127.0.0.1:\" + port);\n"
+                         << "    println(\"    * Swagger UI: http://127.0.0.1:\" + port + \"/docs\");\n"
+                         << "    println(\"    * Redoc:      http://127.0.0.1:\" + port + \"/redoc\");\n"
                          << "    app.listen(port);\n"
                          << "}\n";
             } else {
@@ -419,6 +424,77 @@ bool scaffoldProject(const std::string& projectDir, const std::string& name, boo
                     << "public fn greet(string target) -> string {\n"
                     << "    return \"Hello, \" + target + \" from " << projName << "!\";\n"
                     << "}\n";
+        }
+    }
+
+    if (templateType == "api") {
+        // Create tests directory with in-memory HTTP integration test
+        fs::path testsDir = pDir / "tests";
+        fs::create_directories(testsDir, ec);
+        fs::path testFilePath = testsDir / "api_test.sp";
+        if (!fs::exists(testFilePath)) {
+            std::ofstream testFile(testFilePath);
+            testFile << "module tests.api_test;\n\n"
+                     << "import std.io;\n"
+                     << "import std.web;\n"
+                     << "import std.test.http;\n\n"
+                     << "test \"Health Endpoint Returns 200 OK\" {\n"
+                     << "    let app = new App();\n"
+                     << "    app.get(\"/api/health\", (ptr req) => {\n"
+                     << "        let ctx = Context.create(req);\n"
+                     << "        return ctx.json(\"{\\\"status\\\":\\\"ok\\\"}\");\n"
+                     << "    });\n\n"
+                     << "    let client = TestClient.fromApp(app);\n"
+                     << "    let res = client.get(\"/api/health\");\n"
+                     << "    res.assertOk();\n"
+                     << "    res.assertBodyContains(\"status\");\n"
+                     << "    res.destroy();\n"
+                     << "    client.destroy();\n"
+                     << "}\n";
+        }
+
+        // Create Dockerfile
+        fs::path dockerfilePath = pDir / "Dockerfile";
+        if (!fs::exists(dockerfilePath)) {
+            std::ofstream dockerfile(dockerfilePath);
+            dockerfile << "# Multi-stage minimal static container build for SP Language\n"
+                       << "FROM debian:bookworm-slim AS builder\n"
+                       << "WORKDIR /app\n"
+                       << "COPY . .\n"
+                       << "RUN spc build src/main.sp --static --release -o server\n\n"
+                       << "FROM scratch\n"
+                       << "WORKDIR /app\n"
+                       << "COPY --from=builder /app/server /app/server\n"
+                       << "EXPOSE 8080\n"
+                       << "ENTRYPOINT [\"/app/server\"]\n";
+        }
+
+        // Create README.md
+        fs::path readmePath = pDir / "README.md";
+        if (!fs::exists(readmePath)) {
+            std::ofstream readme(readmePath);
+            readme << "# " << projName << "\n\n"
+                   << "High-performance enterprise REST API service built with SP Language.\n\n"
+                   << "## Development\n\n"
+                   << "Start the auto-reloading development server:\n"
+                   << "```bash\n"
+                   << "spm dev\n"
+                   << "```\n\n"
+                   << "## Running Tests\n\n"
+                   << "Execute the in-memory integration test suite without socket binding:\n"
+                   << "```bash\n"
+                   << "spm test\n"
+                   << "```\n\n"
+                   << "## OpenAPI 3.0 Documentation\n\n"
+                   << "Generate OpenAPI 3.0.3 specification and Swagger UI documentation:\n"
+                   << "```bash\n"
+                   << "spc doc src/main.sp --swagger -o docs\n"
+                   << "```\n\n"
+                   << "## Production Container Build\n\n"
+                   << "```bash\n"
+                   << "docker build -t " << projName << " .\n"
+                   << "docker run -p 8080:8080 " << projName << "\n"
+                   << "```\n";
         }
     }
 

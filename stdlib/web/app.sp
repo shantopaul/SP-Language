@@ -10,6 +10,11 @@ import std.web.di;
 // and composable middleware pipelines.
 // ============================================================================
 
+extern "C" {
+    fn sp_rt_openapi_swagger_html(string title, string openApiJsonUrl) -> string;
+    fn sp_rt_openapi_redoc_html(string title, string openApiJsonUrl) -> string;
+}
+
 public class Cors {
     public string origins;
     public string methods;
@@ -245,5 +250,29 @@ public class App {
 
     public fn close() {
         this.server.destroy();
+    }
+
+    // Phase 28: OpenAPI / Swagger UI / Redoc Documentation Endpoints
+    public fn swagger(string path = "/docs", string openApiJsonUrl = "/openapi.json", string title = "API Documentation") {
+        let htmlContent = sp_rt_openapi_swagger_html(title, openApiJsonUrl);
+        this.get(path, (ptr req) => {
+            let ctx = Context.create(req);
+            return ctx.html(htmlContent);
+        });
+    }
+
+    public fn redoc(string path = "/redoc", string openApiJsonUrl = "/openapi.json", string title = "API Documentation") {
+        let htmlContent = sp_rt_openapi_redoc_html(title, openApiJsonUrl);
+        this.get(path, (ptr req) => {
+            let ctx = Context.create(req);
+            return ctx.html(htmlContent);
+        });
+    }
+
+    public fn openApi(string path = "/openapi.json", string specJson = "{}") {
+        this.get(path, (ptr req) => {
+            let ctx = Context.create(req);
+            return ctx.json(specJson);
+        });
     }
 }

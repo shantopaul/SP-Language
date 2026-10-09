@@ -1334,14 +1334,14 @@ ast::ASTNodePtr Parser::parseModuleDecl() {
     diagnostics::SourceLocation loc = previous().location;
     std::string moduleName;
 
-    const lexer::Token& part = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+    const lexer::Token& part = isModulePathSegment(peek().type)
         ? advance()
         : consume(lexer::TokenType::Identifier, "Expected module identifier");
     moduleName += part.lexeme;
 
     while (match(lexer::TokenType::Dot)) {
         moduleName += ".";
-        const lexer::Token& subPart = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        const lexer::Token& subPart = isModulePathSegment(peek().type)
             ? advance()
             : consume(lexer::TokenType::Identifier, "Expected identifier after '.' in module name");
         moduleName += subPart.lexeme;
@@ -1356,7 +1356,7 @@ ast::ASTNodePtr Parser::parseImportDecl() {
     std::string importPath;
     bool isWildcard = false;
 
-    const lexer::Token& part = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+    const lexer::Token& part = isModulePathSegment(peek().type)
         ? advance()
         : consume(lexer::TokenType::Identifier, "Expected import path");
     importPath += part.lexeme;
@@ -1367,7 +1367,7 @@ ast::ASTNodePtr Parser::parseImportDecl() {
             break;
         }
         importPath += ".";
-        const lexer::Token& subPart = (check(lexer::TokenType::Identifier) || isTypeKeyword(peek().type))
+        const lexer::Token& subPart = isModulePathSegment(peek().type)
             ? advance()
             : consume(lexer::TokenType::Identifier, "Expected identifier after '.' in import path");
         importPath += subPart.lexeme;
@@ -1775,6 +1775,13 @@ bool Parser::isTypeKeyword(lexer::TokenType type) noexcept {
         default:
             return false;
     }
+}
+
+bool Parser::isModulePathSegment(lexer::TokenType type) noexcept {
+    if (type == lexer::TokenType::Identifier) return true;
+    if (isTypeKeyword(type)) return true;
+    if (type >= lexer::TokenType::KeywordFn && type <= lexer::TokenType::KeywordAssert) return true;
+    return false;
 }
 
 std::unique_ptr<ast::Program> Parser::parseProgram() {
