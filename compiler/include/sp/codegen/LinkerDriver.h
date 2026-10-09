@@ -14,6 +14,7 @@ struct LinkerDriverOptions {
     std::string subsystem{"console"}; // console, windows
     std::string entryPoint{"main"};
     bool stripSymbols{false};
+    bool isStatic{false};
     bool verbose{false};
 };
 

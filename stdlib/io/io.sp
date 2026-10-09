@@ -23,6 +23,11 @@ extern "C" {
     fn sp_rt_eprintln_string(string str);
     fn sp_rt_flush();
     fn sp_rt_eflush();
+    fn sp_rt_str_from_int(int val) -> string;
+}
+
+public fn intToString(int val) -> string {
+    return sp_rt_str_from_int(val);
 }
 
 public fn println() {

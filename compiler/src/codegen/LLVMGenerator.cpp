@@ -176,6 +176,7 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
                 linkOpts.targetTriple = m_options.targetTriple;
                 linkOpts.runtimeLibPath = rtLib;
                 linkOpts.linkerPath = m_options.customLinkerPath;
+                linkOpts.isStatic = m_options.isStatic;
 
                 LinkerDriver linker(linkOpts);
                 bool linked = linker.linkSingle(tempObj, outputExePath);
@@ -216,13 +217,20 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
     cmd << "-lws2_32 ";
 #endif
 
+    if (m_options.isStatic) {
+        cmd << "-static ";
+    }
+
     if (!m_options.targetTriple.empty()) {
         cmd << "--target=" << m_options.targetTriple << " ";
     }
 
     cmd << "\"" << tempLLPath << "\" ";
 
-    if (fs::exists(rtSrc)) {
+    std::string rtLib = m_options.runtimeLibPath.empty() ? findRuntimeLibPath() : m_options.runtimeLibPath;
+    if (fs::exists(rtLib)) {
+        cmd << "\"" << rtLib << "\" ";
+    } else if (fs::exists(rtSrc)) {
         cmd << "\"" << rtSrc << "\" ";
     }
     if (fs::exists(rtInc)) {

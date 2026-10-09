@@ -24,6 +24,11 @@ add_library(sp_runtime
     src/db/Postgres.cpp
     src/db/DbPool.cpp
     src/db/DbBridge.cpp
+    src/obs/Log.cpp
+    src/obs/Metrics.cpp
+    src/obs/Health.cpp
+    src/obs/Queue.cpp
+    src/obs/ObsBridge.cpp
     third_party/sqlite3/sqlite3.c
 )
 

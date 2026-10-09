@@ -629,5 +629,71 @@ extern "C" {
     void        sp_rt_redis_pool_release(void* pool, void* client);
     int64_t     sp_rt_redis_pool_available(void* pool);
     int64_t     sp_rt_redis_pool_total(void* pool);
+
+    // ========================================================================
+    // Phase 27: Observability, Background Workers & Production DevOps (SP 2.9)
+    // ========================================================================
+    // Structured Logging (std.log)
+    void*       sp_rt_logger_create(const char* name, int32_t level);
+    void        sp_rt_logger_destroy(void* logger);
+    void*       sp_rt_logger_default();
+    void        sp_rt_logger_set_level(void* logger, int32_t level);
+    int32_t     sp_rt_logger_get_level(void* logger);
+    void        sp_rt_logger_add_console(void* logger);
+    void        sp_rt_logger_add_file(void* logger, const char* filepath, int32_t max_bytes, int32_t max_backups);
+    void*       sp_rt_logger_add_memory(void* logger, int32_t capacity);
+    void        sp_rt_logger_log(void* logger, int32_t level, const char* message, const char* fields_json);
+    void*       sp_rt_logger_with(void* logger, const char* key, const char* val);
+    const char* sp_rt_memory_appender_get(void* appender, int32_t index);
+    int32_t     sp_rt_memory_appender_size(void* appender);
+    void        sp_rt_memory_appender_clear(void* appender);
+    void        sp_rt_memory_appender_destroy(void* appender);
+
+    // Prometheus Exposition Metrics (std.metrics)
+    void*       sp_rt_metrics_registry_create();
+    void        sp_rt_metrics_registry_destroy(void* reg);
+    void*       sp_rt_metrics_registry_default();
+    void        sp_rt_metrics_counter_inc(void* reg, const char* name, const char* help, const char* labels_json, double val);
+    void        sp_rt_metrics_gauge_set(void* reg, const char* name, const char* help, const char* labels_json, double val);
+    void        sp_rt_metrics_gauge_add(void* reg, const char* name, const char* help, const char* labels_json, double val);
+    void        sp_rt_metrics_histogram_observe(void* reg, const char* name, const char* help, const char* buckets_csv, const char* labels_json, double val);
+    const char* sp_rt_metrics_render_prometheus(void* reg);
+
+    // Health & Readiness Checks (std.health)
+    void*       sp_rt_health_registry_create();
+    void        sp_rt_health_registry_destroy(void* reg);
+    void*       sp_rt_health_registry_default();
+    void        sp_rt_health_register_check(void* reg, const char* name, bool (*check_fn)());
+    void        sp_rt_health_set_status(void* reg, const char* name, bool is_up, const char* message);
+    const char* sp_rt_health_check_liveness(void* reg);
+    const char* sp_rt_health_check_readiness(void* reg, bool* out_is_up);
+
+    // Background Job Queue & Workers (std.queue)
+    void*       sp_rt_job_queue_create(int32_t worker_count);
+    void        sp_rt_job_queue_destroy(void* queue);
+    void*       sp_rt_job_queue_default();
+    void        sp_rt_job_queue_start(void* queue);
+    void        sp_rt_job_queue_stop(void* queue);
+    void        sp_rt_job_queue_wait_idle(void* queue);
+    const char* sp_rt_job_queue_enqueue(void* queue, const char* name, const char* payload, int32_t max_retries, int32_t backoff_ms, int32_t delay_ms);
+    void        sp_rt_job_queue_register_handler(void* queue, const char* name, bool (*handler_fn)(const char*, const char*, const char*));
+    int32_t     sp_rt_job_queue_pending_count(void* queue);
+    int32_t     sp_rt_job_queue_active_count(void* queue);
+    int32_t     sp_rt_job_queue_completed_count(void* queue);
+    int32_t     sp_rt_job_queue_dlq_count(void* queue);
+    const char* sp_rt_job_queue_dlq_get(void* queue, int32_t index);
+    bool        sp_rt_job_queue_retry_dlq(void* queue, const char* job_id);
+    void        sp_rt_job_queue_clear_dlq(void* queue);
+
+    // Cron Scheduler (std.queue)
+    void*       sp_rt_cron_create();
+    void        sp_rt_cron_destroy(void* cron);
+    void*       sp_rt_cron_default();
+    void        sp_rt_cron_schedule_interval(void* cron, const char* name, int32_t interval_ms, void (*task_fn)());
+    void        sp_rt_cron_schedule(void* cron, const char* name, const char* cron_expr, void (*task_fn)());
+    void        sp_rt_cron_start(void* cron);
+    void        sp_rt_cron_stop(void* cron);
+    int32_t     sp_rt_cron_task_count(void* cron);
 }
+
 

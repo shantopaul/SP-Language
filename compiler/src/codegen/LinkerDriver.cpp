@@ -99,6 +99,11 @@ bool LinkerDriver::link(const std::vector<std::string>& objectFiles, const std::
         cmd << "-s ";
     }
 
+    // Static linkage if requested
+    if (m_options.isStatic) {
+        cmd << "-static ";
+    }
+
     // Output binary path
     cmd << "-o \"" << outputBinaryPath << "\"";
 

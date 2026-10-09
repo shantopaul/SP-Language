@@ -87,6 +87,7 @@ void printHelp() {
               << "  -O0, -O1, -O2, -O3, -Os, -Oz Optimization level (default: -O0)\n"
               << "  --opt-level <O> Specify optimization level (O0, O1, O2, O3, Os, Oz)\n"
               << "  --release       Build with -O3 optimizations enabled\n"
+              << "  --static        Produce a zero-dependency static binary (-static musl)\n"
               << "  -g, --debug     Build with debug symbols (-g) enabled\n"
               << "  --target <arch> Cross-compile for target architecture triple (e.g. wasm32-wasi)\n"
               << "  -I <dir>        Add search directory for module resolution\n"
@@ -405,6 +406,7 @@ int main(int argc, char* argv[]) {
         std::string optLevel;
         bool releaseMode = false;
         bool debugMode = false;
+        bool isStatic = false;
         bool watchMode = false;
         bool emitObjOnly = false;
         bool emitIROnly = false;
@@ -452,6 +454,8 @@ int main(int argc, char* argv[]) {
             } else if (arg == "--release") {
                 releaseMode = true;
                 optLevel = "-O3";
+            } else if (arg == "--static") {
+                isStatic = true;
             } else if (arg == "--debug") {
                 debugMode = true;
                 optLevel = "-O0";
@@ -609,6 +613,7 @@ int main(int argc, char* argv[]) {
         sp::codegen::CodegenOptions codegenOpts;
         codegenOpts.releaseMode = releaseMode;
         codegenOpts.debugSymbols = debugMode;
+        codegenOpts.isStatic = isStatic;
         if (!targetTriple.empty()) {
             codegenOpts.targetTriple = targetTriple;
         }

@@ -2157,8 +2157,7 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
     if (node.getOp() == lexer::TokenType::EqualEqual || node.getOp() == lexer::TokenType::BangEqual) {
         auto semaL = m_sema.getNodeType(&node.getLeft());
         auto semaR = m_sema.getNodeType(&node.getRight());
-        bool isString = (semaL && semaL->isString()) || (semaR && semaR->isString()) ||
-                        ((lhsType && lhsType->isPointer()) && (rhsType && rhsType->isPointer()));
+        bool isString = (semaL && semaL->isString()) || (semaR && semaR->isString());
         if (isString) {
             std::string resName = m_currentFunction->nextTempName("str_eq");
             auto call = std::make_shared<CallInst>(
@@ -2195,7 +2194,8 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
 
     // Type promotion / widening
     bool isFloat = lhsType->isFloatingPoint() || rhsType->isFloatingPoint();
-    IRTypePtr commonType = isFloat ? IRType::getDouble() : (lhsType->isInt64() || rhsType->isInt64() ? IRType::getInt64() : IRType::getInt32());
+    bool isPointer = lhsType->isPointer() || rhsType->isPointer();
+    IRTypePtr commonType = isFloat ? IRType::getDouble() : (isPointer ? IRType::getPointer() : (lhsType->isInt64() || rhsType->isInt64() ? IRType::getInt64() : IRType::getInt32()));
 
     lhs = emitCastIfNeeded(lhs, commonType);
     rhs = emitCastIfNeeded(rhs, commonType);

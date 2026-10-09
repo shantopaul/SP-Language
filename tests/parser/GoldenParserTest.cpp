@@ -188,4 +188,24 @@ TEST(GoldenParserTest, ParseStdlibRedis) {
     assertFileParsesCleanly("stdlib/redis/redis.sp");
 }
 
+TEST(GoldenParserTest, ParseStdlibLog) {
+    assertFileParsesCleanly("stdlib/log/log.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibMetrics) {
+    assertFileParsesCleanly("stdlib/metrics/metrics.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibHealth) {
+    assertFileParsesCleanly("stdlib/health/health.sp");
+}
+
+TEST(GoldenParserTest, ParseStdlibQueue) {
+    assertFileParsesCleanly("stdlib/queue/queue.sp");
+}
+
+TEST(GoldenParserTest, ParseObservabilityDevopsExample) {
+    assertFileParsesCleanly("examples/observability_devops.sp");
+}
+
 } // namespace sp::parser::test

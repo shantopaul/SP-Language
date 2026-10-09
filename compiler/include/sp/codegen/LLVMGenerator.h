@@ -20,6 +20,7 @@ struct CodegenOptions {
     std::string runtimeIncludePath;
     std::string runtimeLibPath;
     std::string customLinkerPath;
+    bool isStatic{false};
 };
 
 class LLVMGenerator {

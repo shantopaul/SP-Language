@@ -193,4 +193,24 @@ TEST(GoldenLexerTest, TokenizeStdlibRedis) {
     assertFileTokenizesWithoutErrors("stdlib/redis/redis.sp");
 }
 
+TEST(GoldenLexerTest, TokenizeStdlibLog) {
+    assertFileTokenizesWithoutErrors("stdlib/log/log.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibMetrics) {
+    assertFileTokenizesWithoutErrors("stdlib/metrics/metrics.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibHealth) {
+    assertFileTokenizesWithoutErrors("stdlib/health/health.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeStdlibQueue) {
+    assertFileTokenizesWithoutErrors("stdlib/queue/queue.sp");
+}
+
+TEST(GoldenLexerTest, TokenizeObservabilityDevopsExample) {
+    assertFileTokenizesWithoutErrors("examples/observability_devops.sp");
+}
+
 } // namespace sp::lexer::test
