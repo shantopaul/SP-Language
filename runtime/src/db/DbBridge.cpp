@@ -106,6 +106,36 @@ bool sp_rt_sqlite_bind_null(void* stmt, int64_t index) {
     return s && s->bindNull(static_cast<int>(index));
 }
 
+int64_t sp_rt_sqlite_param_index(void* stmt, const char* name) {
+    if (!stmt || !name) return 0;
+    auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
+    return s ? s->parameterIndex(name) : 0;
+}
+
+bool sp_rt_sqlite_bind_named_int(void* stmt, const char* name, int64_t val) {
+    if (!stmt || !name) return false;
+    auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
+    return s && s->bindNamedInt(name, val);
+}
+
+bool sp_rt_sqlite_bind_named_double(void* stmt, const char* name, double val) {
+    if (!stmt || !name) return false;
+    auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
+    return s && s->bindNamedDouble(name, val);
+}
+
+bool sp_rt_sqlite_bind_named_string(void* stmt, const char* name, const char* val) {
+    if (!stmt || !name || !val) return false;
+    auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
+    return s && s->bindNamedString(name, val);
+}
+
+bool sp_rt_sqlite_bind_named_null(void* stmt, const char* name) {
+    if (!stmt || !name) return false;
+    auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
+    return s && s->bindNamedNull(name);
+}
+
 int64_t sp_rt_sqlite_step(void* stmt) {
     if (!stmt) return -1;
     auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);

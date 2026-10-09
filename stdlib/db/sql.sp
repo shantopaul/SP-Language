@@ -64,6 +64,23 @@ public class QueryBuilder {
         return this.where(column, "=", val);
     }
 
+    public fn whereIn(string column, string val1, string val2) -> QueryBuilder {
+        this.paramList.push(val1);
+        this.paramList.push(val2);
+        let p1 = this.whereCount + 1;
+        let p2 = this.whereCount + 2;
+        this.whereCount = this.whereCount + 2;
+
+        if (this.whereSqlite == "") {
+            this.whereSqlite = " WHERE " + column + " IN (?, ?)";
+            this.wherePostgres = " WHERE " + column + " IN ($" + p1 + ", $" + p2 + ")";
+        } else {
+            this.whereSqlite = this.whereSqlite + " AND " + column + " IN (?, ?)";
+            this.wherePostgres = this.wherePostgres + " AND " + column + " IN ($" + p1 + ", $" + p2 + ")";
+        }
+        return this;
+    }
+
     public fn orderBy(string column, string dir = "ASC") -> QueryBuilder {
         this.orderByCol = column;
         this.orderDir = dir;
@@ -114,6 +131,17 @@ public class QueryBuilder {
             sql = sql + this.whereSqlite;
         }
 
+        sql = sql + ";";
+        return sql;
+    }
+
+    public fn toCountSql(string dialect = "sqlite") -> string {
+        let sql = "SELECT COUNT(*) FROM " + this.tableName;
+        if (dialect == "postgres") {
+            sql = sql + this.wherePostgres;
+        } else {
+            sql = sql + this.whereSqlite;
+        }
         sql = sql + ";";
         return sql;
     }

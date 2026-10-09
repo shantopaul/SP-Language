@@ -34,6 +34,12 @@ public:
     bool bindString(int index, const std::string& val);
     bool bindNull(int index);
 
+    int parameterIndex(const std::string& name) const;
+    bool bindNamedInt(const std::string& name, int64_t val);
+    bool bindNamedDouble(const std::string& name, double val);
+    bool bindNamedString(const std::string& name, const std::string& val);
+    bool bindNamedNull(const std::string& name);
+
     int step(); // 100 = SQLITE_ROW, 101 = SQLITE_DONE, else error code
     bool isRow() const;
     bool isDone() const;

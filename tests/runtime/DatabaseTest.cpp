@@ -92,6 +92,34 @@ TEST(SqliteTest, PreparedStatementAndParameterizedBinding) {
     selectStmt->finalize();
 }
 
+TEST(SqliteTest, NamedParameterBinding) {
+    SqliteDatabase db;
+    ASSERT_TRUE(db.open(":memory:"));
+
+    db.execute("CREATE TABLE inventory (id INTEGER PRIMARY KEY, sku TEXT, quantity INTEGER);");
+
+    auto stmt = db.prepare("INSERT INTO inventory (id, sku, quantity) VALUES (:id, :sku, :qty);");
+    ASSERT_NE(stmt, nullptr);
+
+    EXPECT_GT(stmt->parameterIndex(":id"), 0);
+    EXPECT_GT(stmt->parameterIndex("sku"), 0); // Finds :sku without leading colon
+    EXPECT_GT(stmt->parameterIndex("qty"), 0);
+
+    EXPECT_TRUE(stmt->bindNamedInt("id", 555));
+    EXPECT_TRUE(stmt->bindNamedString("sku", "KEY-CHERRY-MX"));
+    EXPECT_TRUE(stmt->bindNamedInt("qty", 100));
+    EXPECT_EQ(stmt->step(), 101); // SQLITE_DONE
+    stmt->finalize();
+
+    auto selectStmt = db.prepare("SELECT sku, quantity FROM inventory WHERE id = :id;");
+    ASSERT_NE(selectStmt, nullptr);
+    EXPECT_TRUE(selectStmt->bindNamedInt("id", 555));
+    EXPECT_EQ(selectStmt->step(), 100);
+    EXPECT_EQ(selectStmt->columnString(0), "KEY-CHERRY-MX");
+    EXPECT_EQ(selectStmt->columnInt(1), 100);
+    selectStmt->finalize();
+}
+
 TEST(SqliteTest, TransactionsAndRollback) {
     SqliteDatabase db;
     ASSERT_TRUE(db.open(":memory:"));
@@ -440,6 +468,30 @@ TEST(DbBridgeTest, DbPoolCAbiWorkflow) {
     EXPECT_EQ(sp_rt_db_pool_in_use(pool), 0);
 
     sp_rt_db_pool_close(pool);
+}
+
+TEST(DbBridgeTest, SqliteNamedParameterCAbi) {
+    void* db = sp_rt_sqlite_open(":memory:", 5000, false);
+    ASSERT_NE(db, nullptr);
+
+    sp_rt_sqlite_exec(db, "CREATE TABLE cfg (k TEXT, v TEXT);");
+    void* stmt = sp_rt_sqlite_prepare(db, "INSERT INTO cfg VALUES (:k, :v);");
+    ASSERT_NE(stmt, nullptr);
+
+    EXPECT_GT(sp_rt_sqlite_param_index(stmt, "k"), 0);
+    EXPECT_TRUE(sp_rt_sqlite_bind_named_string(stmt, "k", "theme"));
+    EXPECT_TRUE(sp_rt_sqlite_bind_named_string(stmt, "v", "dark"));
+    EXPECT_EQ(sp_rt_sqlite_step(stmt), 101); // SQLITE_DONE
+    sp_rt_sqlite_finalize(stmt);
+
+    void* qStmt = sp_rt_sqlite_prepare(db, "SELECT v FROM cfg WHERE k = :k;");
+    ASSERT_NE(qStmt, nullptr);
+    EXPECT_TRUE(sp_rt_sqlite_bind_named_string(qStmt, "k", "theme"));
+    EXPECT_EQ(sp_rt_sqlite_step(qStmt), 100); // SQLITE_ROW
+    EXPECT_STREQ(sp_rt_sqlite_col_string(qStmt, 0), "dark");
+    sp_rt_sqlite_finalize(qStmt);
+
+    sp_rt_sqlite_close(db);
 }
 
 // ============================================================================

@@ -1,4 +1,5 @@
 #include "sp/runtime/Postgres.h"
+#include "sp/runtime/Crypto.h"
 #include <iostream>
 #include <sstream>
 #include <cstring>
@@ -225,6 +226,37 @@ uint32_t readInt32BE(const uint8_t* buf) {
 uint16_t readInt16BE(const uint8_t* buf) {
     return (static_cast<uint16_t>(buf[0]) << 8) |
            static_cast<uint16_t>(buf[1]);
+}
+
+std::vector<uint8_t> hexToBytes(const std::string& hex) {
+    std::vector<uint8_t> bytes;
+    bytes.reserve(hex.size() / 2);
+    for (size_t i = 0; i + 1 < hex.size(); i += 2) {
+        bytes.push_back(static_cast<uint8_t>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+    }
+    return bytes;
+}
+
+std::vector<uint8_t> pbkdf2HmacSha256(const std::string& password, const std::vector<uint8_t>& salt, int iterations) {
+    std::vector<uint8_t> saltWithInt = salt;
+    saltWithInt.push_back(0); saltWithInt.push_back(0); saltWithInt.push_back(0); saltWithInt.push_back(1);
+
+    std::string uHex = sp::rt::crypto::hmacSha256Bytes(
+        reinterpret_cast<const uint8_t*>(password.data()), password.size(),
+        saltWithInt.data(), saltWithInt.size());
+    std::vector<uint8_t> u = hexToBytes(uHex);
+    std::vector<uint8_t> result = u;
+
+    for (int iter = 1; iter < iterations; ++iter) {
+        uHex = sp::rt::crypto::hmacSha256Bytes(
+            reinterpret_cast<const uint8_t*>(password.data()), password.size(),
+            u.data(), u.size());
+        u = hexToBytes(uHex);
+        for (size_t i = 0; i < 32 && i < u.size(); ++i) {
+            result[i] ^= u[i];
+        }
+    }
+    return result;
 }
 
 } // namespace
@@ -581,6 +613,10 @@ bool PgConnection::processAuthMessages() {
                 if (payload.size() < 8) return false;
                 std::vector<uint8_t> salt(payload.begin() + 4, payload.begin() + 8);
                 if (!sendMd5PasswordMessage(salt)) return false;
+            } else if (authType == 10) {
+                // SASL SCRAM-SHA-256
+                std::vector<uint8_t> saslList(payload.begin() + 4, payload.end());
+                if (!handleScramAuth(saslList)) return false;
             } else {
                 m_lastError = "Unsupported PostgreSQL authentication type: " + std::to_string(authType);
                 return false;
@@ -634,6 +670,101 @@ bool PgConnection::sendMd5PasswordMessage(const std::vector<uint8_t>& salt) {
     std::string h2 = "md5" + md5HexBytes(h1Salt.data(), h1Salt.size());
 
     return sendPasswordMessage(h2);
+}
+
+bool PgConnection::handleScramAuth(const std::vector<uint8_t>& /*saslList*/) {
+    // 1. Generate client nonce
+    std::string clientNonce = sp::rt::crypto::randomHex(16);
+    std::string clientFirstBare = "n=" + m_config.user + ",r=" + clientNonce;
+    std::string clientFirstMsg = "n,," + clientFirstBare;
+
+    // Send SASLInitialResponse: 'p'
+    // Format: "SCRAM-SHA-256\0" + Int32(clientFirstMsg.length()) + clientFirstMsg
+    std::vector<uint8_t> initPayload;
+    writeStringNull(initPayload, "SCRAM-SHA-256");
+    writeInt32BE(initPayload, static_cast<uint32_t>(clientFirstMsg.size()));
+    initPayload.insert(initPayload.end(), clientFirstMsg.begin(), clientFirstMsg.end());
+    if (!sendMessage('p', initPayload)) return false;
+
+    // 2. Read AuthenticationSASLContinue (11)
+    char msgType = 0;
+    std::vector<uint8_t> contPayload;
+    if (!readMessage(msgType, contPayload)) return false;
+    if (msgType != 'R' || contPayload.size() < 4) return false;
+    uint32_t authSub = readInt32BE(contPayload.data());
+    if (authSub != 11) {
+        m_lastError = "Expected SASLContinue (11), got: " + std::to_string(authSub);
+        return false;
+    }
+
+    std::string serverFirstMsg(reinterpret_cast<const char*>(contPayload.data() + 4), contPayload.size() - 4);
+    // Parse r=, s=, i=
+    std::string serverNonce, saltB64;
+    int iterations = 4096;
+    std::istringstream ss(serverFirstMsg);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        if (token.rfind("r=", 0) == 0) serverNonce = token.substr(2);
+        else if (token.rfind("s=", 0) == 0) saltB64 = token.substr(2);
+        else if (token.rfind("i=", 0) == 0) iterations = std::stoi(token.substr(2));
+    }
+
+    if (serverNonce.empty() || saltB64.empty()) {
+        m_lastError = "Invalid SASL server first message";
+        return false;
+    }
+
+    // Decode salt
+    std::string saltStr = sp::rt::crypto::base64Decode(saltB64);
+    std::vector<uint8_t> salt(saltStr.begin(), saltStr.end());
+
+    // 3. Compute SaltedPassword, ClientKey, StoredKey
+    std::vector<uint8_t> saltedPassword = pbkdf2HmacSha256(m_config.password, salt, iterations);
+
+    // ClientKey = HMAC(SaltedPassword, "Client Key")
+    static const char clientKeyConst[] = "Client Key";
+    std::string ckHex = sp::rt::crypto::hmacSha256Bytes(
+        saltedPassword.data(), saltedPassword.size(),
+        reinterpret_cast<const uint8_t*>(clientKeyConst), sizeof(clientKeyConst) - 1);
+    std::vector<uint8_t> clientKey = hexToBytes(ckHex);
+
+    // StoredKey = SHA256(ClientKey)
+    std::string skHex = sp::rt::crypto::sha256Bytes(clientKey.data(), clientKey.size());
+    std::vector<uint8_t> storedKey = hexToBytes(skHex);
+
+    // AuthMessage = client_first_bare + "," + server_first + "," + client_final_without_proof
+    std::string clientFinalWithoutProof = "c=biws,r=" + serverNonce;
+    std::string authMessage = clientFirstBare + "," + serverFirstMsg + "," + clientFinalWithoutProof;
+
+    // ClientSignature = HMAC(StoredKey, AuthMessage)
+    std::string csHex = sp::rt::crypto::hmacSha256Bytes(
+        storedKey.data(), storedKey.size(),
+        reinterpret_cast<const uint8_t*>(authMessage.data()), authMessage.size());
+    std::vector<uint8_t> clientSig = hexToBytes(csHex);
+
+    // ClientProof = ClientKey XOR ClientSignature
+    std::vector<uint8_t> clientProof(32);
+    for (size_t i = 0; i < 32; ++i) {
+        clientProof[i] = clientKey[i] ^ clientSig[i];
+    }
+    std::string clientProofB64 = sp::rt::crypto::base64EncodeBytes(clientProof.data(), clientProof.size());
+
+    // 4. Send SASLResponse
+    std::string clientFinalMsg = clientFinalWithoutProof + ",p=" + clientProofB64;
+    std::vector<uint8_t> finalPayload(clientFinalMsg.begin(), clientFinalMsg.end());
+    if (!sendMessage('p', finalPayload)) return false;
+
+    // 5. Read AuthenticationSASLFinal (12)
+    std::vector<uint8_t> saslFinalPayload;
+    if (!readMessage(msgType, saslFinalPayload)) return false;
+    if (msgType != 'R' || saslFinalPayload.size() < 4) return false;
+    uint32_t finalSub = readInt32BE(saslFinalPayload.data());
+    if (finalSub != 12) {
+        m_lastError = "Expected SASLFinal (12), got: " + std::to_string(finalSub);
+        return false;
+    }
+
+    return true;
 }
 
 std::shared_ptr<PgResult> PgConnection::query(const std::string& sql) {

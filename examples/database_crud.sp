@@ -58,6 +58,17 @@ fn main() {
         println("    Inserted Product #3: ID=" + db.lastInsertRowId());
 
         insertStmt.finalize();
+
+        // Product 4 using Named Parameter Bindings (:name, :price, :stock)
+        let namedStmt = db.prepare("INSERT INTO products (name, price, stock) VALUES (:name, :price, :stock);");
+        if (namedStmt.isValid()) {
+            namedStmt.bindNamedString("name", "SP Studio USB-C Microphone");
+            namedStmt.bindNamedDouble("price", 189.00);
+            namedStmt.bindNamedInt("stock", 35);
+            namedStmt.step();
+            println("    Inserted Product #4 (via Named :params): ID=" + db.lastInsertRowId());
+            namedStmt.finalize();
+        }
     }
 
     // 4. Querying and Iterating Results
@@ -120,6 +131,13 @@ fn main() {
 
     println("    Generated SQLite SQL:   " + qb.toSelectSql("sqlite"));
     println("    Generated Postgres SQL: " + qb.toSelectSql("postgres"));
+    println("    Generated Count SQL:    " + qb.toCountSql("sqlite"));
+
+    let qbIn = Database.query("users")
+        .select("id, name")
+        .whereIn("role", "admin", "moderator");
+    println("    Generated whereIn SQLite SQL:   " + qbIn.toSelectSql("sqlite"));
+    println("    Generated whereIn Postgres SQL: " + qbIn.toSelectSql("postgres"));
 
     println("\n==================================================");
     println(" Phase 23 Database Platform Successfully Verified ");

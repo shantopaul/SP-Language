@@ -99,6 +99,7 @@ private:
     bool processAuthMessages();
     bool sendPasswordMessage(const std::string& password);
     bool sendMd5PasswordMessage(const std::vector<uint8_t>& salt);
+    bool handleScramAuth(const std::vector<uint8_t>& saslList);
     bool readMessage(char& msgType, std::vector<uint8_t>& payload);
     bool sendMessage(char msgType, const std::vector<uint8_t>& payload);
 
