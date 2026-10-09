@@ -23,6 +23,62 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+
+function Download-File([string]$Url, [string]$Destination) {
+    if (Test-Path $Destination) { Remove-Item $Destination -Force -ErrorAction SilentlyContinue }
+
+    # Attempt 1: curl.exe (built into modern Windows)
+    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+        try {
+            & curl.exe -f -s -S -L --retry 2 -o $Destination $Url
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
+                try {
+                    $z = [System.IO.Compression.ZipFile]::OpenRead($Destination)
+                    $z.Dispose()
+                    return $true
+                } catch {
+                    Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } catch {}
+    }
+
+    # Attempt 2: .NET WebClient (fast and synchronous)
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("User-Agent", "SPLang-Installer/3.1.0")
+        $wc.DownloadFile($Url, $Destination)
+        if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
+            try {
+                $z = [System.IO.Compression.ZipFile]::OpenRead($Destination)
+                $z.Dispose()
+                return $true
+            } catch {
+                Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    # Attempt 3: PowerShell Invoke-WebRequest
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -TimeoutSec 180
+        if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
+            try {
+                $z = [System.IO.Compression.ZipFile]::OpenRead($Destination)
+                $z.Dispose()
+                return $true
+            } catch {
+                Remove-Item $Destination -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    return $false
+}
 
 function Write-Banner {
     Write-Host ""
@@ -59,23 +115,27 @@ foreach ($dir in $directories) {
 # 2. Deploy SP Binaries, Standard Library & Runtime
 Write-Host "`n[2/5] Deploying SP Language Core Components..." -ForegroundColor Green
 
-# Scan for local repository build artifacts
-$repoRoot = $PSScriptRoot
+# Scan for local repository build artifacts (only when executed from a saved local script file)
+$repoRoot = $null
 $isLocalRepo = $false
-$candidateRoots = @(
-    $repoRoot,
-    (Split-Path $repoRoot -Parent),
-    (Split-Path (Split-Path $repoRoot -Parent) -Parent),
-    $PWD.Path
-)
 
-foreach ($cand in $candidateRoots) {
-    if (-not [string]::IsNullOrEmpty($cand)) {
-        $candBin = Join-Path $cand "build\bin"
-        if (Test-Path (Join-Path $candBin "spc.exe")) {
-            $repoRoot = $cand
-            $isLocalRepo = $true
-            break
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+    $candidateRoots = @($PSScriptRoot)
+    try {
+        $parent = Split-Path $PSScriptRoot -Parent
+        if (-not [string]::IsNullOrEmpty($parent)) {
+            $candidateRoots += $parent
+        }
+    } catch {}
+
+    foreach ($cand in $candidateRoots) {
+        if (-not [string]::IsNullOrEmpty($cand)) {
+            $candBin = Join-Path $cand "build\bin"
+            if (Test-Path (Join-Path $candBin "spc.exe")) {
+                $repoRoot = $cand
+                $isLocalRepo = $true
+                break
+            }
         }
     }
 }
@@ -155,27 +215,24 @@ if ($isLocalRepo) {
     )
     $TempZip = Join-Path $env:TEMP "sp_download_$([Guid]::NewGuid().ToString('N')).zip"
     
+    $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $Urls = @()
     foreach ($zn in $ZipNames) {
-        $Urls += "https://dl.splang.shantopaul.com/$zn"
-        $Urls += "https://splang.shantopaul.com/downloads/$zn"
-        $Urls += "https://downloads.splang.shantopaul.com/$zn"
-        $Urls += "https://github.com/shantopaul/SP-Language/releases/download/v$Version/$zn"
-        $Urls += "https://github.com/shantopaul/SP-Language/releases/latest/download/$zn"
+        $Urls += "https://dl.splang.shantopaul.com/$($zn)?v=$($Version)&t=$($ts)"
+        $Urls += "https://splang.shantopaul.com/downloads/$($zn)?v=$($Version)&t=$($ts)"
+        $Urls += "https://downloads.splang.shantopaul.com/$($zn)?v=$($Version)&t=$($ts)"
+        $Urls += "https://github.com/shantopaul/SP-Language/releases/download/v$($Version)/$($zn)"
+        $Urls += "https://github.com/shantopaul/SP-Language/releases/latest/download/$($zn)"
     }
     
     $Downloaded = $false
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     foreach ($Url in $Urls) {
-        try {
-            Write-Host "     Connecting to: $Url" -ForegroundColor Gray
-            Invoke-WebRequest -Uri $Url -OutFile $TempZip -UseBasicParsing -TimeoutSec 60
-            if ((Test-Path $TempZip) -and ((Get-Item $TempZip).Length -gt 50000)) {
-                $Downloaded = $true
-                Write-Host "     Package downloaded successfully!" -ForegroundColor Green
-                break
-            }
-        } catch {
+        Write-Host "     Connecting to: $Url" -ForegroundColor Gray
+        if (Download-File -Url $Url -Destination $TempZip) {
+            $Downloaded = $true
+            Write-Host "     Package downloaded successfully!" -ForegroundColor Green
+            break
+        } else {
             Write-Host "     Mirror unreachable, attempting next mirror..." -ForegroundColor DarkGray
         }
     }
@@ -189,12 +246,17 @@ if ($isLocalRepo) {
         $fallbackPaths = @("C:\SP-Language", "D:\SP-Language", "$env:LOCALAPPDATA\SP-Language")
         $foundFallback = $false
         foreach ($fb in $fallbackPaths) {
-            if (Test-Path (Join-Path $fb "bin\spc.exe")) {
-                Write-Host "     Using pre-existing local distribution from $fb..." -ForegroundColor Yellow
-                Copy-Item -Path "$fb\*" -Destination $InstallDir -Recurse -Force
-                $foundFallback = $true
-                break
-            }
+            try {
+                if (-not [string]::IsNullOrEmpty($fb) -and (Test-Path $fb -ErrorAction SilentlyContinue)) {
+                    $candSpc = Join-Path $fb "bin\spc.exe"
+                    if (Test-Path $candSpc -ErrorAction SilentlyContinue) {
+                        Write-Host "     Using pre-existing local distribution from $fb..." -ForegroundColor Yellow
+                        Copy-Item -Path "$fb\*" -Destination $InstallDir -Recurse -Force
+                        $foundFallback = $true
+                        break
+                    }
+                }
+            } catch {}
         }
         if (-not $foundFallback) {
             throw "Failed to download SP Language distribution package from all release mirrors."
@@ -213,6 +275,21 @@ fn main() {
 }
 "@
     [System.IO.File]::WriteAllText($HelloSp, $helloCode, [System.Text.Encoding]::ASCII)
+
+# Ensure standalone uninstaller is present at both root ($InstallDir\uninstall.exe) and in $BinDir
+$rootUninstaller = Join-Path $InstallDir "uninstall.exe"
+$binUninstaller = Join-Path $BinDir "uninstall.exe"
+
+if ((Test-Path $binUninstaller) -and (-not (Test-Path $rootUninstaller))) {
+    Copy-Item -Path $binUninstaller -Destination $rootUninstaller -Force
+} elseif ((Test-Path $rootUninstaller) -and (-not (Test-Path $binUninstaller))) {
+    Copy-Item -Path $rootUninstaller -Destination $binUninstaller -Force
+}
+
+# If running with local repo artifacts, also copy uninstall.ps1 to root
+if ($isLocalRepo -and (-not [string]::IsNullOrEmpty($repoRoot)) -and (Test-Path (Join-Path $repoRoot "uninstall.ps1"))) {
+    Copy-Item -Path (Join-Path $repoRoot "uninstall.ps1") -Destination (Join-Path $InstallDir "uninstall.ps1") -Force
+}
 
 # 3. Environment Variables Configuration
 Write-Host "`n[3/5] Configuring System / User Environment Variables..." -ForegroundColor Green
@@ -259,6 +336,24 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     [Win32.NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", 2, 2000, [ref]$result) | Out-Null
 } catch {}
 
+# Register in Windows Installed Apps (Programs & Features)
+try {
+    $regKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SPLang"
+    if (-not (Test-Path $regKey)) {
+        New-Item -Path $regKey -Force | Out-Null
+    }
+    Set-ItemProperty -Path $regKey -Name "DisplayName" -Value "SP Programming Language" -Force
+    Set-ItemProperty -Path $regKey -Name "DisplayVersion" -Value $Version -Force
+    Set-ItemProperty -Path $regKey -Name "Publisher" -Value "Shanto Paul" -Force
+    Set-ItemProperty -Path $regKey -Name "InstallLocation" -Value $InstallDir -Force
+    Set-ItemProperty -Path $regKey -Name "UninstallString" -Value "`"$rootUninstaller`"" -Force
+    Set-ItemProperty -Path $regKey -Name "QuietUninstallString" -Value "`"$rootUninstaller`" -y" -Force
+    Set-ItemProperty -Path $regKey -Name "DisplayIcon" -Value "`"$BinDir\spc.exe`",0" -Force
+    Set-ItemProperty -Path $regKey -Name "HelpLink" -Value "https://docs.splang.shantopaul.com" -Force
+    Set-ItemProperty -Path $regKey -Name "URLInfoAbout" -Value "https://splang.shantopaul.com" -Force
+    Write-Host "  -> Registered in Windows Installed Apps" -ForegroundColor Cyan
+} catch {}
+
 # 4. Backend Toolchain Auto-Discovery & Provisioning
 Write-Host "`n[4/5] Checking Native C/LLVM Backend Toolchain..." -ForegroundColor Green
 
@@ -291,24 +386,44 @@ if ($hasClang -or $hasClangC -or $hasBundled) {
     Write-Host "  -> Backend LLVM Clang toolchain is detected and ready." -ForegroundColor Green
 } elseif (-not $SkipToolchain) {
     Write-Host "  -> No backend LLVM Clang compiler detected on this PC." -ForegroundColor Yellow
-    Write-Host "     Auto-provisioning portable Windows toolchain for instant out-of-the-box native compilation..." -ForegroundColor Yellow
+    Write-Host "     Auto-provisioning lightweight portable toolchain from CDN..." -ForegroundColor Yellow
     
-    $SpcExe = Join-Path $BinDir "spc.exe"
-    if (Test-Path $SpcExe) {
-        Write-Host "     Invoking 'spc setup'..." -ForegroundColor Cyan
-        & $SpcExe setup
-    } else {
-        # Check if winget can install LLVM
+    $provisioned = $false
+    # Step A: High-speed portable toolchain from SP Language CDN (Direct from Cloudflare R2)
+    $tcUrls = @(
+        "https://dl.splang.shantopaul.com/toolchain-win64.zip",
+        "https://splang.shantopaul.com/downloads/toolchain-win64.zip",
+        "https://github.com/shantopaul/SP-Language/releases/download/v$($Version)/toolchain-win64.zip"
+    )
+    $tcZip = Join-Path $env:TEMP "sp_toolchain_$([Guid]::NewGuid().ToString('N')).zip"
+
+    foreach ($tcu in $tcUrls) {
+        Write-Host "     Connecting to high-speed CDN: $tcu" -ForegroundColor Gray
+        if (Download-File -Url $tcu -Destination $tcZip) {
+            Write-Host "     Extracting portable toolchain to $ToolchainDir..." -ForegroundColor Cyan
+            Expand-Archive -Path $tcZip -DestinationPath $ToolchainDir -Force
+            Remove-Item -Path $tcZip -Force -ErrorAction SilentlyContinue
+            if (Test-Path (Join-Path $ToolchainBin "clang++.exe")) {
+                $provisioned = $true
+                if ($env:Path -notlike "*$ToolchainBin*") {
+                    $env:Path = "$ToolchainBin;$env:Path"
+                }
+                Write-Host "     Portable LLVM Clang toolchain installed and ready!" -ForegroundColor Green
+                break
+            }
+        } else {
+            Write-Host "     CDN mirror busy, trying next option..." -ForegroundColor DarkGray
+        }
+    }
+
+    # Step B: Fallback to winget only if CDN toolchain was unreachable
+    if (-not $provisioned) {
         $hasWinget = (Get-Command winget.exe -ErrorAction SilentlyContinue) -ne $null
         if ($hasWinget) {
             try {
-                Write-Host "     Installing LLVM Clang via Windows Package Manager (winget)..." -ForegroundColor Cyan
+                Write-Host "     Falling back to Windows Package Manager (winget)..." -ForegroundColor Cyan
                 winget install --id LLVM.LLVM -e --silent --accept-source-agreements --accept-package-agreements
-            } catch {
-                Write-Host "     winget installation deferred. You can run 'spc setup' anytime." -ForegroundColor DarkGray
-            }
-        } else {
-            Write-Host "     Toolchain can be provisioned at any time by running 'spc setup'." -ForegroundColor DarkGray
+            } catch {}
         }
     }
 }
@@ -354,5 +469,6 @@ Write-Host "    spc doctor                    # View toolchain health report" -F
 Write-Host "    spc run examples\hello.sp     # Build & run directly" -ForegroundColor Gray
 Write-Host "    spc build main.sp -o app.exe  # Build native standalone executable" -ForegroundColor Gray
 Write-Host "    spm init my_project           # Create a new SP project" -ForegroundColor Gray
+Write-Host "    spc uninstall                 # Cleanly remove SP Language & toolchains" -ForegroundColor Gray
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host ""

@@ -80,6 +80,7 @@ void printHelp() {
 
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
               << "  setup           Check, auto-provision, or update portable backend toolchain\n"
+              << "  uninstall       Completely remove SP Language, toolchains, and environment\n"
               << "  fix [path]      Migrate/modernize SP codebase to target edition (e.g. 2028)\n\n"
               << "Options:\n"
               << "  --edition <ed>  Select language edition: 2026 (SP 1.x) or 2028 (SP 2.0)\n"
@@ -333,6 +334,74 @@ int handleSetup() {
     }
 }
 
+int handleUninstall(int argc, char* argv[]) {
+    auto exeDir = sp::util::getExecutableDir();
+    auto spHome = sp::util::getSPHome();
+
+    std::vector<fs::path> candidates = {
+        spHome / "uninstall.exe",
+        spHome / "bin" / "uninstall.exe",
+        exeDir / "uninstall.exe",
+        exeDir / ".." / "uninstall.exe",
+        spHome / "uninstall",
+        exeDir / "uninstall"
+    };
+
+    fs::path uninstallBin;
+    for (const auto& c : candidates) {
+        if (!c.empty() && fs::exists(c)) {
+            uninstallBin = c;
+            break;
+        }
+    }
+
+#if defined(_WIN32)
+    if (!uninstallBin.empty()) {
+        fs::path tempRunner = fs::temp_directory_path() / "sp_uninstall_runner.exe";
+        std::error_code ec;
+        fs::copy_file(uninstallBin, tempRunner, fs::copy_options::overwrite_existing, ec);
+
+        std::string targetDir = spHome.empty() ? (exeDir.filename() == "bin" ? exeDir.parent_path().string() : exeDir.string()) : spHome.string();
+
+        std::string cmd = "\"" + tempRunner.string() + "\" --child-runner \"" + targetDir + "\"";
+        for (int i = 2; i < argc; ++i) {
+            cmd += " ";
+            cmd += argv[i];
+        }
+
+        STARTUPINFOA si;
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&pi, sizeof(pi));
+        std::vector<char> cmdBuf(cmd.begin(), cmd.end());
+        cmdBuf.push_back('\0');
+
+        if (CreateProcessA(nullptr, cmdBuf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            return 0;
+        }
+    }
+
+    std::string psCmd = "powershell -ExecutionPolicy Bypass -Command \""
+                        "irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex\"";
+    return std::system(psCmd.c_str());
+#else
+    if (!uninstallBin.empty()) {
+        std::string cmd = "\"" + uninstallBin.string() + "\"";
+        for (int i = 2; i < argc; ++i) {
+            cmd += " ";
+            cmd += argv[i];
+        }
+        return std::system(cmd.c_str());
+    }
+
+    std::string shCmd = "curl -fsSL https://dl.splang.shantopaul.com/uninstall.sh | sh";
+    return std::system(shCmd.c_str());
+#endif
+}
+
 int handleFix(int argc, char* argv[]) {
     std::string targetPath = ".";
     std::string targetEdition = "2028";
@@ -516,6 +585,10 @@ int main(int argc, char* argv[]) {
 
     if (command == "fix") {
         return handleFix(argc, argv);
+    }
+
+    if (command == "uninstall") {
+        return handleUninstall(argc, argv);
     }
 
     if (command == "init") {
@@ -1281,7 +1354,7 @@ int main(int argc, char* argv[]) {
 
     const std::vector<std::string> validCommands = {
         "build", "run", "check", "init", "new", "fmt", "test", "bench",
-        "doc", "doctor", "setup", "fix", "bindgen", "tokens", "ast", "sema",
+        "doc", "doctor", "setup", "fix", "uninstall", "bindgen", "tokens", "ast", "sema",
         "ir", "llvm", "obj"
     };
 

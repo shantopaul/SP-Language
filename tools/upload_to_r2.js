@@ -154,6 +154,16 @@ async function main() {
     filesToUpload.push({ path: toolchainZip, key: 'toolchain-win64.zip', type: 'application/zip' });
   }
 
+  const uninstallPs1 = path.join(repoRoot, 'uninstall.ps1');
+  if (fs.existsSync(uninstallPs1)) {
+    filesToUpload.push({ path: uninstallPs1, key: 'uninstall.ps1', type: 'text/plain; charset=utf-8' });
+  }
+
+  const uninstallSh = path.join(repoRoot, 'uninstall.sh');
+  if (fs.existsSync(uninstallSh)) {
+    filesToUpload.push({ path: uninstallSh, key: 'uninstall.sh', type: 'text/x-shellscript; charset=utf-8' });
+  }
+
   for (const item of filesToUpload) {
     await uploadFileToR2(item.path, item.key, item.type);
   }

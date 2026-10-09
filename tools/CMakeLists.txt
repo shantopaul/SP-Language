@@ -100,3 +100,10 @@ add_executable(spd
 target_link_libraries(spd PRIVATE sp_debugger)
 target_compile_features(spd PRIVATE cxx_std_20)
 
+# SP System Uninstaller Executable (uninstall.exe)
+add_executable(sp_uninstall
+    uninstall/main.cpp
+)
+target_compile_features(sp_uninstall PRIVATE cxx_std_20)
+set_target_properties(sp_uninstall PROPERTIES OUTPUT_NAME "uninstall")
+

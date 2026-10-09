@@ -276,6 +276,21 @@ fn main() {
 "@
     [System.IO.File]::WriteAllText($HelloSp, $helloCode, [System.Text.Encoding]::ASCII)
 
+# Ensure standalone uninstaller is present at both root ($InstallDir\uninstall.exe) and in $BinDir
+$rootUninstaller = Join-Path $InstallDir "uninstall.exe"
+$binUninstaller = Join-Path $BinDir "uninstall.exe"
+
+if ((Test-Path $binUninstaller) -and (-not (Test-Path $rootUninstaller))) {
+    Copy-Item -Path $binUninstaller -Destination $rootUninstaller -Force
+} elseif ((Test-Path $rootUninstaller) -and (-not (Test-Path $binUninstaller))) {
+    Copy-Item -Path $rootUninstaller -Destination $binUninstaller -Force
+}
+
+# If running with local repo artifacts, also copy uninstall.ps1 to root
+if ($isLocalRepo -and (-not [string]::IsNullOrEmpty($repoRoot)) -and (Test-Path (Join-Path $repoRoot "uninstall.ps1"))) {
+    Copy-Item -Path (Join-Path $repoRoot "uninstall.ps1") -Destination (Join-Path $InstallDir "uninstall.ps1") -Force
+}
+
 # 3. Environment Variables Configuration
 Write-Host "`n[3/5] Configuring System / User Environment Variables..." -ForegroundColor Green
 [Environment]::SetEnvironmentVariable("SP_HOME", $InstallDir, [EnvironmentVariableTarget]::User)
@@ -319,6 +334,24 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     $WM_SETTINGCHANGE = 0x001a
     $result = [UIntPtr]::Zero
     [Win32.NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", 2, 2000, [ref]$result) | Out-Null
+} catch {}
+
+# Register in Windows Installed Apps (Programs & Features)
+try {
+    $regKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SPLang"
+    if (-not (Test-Path $regKey)) {
+        New-Item -Path $regKey -Force | Out-Null
+    }
+    Set-ItemProperty -Path $regKey -Name "DisplayName" -Value "SP Programming Language" -Force
+    Set-ItemProperty -Path $regKey -Name "DisplayVersion" -Value $Version -Force
+    Set-ItemProperty -Path $regKey -Name "Publisher" -Value "Shanto Paul" -Force
+    Set-ItemProperty -Path $regKey -Name "InstallLocation" -Value $InstallDir -Force
+    Set-ItemProperty -Path $regKey -Name "UninstallString" -Value "`"$rootUninstaller`"" -Force
+    Set-ItemProperty -Path $regKey -Name "QuietUninstallString" -Value "`"$rootUninstaller`" -y" -Force
+    Set-ItemProperty -Path $regKey -Name "DisplayIcon" -Value "`"$BinDir\spc.exe`",0" -Force
+    Set-ItemProperty -Path $regKey -Name "HelpLink" -Value "https://docs.splang.shantopaul.com" -Force
+    Set-ItemProperty -Path $regKey -Name "URLInfoAbout" -Value "https://splang.shantopaul.com" -Force
+    Write-Host "  -> Registered in Windows Installed Apps" -ForegroundColor Cyan
 } catch {}
 
 # 4. Backend Toolchain Auto-Discovery & Provisioning
@@ -436,5 +469,6 @@ Write-Host "    spc doctor                    # View toolchain health report" -F
 Write-Host "    spc run examples\hello.sp     # Build & run directly" -ForegroundColor Gray
 Write-Host "    spc build main.sp -o app.exe  # Build native standalone executable" -ForegroundColor Gray
 Write-Host "    spm init my_project           # Create a new SP project" -ForegroundColor Gray
+Write-Host "    spc uninstall                 # Cleanly remove SP Language & toolchains" -ForegroundColor Gray
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host ""
