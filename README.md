@@ -3,12 +3,12 @@
 <br>
 
 ```
-   ███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ 
-   ██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ 
-   ███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗
-   ╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║
-   ███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝
-   ╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
+                         ███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ 
+                         ██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ 
+                         ███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗
+                         ╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║
+                         ███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝
+                         ╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ 
 ```
 
 ### A modern, general-purpose programming language
@@ -19,7 +19,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 &nbsp;
-[![Version](https://img.shields.io/badge/version-2.0.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
+[![Version](https://img.shields.io/badge/version-3.1.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
 &nbsp;
 [![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](#-tech-stack)
 &nbsp;
