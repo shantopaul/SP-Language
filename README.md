@@ -114,7 +114,20 @@ fn main() {
 
 ### Installation
 
-> ⚠️ **SP is currently in early development (pre-alpha).** Build from source to try it out.
+**1-Click Install & Universal Auto-Upgrade:**
+
+- **Windows (PowerShell):**
+  ```powershell
+  irm https://dl.splang.shantopaul.com/install.ps1 | iex
+  ```
+- **Linux & macOS (Bash):**
+  ```bash
+  curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh
+  ```
+
+> 💡 **Auto-Upgrade:** Run `spc upgrade` at any time, or re-run the installer command above to automatically upgrade to the latest release in 3–5 seconds with zero data loss.
+
+**Or Build From Source:**
 
 ```bash
 # Clone the repository
@@ -794,6 +807,10 @@ spc test                        # Run all tests
 spc fmt                         # Format all source files
 spc doc                         # Generate documentation
 spc clean                       # Remove build artifacts
+spc doctor                      # Diagnose installation & toolchain health
+spc setup                       # Auto-provision portable LLVM toolchain
+spc upgrade                     # In-place auto-upgrade compiler & stdlib
+spc uninstall                   # Cleanly remove SP Language and toolchains
 spc init [name]                 # Create new project
 spc --version                   # Show version info
 

@@ -27,6 +27,13 @@ const INSTALL_TABS: InstallTab[] = [
     description: "Direct shell installer detecting OS and CPU architecture.",
   },
   {
+    id: "upgrade",
+    label: "Upgrade",
+    os: "All Platforms",
+    command: "spc upgrade",
+    description: "In-place zero-downtime auto-upgrade to the latest SP compiler and standard library.",
+  },
+  {
     id: "uninstall",
     label: "Uninstall",
     os: "Windows / Linux / macOS",

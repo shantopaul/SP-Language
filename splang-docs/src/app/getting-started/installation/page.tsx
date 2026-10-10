@@ -16,6 +16,9 @@ export default function InstallationPage() {
   const verifyCmd = `spc --version
 spc doctor
 spm --version`;
+  const upgradeCli = `spc upgrade`;
+  const upgradePs = `irm https://dl.splang.shantopaul.com/install.ps1 | iex`;
+  const upgradeUnix = `curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh`;
   const uninstallCli = `spc uninstall`;
   const uninstallPs = `irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex`;
   const uninstallUnix = `curl -fsSL https://dl.splang.shantopaul.com/uninstall.sh | sh`;
@@ -66,6 +69,27 @@ spm --version`;
         <Callout type="tip" title="System Diagnosis">
           Run <code>spc doctor</code> at any time to verify compiler integrity, standard library modules, and backend toolchain health.
         </Callout>
+      </div>
+
+      {/* Upgrading Section */}
+      <div className="space-y-3 pt-4 border-t border-slate-800">
+        <h2 className="text-xl font-bold text-white">Upgrading SP</h2>
+        <p className="text-xs text-slate-400">
+          Keep your SP compiler and standard libraries up to date. The upgrade process is in-place, zero-downtime, and automatically preserves your local projects and cached toolchains.
+        </p>
+
+        <h3 className="text-sm font-semibold text-slate-200 pt-2">Option 1: Native CLI Command</h3>
+        <p className="text-xs text-slate-400">Run the built-in upgrade command from any terminal:</p>
+        <CodeBlock code={upgradeCli} language="bash" />
+
+        <h3 className="text-sm font-semibold text-slate-200 pt-2">Option 2: Universal One-Liner Installer</h3>
+        <p className="text-xs text-slate-400">
+          Running the official installer on a machine with SP already installed automatically detects the existing installation, checks versions, and upgrades binaries in 3–5 seconds without re-downloading toolchains:
+        </p>
+        <p className="text-xs text-slate-400 font-medium text-slate-300">On Windows (PowerShell):</p>
+        <CodeBlock code={upgradePs} language="powershell" />
+        <p className="text-xs text-slate-400 font-medium text-slate-300">On Linux &amp; macOS (Bash):</p>
+        <CodeBlock code={upgradeUnix} language="bash" />
       </div>
 
       {/* Uninstallation Section */}
