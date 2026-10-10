@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -32,7 +33,7 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[#0A1F44] bg-[#020D21]/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 w-full border-b border-slate-200 dark:border-[#0A1F44] bg-white/85 dark:bg-[#020D21]/85 backdrop-blur-xl transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Official Brand Logo & Version */}
@@ -49,11 +50,11 @@ export const Navbar: React.FC = () => {
                 />
               </div>
               <div className="flex flex-col">
-                <div className="font-extrabold text-white text-base tracking-tight leading-none group-hover:text-cyan-300 transition-colors flex items-center gap-1">
+                <div className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight leading-none group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition-colors flex items-center gap-1">
                   <span>SP</span>
-                  <span className="text-[#00D1FF]">Lang</span>
+                  <span className="text-[#0057FF] dark:text-[#00D1FF]">Lang</span>
                 </div>
-                <span className="text-[10px] font-mono text-slate-400 mt-0.5">
+                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
                   splang.shantopaul.com
                 </span>
               </div>
@@ -79,11 +80,11 @@ export const Navbar: React.FC = () => {
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-[#081735] hover:border-[#0A1F44] border border-transparent transition-all group"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#081735] hover:border-slate-300 dark:hover:border-[#0A1F44] border border-transparent transition-all group"
                   >
-                    <Icon className="w-4 h-4 text-slate-400 group-hover:text-cyan-400 transition-colors" />
+                    <Icon className="w-4 h-4 text-slate-400 group-hover:text-cyan-500 dark:group-hover:text-cyan-400 transition-colors" />
                     <span>{link.name}</span>
-                    <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300" />
+                    <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300" />
                   </a>
                 );
               }
@@ -94,11 +95,11 @@ export const Navbar: React.FC = () => {
                   href={link.href}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${
                     isActive
-                      ? "text-cyan-300 bg-[#081735] border border-cyan-500/40 shadow-glow-sm"
-                      : "text-slate-300 hover:text-white hover:bg-[#081735] hover:border-[#0A1F44] border border-transparent"
+                      ? "text-[#0057FF] dark:text-cyan-300 bg-blue-50/80 dark:bg-[#081735] border border-blue-200 dark:border-cyan-500/40 shadow-sm dark:shadow-glow-sm"
+                      : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#081735] hover:border-slate-300 dark:hover:border-[#0A1F44] border border-transparent"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? "text-cyan-400" : "text-slate-400"}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? "text-[#0057FF] dark:text-cyan-400" : "text-slate-400"}`} />
                   <span>{link.name}</span>
                 </Link>
               );
@@ -106,14 +107,17 @@ export const Navbar: React.FC = () => {
           </nav>
 
           {/* Right Action Buttons */}
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-2.5">
+            {/* Theme Mode Toggle */}
+            <ThemeToggle variant="segmented" />
+
             <a
               href="https://github.com/shantopaul/SP-Language"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-[#0A1F44] bg-[#081735]/80 text-slate-300 hover:text-white hover:border-cyan-500/40 hover:bg-[#0A1F44] transition-all text-sm font-medium shadow-sm"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/80 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-[#0057FF]/40 dark:hover:border-cyan-500/40 hover:bg-slate-50 dark:hover:bg-[#0A1F44] transition-all text-sm font-medium shadow-sm"
             >
-              <Github className="w-4 h-4 text-slate-400" />
+              <Github className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               <span>GitHub</span>
             </a>
             <a
@@ -128,11 +132,12 @@ export const Navbar: React.FC = () => {
             </a>
           </div>
 
-          {/* Mobile menu button */}
-          <div className="md:hidden flex items-center">
+          {/* Mobile controls */}
+          <div className="sm:hidden flex items-center gap-1.5">
+            <ThemeToggle variant="button" />
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#081735] border border-transparent hover:border-[#0A1F44] focus:outline-none"
+              className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#081735] border border-transparent hover:border-slate-300 dark:hover:border-[#0A1F44] focus:outline-none"
               aria-label="Toggle menu"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -143,7 +148,7 @@ export const Navbar: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-b border-[#0A1F44] bg-[#020D21]/95 backdrop-blur-2xl px-4 pt-2 pb-6 space-y-2">
+        <div className="md:hidden border-b border-slate-200 dark:border-[#0A1F44] bg-white/95 dark:bg-[#020D21]/95 backdrop-blur-2xl px-4 pt-2 pb-6 space-y-2">
           {navLinks.map((link) => (
             <a
               key={link.name}
@@ -151,21 +156,25 @@ export const Navbar: React.FC = () => {
               target={link.external ? "_blank" : undefined}
               rel={link.external ? "noopener noreferrer" : undefined}
               onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-base font-medium text-slate-300 hover:text-white hover:bg-[#081735] border border-transparent hover:border-[#0A1F44]"
+              className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-base font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#081735] border border-transparent hover:border-slate-200 dark:hover:border-[#0A1F44]"
             >
               <span className="flex items-center gap-2.5">
-                <link.icon className="w-5 h-5 text-cyan-400" />
+                <link.icon className="w-5 h-5 text-[#0057FF] dark:text-cyan-400" />
                 {link.name}
               </span>
-              {link.external && <ExternalLink className="w-4 h-4 text-slate-500" />}
+              {link.external && <ExternalLink className="w-4 h-4 text-slate-400" />}
             </a>
           ))}
-          <div className="pt-4 flex flex-col gap-2">
+          <div className="pt-3 pb-1">
+            <div className="text-xs font-mono uppercase text-slate-500 mb-2">Theme Mode</div>
+            <ThemeToggle variant="segmented" className="w-full justify-around" />
+          </div>
+          <div className="pt-2 flex flex-col gap-2">
             <a
               href="https://github.com/shantopaul/SP-Language"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#0A1F44] bg-[#081735] text-slate-200 text-sm font-medium hover:border-cyan-500/40"
+              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735] text-slate-800 dark:text-slate-200 text-sm font-medium hover:border-[#0057FF]/40 shadow-sm"
             >
               <Github className="w-4 h-4" />
               <span>View on GitHub</span>

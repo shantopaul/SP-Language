@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Search, Github, ExternalLink, Menu, Boxes, Cpu } from "lucide-react";
 import { SearchModal } from "@/components/search/SearchModal";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface HeaderProps {
   onToggleSidebar?: () => void;
@@ -26,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full border-b border-[#0A1F44] bg-[#020D21]/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-[#0A1F44] bg-white/85 dark:bg-[#020D21]/80 backdrop-blur-xl transition-colors">
         <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
           {/* Left: Mobile sidebar toggle + Brand */}
           <div className="flex items-center gap-3">
@@ -87,37 +88,41 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
             </button>
           </div>
 
-          {/* Right: Ecosystem portal links & GitHub */}
-          <div className="flex items-center gap-2 sm:gap-4 text-xs font-medium">
+          {/* Right: Ecosystem portal links, Theme Toggle & GitHub */}
+          <div className="flex items-center gap-2 sm:gap-3 text-xs font-medium">
             <a
               href="https://splang.shantopaul.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden md:flex items-center gap-1 text-slate-300 hover:text-white transition-colors"
+              className="hidden lg:flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
-              <Cpu className="w-3.5 h-3.5 text-[#00D1FF]" />
+              <Cpu className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />
               <span>Main Site</span>
-              <ExternalLink className="w-3 h-3 text-slate-500" />
+              <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500" />
             </a>
 
             <a
               href="https://registry.splang.shantopaul.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden md:flex items-center gap-1 text-slate-300 hover:text-white transition-colors"
+              className="hidden lg:flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
-              <Boxes className="w-3.5 h-3.5 text-[#00D1FF]" />
+              <Boxes className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />
               <span>Registry</span>
-              <ExternalLink className="w-3 h-3 text-slate-500" />
+              <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500" />
             </a>
+
+            {/* Theme Mode Toggle */}
+            <ThemeToggle variant="segmented" className="hidden sm:inline-flex" />
+            <ThemeToggle variant="button" className="sm:hidden" />
 
             <a
               href="https://github.com/shantopaul/SP-Language"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#0A1F44] bg-[#081735] text-slate-200 hover:text-white hover:border-[#0057FF]/50 transition-all shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735] text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white hover:border-[#0057FF]/50 transition-all shadow-sm"
             >
-              <Github className="w-4 h-4 text-white" />
+              <Github className="w-4 h-4 text-slate-700 dark:text-white" />
               <span className="hidden sm:inline">GitHub</span>
             </a>
           </div>

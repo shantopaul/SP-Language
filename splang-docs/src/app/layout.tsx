@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { DocsLayoutClient } from "@/components/layout/DocsLayoutClient";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -76,9 +77,37 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`dark scroll-smooth ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="font-sans antialiased bg-[#020D21] text-slate-100 selection:bg-[#0057FF]/30 selection:text-[#00D1FF] min-h-screen">
-        <DocsLayoutClient>{children}</DocsLayoutClient>
+    <html
+      lang="en"
+      className={`dark scroll-smooth ${inter.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var saved = localStorage.getItem('sp_theme');
+                  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  var isDark = saved === 'dark' || (saved === 'system' || !saved ? prefersDark : false);
+                  if (isDark) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.classList.remove('light');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                    document.documentElement.classList.add('light');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className="font-sans antialiased bg-slate-50 dark:bg-[#020D21] text-slate-900 dark:text-slate-100 selection:bg-[#0057FF]/30 selection:text-[#00D1FF] min-h-screen transition-colors duration-200">
+        <ThemeProvider>
+          <DocsLayoutClient>{children}</DocsLayoutClient>
+        </ThemeProvider>
       </body>
     </html>
   );

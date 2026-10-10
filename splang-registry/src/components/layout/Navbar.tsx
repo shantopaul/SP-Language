@@ -4,10 +4,11 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { BookOpen, Cpu, Github, ExternalLink, Upload, Shield, PackageSearch } from "lucide-react";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 export const Navbar: React.FC = () => {
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-[#0A1F44] bg-[#020D21]/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-[#0A1F44] bg-white/85 dark:bg-[#020D21]/80 backdrop-blur-xl transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Portal Name */}
@@ -77,12 +78,15 @@ export const Navbar: React.FC = () => {
           </nav>
 
           {/* Right Action */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <ThemeToggle variant="segmented" className="hidden sm:inline-flex" />
+            <ThemeToggle variant="button" className="sm:hidden" />
+
             <a
               href="https://github.com/shantopaul/SP-Language"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#0A1F44] bg-[#081735] text-slate-300 hover:text-white hover:border-[#0057FF]/60 hover:bg-[#0057FF]/10 transition-all text-xs font-medium"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-[#0057FF]/60 hover:bg-slate-50 dark:hover:bg-[#0057FF]/10 transition-all text-xs font-medium shadow-sm"
             >
               <Github className="w-3.5 h-3.5" />
               <span>GitHub</span>

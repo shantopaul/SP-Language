@@ -3,8 +3,15 @@
 @tailwind utilities;
 
 :root {
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  color-scheme: light;
+}
+
+html.dark {
   --background: #020D21;
   --foreground: #F8FAFC;
+  color-scheme: dark;
 }
 
 body {
@@ -23,7 +30,7 @@ code, pre, .font-mono {
   color: #00D1FF;
 }
 
-/* Custom midnight scrollbar */
+/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -40,6 +47,18 @@ code, pre, .font-mono {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #0057FF;
+}
+
+html:not(.dark) ::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
 }
 
 /* Glow effects */
@@ -61,4 +80,93 @@ code, pre, .font-mono {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid #0A1F44;
+}
+
+/* ==========================================================================
+   LIGHT MODE OVERRIDES FOR SPLANG-REGISTRY
+   ========================================================================== */
+html:not(.dark) body {
+  background-color: #F8FAFC;
+  color: #0F172A;
+}
+
+html:not(.dark) .glass-panel {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: #E2E8F0;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Surface backgrounds */
+html:not(.dark) .bg-\[\#020D21\] {
+  background-color: #F8FAFC !important;
+}
+
+html:not(.dark) .bg-\[\#020D21\]\/80,
+html:not(.dark) .bg-\[\#020D21\]\/90,
+html:not(.dark) .bg-\[\#020D21\]\/95 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+html:not(.dark) .bg-\[\#081735\] {
+  background-color: #FFFFFF !important;
+}
+
+html:not(.dark) .bg-\[\#081735\]\/40,
+html:not(.dark) .bg-\[\#081735\]\/60,
+html:not(.dark) .bg-\[\#081735\]\/70,
+html:not(.dark) .bg-\[\#081735\]\/80 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+html:not(.dark) .bg-\[\#0A1F44\] {
+  background-color: #F1F5F9 !important;
+}
+
+html:not(.dark) .border-\[\#0A1F44\] {
+  border-color: #E2E8F0 !important;
+}
+
+/* Typography in light mode */
+html:not(.dark) h1,
+html:not(.dark) h2,
+html:not(.dark) h3,
+html:not(.dark) h4 {
+  color: #0F172A;
+}
+
+html:not(.dark) .text-white:not(button *):not(a.bg-gradient-to-r *):not(.bg-\[\#0057FF\] *):not([data-preserve="true"]) {
+  color: #0F172A;
+}
+
+html:not(.dark) .text-slate-100 {
+  color: #0F172A !important;
+}
+
+html:not(.dark) .text-slate-200 {
+  color: #1E293B !important;
+}
+
+html:not(.dark) .text-slate-300 {
+  color: #334155 !important;
+}
+
+html:not(.dark) .text-slate-400 {
+  color: #64748B !important;
+}
+
+/* Retain dark code and terminal blocks for readability */
+html:not(.dark) pre,
+html:not(.dark) pre code {
+  background-color: #0B1528 !important;
+  color: #F8FAFC !important;
+}
+
+/* Buttons with gradients */
+html:not(.dark) button.bg-gradient-to-r,
+html:not(.dark) a.bg-gradient-to-r,
+html:not(.dark) button.bg-gradient-to-r *,
+html:not(.dark) a.bg-gradient-to-r *,
+html:not(.dark) .bg-\[\#0057FF\],
+html:not(.dark) .bg-\[\#0057FF\] * {
+  color: #FFFFFF !important;
 }
