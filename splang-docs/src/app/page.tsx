@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
-import { BookOpen, Terminal, Code2, Boxes, Sparkles, ArrowRight, ShieldCheck, Flame } from "lucide-react";
+import Image from "next/image";
+import { BookOpen, Terminal, Code2, Boxes, Sparkles, ArrowRight, ShieldCheck, Flame, Cpu, Zap } from "lucide-react";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { Callout } from "@/components/ui/Callout";
 
@@ -11,27 +12,41 @@ fn main() -> void {
     println("Hello, SP World!");
 }`;
 
+  const quickWeb = `import std.web;
+
+fn handle_root(ctx: &web.Context) -> web.Response {
+    return ctx.json({"status": "healthy", "engine": "SP std.web", "version": "3.1.0"});
+}
+
+fn main() -> void {
+    let app = web.new_server();
+    app.get("/health", handle_root);
+    app.listen(8080);
+}`;
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-12 relative">
       {/* Hero Banner */}
-      <div>
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/60 text-cyan-400 text-xs font-semibold mb-4">
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Official SP Documentation</span>
+      <div className="relative">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0057FF]/15 border border-[#00D1FF]/30 text-[#00D1FF] text-xs font-semibold mb-4 shadow-[0_0_15px_rgba(0,209,255,0.15)]">
+          <BookOpen className="w-3.5 h-3.5 text-[#00D1FF]" />
+          <span>Official SP Documentation (v3.1.0 GA)</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-          SP Language Documentation
+        
+        <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
+          SP Language <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-[#00D1FF]">Documentation</span>
         </h1>
-        <p className="mt-3 text-base text-slate-300 leading-relaxed">
-          Welcome to the official developer documentation for the SP Programming Language. Here you will find comprehensive guides, grammar references, standard library documentation, and tooling manuals.
+        
+        <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed max-w-3xl">
+          Welcome to the official developer documentation for the SP Programming Language. Explore comprehensive language tours, standard library APIs, enterprise web platform guides, and native LLVM toolchain manuals.
         </p>
       </div>
 
-      <Callout type="tip" title="SP 3.0 Enterprise Backend Platform GA Now Available">
+      <Callout type="tip" title="SP 3.1.0 Enterprise Backend Platform GA Now Available">
         <p>
-          SP 3.0 is officially released! Featuring the official <strong>Web Framework</strong> (<code>std.web</code>), <strong>Radix Tree Routing</strong>, <strong>In-Memory HTTP Testing</strong> (<code>std.test.http</code>), <strong>Database Pooling</strong> (SQLite &amp; PostgreSQL), <strong>Redis Caching &amp; Pub/Sub</strong>, <strong>RFC 6455 WebSockets</strong>, <strong>Argon2id &amp; JWT Security</strong>, <strong>Prometheus Metrics</strong>, and <strong>Automated OpenAPI 3.0 Docs</strong>.{" "}
-          <Link href="/backend/overview" className="underline font-semibold hover:text-white">
-            Explore the SP 3.0 Backend Platform &rarr;
+          SP 3.1.0 GA is officially released! Featuring the production <strong>Web Framework</strong> (<code>std.web</code> delivering 185k req/s), <strong>Database Connection Pooling</strong> (SQLite &amp; PostgreSQL with static TLS), <strong>Redis Caching &amp; Pub/Sub</strong>, <strong>RFC 6455 WebSockets</strong>, <strong>Argon2id &amp; JWT Security</strong>, <strong>Prometheus Metrics</strong>, <strong>Universal Auto-Upgrade</strong> (<code>spc upgrade</code>), and <strong>Diagnostic Toolchain Doctor</strong> (<code>spc doctor</code>).{" "}
+          <Link href="/backend/overview" className="text-[#00D1FF] underline font-semibold hover:text-white">
+            Explore the SP 3.1 Backend Platform &rarr;
           </Link>
         </p>
       </Callout>
@@ -40,92 +55,102 @@ fn main() -> void {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Link
           href="/backend/overview"
-          className="p-5 rounded-xl border border-cyan-800/60 bg-cyan-950/20 hover:bg-cyan-950/40 hover:border-cyan-500 transition-all group sm:col-span-2"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/70 hover:bg-[#081735] hover:border-[#00D1FF]/50 transition-all group sm:col-span-2 shadow-xl relative overflow-hidden"
         >
-          <div className="w-10 h-10 rounded-lg bg-cyan-900/60 border border-cyan-700/60 flex items-center justify-center text-cyan-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/20 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3 shadow-[0_0_15px_rgba(0,209,255,0.2)]">
             <Sparkles className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
-            <span>SP 3.0 Enterprise Backend Platform</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
+            <span>SP 3.1 Enterprise Backend Platform</span>
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
-          <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-            Build production-grade web services, microservices, and real-time APIs sustaining 185k req/s with sub-microsecond routing, SQL pooling, and zero-socket integration testing.
+          <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+            Build production-grade microservices and real-time APIs sustaining 185,000 req/s with sub-microsecond routing, SQL connection pooling, static OpenSSL TLS, and zero-socket integration testing.
           </p>
         </Link>
 
         <Link
           href="/getting-started/installation"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/50 hover:bg-[#081735] hover:border-[#00D1FF]/40 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center text-emerald-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/15 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <Terminal className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
             <span>Installation Guide</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Install the SP toolchain on Windows, Linux, or macOS in under a minute.
+            Install SP on Windows (1-click PowerShell), Linux, or macOS with automated multi-drive detection and toolchain verification.
           </p>
         </Link>
 
         <Link
           href="/syntax-guide"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/50 hover:bg-[#081735] hover:border-[#00D1FF]/40 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan-800/60 flex items-center justify-center text-cyan-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/15 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <Code2 className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
-            <span>Language Tour</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
+            <span>Language Tour &amp; Syntax</span>
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Learn the syntax: variables, control flow, functions, OOP, and generics.
+            Master the syntax: variables, control flow, functions, OOP, zero-cost generics, and deterministic ARC memory management.
           </p>
         </Link>
 
         <Link
           href="/stdlib"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/50 hover:bg-[#081735] hover:border-[#00D1FF]/40 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-blue-950/60 border border-blue-800/60 flex items-center justify-center text-blue-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/15 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <Boxes className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
-            <span>Standard Library (17 Modules)</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
+            <span>Standard Library (23 Modules)</span>
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Explore 17 native modules: Web, DB, Redis, Crypto, WebSockets, Logging, and Metrics.
+            Explore all 23 native modules: Web, DB, Redis, Crypto, WebSockets, Metrics, Health, IO, Sync, and FS.
           </p>
         </Link>
 
         <Link
           href="/tools/compiler-cli"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/50 hover:bg-[#081735] hover:border-[#00D1FF]/40 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-purple-950/60 border border-purple-800/60 flex items-center justify-center text-purple-400 mb-3">
-            <Terminal className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/15 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
+            <Cpu className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
-            <span>Compiler & Toolchain</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
+            <span>Compiler &amp; Toolchain (spc)</span>
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Master the spc compiler, spm package manager, formatter, test runner, and debugger.
+            Complete CLI manual: spc build, spc run, spc upgrade, spc doctor, spc fmt, spc test, and spm package manager.
           </p>
         </Link>
       </div>
 
-      {/* Quick Hello World Preview */}
-      <div>
-        <h2 className="text-xl font-bold text-white mb-2">Hello World in SP</h2>
-        <p className="text-xs text-slate-400 mb-3">
-          Save this to <code>hello.sp</code> and run with <code>spc run hello.sp</code>:
-        </p>
-        <CodeBlock code={quickHello} filename="hello.sp" />
+      {/* Code Examples Previews */}
+      <div className="space-y-6 pt-4">
+        <div>
+          <h2 className="text-xl font-bold text-white mb-1">Hello World in SP</h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Save this to <code>hello.sp</code> and execute natively with <code>spc run hello.sp</code>:
+          </p>
+          <CodeBlock code={quickHello} filename="hello.sp" />
+        </div>
+
+        <div>
+          <h2 className="text-xl font-bold text-white mb-1">Production Web Server with std.web</h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Build and deploy microservices with zero external dependencies:
+          </p>
+          <CodeBlock code={quickWeb} filename="server.sp" />
+        </div>
       </div>
     </div>
   );

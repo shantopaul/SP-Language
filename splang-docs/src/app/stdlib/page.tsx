@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
-import { ArrowRight, Boxes, Terminal, Layers } from "lucide-react";
+import { ArrowRight, Boxes } from "lucide-react";
 import { PrevNextNav } from "@/components/ui/PrevNextNav";
 
 export const metadata = {
@@ -10,8 +10,8 @@ export const metadata = {
 };
 
 const MODULES = [
-  { name: "std.web", href: "/stdlib/web", desc: "Official web application framework, Radix routing, middlewares, and Context ergonomics." },
-  { name: "std.db", href: "/stdlib/db", desc: "SQLite and PostgreSQL thread-safe connection pools, transactions, and SQL queries." },
+  { name: "std.web", href: "/stdlib/web", desc: "Official web application framework, Radix tree routing, middlewares, and Context ergonomics." },
+  { name: "std.db", href: "/stdlib/db", desc: "SQLite and PostgreSQL thread-safe connection pools, static TLS, transactions, and SQL queries." },
   { name: "std.redis", href: "/stdlib/redis", desc: "RESP2/3 Redis in-memory caching, connection pool, and distributed Pub/Sub messaging." },
   { name: "std.security", href: "/stdlib/security", desc: "Argon2id password hashing, JWT HS256 tokens, and constant-time cryptography." },
   { name: "std.net.ws", href: "/stdlib/ws", desc: "RFC 6455 full-duplex WebSockets, WebSocketHub broadcasting, and Server-Sent Events." },
@@ -35,8 +35,8 @@ export default function StdlibOverviewPage() {
       <Breadcrumbs items={[{ title: "Standard Library", href: "/stdlib" }]} />
 
       <h1 className="text-3xl font-extrabold text-white">SP Core Standard Library</h1>
-      <p className="text-sm text-slate-300">
-        SP ships with 17 self-contained, native standard library modules designed for day-to-day systems, backend web services, and high-concurrency microservices without external C dependencies.
+      <p className="text-sm text-slate-300 leading-relaxed">
+        SP 3.1.0 GA ships with 23 self-contained, native standard library modules designed for systems programming, high-throughput web microservices, and network engineering without external runtime dependencies.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
@@ -44,13 +44,13 @@ export default function StdlibOverviewPage() {
           <Link
             key={mod.name}
             href={mod.href}
-            className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+            className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#081735] hover:border-[#0057FF]/50 transition-all group shadow-lg"
           >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-mono text-base font-bold text-white group-hover:text-cyan-400 transition-colors">
+              <h3 className="font-mono text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors">
                 {mod.name}
               </h3>
-              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">{mod.desc}</p>
           </Link>

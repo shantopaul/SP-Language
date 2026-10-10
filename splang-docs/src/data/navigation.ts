@@ -11,9 +11,9 @@ export interface NavSection {
 
 export const DOCS_NAVIGATION: NavSection[] = [
   {
-    title: "SP 3.0 Backend Platform",
+    title: "SP 3.1 Backend Platform",
     items: [
-      { title: "Platform Overview", href: "/backend/overview", badge: "v3.0 GA" },
+      { title: "Platform Overview", href: "/backend/overview", badge: "v3.1.0 GA" },
       { title: "Web Framework (std.web)", href: "/backend/framework" },
       { title: "Context & Ergonomics (ctx)", href: "/backend/context" },
       { title: "Dependency Injection (di)", href: "/backend/di" },
@@ -44,7 +44,7 @@ export const DOCS_NAVIGATION: NavSection[] = [
     title: "Getting Started",
     items: [
       { title: "Introduction & Overview", href: "/getting-started" },
-      { title: "Installation", href: "/getting-started/installation" },
+      { title: "Installation (1-Click)", href: "/getting-started/installation", badge: "Universal" },
       { title: "First Program (Hello SP)", href: "/getting-started/first-program" },
       { title: "Project Scaffolding (spm)", href: "/getting-started/project-setup" },
     ],
@@ -67,8 +67,8 @@ export const DOCS_NAVIGATION: NavSection[] = [
   {
     title: "Standard Library (stdlib)",
     items: [
-      { title: "Stdlib Overview", href: "/stdlib", badge: "17 Modules" },
-      { title: "std.web (Web App Framework)", href: "/stdlib/web" },
+      { title: "Stdlib Overview", href: "/stdlib", badge: "23 Modules" },
+      { title: "std.web (Web App Framework)", href: "/stdlib/web", badge: "Core" },
       { title: "std.db (Database & Pooling)", href: "/stdlib/db" },
       { title: "std.redis (Redis & Pub/Sub)", href: "/stdlib/redis" },
       { title: "std.security (Crypto & JWT)", href: "/stdlib/security" },
@@ -91,7 +91,7 @@ export const DOCS_NAVIGATION: NavSection[] = [
     title: "Developer Tooling",
     items: [
       { title: "Toolchain Overview", href: "/tools" },
-      { title: "Compiler CLI (spc)", href: "/tools/compiler-cli" },
+      { title: "Compiler CLI (spc)", href: "/tools/compiler-cli", badge: "Doctor/Upgrade" },
       { title: "Package Manager (spm)", href: "/tools/package-manager" },
       { title: "Code Formatter (spc fmt)", href: "/tools/formatter" },
       { title: "Native Test Runner (spc test)", href: "/tools/test-runner" },
@@ -105,7 +105,7 @@ export const DOCS_NAVIGATION: NavSection[] = [
     title: "Performance & Architecture",
     items: [
       { title: "7-Language Benchmarks", href: "/benchmarks" },
-      { title: "TechEmpower Backend Benchmarks", href: "/backend/benchmarks", badge: "New" },
+      { title: "TechEmpower Backend Benchmarks", href: "/backend/benchmarks", badge: "185k req/s" },
     ],
   },
 ];

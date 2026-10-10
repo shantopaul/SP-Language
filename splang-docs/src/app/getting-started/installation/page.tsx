@@ -12,16 +12,16 @@ export const metadata = {
 export default function InstallationPage() {
   const winPs = `irm https://dl.splang.shantopaul.com/install.ps1 | iex`;
   const winWinget = `winget install SPLang.SP`;
-  const unixCurl = `curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh`;
+  const unixCurl = `curl -fsSL https://dl.splang.shantopaul.com/install.sh | bash`;
   const verifyCmd = `spc --version
 spc doctor
 spm --version`;
   const upgradeCli = `spc upgrade`;
   const upgradePs = `irm https://dl.splang.shantopaul.com/install.ps1 | iex`;
-  const upgradeUnix = `curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh`;
+  const upgradeUnix = `curl -fsSL https://dl.splang.shantopaul.com/install.sh | bash`;
   const uninstallCli = `spc uninstall`;
   const uninstallPs = `irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex`;
-  const uninstallUnix = `curl -fsSL https://dl.splang.shantopaul.com/uninstall.sh | sh`;
+  const uninstallUnix = `curl -fsSL https://dl.splang.shantopaul.com/uninstall.sh | bash`;
 
   return (
     <div className="space-y-6">
@@ -32,47 +32,47 @@ spm --version`;
         ]}
       />
 
-      <h1 className="text-3xl font-extrabold text-white">Installing SP</h1>
-      <p className="text-sm text-slate-300">
-        Choose your operating system below to install the official SP toolchain.
+      <h1 className="text-3xl font-extrabold text-white">Installing SP (v3.1.0 GA)</h1>
+      <p className="text-sm text-slate-300 leading-relaxed">
+        Choose your operating system below to install the official SP native compiler, 23 standard library modules, and developer toolchain.
       </p>
 
       {/* Windows Section */}
       <div className="space-y-3 pt-2">
-        <h2 className="text-xl font-bold text-white">Windows 10 / 11</h2>
+        <h2 className="text-xl font-bold text-white">Windows 10 / 11 (64-bit)</h2>
         <p className="text-xs text-slate-400">
-          The recommended 1-click method on Windows (automatically provisions compiler, precompiled runtimes, and LLVM toolchain):
+          The recommended 1-click method on Windows (automatically provisions compiler, precompiled runtimes, OpenSSL static TLS, and LLVM toolchain with multi-drive C/D/E support):
         </p>
         <CodeBlock code={winPs} language="powershell" />
         <p className="text-xs text-slate-400">
-          Or via <strong>winget</strong> (Windows Package Manager):
+          Or install via <strong>winget</strong> (Windows Package Manager):
         </p>
         <CodeBlock code={winWinget} language="powershell" />
       </div>
 
       {/* Linux & macOS Section */}
-      <div className="space-y-3 pt-4 border-t border-slate-800">
-        <h2 className="text-xl font-bold text-white">Linux & macOS</h2>
+      <div className="space-y-3 pt-4 border-t border-[#0A1F44]">
+        <h2 className="text-xl font-bold text-white">Linux &amp; macOS</h2>
         <p className="text-xs text-slate-400">
-          Open your terminal and run the one-line shell installer:
+          Open your terminal and run the universal shell installer:
         </p>
         <CodeBlock code={unixCurl} language="bash" />
       </div>
 
       {/* Verification */}
-      <div className="space-y-3 pt-4 border-t border-slate-800">
+      <div className="space-y-3 pt-4 border-t border-[#0A1F44]">
         <h2 className="text-xl font-bold text-white">Verifying Installation</h2>
         <p className="text-xs text-slate-400">
           Confirm that the compiler (<code>spc</code>), system doctor, and package manager (<code>spm</code>) are operational:
         </p>
         <CodeBlock code={verifyCmd} language="bash" />
         <Callout type="tip" title="System Diagnosis">
-          Run <code>spc doctor</code> at any time to verify compiler integrity, standard library modules, and backend toolchain health.
+          Run <code>spc doctor</code> at any time to verify compiler integrity, standard library modules, OpenSSL TLS engine, and backend LLVM toolchain health.
         </Callout>
       </div>
 
       {/* Upgrading Section */}
-      <div className="space-y-3 pt-4 border-t border-slate-800">
+      <div className="space-y-3 pt-4 border-t border-[#0A1F44]">
         <h2 className="text-xl font-bold text-white">Upgrading SP</h2>
         <p className="text-xs text-slate-400">
           Keep your SP compiler and standard libraries up to date. The upgrade process is in-place, zero-downtime, and automatically preserves your local projects and cached toolchains.
@@ -93,7 +93,7 @@ spm --version`;
       </div>
 
       {/* Uninstallation Section */}
-      <div className="space-y-3 pt-4 border-t border-slate-800">
+      <div className="space-y-3 pt-4 border-t border-[#0A1F44]">
         <h2 className="text-xl font-bold text-white">Uninstalling SP</h2>
         <p className="text-xs text-slate-400">
           SP provides a completely clean uninstaller that removes all binaries, runtimes, environment variables (<code>SP_HOME</code>), and user <code>PATH</code> entries with zero residue.
@@ -106,7 +106,7 @@ spm --version`;
         <h3 className="text-sm font-semibold text-slate-200 pt-2">Option 2: Online One-Liner Script</h3>
         <p className="text-xs text-slate-400">On Windows (PowerShell):</p>
         <CodeBlock code={uninstallPs} language="powershell" />
-        <p className="text-xs text-slate-400">On Linux & macOS (Bash):</p>
+        <p className="text-xs text-slate-400">On Linux &amp; macOS (Bash):</p>
         <CodeBlock code={uninstallUnix} language="bash" />
 
         <h3 className="text-sm font-semibold text-slate-200 pt-2">Option 3: Windows Installed Apps (GUI)</h3>
