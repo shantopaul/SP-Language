@@ -56,16 +56,16 @@ function PackagesExplorerContent() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+        <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
           Explore SP Packages
         </h1>
-        <p className="mt-1 text-sm text-slate-300">
+        <p className="mt-1 text-xs sm:text-sm text-slate-300">
           Search and browse {PACKAGES.length} production packages available in the SP registry.
         </p>
       </div>
 
       {/* Controls Bar: Search & Sort */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
         {/* Search Input */}
         <div className="relative flex-1 max-w-lg">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -74,12 +74,12 @@ function PackagesExplorerContent() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by name, keyword, or description..."
-            className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-[#0A1F44] bg-[#081735] text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#00D1FF] focus:border-[#00D1FF] transition-all shadow-md"
+            className="w-full min-h-[42px] pl-10 pr-9 py-2.5 rounded-xl border border-[#0A1F44] bg-[#081735] text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#00D1FF] focus:border-[#00D1FF] transition-all shadow-md"
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -87,18 +87,20 @@ function PackagesExplorerContent() {
         </div>
 
         {/* Sort Selector */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
-          <ArrowUpDown className="w-4 h-4 text-slate-400" />
-          <label htmlFor="sort-select" className="text-xs text-slate-400 font-medium">
-            Sort by:
-          </label>
+        <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+            <ArrowUpDown className="w-4 h-4 text-slate-400" />
+            <label htmlFor="sort-select">
+              Sort by:
+            </label>
+          </div>
           <select
             id="sort-select"
             value={sortBy}
             onChange={(e) =>
               setSortBy(e.target.value as "downloads" | "newest" | "name")
             }
-            className="px-3 py-2 rounded-xl border border-[#0A1F44] bg-[#081735] text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#00D1FF]"
+            className="flex-1 sm:flex-none min-h-[40px] px-3 py-2 rounded-xl border border-[#0A1F44] bg-[#081735] text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#00D1FF]"
           >
             <option value="downloads">Most Downloaded</option>
             <option value="newest">Recently Published</option>

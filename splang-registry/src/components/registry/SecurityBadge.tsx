@@ -22,12 +22,12 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({ pkg }) => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44]">
-        <h2 className="text-base font-bold text-white font-mono flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-[#00D1FF]" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#0A1F44]">
+        <h2 className="text-sm sm:text-base font-bold text-white font-mono flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-[#00D1FF] shrink-0" />
           <span>Security &amp; Integrity Analysis</span>
         </h2>
-        <span className="text-xs font-mono font-semibold text-[#00D1FF] bg-[#0057FF]/20 border border-[#00D1FF]/40 px-3 py-0.5 rounded-full shadow-[0_0_12px_rgba(0,209,255,0.2)]">
+        <span className="self-start sm:self-auto text-xs font-mono font-semibold text-[#00D1FF] bg-[#0057FF]/20 border border-[#00D1FF]/40 px-3 py-0.5 rounded-full shadow-[0_0_12px_rgba(0,209,255,0.2)]">
           Audit: PASSED (100%)
         </span>
       </div>

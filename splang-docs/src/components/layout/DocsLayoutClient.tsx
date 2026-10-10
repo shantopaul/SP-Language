@@ -11,7 +11,7 @@ export const DocsLayoutClient: React.FC<{ children: React.ReactNode }> = ({
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#020D21] text-slate-100 flex flex-col relative selection:bg-[#0057FF]/30 selection:text-[#00D1FF]">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#020D21] text-slate-900 dark:text-slate-100 flex flex-col relative selection:bg-[#0057FF]/30 selection:text-[#00D1FF] transition-colors duration-200">
       {/* Ambient background glow */}
       <div className="fixed top-0 left-1/4 w-[600px] h-[300px] bg-gradient-to-b from-[#0057FF]/10 to-transparent rounded-full blur-[120px] pointer-events-none -z-10" />
       <div className="fixed bottom-0 right-1/4 w-[500px] h-[250px] bg-gradient-to-t from-[#00D1FF]/5 to-transparent rounded-full blur-[120px] pointer-events-none -z-10" />

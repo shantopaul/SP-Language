@@ -36,7 +36,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   isLink = false,
 }) => {
   return (
-    <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+    <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin scrollbar-thumb-[#0A1F44] scrollbar-track-transparent">
       {isLink ? (
         <Link
           href="/packages"

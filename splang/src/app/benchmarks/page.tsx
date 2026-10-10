@@ -83,7 +83,7 @@ export default function BenchmarksPage() {
             </div>
 
             {/* Table of Results */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
               <table className="w-full text-left text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-[#0A1F44] text-slate-400 uppercase text-[11px] tracking-wider">

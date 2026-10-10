@@ -10,7 +10,7 @@ export const metadata = {
 
 export default function DownloadsPage() {
   return (
-    <div className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 bg-[#020D21]">
+    <div className="py-12 sm:py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="text-center max-w-3xl mx-auto mb-16">
         <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-cyan-500/40 text-cyan-300 text-xs font-semibold mb-3 shadow-glow-sm">
@@ -144,7 +144,7 @@ export default function DownloadsPage() {
           </a>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-[#0A1F44] text-slate-400 uppercase text-[11px] tracking-wider">

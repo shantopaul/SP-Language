@@ -143,8 +143,9 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
 
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-slate-400 hover:text-white hover:bg-[#0A1F44] transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-[#0A1F44] transition-colors min-h-[36px]"
           title="Copy code"
+          aria-label="Copy code to clipboard"
         >
           {copied ? (
             <>
@@ -160,12 +161,12 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
         </button>
       </div>
 
-      <div className="p-4 overflow-x-auto">
+      <div className="p-3 sm:p-4 overflow-x-auto scrollbar-thin text-xs sm:text-sm">
         <pre className="flex flex-col space-y-1">
           {lines.map((line, idx) => (
             <div key={idx} className="table-row group">
               {showLineNumbers && (
-                <span className="table-cell select-none pr-4 text-right text-slate-600 group-hover:text-slate-500 font-mono text-xs w-8">
+                <span className="table-cell select-none pr-2.5 sm:pr-4 text-right text-slate-600 group-hover:text-slate-500 font-mono text-[11px] sm:text-xs w-6 sm:w-8">
                   {idx + 1}
                 </span>
               )}
