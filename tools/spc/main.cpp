@@ -80,6 +80,7 @@ void printHelp() {
 
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
               << "  setup           Check, auto-provision, or update portable backend toolchain\n"
+              << "  upgrade         Automatically upgrade SP Language to latest version\n"
               << "  uninstall       Completely remove SP Language, toolchains, and environment\n"
               << "  fix [path]      Migrate/modernize SP codebase to target edition (e.g. 2028)\n\n"
               << "Options:\n"
@@ -403,6 +404,22 @@ int handleUninstall(int argc, char* argv[]) {
 #endif
 }
 
+int handleUpgrade() {
+    std::cout << "\n========================================================================\n"
+              << "             SP Programming Language Auto-Upgrade Utility\n"
+              << "========================================================================\n\n"
+              << "[*] Checking for latest SP Language release and upgrading...\n\n";
+
+#if defined(_WIN32)
+    std::string psCmd = "powershell -ExecutionPolicy Bypass -Command \""
+                        "irm https://dl.splang.shantopaul.com/install.ps1 | iex\"";
+    return std::system(psCmd.c_str());
+#else
+    std::string shCmd = "curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh";
+    return std::system(shCmd.c_str());
+#endif
+}
+
 int handleFix(int argc, char* argv[]) {
     std::string targetPath = ".";
     std::string targetEdition = "2028";
@@ -582,6 +599,10 @@ int main(int argc, char* argv[]) {
 
     if (command == "setup") {
         return handleSetup();
+    }
+
+    if (command == "upgrade" || command == "update") {
+        return handleUpgrade();
     }
 
     if (command == "fix") {
@@ -1355,7 +1376,7 @@ int main(int argc, char* argv[]) {
 
     const std::vector<std::string> validCommands = {
         "build", "run", "check", "init", "new", "fmt", "test", "bench",
-        "doc", "doctor", "setup", "fix", "uninstall", "bindgen", "tokens", "ast", "sema",
+        "doc", "doctor", "setup", "upgrade", "update", "fix", "uninstall", "bindgen", "tokens", "ast", "sema",
         "ir", "llvm", "obj"
     };
 

@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # SP Programming Language - Universal Windows Installer
 # ==============================================================================
 # One-command installation for any Windows Desktop (Windows 10, 11, Server).
@@ -26,6 +26,57 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+
+$BinDir = Join-Path $InstallDir "bin"
+$LibDir = Join-Path $InstallDir "lib"
+$IncludeDir = Join-Path $InstallDir "runtime\include"
+$StdlibDir = Join-Path $InstallDir "stdlib"
+$ExamplesDir = Join-Path $InstallDir "examples"
+$ToolchainDir = Join-Path $InstallDir "toolchain"
+$ToolchainBin = Join-Path $ToolchainDir "bin"
+
+# Detect existing installation and version
+$isUpgrade = $false
+$isRepair = $false
+$installedVerStr = $null
+
+$existingSpc = Join-Path $BinDir "spc.exe"
+if (-not (Test-Path $existingSpc)) {
+    $foundCmd = Get-Command spc.exe -ErrorAction SilentlyContinue
+    if ($foundCmd) { $existingSpc = $foundCmd.Source }
+}
+
+if (Test-Path $existingSpc) {
+    try {
+        $verText = (& $existingSpc --version 2>&1) -join "`n"
+        if ($verText -match "version\s+([0-9]+(\.[0-9]+)+)") {
+            $installedVerStr = $matches[1]
+        }
+    } catch {}
+
+    if (-not $installedVerStr) {
+        try {
+            $regVer = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SPLang" -ErrorAction SilentlyContinue).DisplayVersion
+            if ($regVer) { $installedVerStr = $regVer }
+        } catch {}
+    }
+
+    if ($installedVerStr) {
+        try {
+            $curV = [version]$installedVerStr
+            $newV = [version]$Version
+            if ($newV -gt $curV) {
+                $isUpgrade = $true
+            } else {
+                $isRepair = $true
+            }
+        } catch {
+            $isUpgrade = ($installedVerStr -ne $Version)
+        }
+    } else {
+        $isRepair = $true
+    }
+}
 
 function Download-File([string]$Url, [string]$Destination) {
     if (Test-Path $Destination) { Remove-Item $Destination -Force -ErrorAction SilentlyContinue }
@@ -103,26 +154,51 @@ function Write-Banner {
     Write-Host "  Target Location : $InstallDir" -ForegroundColor Yellow
     Write-Host "  OS Architecture : $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Gray
     Write-Host "  Operating System: $([System.Environment]::OSVersion.VersionString)" -ForegroundColor Gray
+    if ($isUpgrade) {
+        Write-Host "  Operation Mode  : Auto-Upgrade (v$installedVerStr -> v$Version)" -ForegroundColor Green
+    } elseif ($isRepair) {
+        Write-Host "  Operation Mode  : Reinstall / Repair (v$Version)" -ForegroundColor Cyan
+    } else {
+        Write-Host "  Operation Mode  : Clean System Installation (v$Version)" -ForegroundColor Green
+    }
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host ""
 }
 
 Write-Banner
 
-# 1. Prepare target installation directories
-Write-Host "[1/5] Preparing installation directories..." -ForegroundColor Green
-$BinDir = Join-Path $InstallDir "bin"
-$LibDir = Join-Path $InstallDir "lib"
-$IncludeDir = Join-Path $InstallDir "runtime\include"
-$StdlibDir = Join-Path $InstallDir "stdlib"
-$ExamplesDir = Join-Path $InstallDir "examples"
-$ToolchainDir = Join-Path $InstallDir "toolchain"
-$ToolchainBin = Join-Path $ToolchainDir "bin"
+# 1. Prepare target installation directories & release process locks
+Write-Host "[1/5] Preparing installation directories & system processes..." -ForegroundColor Green
+
+# Gracefully release any locks by stopping background SP processes (e.g. language server or running compiler)
+try {
+    $spProcs = Get-Process -Name "spc", "spm", "spd", "spls" -ErrorAction SilentlyContinue
+    foreach ($proc in $spProcs) {
+        try {
+            if ($proc.Path -like "*$InstallDir*" -or $proc.Path -like "*\.sp\*") {
+                Write-Host "  -> Releasing process lock: $($proc.ProcessName).exe (PID: $($proc.Id))..." -ForegroundColor Gray
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+    }
+    Start-Sleep -Milliseconds 200
+} catch {}
 
 $directories = @($InstallDir, $BinDir, $LibDir, $IncludeDir, $StdlibDir, $ExamplesDir)
 foreach ($dir in $directories) {
     if (-not (Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+}
+
+if ($isUpgrade) {
+    Write-Host "  -> Preparing clean upgrade of standard library & headers..." -ForegroundColor Gray
+    # Clean previous stdlib modules to avoid outdated or conflicting files
+    if (Test-Path $StdlibDir) {
+        Remove-Item -Path "$StdlibDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $IncludeDir) {
+        Remove-Item -Path "$IncludeDir\*" -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -500,8 +576,20 @@ fn main() {
 }
 
 Write-Host ""
-Write-Host "========================================================================" -ForegroundColor Green
-Write-Host "           SP Programming Language Successfully Installed!              " -ForegroundColor Green
+if ($isUpgrade) {
+    Write-Host "========================================================================" -ForegroundColor Green
+    Write-Host "       SP Programming Language Successfully Upgraded to v$Version!     " -ForegroundColor Green
+    Write-Host "========================================================================" -ForegroundColor Green
+    Write-Host "  Upgrade Details:" -ForegroundColor White
+    Write-Host "    Previous Version : v$installedVerStr" -ForegroundColor Gray
+    Write-Host "    Current Version  : v$Version" -ForegroundColor Green
+    Write-Host "    Compiler Path    : $BinDir\spc.exe" -ForegroundColor Gray
+    Write-Host "    Toolchain Status : Operational" -ForegroundColor Gray
+} else {
+    Write-Host "========================================================================" -ForegroundColor Green
+    Write-Host "           SP Programming Language Successfully Installed!              " -ForegroundColor Green
+    Write-Host "========================================================================" -ForegroundColor Green
+}
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host "  Quickstart Commands (open a new terminal window):" -ForegroundColor White
 Write-Host "    spc --version                 # Check compiler version" -ForegroundColor Gray
@@ -509,6 +597,7 @@ Write-Host "    spc doctor                    # View toolchain health report" -F
 Write-Host "    spc run examples\hello.sp     # Build & run directly" -ForegroundColor Gray
 Write-Host "    spc build main.sp -o app.exe  # Build native standalone executable" -ForegroundColor Gray
 Write-Host "    spm init my_project           # Create a new SP project" -ForegroundColor Gray
+Write-Host "    spc upgrade                   # Auto-upgrade SP Language to latest release" -ForegroundColor Gray
 Write-Host "    spc uninstall                 # Cleanly remove SP Language & toolchains" -ForegroundColor Gray
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host ""
