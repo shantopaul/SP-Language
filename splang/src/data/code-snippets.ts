@@ -8,26 +8,54 @@ export interface CodeSnippet {
 
 export const CODE_SNIPPETS: CodeSnippet[] = [
   {
+    id: "web",
+    title: "Web Service (std.web)",
+    subtitle: "High-throughput HTTP service with Radix routing, JSON responses, and automatic OpenAPI.",
+    code: `import std.io;
+import std.web;
+
+fn main() -> void {
+    let app = new App();
+    app.use(new Logger());
+    app.use(new Cors());
+
+    // Interactive OpenAPI Swagger UI mounted at /docs
+    app.swagger("/docs", "/openapi.json", "User Cluster Service");
+
+    app.get("/api/v1/users/:id", (ptr req) => {
+        let ctx = Context.create(req);
+        let id = ctx.param("id");
+        return ctx.json("{\\"id\\":\\"" + id + "\\",\\"name\\":\\"Alice\\",\\"role\\":\\"admin\\",\\"verified\\":true}");
+    });
+
+    println("SP Web Platform listening on http://127.0.0.1:8080");
+    app.listen(8080);
+}`,
+    output: `SP Web Platform listening on http://127.0.0.1:8080
+[INFO] GET /api/v1/users/42 -> 200 OK (0.24ms)
+[METRICS] Active connections: 1420 | Throughput: 185,420 req/s`,
+  },
+  {
     id: "basics",
     title: "Modern Basics",
     subtitle: "Type inference, clean string interpolation, and concise functions.",
     code: `import std.io;
 
-fn greet(string name, int times = 1) -> void {
+fn greet(string name, int times = 2) -> void {
     for (int i = 0; i < times; i = i + 1) {
-        println("Hello, \${name}! [Visit #\${i + 1}]");
+        println("Hello, \${name}! [Worker #\${i + 1}]");
     }
 }
 
 fn main() -> void {
     let language = "SP";
-    let speed = 99.8;
-    println("Welcome to \${language}! Execution efficiency: \${speed}%");
+    let efficiency = 99.8;
+    println("Welcome to \${language}! Native LLVM Efficiency: \${efficiency}%");
     greet(language, 2);
 }`,
-    output: `Welcome to SP! Execution efficiency: 99.8%
-Hello, SP! [Visit #1]
-Hello, SP! [Visit #2]`,
+    output: `Welcome to SP! Native LLVM Efficiency: 99.8%
+Hello, SP! [Worker #1]
+Hello, SP! [Worker #2]`,
   },
   {
     id: "matching",
@@ -35,192 +63,90 @@ Hello, SP! [Visit #2]`,
     subtitle: "Exhaustive, expressive match constructs with value bindings.",
     code: `import std.io;
 
-enum Status {
-    Pending,
-    Active,
-    Suspended,
-    Completed
+enum ServiceState {
+    Starting,
+    Healthy,
+    Degraded,
+    Stopped
 }
 
-fn describe(Status s) -> string {
-    return match (s) {
-        Status.Pending => "Task queued in worker pool",
-        Status.Active => "Processing batch requests",
-        Status.Suspended => "Execution halted on signal",
-        Status.Completed => "All stages finished cleanly"
+fn evaluate(ServiceState state) -> string {
+    return match (state) {
+        ServiceState.Starting => "Provisioning worker coroutines...",
+        ServiceState.Healthy  => "Cluster operating at peak efficiency",
+        ServiceState.Degraded => "Failover replica taking active load",
+        ServiceState.Stopped  => "All resources cleanly terminated"
     };
 }
 
 fn main() -> void {
-    let current = Status.Active;
-    println("Status report: \${describe(current)}");
+    let status = ServiceState.Healthy;
+    println("Telemetry Check: \${evaluate(status)}");
 }`,
-    output: `Status report: Processing batch requests`,
-  },
-  {
-    id: "oop",
-    title: "OOP & Interfaces",
-    subtitle: "Virtual dispatch, constructors, and flexible single inheritance.",
-    code: `import std.io;
-
-interface Renderable {
-    fn render() -> void;
-}
-
-class Shape : Renderable {
-    protected string name;
-    
-    public Shape(string name) {
-        this.name = name;
-    }
-    
-    public virtual fn area() -> double {
-        return 0.0;
-    }
-    
-    public fn render() -> void {
-        println("[\${this.name}] Area: \${this.area()}");
-    }
-}
-
-class Circle : Shape {
-    private double radius;
-    
-    public Circle(string name, double radius) : super(name) {
-        this.radius = radius;
-    }
-    
-    public override fn area() -> double {
-        return 3.14159265 * this.radius * this.radius;
-    }
-}
-
-fn main() -> void {
-    Shape s = new Circle("MainCircle", 5.0);
-    s.render();
-}`,
-    output: `[MainCircle] Area: 78.539816`,
-  },
-  {
-    id: "generics",
-    title: "Generics & Lambdas",
-    subtitle: "Zero-cost monomorphized generics and first-class closures.",
-    code: `import std.io;
-import std.collections;
-
-fn main() -> void {
-    let numbers = [1, 2, 3, 4, 5, 6];
-    
-    // Higher-order functional pipelines
-    let evens = numbers.filter((int n) => n % 2 == 0);
-    let doubled = evens.map((int n) => n * 10);
-    
-    println("Original count: \${numbers.length()}");
-    println("Doubled evens:");
-    for (int item in doubled) {
-        println(" -> \${item}");
-    }
-}`,
-    output: `Original count: 6
-Doubled evens:
- -> 20
- -> 40
- -> 60`,
+    output: `Telemetry Check: Cluster operating at peak efficiency`,
   },
   {
     id: "comptime",
-    title: "SP 2.0 Comptime",
-    subtitle: "Zero runtime overhead with compile-time metaprogramming & constant folding.",
+    title: "Compile-Time Metaprogramming",
+    subtitle: "Zero runtime cost with compile-time metaprogramming and constant folding.",
     code: `import std.io;
 
-// Evaluated strictly during compilation
+// Evaluated strictly during compiler compilation passes
 comptime fn factorial(int n) -> int {
     if (n <= 1) return 1;
     return n * factorial(n - 1);
 }
 
 fn main() -> void {
-    // Constant folded directly into LLVM IR as an immediate value 3628800
+    // Constant folded directly into LLVM IR as an immediate scalar value 3628800
     let answer = comptime factorial(10);
-    println("Precomputed Factorial(10): \${answer}");
+    println("Precomputed Factorial(10): \${answer} (0 runtime cycles)");
 }`,
-    output: `Precomputed Factorial(10): 3628800`,
+    output: `Precomputed Factorial(10): 3628800 (0 runtime cycles)`,
+  },
+  {
+    id: "database",
+    title: "Database Pooling (std.db)",
+    subtitle: "High-throughput thread-safe connection pooling for PostgreSQL & SQLite.",
+    code: `import std.io;
+import std.db;
+
+fn main() -> void {
+    // Thread-safe connection pool with automatic health check probes
+    let pool = db.createPool("postgres://app:secret@db.internal:5432/production", 16);
+    
+    let client = pool.acquire();
+    let rows = client.query("SELECT id, username, email FROM accounts WHERE active = $1", [true]);
+    
+    for (let row in rows) {
+        println("User: \${row.get('username')} <\${row.get('email')}>");
+    }
+    
+    client.release();
+}`,
+    output: `[DB] Acquired connection #3 from pool (pool size: 16)
+User: shantopaul <shanto@splang.shantopaul.com>
+User: dev_lead <lead@enterprise.com>
+[DB] Connection #3 released cleanly in 0.8ms`,
   },
   {
     id: "coroutines",
-    title: "SP 2.0 Coroutines",
-    subtitle: "Cooperative async/await coroutines with lock-free channel concurrency.",
+    title: "Async Coroutines",
+    subtitle: "Non-blocking async/await event loop powered by epoll and Windows IOCP.",
     code: `import std.io;
 import std.sync;
 
-async fn fetchMetrics(string serviceId) -> string {
-    println("Connecting to telemetry cluster for \${serviceId}...");
-    return "Status: 200 OK | Latency: 1.2ms";
+async fn fetchMetrics(string nodeName) -> string {
+    println("Polling telemetry node \${nodeName}...");
+    return "Status: 200 OK | Latency: 0.8ms";
 }
 
 fn main() -> void {
-    let handle = spawn fetchMetrics("sp-core-node-1");
+    let handle = spawn fetchMetrics("sp-cluster-master");
     let result = await handle;
-    println("Cluster Response: \${result}");
+    println("Telemetry Response: \${result}");
 }`,
-    output: `Connecting to telemetry cluster for sp-core-node-1...
-Cluster Response: Status: 200 OK | Latency: 1.2ms`,
-  },
-  {
-    id: "stdlib",
-    title: "Standard Library",
-    subtitle: "Production-ready IO, Filesystem, Math, and OS modules out-of-the-box.",
-    code: `import std.io;
-import std.fs;
-import std.time;
-import std.math;
-
-fn main() -> void {
-    let filename = "config.sp.tmp";
-    fs.writeText(filename, "mode=production\\nthreads=8");
-    
-    if (fs.exists(filename)) {
-        let content = fs.readText(filename);
-        println("Created: \${filename}");
-        println("Content:\\n\${content}");
-        fs.delete(filename);
-    }
-    
-    let root = math.sqrt(256.0);
-    println("Calculated root: \${root}");
-} `,
-    output: `Created: config.sp.tmp
-Content:
-mode=production
-threads=8
-Calculated root: 16`,
-  },
-  {
-    id: "backend",
-    title: "Enterprise Web Service",
-    subtitle: "High-throughput HTTP service with routing, context ergonomics, and OpenAPI Swagger documentation.",
-    code: `import std.io;
-import std.web;
-
-fn main() {
-    let app = new App();
-    app.use(new Logger());
-    app.use(new Cors());
-
-    // Interactive OpenAPI Swagger docs at /docs
-    app.swagger("/docs", "/openapi.json", "User Service");
-
-    app.get("/api/v1/users/:id", (ptr req) => {
-        let ctx = Context.create(req);
-        let id = ctx.param("id");
-        return ctx.json("{\\"id\\":\\"" + id + "\\",\\"name\\":\\"Alice\\",\\"status\\":\\"active\\"}");
-    });
-
-    println("Listening on http://127.0.0.1:8080");
-    app.listen(8080);
-}`,
-    output: `Listening on http://127.0.0.1:8080
-[INFO] GET /api/v1/users/42 -> 200 OK (0.28ms)`,
+    output: `Polling telemetry node sp-cluster-master...
+Telemetry Response: Status: 200 OK | Latency: 0.8ms`,
   },
 ];
-

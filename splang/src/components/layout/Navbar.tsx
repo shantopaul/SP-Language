@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   BookOpen,
@@ -31,30 +32,38 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 w-full border-b border-[#0A1F44] bg-[#020D21]/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Brand Logo & Version */}
+          {/* Official Brand Logo & Version */}
           <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2.5 group">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 via-cyan-500 to-blue-500 p-0.5 shadow-md shadow-cyan-500/20 group-hover:shadow-cyan-500/40 transition-shadow">
-                <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center font-bold text-transparent bg-clip-text bg-gradient-to-tr from-emerald-400 to-cyan-400 text-lg">
-                  SP
-                </div>
+            <Link href="/" className="flex items-center gap-3 group">
+              <div className="relative w-9 h-9 rounded-xl p-0.5 shadow-md shadow-blue-500/20 group-hover:shadow-cyan-400/35 transition-all">
+                <Image
+                  src="/brand/brand-emblem-navy.png"
+                  alt="SP Language Emblem"
+                  width={36}
+                  height={36}
+                  className="rounded-lg object-contain"
+                  priority
+                />
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-white text-base tracking-tight group-hover:text-cyan-400 transition-colors">
-                  SP Language
-                </span>
-                <span className="text-[10px] font-mono text-slate-400 -mt-1">
+                <div className="font-extrabold text-white text-base tracking-tight leading-none group-hover:text-cyan-300 transition-colors flex items-center gap-1">
+                  <span>SP</span>
+                  <span className="text-[#00D1FF]">Lang</span>
+                </div>
+                <span className="text-[10px] font-mono text-slate-400 mt-0.5">
                   splang.shantopaul.com
                 </span>
               </div>
             </Link>
-            <Badge variant="success" className="hidden sm:inline-flex ml-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              v3.0.0 GA
-            </Badge>
+            <Link href="/downloads">
+              <Badge variant="success" className="hidden sm:inline-flex ml-2 cursor-pointer hover:border-cyan-400 transition-all">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-ping" />
+                v3.1.0 GA
+              </Badge>
+            </Link>
           </div>
 
           {/* Desktop Navigation Links */}
@@ -70,11 +79,11 @@ export const Navbar: React.FC = () => {
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-900/80 transition-colors group"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-[#081735] hover:border-[#0A1F44] border border-transparent transition-all group"
                   >
                     <Icon className="w-4 h-4 text-slate-400 group-hover:text-cyan-400 transition-colors" />
                     <span>{link.name}</span>
-                    <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-400" />
+                    <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300" />
                   </a>
                 );
               }
@@ -83,13 +92,13 @@ export const Navbar: React.FC = () => {
                 <Link
                   key={link.name}
                   href={link.href}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${
                     isActive
-                      ? "text-cyan-400 bg-cyan-950/40 border border-cyan-800/40"
-                      : "text-slate-300 hover:text-white hover:bg-slate-900/80"
+                      ? "text-cyan-300 bg-[#081735] border border-cyan-500/40 shadow-glow-sm"
+                      : "text-slate-300 hover:text-white hover:bg-[#081735] hover:border-[#0A1F44] border border-transparent"
                   }`}
                 >
-                  <Icon className="w-4 h-4 text-slate-400" />
+                  <Icon className={`w-4 h-4 ${isActive ? "text-cyan-400" : "text-slate-400"}`} />
                   <span>{link.name}</span>
                 </Link>
               );
@@ -102,9 +111,9 @@ export const Navbar: React.FC = () => {
               href="https://github.com/shantopaul/SP-Language"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white hover:border-slate-700 transition-all text-sm font-medium"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-[#0A1F44] bg-[#081735]/80 text-slate-300 hover:text-white hover:border-cyan-500/40 hover:bg-[#0A1F44] transition-all text-sm font-medium shadow-sm"
             >
-              <Github className="w-4 h-4" />
+              <Github className="w-4 h-4 text-slate-400" />
               <span>GitHub</span>
             </a>
             <a
@@ -123,7 +132,7 @@ export const Navbar: React.FC = () => {
           <div className="md:hidden flex items-center">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 focus:outline-none"
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#081735] border border-transparent hover:border-[#0A1F44] focus:outline-none"
               aria-label="Toggle menu"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -134,7 +143,7 @@ export const Navbar: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-b border-slate-800 bg-slate-950/95 px-4 pt-2 pb-6 space-y-2">
+        <div className="md:hidden border-b border-[#0A1F44] bg-[#020D21]/95 backdrop-blur-2xl px-4 pt-2 pb-6 space-y-2">
           {navLinks.map((link) => (
             <a
               key={link.name}
@@ -142,9 +151,9 @@ export const Navbar: React.FC = () => {
               target={link.external ? "_blank" : undefined}
               rel={link.external ? "noopener noreferrer" : undefined}
               onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2 rounded-lg text-base font-medium text-slate-300 hover:text-white hover:bg-slate-900"
+              className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-base font-medium text-slate-300 hover:text-white hover:bg-[#081735] border border-transparent hover:border-[#0A1F44]"
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2.5">
                 <link.icon className="w-5 h-5 text-cyan-400" />
                 {link.name}
               </span>
@@ -156,7 +165,7 @@ export const Navbar: React.FC = () => {
               href="https://github.com/shantopaul/SP-Language"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg border border-slate-800 text-slate-300 text-sm font-medium"
+              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#0A1F44] bg-[#081735] text-slate-200 text-sm font-medium hover:border-cyan-500/40"
             >
               <Github className="w-4 h-4" />
               <span>View on GitHub</span>

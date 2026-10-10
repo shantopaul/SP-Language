@@ -4,21 +4,29 @@ Welcome to the official **SP Programming Language** tutorial! This guide walks y
 
 ---
 
-## 1. Quick Installation
+## 1. Quick Installation & Upgrades
 
 ### Windows (PowerShell)
 ```powershell
-irm https://splang.shantopaul.com/install.ps1 | iex
+irm https://dl.splang.shantopaul.com/install.ps1 | iex
 ```
 
 ### Linux & macOS (Bash)
 ```bash
-curl -fsSL https://splang.shantopaul.com/install.sh | sh
+curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh
 ```
+
+### Upgrading SP
+Keep your installation up to date at any time:
+```bash
+spc upgrade
+```
+*(Or simply re-run the 1-line installer above — it automatically updates existing installations in 3–5 seconds without re-downloading toolchains).*
 
 Verify your installation:
 ```bash
 spc --version
+spc doctor
 spm --version
 ```
 Expected output:

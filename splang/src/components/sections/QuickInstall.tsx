@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Copy, Terminal, Shield } from "lucide-react";
+import { Check, Copy, Terminal, Shield, HardDrive, Zap } from "lucide-react";
 
 interface InstallTab {
   id: string;
@@ -13,32 +13,46 @@ interface InstallTab {
 
 const INSTALL_TABS: InstallTab[] = [
   {
-    id: "windows-winget",
-    label: "Windows (winget)",
-    os: "Windows 10/11",
-    command: "winget install SPLang.SP",
-    description: "Installs official SP compiler and packages to system PATH.",
-  },
-  {
     id: "windows-ps",
-    label: "PowerShell",
-    os: "Windows",
+    label: "PowerShell (Windows)",
+    os: "Windows 10/11 (x64)",
     command: "irm https://dl.splang.shantopaul.com/install.ps1 | iex",
-    description: "Instant PowerShell installer with zero-dependency auto-setup.",
+    description: "Instant 1-click Windows installer with universal drive & LLVM toolchain auto-setup.",
   },
   {
     id: "unix-curl",
     label: "Linux / macOS",
     os: "Ubuntu, Debian, macOS, Fedora, Arch",
     command: "curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh",
-    description: "Direct shell installer detecting OS and CPU architecture.",
+    description: "Native POSIX shell installer with CPU architecture detection and glibc runtime linkage.",
+  },
+  {
+    id: "upgrade",
+    label: "Auto-Upgrade",
+    os: "All Platforms",
+    command: "spc upgrade",
+    description: "In-place zero-downtime auto-upgrade to the latest SP compiler release (v3.1.0 GA).",
+  },
+  {
+    id: "uninstall",
+    label: "Clean Uninstall",
+    os: "Windows / Linux / macOS",
+    command: "spc uninstall",
+    description: "Full clean removal: spc uninstall (or irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex).",
+  },
+  {
+    id: "windows-winget",
+    label: "Winget",
+    os: "Windows 10/11",
+    command: "winget install SPLang.SP",
+    description: "Installs official SP compiler package via Windows Package Manager.",
   },
   {
     id: "docker",
-    label: "Docker Container",
+    label: "Docker",
     os: "Multi-arch (x86_64, arm64)",
-    command: "docker pull shantopaul/splang:1.0.0",
-    description: "Pre-configured isolated container with full LLVM toolchain.",
+    command: "docker pull shantopaul/splang:3.1.0",
+    description: "Isolated container environment bundled with LLVM Clang 18 and precompiled runtime.",
   },
 ];
 
@@ -59,17 +73,17 @@ export const QuickInstall: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto rounded-2xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-xl overflow-hidden">
+    <div className="w-full max-w-3xl mx-auto rounded-2xl border border-[#0A1F44] bg-[#081735]/85 shadow-2xl backdrop-blur-2xl overflow-hidden">
       {/* OS Switcher Tabs */}
-      <div className="flex border-b border-slate-800 bg-slate-950/60 overflow-x-auto">
+      <div className="flex border-b border-[#0A1F44] bg-[#020D21]/80 overflow-x-auto scrollbar-none">
         {INSTALL_TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2.5 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
+            className={`px-4 sm:px-5 py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
               activeTab === tab.id
-                ? "border-cyan-400 text-cyan-400 bg-slate-900/80"
-                : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40"
+                ? "border-[#00D1FF] text-[#00D1FF] bg-[#081735]/90 font-semibold shadow-[inset_0_-2px_10px_rgba(0,209,255,0.1)]"
+                : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-[#081735]/40"
             }`}
           >
             {tab.label}
@@ -78,40 +92,46 @@ export const QuickInstall: React.FC = () => {
       </div>
 
       {/* Terminal Command Bar */}
-      <div className="p-4 sm:p-5 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3 bg-black/60 rounded-xl px-4 py-3 border border-slate-800 font-mono text-xs sm:text-sm">
-          <div className="flex items-center gap-2.5 overflow-x-auto text-slate-200">
+      <div className="p-4 sm:p-6 flex flex-col gap-3.5">
+        <div className="flex items-center justify-between gap-3 bg-[#020D21] rounded-xl px-4 py-3.5 border border-[#0A1F44] font-mono text-xs sm:text-sm group hover:border-cyan-500/40 transition-colors">
+          <div className="flex items-center gap-3 overflow-x-auto text-slate-200 py-0.5">
             <Terminal className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span className="text-slate-500 select-none">$</span>
-            <span className="font-semibold text-emerald-400 whitespace-nowrap">
+            <span className="text-slate-600 select-none">$</span>
+            <span className="font-semibold text-cyan-300 whitespace-nowrap selection:bg-cyan-500/30">
               {currentTab.command}
             </span>
           </div>
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition-colors text-xs font-sans shrink-0 font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#081735] hover:bg-[#0A1F44] text-slate-200 hover:text-white transition-all text-xs font-sans shrink-0 font-medium border border-[#0A1F44] hover:border-cyan-500/40 shadow-sm"
             title="Copy command"
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-400">Copied</span>
+                <Check className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-cyan-400">Copied</span>
               </>
             ) : (
               <>
-                <Copy className="w-3.5 h-3.5" />
+                <Copy className="w-3.5 h-3.5 text-slate-400" />
                 <span>Copy</span>
               </>
             )}
           </button>
         </div>
 
-        <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 px-1 gap-2">
           <span>{currentTab.description}</span>
-          <span className="flex items-center gap-1 text-slate-500 font-mono text-[11px]">
-            <Shield className="w-3 h-3 text-cyan-400" />
-            SHA-256 Verified
-          </span>
+          <div className="flex items-center gap-3 font-mono text-[11px] text-slate-400 shrink-0">
+            <span className="flex items-center gap-1">
+              <HardDrive className="w-3 h-3 text-blue-400" />
+              Multi-Drive Ready
+            </span>
+            <span className="flex items-center gap-1">
+              <Shield className="w-3 h-3 text-cyan-400" />
+              SHA-256 Verified
+            </span>
+          </div>
         </div>
       </div>
     </div>

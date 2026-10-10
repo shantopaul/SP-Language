@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --background: #020617;
+  --background: #020D21;
   --foreground: #f8fafc;
 }
 
@@ -15,6 +15,11 @@ body {
   overflow-x: hidden;
 }
 
+::selection {
+  background-color: rgba(0, 209, 255, 0.28);
+  color: #ffffff;
+}
+
 /* Custom modern scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
@@ -22,19 +27,37 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #020617;
+  background: #020D21;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #0A1F44;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #2563EB;
 }
 
 /* Code block styles */
 code, pre, .font-mono {
   font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Glassmorphism card utilities */
+.card-glass {
+  background: rgba(8, 23, 53, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(10, 31, 68, 0.8);
+}
+
+.card-glass:hover {
+  border-color: rgba(0, 209, 255, 0.35);
+  box-shadow: 0 10px 30px -10px rgba(0, 87, 255, 0.2);
+}
+
+/* Radial ambient lighting */
+.bg-ambient-radial {
+  background: radial-gradient(circle at 50% 0%, rgba(0, 87, 255, 0.15), rgba(0, 209, 255, 0.08) 35%, transparent 70%);
 }

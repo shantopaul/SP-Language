@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: SPLang.SP
+PackageVersion: 3.1.0
+PackageLocale: en-US
+PackageName: SP Programming Language
+Publisher: Shanto Paul
+Author: Shanto Paul
+License: MIT
+LicenseUrl: https://github.com/shantopaul/SP-Language/blob/main/LICENSE
+ShortDescription: High-performance, memory-safe systems and cloud backend programming language
+Description: SP is a modern compiled systems and backend programming language featuring native AOT compilation via LLVM, leak-free Automatic Reference Counting (ARC), zero-cost abstractions, built-in concurrency, high-performance HTTP engine, and seamless package management.
+Moniker: splang
+Tags:
+  - compiler
+  - programming-language
+  - systems-programming
+  - backend
+  - llvm
+  - developer-tools
+PackageUrl: https://splang.shantopaul.com
+Commands:
+  - spc
+  - spm
+  - spls
+  - spd
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip
+    InstallerSha256: 08B3403E8C7835D51F7127A0C983928B6E402A72FCE7FA624E9838CECD6C9B5C
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: bin\spc.exe
+        PortableCommandAlias: spc
+      - RelativeFilePath: bin\spm.exe
+        PortableCommandAlias: spm
+      - RelativeFilePath: bin\spls.exe
+        PortableCommandAlias: spls
+      - RelativeFilePath: bin\spd.exe
+        PortableCommandAlias: spd
+ManifestType: singleton
+ManifestVersion: 1.6.0

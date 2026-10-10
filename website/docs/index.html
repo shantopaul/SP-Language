@@ -340,9 +340,30 @@ ENTRYPOINT ["/app/server"]</code></pre>
       <h3>Linux & macOS (Bash)</h3>
       <pre><code>curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh</code></pre>
 
-      <p>Confirm the installation succeeded:</p>
+      <p>Confirm the installation succeeded and inspect toolchain health:</p>
       <pre><code>spc --version
+spc doctor
 spm --version</code></pre>
+
+      <h3>Upgrading SP</h3>
+      <p>Keep your compiler and standard library up to date with zero downtime:</p>
+      <p><strong>Via CLI (Built-in Auto-Upgrade):</strong></p>
+      <pre><code>spc upgrade</code></pre>
+      <p><strong>Via Universal One-Liner (Re-run anytime):</strong></p>
+      <p>On Windows (PowerShell):</p>
+      <pre><code>irm https://dl.splang.shantopaul.com/install.ps1 | iex</code></pre>
+      <p>On Linux &amp; macOS (Bash):</p>
+      <pre><code>curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh</code></pre>
+      <p><em>The universal installer detects existing installations, compares versions, preserves local toolchains, and completes in-place upgrades in 3–5 seconds.</em></p>
+
+      <h3>Uninstalling SP</h3>
+      <p>Completely remove SP compiler, portable toolchains, and environment variables:</p>
+      <p><strong>Via CLI:</strong></p>
+      <pre><code>spc uninstall</code></pre>
+      <p><strong>Via PowerShell (Windows):</strong></p>
+      <pre><code>irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex</code></pre>
+      <p><strong>Via Bash (Linux & macOS):</strong></p>
+      <pre><code>curl -fsSL https://dl.splang.shantopaul.com/uninstall.sh | sh</code></pre>
     </section>
 
     <section id="hello-world">

@@ -1,5 +1,5 @@
 import React from "react";
-import { Terminal, CheckSquare, FileText, Monitor, Check } from "lucide-react";
+import { Terminal, CheckSquare, FileText, Monitor, Check, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 export const ToolingShowcase: React.FC = () => {
@@ -39,18 +39,18 @@ export const ToolingShowcase: React.FC = () => {
   ];
 
   return (
-    <section className="py-24 relative bg-slate-950/40 border-t border-slate-900">
+    <section className="py-24 relative bg-[#020D21] border-t border-[#0A1F44]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-950/60 border border-blue-800/60 text-blue-400 text-xs font-medium mb-3">
-            <Monitor className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-blue-500/40 text-blue-300 text-xs font-semibold mb-3 shadow-glow-sm">
+            <Monitor className="w-3.5 h-3.5 text-cyan-400" />
             <span>Developer Experience</span>
           </div>
-          <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
             Complete Tooling Out-of-the-Box
           </h2>
-          <p className="mt-3 text-base text-slate-400">
-            No need to configure 10 disparate third-party tools. Everything you need to format, test, document, and debug SP code comes installed in the standard binary distribution.
+          <p className="mt-4 text-base text-slate-300 leading-relaxed">
+            No need to configure disparate third-party tools. Everything you need to format, test, document, and debug SP code comes pre-bundled in the binary distribution.
           </p>
         </div>
 
@@ -58,29 +58,29 @@ export const ToolingShowcase: React.FC = () => {
           {tools.map((tool, idx) => (
             <div
               key={idx}
-              className="rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-xl p-6 sm:p-8 flex flex-col justify-between hover:border-slate-700 transition-all shadow-xl"
+              className="rounded-2xl border border-[#0A1F44] bg-[#081735]/70 backdrop-blur-xl p-6 sm:p-8 flex flex-col justify-between hover:border-cyan-400/40 hover:shadow-[0_12px_35px_rgba(0,87,255,0.12)] transition-all"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold text-white font-mono">{tool.title}</h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-950 text-cyan-400 border border-cyan-800/80">
+                  <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 shadow-glow-sm">
                     {tool.badge}
                   </span>
                 </div>
-                <p className="text-sm text-slate-400 leading-relaxed mb-6">
+                <p className="text-sm text-slate-300 leading-relaxed mb-6">
                   {tool.description}
                 </p>
 
                 {/* Command Bar */}
-                <div className="bg-black/60 rounded-xl px-4 py-2.5 border border-slate-800 font-mono text-xs text-emerald-400 mb-6 flex items-center gap-2">
+                <div className="bg-[#020D21] rounded-xl px-4 py-3 border border-[#0A1F44] font-mono text-xs text-cyan-300 mb-6 flex items-center gap-2 overflow-x-auto">
                   <span className="text-slate-600 select-none">$</span>
-                  <span>{tool.command}</span>
+                  <span className="whitespace-nowrap">{tool.command}</span>
                 </div>
 
                 {/* Bullet Points */}
-                <ul className="space-y-2 mb-6">
+                <ul className="space-y-2.5 mb-6">
                   {tool.features.map((feat, fIdx) => (
-                    <li key={fIdx} className="flex items-center gap-2 text-xs text-slate-300">
+                    <li key={fIdx} className="flex items-center gap-2.5 text-xs text-slate-300">
                       <Check className="w-4 h-4 text-cyan-400 shrink-0" />
                       <span>{feat}</span>
                     </li>
@@ -88,15 +88,16 @@ export const ToolingShowcase: React.FC = () => {
                 </ul>
               </div>
 
-              <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
-                <span>Included in SP v1.0.0</span>
+              <div className="pt-4 border-t border-[#0A1F44] flex items-center justify-between text-xs text-slate-400">
+                <span className="font-mono text-cyan-400">Included in SP v3.1.0 GA</span>
                 <a
                   href="https://docs.splang.shantopaul.com/tools"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-cyan-400 hover:text-cyan-300 font-medium"
+                  className="text-cyan-300 hover:text-white font-medium flex items-center gap-1 transition-colors"
                 >
-                  Read Docs &rarr;
+                  <span>Read Docs</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </a>
               </div>
             </div>

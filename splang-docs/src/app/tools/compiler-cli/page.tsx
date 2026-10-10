@@ -60,6 +60,22 @@ spc build main.sp -o my_app_linux --target x86_64-unknown-linux-gnu`;
           <code className="text-cyan-400 font-bold">spc run &lt;file&gt; --watch</code>
           <p className="text-slate-400 mt-1">Monitors workspace directory for source modifications and auto-restarts development servers in under 50ms.</p>
         </div>
+        <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40">
+          <code className="text-cyan-400 font-bold">spc doctor</code>
+          <p className="text-slate-400 mt-1">Diagnoses the SP installation, runtime library integrity, OpenSSL linkage, and backend LLVM toolchain health.</p>
+        </div>
+        <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40">
+          <code className="text-cyan-400 font-bold">spc setup</code>
+          <p className="text-slate-400 mt-1">Automatically checks and provisions a portable LLVM Clang compiler and LLD linker if missing on the computer.</p>
+        </div>
+        <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40">
+          <code className="text-cyan-400 font-bold">spc upgrade (or spc update)</code>
+          <p className="text-slate-400 mt-1">Checks for the latest SP release, releases binary locks, and performs an in-place auto-upgrade of compiler binaries and standard libraries without re-downloading toolchains or touching user projects.</p>
+        </div>
+        <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/40">
+          <code className="text-cyan-400 font-bold">spc uninstall [-y]</code>
+          <p className="text-slate-400 mt-1">Completely removes SP Language binaries, portable toolchains, SP_HOME, and user PATH entries with zero leftover files.</p>
+        </div>
       </div>
 
       <PrevNextNav

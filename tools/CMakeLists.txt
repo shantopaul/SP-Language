@@ -43,7 +43,8 @@ target_compile_features(sp_benchmark PRIVATE cxx_std_20)
 add_executable(spc
     spc/main.cpp
 )
-target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator sp_bindgen sp_benchmark)
+target_link_libraries(spc PRIVATE sp_compiler sp_runtime sp_fmt sp_test_runner sp_doc_generator sp_bindgen sp_benchmark spm_core)
+
 target_compile_features(spc PRIVATE cxx_std_20)
 
 # SP Package Manager Core Library (spm_core)
@@ -98,4 +99,11 @@ add_executable(spd
 )
 target_link_libraries(spd PRIVATE sp_debugger)
 target_compile_features(spd PRIVATE cxx_std_20)
+
+# SP System Uninstaller Executable (uninstall.exe)
+add_executable(sp_uninstall
+    uninstall/main.cpp
+)
+target_compile_features(sp_uninstall PRIVATE cxx_std_20)
+set_target_properties(sp_uninstall PROPERTIES OUTPUT_NAME "uninstall")
 

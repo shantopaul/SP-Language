@@ -11,39 +11,58 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          50: "#f0fdf4",
-          100: "#dcfce7",
-          200: "#bbf7d0",
-          300: "#86efac",
-          400: "#4ade80",
-          500: "#10b981",
-          600: "#059669",
-          700: "#047857",
-          800: "#065f46",
-          900: "#064e3b",
-          950: "#022c22",
+          50: "#edf5ff",
+          100: "#d6e8ff",
+          200: "#b5d7ff",
+          300: "#85bfff",
+          400: "#4da0ff",
+          500: "#0057FF", // Official Primary Electric Blue
+          600: "#0047d9",
+          700: "#0038b3",
+          800: "#002d8f",
+          900: "#002778",
+          950: "#00164a",
         },
         spcyan: {
-          400: "#22d3ee",
-          500: "#06b6d4",
-          600: "#0891b2",
+          300: "#67e8f9",
+          400: "#38e1ff",
+          500: "#00D1FF", // Official Electric Cyan Accent
+          600: "#00a8d6",
+          700: "#0891b2",
         },
         spblue: {
           400: "#60a5fa",
-          500: "#3b82f6",
-          600: "#2563eb",
+          500: "#2563EB", // Official Cobalt UI Blue
+          600: "#1d4ed8",
+          700: "#1e40af",
         },
-        spindigo: {
-          500: "#6366f1",
-          600: "#4f46e5",
+        canvas: {
+          deep: "#020D21",     // Official Space Midnight Background
+          surface: "#081735",  // Official Deep Navy Surface Card
+          border: "#0A1F44",   // Official Structural Navy Border
+          muted: "#777D89",    // Official Muted Slate Text
         },
       },
       fontFamily: {
         sans: ["var(--font-inter)", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
         mono: ["var(--font-jetbrains-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"],
       },
+      boxShadow: {
+        "glow-sm": "0 0 15px rgba(0, 209, 255, 0.15)",
+        "glow-md": "0 0 25px rgba(0, 87, 255, 0.25)",
+        "glow-lg": "0 0 45px rgba(0, 87, 255, 0.35)",
+        "glow-cyan": "0 0 30px rgba(0, 209, 255, 0.25)",
+      },
       animation: {
         "pulse-subtle": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "pulse-glow": "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "float": "float 4s ease-in-out infinite",
+      },
+      keyframes: {
+        float: {
+          "0%, 100%": { transform: "translateY(0px)" },
+          "50%": { transform: "translateY(-8px)" },
+        },
       },
     },
   },

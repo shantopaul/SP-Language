@@ -32,12 +32,37 @@ DefaultPackageProvider::DefaultPackageProvider() {
     };
 
     addStd("sp_math", "1.0.0", "Advanced mathematics, linear algebra, and statistical functions for SP");
+    addStd("sp_math", "1.2.0", "Advanced mathematics, linear algebra, and statistical functions for SP");
+    addStd("math", "1.0.0", "Mathematics module");
+    addStd("math", "1.2.0", "Mathematics module");
+
     addStd("sp_json", "0.8.2", "High-performance JSON parser and serializer with zero-copy decoding");
+    addStd("sp_json", "1.0.0", "High-performance JSON parser and serializer");
+    addStd("sp_json", "1.2.0", "High-performance JSON parser and serializer");
+    addStd("json", "1.0.0", "High-performance JSON parser and serializer (compat package for std.json)");
+    addStd("json", "1.2.0", "High-performance JSON parser and serializer (compat package for std.json)");
+
     addStd("sp_http", "0.4.0", "Fast HTTP client and server library with async IO support");
+    addStd("sp_http", "1.0.0", "Fast HTTP client and server library with async IO support");
+    addStd("sp_http", "1.2.0", "Fast HTTP client and server library with async IO support");
+    addStd("http", "1.0.0", "HTTP client and server library");
+    addStd("http", "1.2.0", "HTTP client and server library");
+
     addStd("sp_logger", "1.2.0", "Structured terminal and file logging utility for SP applications");
+    addStd("logger", "1.2.0", "Structured logging utility");
+
     addStd("sp_test", "1.0.1", "BDD-style unit and benchmark testing framework for SP");
+    addStd("test", "1.0.1", "Testing framework for SP");
+
     addStd("sp_crypto", "0.3.0", "Cryptographic primitives, SHA-256, AES, and secure hashing");
+    addStd("sp_crypto", "1.0.0", "Cryptographic primitives, SHA-256, AES, and secure hashing");
+    addStd("sp_crypto", "1.2.0", "Cryptographic primitives, SHA-256, AES, and secure hashing");
+    addStd("crypto", "1.0.0", "Cryptographic primitives");
+    addStd("crypto", "1.2.0", "Cryptographic primitives");
+
     addStd("sp_csv", "0.2.1", "Fast CSV reader, writer, and typed data record parser");
+    addStd("sp_csv", "1.0.0", "Fast CSV reader, writer, and typed data record parser");
+    addStd("csv", "1.0.0", "Fast CSV reader and writer");
 }
 
 void DefaultPackageProvider::registerMockPackage(const ProjectConfig& config) {
@@ -46,13 +71,27 @@ void DefaultPackageProvider::registerMockPackage(const ProjectConfig& config) {
 
 std::vector<Version> DefaultPackageProvider::getAvailableVersions(const std::string& name) {
     std::vector<Version> versions;
-    auto it = m_mockRegistry.find(name);
-    if (it != m_mockRegistry.end()) {
-        for (const auto& cfg : it->second) {
-            auto v = Version::parse(cfg.getPackage().version);
-            if (v) versions.push_back(*v);
+
+    auto findInRegistry = [&](const std::string& n) {
+        auto it = m_mockRegistry.find(n);
+        if (it != m_mockRegistry.end()) {
+            for (const auto& cfg : it->second) {
+                auto v = Version::parse(cfg.getPackage().version);
+                if (v) {
+                    bool already = false;
+                    for (const auto& ex : versions) {
+                        if (ex == *v) { already = true; break; }
+                    }
+                    if (!already) versions.push_back(*v);
+                }
+            }
         }
-    }
+    };
+
+    findInRegistry(name);
+    if (name.starts_with("std.")) findInRegistry(name.substr(4));
+    if (!name.starts_with("sp_")) findInRegistry("sp_" + name);
+    if (name.starts_with("sp_")) findInRegistry(name.substr(3));
 
     // Also inspect offline package cache
     fs::path cacheRoot = PackageCache::getPackagesRootDir() / name;
@@ -80,15 +119,23 @@ std::vector<Version> DefaultPackageProvider::getAvailableVersions(const std::str
 }
 
 std::optional<ProjectConfig> DefaultPackageProvider::getPackageConfig(const std::string& name, const Version& version) {
-    auto it = m_mockRegistry.find(name);
-    if (it != m_mockRegistry.end()) {
-        for (const auto& cfg : it->second) {
-            auto v = Version::parse(cfg.getPackage().version);
-            if (v && *v == version) {
-                return cfg;
+    auto findConfig = [&](const std::string& n) -> std::optional<ProjectConfig> {
+        auto it = m_mockRegistry.find(n);
+        if (it != m_mockRegistry.end()) {
+            for (const auto& cfg : it->second) {
+                auto v = Version::parse(cfg.getPackage().version);
+                if (v && *v == version) {
+                    return cfg;
+                }
             }
         }
-    }
+        return std::nullopt;
+    };
+
+    if (auto c = findConfig(name)) return c;
+    if (name.starts_with("std.")) { if (auto c = findConfig(name.substr(4))) return c; }
+    if (!name.starts_with("sp_")) { if (auto c = findConfig("sp_" + name)) return c; }
+    if (name.starts_with("sp_")) { if (auto c = findConfig(name.substr(3))) return c; }
 
     // Try loading from offline package cache
     fs::path cachedToml = PackageCache::getPackageDir(name, version.toString()) / "sp.toml";

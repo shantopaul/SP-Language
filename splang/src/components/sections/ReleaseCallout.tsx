@@ -5,15 +5,15 @@ import { Button } from "@/components/ui/Button";
 
 export const ReleaseCallout: React.FC = () => {
   return (
-    <section className="py-20 relative">
+    <section className="py-24 relative bg-[#020D21]">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 via-slate-900/80 to-blue-950/40 p-8 sm:p-12 backdrop-blur-2xl overflow-hidden shadow-2xl text-center">
+        <div className="relative rounded-3xl border border-cyan-500/40 bg-gradient-to-r from-[#081735]/90 via-[#0A1F44]/80 to-[#081735]/90 p-8 sm:p-14 backdrop-blur-2xl overflow-hidden shadow-2xl text-center">
           {/* Subtle background glow */}
-          <div className="absolute top-0 right-0 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-0 right-0 w-96 h-96 bg-[#00D1FF]/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#0057FF]/15 rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10 max-w-3xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-700/60 text-cyan-300 text-xs font-semibold mb-6">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#020D21]/80 border border-cyan-500/50 text-cyan-300 text-xs font-semibold mb-6 shadow-glow-sm">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
               <span>Production Milestone</span>
             </div>
@@ -22,15 +22,16 @@ export const ReleaseCallout: React.FC = () => {
               Ready for Your Next Production Systems Project
             </h2>
 
-            <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-              SP 3.0.0 is officially released and production-ready. Start building blazing-fast CLI utilities, backend microservices, WebAssembly modules, or computational kernels with confidence.
+            <p className="mt-5 text-base sm:text-lg text-slate-300 leading-relaxed max-w-2xl mx-auto">
+              SP 3.1.0 GA is officially released and battle-tested. Build blazing-fast CLI utilities, high-throughput web microservices, WebAssembly modules, or computational kernels with deterministic memory safety.
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+            <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
               <Link href="/downloads">
                 <Button size="lg" variant="primary">
-                  <Download className="w-4 h-4 mr-1" />
-                  <span>Download SP 3.0.0</span>
+                  <Download className="w-4 h-4 mr-1.5" />
+                  <span>Download SP v3.1.0 GA</span>
+                  <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
               </Link>
               <a
@@ -39,9 +40,8 @@ export const ReleaseCallout: React.FC = () => {
                 rel="noopener noreferrer"
               >
                 <Button size="lg" variant="secondary">
-                  <BookOpen className="w-4 h-4 text-cyan-400 mr-1" />
+                  <BookOpen className="w-4 h-4 text-cyan-400 mr-1.5" />
                   <span>Read Quickstart Guide</span>
-                  <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
               </a>
             </div>

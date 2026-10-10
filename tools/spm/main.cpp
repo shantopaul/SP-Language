@@ -11,6 +11,7 @@
 #include <vector>
 #include <filesystem>
 #include <iomanip>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
@@ -196,6 +197,31 @@ int handleAdd(int argc, char* argv[]) {
         return 1;
     }
 
+    // Parse package name and version constraint if written as name@version
+    auto atPos = pkgName.find('@');
+    if (atPos != std::string::npos) {
+        if (versionReq == "*") {
+            versionReq = pkgName.substr(atPos + 1);
+        }
+        pkgName = pkgName.substr(0, atPos);
+    }
+
+    static const std::unordered_set<std::string> stdlibModules = {
+        "json", "io", "fs", "net", "http", "db", "crypto", "time", "math",
+        "collections", "string", "process", "sync", "web", "redis", "queue",
+        "log", "metrics", "health", "security", "mem", "test", "ws", "sse",
+        "std.json", "std.io", "std.fs", "std.net", "std.http", "std.db", "std.crypto", "std.time", "std.math",
+        "std.collections", "std.string", "std.process", "std.sync", "std.web", "std.redis", "std.queue",
+        "std.log", "std.metrics", "std.health", "std.security", "std.mem", "std.test", "std.ws", "std.sse"
+    };
+
+    if (stdlibModules.count(pkgName)) {
+        std::string modName = pkgName.starts_with("std.") ? pkgName.substr(4) : pkgName;
+        std::cout << "[NOTE] '" << pkgName << "' is a built-in SP Standard Library module ('import std." 
+                  << modName << ";').\n"
+                  << "       You can use it directly in your code without adding an external dependency!\n\n";
+    }
+
     fs::path tomlPath = "sp.toml";
     if (!fs::exists(tomlPath)) {
         std::cerr << "error: could not find 'sp.toml' in current directory\n"
@@ -235,6 +261,15 @@ int handleAdd(int argc, char* argv[]) {
         std::cout << " (version: " << versionReq << ")";
     }
     std::cout << " to sp.toml\n";
+
+    // Auto-update lockfile
+    fs::path lockPath = "sp.lock";
+    sp::spm::DependencyResolver resolver;
+    auto res = resolver.resolve(config, ".", true);
+    if (res.success) {
+        auto lock = sp::spm::Lockfile::fromResolution(res);
+        lock.saveToFile(lockPath.string());
+    }
 
     return 0;
 }

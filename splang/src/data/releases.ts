@@ -20,12 +20,18 @@ export interface ReleaseInfo {
 }
 
 export const CURRENT_RELEASE: ReleaseInfo = {
-  version: "3.0.0",
+  version: "3.1.0",
   releaseDate: "October 9, 2026",
-  title: "SP 3.0.0 — Enterprise Backend Platform GA",
-  tag: "v3.0.0",
+  title: "SP 3.1.0 — User Field Test Remediation & Universal Cross-Platform Experience GA",
+  tag: "v3.1.0",
   announcementUrl: "https://docs.splang.shantopaul.com/backend/overview",
   highlights: [
+    "Universal zero-configuration 1-click installation across any Windows drive (C:, D:, E:), directory, Linux, and macOS",
+    "Complete native uninstaller suite: standalone uninstall.exe, 'spc uninstall' CLI command, and Windows Installed Apps integration",
+    "Self-healing project compilation and automated lockfile resolution (spm build & verify)",
+    "Strict LLVM Clang backend detection and multi-drive static runtime library discovery (libsp_runtime.a)",
+    "Bundled precompiled static OpenSSL (libssl.a, libcrypto.a) and system cryptography runtime bindings",
+    "Official Windows Package Manager Winget distribution package (SPLang.SP)",
     "Official high-level Web Framework (std.web.app, std.web.context, std.web.di) with sub-microsecond Radix tree routing",
     "Zero-socket In-Memory HTTP Integration Testing harness (std.test.http) with sub-millisecond fluent assertions",
     "Automated OpenAPI 3.0.3 specification generator (spc doc --openapi) with embedded Swagger UI and Redoc viewers",
@@ -34,8 +40,6 @@ export const CURRENT_RELEASE: ReleaseInfo = {
     "RFC 6455 full-duplex WebSockets (std.net.ws) with WebSocketHub room broadcasting and Server-Sent Events (std.web.sse)",
     "High-performance Redis client (std.redis) with connection pooling and distributed Pub/Sub broadcasting",
     "Production observability: Prometheus /metrics registry (std.metrics), structured JSON logs (std.log), and Kubernetes /healthz & /readyz probes (std.health)",
-    "In-process background workers, exponential backoff retries, dead-letter queues, and cron scheduling (std.queue)",
-    "Musl libc static Linux compilation (spc build --static) producing zero-dependency Docker scratch images (< 15MB)",
     "Certified TechEmpower benchmarks: 185,000 req/s Plaintext, 142,000 req/s JSON, 118,000 req/s Single DB query",
     "474/474 continuous verification tests passing (100% pass rate)",
   ],
@@ -53,11 +57,11 @@ export const CURRENT_RELEASE: ReleaseInfo = {
     {
       os: "Windows",
       arch: "x64 (64-bit)",
-      filename: "sp-1.0.0-windows-x64.zip",
+      filename: "sp-3.1.0-windows-x64.zip",
       format: ".zip (Portable)",
-      size: "2.62 MB",
-      sha256: "691FDE6F305520FEE2E4CE589B0C5BB264367EEC0A8CEFD56BBE44D42DE9DE75",
-      url: "https://dl.splang.shantopaul.com/sp-1.0.0-windows-x64.zip",
+      size: "7.77 MB",
+      sha256: "63DEC3EE6D4A285A4541CEAC98574B203741BEC8DE01A5B7EE144AE8E0AC7928",
+      url: "https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip",
     },
     {
       os: "VS Code",

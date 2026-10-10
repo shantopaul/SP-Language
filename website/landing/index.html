@@ -127,8 +127,13 @@
         </div>
 
         <div class="install-box">
-          <code>irm https://dl.splang.shantopaul.com/install.ps1 | iex</code>
-          <button class="install-copy" onclick="navigator.clipboard.writeText('irm https://dl.splang.shantopaul.com/install.ps1 | iex'); this.innerText='Copied!'">Copy</button>
+          <code id="cmdText">irm https://dl.splang.shantopaul.com/install.ps1 | iex</code>
+          <button class="install-copy" onclick="navigator.clipboard.writeText(document.getElementById('cmdText').innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)">Copy</button>
+        </div>
+        <div style="margin-top: 0.75rem; font-size: 0.8rem; color: #94a3b8; display: flex; gap: 1rem; flex-wrap: wrap;">
+          <span><strong>Linux/macOS:</strong> <code style="color: #38bdf8;">curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh</code></span>
+          <span><strong>Upgrade:</strong> <code style="color: #34d399;">spc upgrade</code></span>
+          <span><strong>Uninstall:</strong> <code style="color: #f87171;">spc uninstall</code></span>
         </div>
       </div>
 

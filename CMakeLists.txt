@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(SP_Language
-    VERSION 1.0.0
+    VERSION 3.1.0
     DESCRIPTION "SP Programming Language Compiler and Toolchain"
     HOMEPAGE_URL "https://splang.shantopaul.com"
     LANGUAGES C CXX
@@ -29,6 +29,11 @@ else()
     if(SP_WARNINGS_AS_ERRORS)
         add_compile_options(-Werror)
     endif()
+endif()
+
+# Static runtime linking on Windows to eliminate DLL dependencies (libstdc++-6.dll, libgcc_s_seh-1.dll)
+if(WIN32 AND NOT MSVC)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++ -lpthread")
 endif()
 
 # Output directories

@@ -1,24 +1,32 @@
 import React from "react";
 import Link from "next/link";
-import { Github, Heart, Terminal, BookOpen, Boxes, Cpu, ShieldCheck } from "lucide-react";
+import Image from "next/image";
+import { Github, Heart, Terminal, BookOpen, Boxes, Cpu, ShieldCheck, Download } from "lucide-react";
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="border-t border-slate-800/80 bg-slate-950 text-slate-400 text-sm">
+    <footer className="border-t border-[#0A1F44] bg-[#020D21] text-slate-400 text-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 lg:gap-12">
           {/* Brand Col */}
           <div className="space-y-4 md:col-span-1">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-500 to-cyan-500 p-0.5 shadow-md shadow-cyan-500/20">
-                <div className="w-full h-full bg-slate-950 rounded-[6px] flex items-center justify-center font-bold text-transparent bg-clip-text bg-gradient-to-tr from-emerald-400 to-cyan-400 text-sm">
-                  SP
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="relative w-8 h-8 rounded-xl p-0.5 shadow-md shadow-blue-500/20">
+                <Image
+                  src="/brand/brand-emblem-navy.png"
+                  alt="SP Language Emblem"
+                  width={32}
+                  height={32}
+                  className="rounded-lg object-contain"
+                />
               </div>
-              <span className="font-bold text-white text-base">SP Language</span>
+              <div className="font-extrabold text-white text-base tracking-tight flex items-center gap-1">
+                <span>SP</span>
+                <span className="text-[#00D1FF]">Lang</span>
+              </div>
             </div>
             <p className="text-slate-400 text-xs leading-relaxed">
-              The modern, high-performance systems and application programming language with LLVM native compilation, safe memory ergonomics, and built-in developer tooling.
+              The modern, high-performance systems and backend platform language with LLVM native compilation, deterministic ARC memory safety, and 23 standard library modules.
             </p>
             <div className="pt-2 text-xs text-slate-500">
               Released under Apache-2.0 / MIT License.
@@ -28,7 +36,7 @@ export const Footer: React.FC = () => {
           {/* Ecosystem Column */}
           <div className="space-y-3">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-              Ecosystem & Domains
+              Ecosystem &amp; Domains
             </h4>
             <ul className="space-y-2 text-xs">
               <li>
@@ -63,8 +71,9 @@ export const Footer: React.FC = () => {
                 </a>
               </li>
               <li>
-                <Link href="/downloads" className="hover:text-cyan-400 transition-colors">
-                  Official Binaries & Toolchains
+                <Link href="/downloads" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Official Binaries &amp; Toolchains</span>
                 </Link>
               </li>
             </ul>
@@ -120,7 +129,7 @@ export const Footer: React.FC = () => {
           {/* Project & Community */}
           <div className="space-y-3">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-              Community & Author
+              Community &amp; Author
             </h4>
             <ul className="space-y-2 text-xs">
               <li>
@@ -136,13 +145,18 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <Link href="/blog" className="hover:text-cyan-400 transition-colors">
-                  Release Notes & Announcements
+                  Release Notes &amp; Announcements
                 </Link>
               </li>
               <li>
-                <Link href="/community" className="hover:text-cyan-400 transition-colors">
-                  Contributing Guidelines
-                </Link>
+                <a
+                  href="https://github.com/shantopaul/SP-Language/issues"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-cyan-400 transition-colors"
+                >
+                  Issue Tracker &amp; Bug Reports
+                </a>
               </li>
               <li>
                 <a
@@ -151,7 +165,7 @@ export const Footer: React.FC = () => {
                   rel="noopener noreferrer"
                   className="hover:text-cyan-400 transition-colors"
                 >
-                  Designed & Created by Shanto Paul
+                  Author Website (shantopaul.com)
                 </a>
               </li>
             </ul>
@@ -159,20 +173,17 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Bottom Bar */}
-        <div className="mt-12 pt-8 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <p>© {new Date().getFullYear()} SP Programming Language. Developed with passion by Shanto Paul.</p>
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1 text-slate-400">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              Production Ready v1.0.0
+        <div className="mt-12 pt-8 border-t border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
+          <div className="flex items-center gap-2">
+            <span>&copy; {new Date().getFullYear()} Shanto Paul. All rights reserved.</span>
+            <span>•</span>
+            <span className="text-cyan-400 font-mono">v3.1.0 GA</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1">
+              Crafted with <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" /> for systems programmers.
             </span>
-            <span className="text-slate-700">•</span>
-            <a
-              href="https://github.com/shantopaul/SP-Language"
-              className="hover:text-slate-300 transition-colors"
-            >
-              GitHub
-            </a>
           </div>
         </div>
       </div>

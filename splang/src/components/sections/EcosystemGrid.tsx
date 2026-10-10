@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpen, Boxes, Code, ExternalLink, ArrowRight, Layers } from "lucide-react";
+import { BookOpen, Boxes, Code, ExternalLink, ArrowRight, Layers, Sparkles } from "lucide-react";
 
 export const EcosystemGrid: React.FC = () => {
   const domains = [
@@ -7,11 +7,11 @@ export const EcosystemGrid: React.FC = () => {
       title: "Official Documentation",
       url: "https://docs.splang.shantopaul.com",
       description:
-        "Comprehensive language specification, getting-started guides, 46-feature syntax tour, and standard library API references.",
+        "Comprehensive language specification, enterprise backend guides, 46-feature syntax tour, and standard library API references.",
       icon: BookOpen,
       badge: "docs.splang.shantopaul.com",
-      accent: "from-emerald-500/20 to-teal-500/5",
-      border: "hover:border-emerald-500/50",
+      accent: "from-blue-600/15 via-[#081735] to-[#020D21]",
+      border: "hover:border-cyan-400/50",
     },
     {
       title: "SP Package Registry",
@@ -20,8 +20,8 @@ export const EcosystemGrid: React.FC = () => {
         "Discover, publish, and inspect packages with verified SHA-256 checksums and real-time integration with the spm CLI.",
       icon: Boxes,
       badge: "registry.splang.shantopaul.com",
-      accent: "from-cyan-500/20 to-blue-500/5",
-      border: "hover:border-cyan-500/50",
+      accent: "from-cyan-600/15 via-[#081735] to-[#020D21]",
+      border: "hover:border-cyan-400/50",
     },
     {
       title: "VS Code Extension",
@@ -30,30 +30,34 @@ export const EcosystemGrid: React.FC = () => {
         "Official editor support featuring TextMate syntax highlighting, code snippets, LSP autocompletion, and DAP stepping debugger.",
       icon: Code,
       badge: "sp-vscode.vsix",
-      accent: "from-blue-500/20 to-indigo-500/5",
-      border: "hover:border-blue-500/50",
+      accent: "from-indigo-600/15 via-[#081735] to-[#020D21]",
+      border: "hover:border-cyan-400/50",
     },
     {
-      title: "Standard Library (8 Modules)",
+      title: "Standard Library (23 Modules)",
       url: "https://docs.splang.shantopaul.com/stdlib",
       description:
-        "Rich native modules for I/O, strings, mathematics, collections (List, Map, Set), filesystem, clocks, and child processes.",
+        "Production modules for web, net, db pooling, redis, crypto, metrics, json, queue, health, fs, io, math, time, sync, test, and more.",
       icon: Layers,
-      badge: "share/sp/stdlib",
-      accent: "from-purple-500/20 to-pink-500/5",
-      border: "hover:border-purple-500/50",
+      badge: "23 stdlib modules",
+      accent: "from-blue-500/15 via-[#081735] to-[#020D21]",
+      border: "hover:border-cyan-400/50",
     },
   ];
 
   return (
-    <section className="py-24 relative border-t border-slate-900">
+    <section className="py-24 relative bg-[#020D21] border-t border-[#0A1F44]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-cyan-500/40 text-cyan-300 text-xs font-semibold mb-3 shadow-glow-sm">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Developer Ecosystem</span>
+          </div>
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
             The Complete SP Ecosystem
           </h2>
-          <p className="mt-3 text-base text-slate-400">
-            A cohesive suite of portals and tools built to empower developer productivity.
+          <p className="mt-4 text-base text-slate-300 leading-relaxed">
+            A cohesive suite of portals, tools, and libraries engineered to maximize developer velocity and reliability.
           </p>
         </div>
 
@@ -66,29 +70,29 @@ export const EcosystemGrid: React.FC = () => {
                 href={item.url}
                 target={item.url.startsWith("http") ? "_blank" : undefined}
                 rel={item.url.startsWith("http") ? "noopener noreferrer" : undefined}
-                className={`group rounded-2xl border border-slate-800 bg-gradient-to-br ${item.accent} p-8 flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 ${item.border} shadow-xl`}
+                className={`group rounded-2xl border border-[#0A1F44] bg-gradient-to-br ${item.accent} p-8 flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 ${item.border} shadow-xl hover:shadow-[0_12px_35px_rgba(0,87,255,0.15)]`}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="w-12 h-12 rounded-xl bg-[#020D21] border border-[#0A1F44] flex items-center justify-center shadow-md">
                       <Icon className="w-6 h-6 text-cyan-400" />
                     </div>
-                    <span className="font-mono text-xs px-2.5 py-1 rounded-full bg-slate-900/90 border border-slate-700 text-slate-300 flex items-center gap-1">
+                    <span className="font-mono text-xs px-3 py-1 rounded-full bg-[#020D21]/90 border border-[#0A1F44] text-slate-300 flex items-center gap-1.5 shadow-sm">
                       {item.badge}
                       <ExternalLink className="w-3 h-3 text-slate-500" />
                     </span>
                   </div>
-                  <h3 className="text-xl font-bold text-white group-hover:text-cyan-400 transition-colors mb-2">
+                  <h3 className="text-xl font-bold text-white group-hover:text-cyan-300 transition-colors mb-2.5">
                     {item.title}
                   </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed">
+                  <p className="text-sm text-slate-300/90 leading-relaxed">
                     {item.description}
                   </p>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-cyan-400 font-medium">
-                  <span>Visit Resource</span>
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                <div className="mt-8 pt-4 border-t border-[#0A1F44] flex items-center justify-between text-xs text-cyan-400 font-semibold">
+                  <span>Explore Resource</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />
                 </div>
               </a>
             );

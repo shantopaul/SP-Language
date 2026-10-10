@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { CODE_SNIPPETS } from "@/data/code-snippets";
 import { CodeHighlighter } from "@/components/ui/CodeHighlighter";
-import { Play, Sparkles, Terminal } from "lucide-react";
+import { Play, Sparkles, Terminal, CheckCircle2 } from "lucide-react";
 
 export const CodeShowcase: React.FC = () => {
   const [activeSnippetId, setActiveSnippetId] = useState(CODE_SNIPPETS[0].id);
@@ -12,18 +12,18 @@ export const CodeShowcase: React.FC = () => {
     CODE_SNIPPETS.find((s) => s.id === activeSnippetId) || CODE_SNIPPETS[0];
 
   return (
-    <section className="py-20 bg-slate-950/60 border-t border-slate-900">
+    <section className="py-24 bg-[#020D21]/90 border-t border-[#0A1F44] relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-12">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/60 text-cyan-400 text-xs font-medium mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-cyan-500/40 text-cyan-300 text-xs font-semibold mb-3 shadow-glow-sm">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
             <span>Interactive Code Tour</span>
           </div>
-          <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
             Expressive Syntax. Zero Overhead.
           </h2>
-          <p className="mt-3 text-base text-slate-400">
-            Write clear, high-level code that lowers directly to optimized native machine instructions.
+          <p className="mt-4 text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
+            Write clean, high-level code with ergonomic type inference that lowers directly to optimized native LLVM machine instructions.
           </p>
         </div>
 
@@ -33,10 +33,10 @@ export const CodeShowcase: React.FC = () => {
             <button
               key={snippet.id}
               onClick={() => setActiveSnippetId(snippet.id)}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all ${
                 activeSnippetId === snippet.id
-                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
-                  : "bg-slate-900/60 text-slate-400 border border-slate-800/80 hover:text-slate-200 hover:border-slate-700"
+                  ? "bg-[#081735] text-cyan-300 border border-cyan-400/60 shadow-[0_0_20px_rgba(0,209,255,0.2)] font-semibold"
+                  : "bg-[#081735]/40 text-slate-400 border border-[#0A1F44] hover:text-slate-200 hover:border-slate-700 hover:bg-[#081735]"
               }`}
             >
               {snippet.title}
@@ -55,35 +55,38 @@ export const CodeShowcase: React.FC = () => {
             />
             <div className="mt-3 px-2 flex items-center justify-between text-xs text-slate-400">
               <span className="italic">{activeSnippet.subtitle}</span>
-              <span className="font-mono text-emerald-400">Compiled with spc -O3</span>
+              <span className="font-mono text-cyan-400 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                Compiled with spc -O3
+              </span>
             </div>
           </div>
 
           {/* Execution Output Box */}
           <div className="lg:col-span-4 flex flex-col">
-            <div className="rounded-xl border border-slate-800 bg-[#090d16] p-5 shadow-2xl flex flex-col h-full">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+            <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/80 p-5 sm:p-6 shadow-2xl flex flex-col h-full backdrop-blur-xl">
+              <div className="flex items-center justify-between pb-3.5 mb-3.5 border-b border-[#0A1F44]">
                 <div className="flex items-center gap-2">
-                  <Play className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                  <Play className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
                     Program Output
                   </span>
                 </div>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
+                <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 font-semibold">
                   exit code 0
                 </span>
               </div>
 
-              <div className="flex-1 bg-black/60 rounded-lg p-4 font-mono text-xs text-slate-200 overflow-x-auto whitespace-pre border border-slate-900 min-h-[160px]">
+              <div className="flex-1 bg-[#020D21] rounded-xl p-4 font-mono text-xs text-slate-200 overflow-x-auto whitespace-pre border border-[#0A1F44] min-h-[180px] leading-relaxed">
                 {activeSnippet.output}
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
-                <span className="flex items-center gap-1 font-mono">
-                  <Terminal className="w-3.5 h-3.5 text-slate-400" />
+              <div className="mt-4 pt-3.5 border-t border-[#0A1F44] flex items-center justify-between text-[11px] text-slate-400">
+                <span className="flex items-center gap-1.5 font-mono">
+                  <Terminal className="w-3.5 h-3.5 text-cyan-400" />
                   spc run {activeSnippet.id}.sp
                 </span>
-                <span>Runtime: ~0.02s</span>
+                <span className="font-mono text-cyan-300">Runtime: ~0.002s</span>
               </div>
             </div>
           </div>
