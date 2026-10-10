@@ -28,16 +28,16 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
         elements.push(
           <div
             key={`code-${index}`}
-            className="my-5 rounded-2xl border border-[#0A1F44] bg-[#020D21] overflow-hidden shadow-xl"
+            className="my-5 rounded-2xl border border-slate-300 dark:border-[#0A1F44] bg-[#020D21] overflow-hidden shadow-sm dark:shadow-xl"
           >
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[#0A1F44] bg-[#081735]/70 text-[11px] font-mono">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 dark:border-[#0A1F44] bg-[#081735]/90 text-[11px] font-mono">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
                   <div className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />
                   <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />
                 </div>
-                <span className="text-[#00D1FF] font-semibold ml-2">{codeLanguage || "sp"}</span>
+                <span className="text-[#60A5FA] dark:text-[#00D1FF] font-semibold ml-2">{codeLanguage || "sp"}</span>
               </div>
               <CopyButton text={codeText} label="Copy" className="h-6 text-[10px] px-2" />
             </div>
@@ -65,7 +65,7 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
       elements.push(
         <h1
           key={`h1-${index}`}
-          className="text-2xl font-black text-white mt-6 mb-3 font-mono border-b border-[#0A1F44] pb-2 tracking-tight"
+          className="text-2xl font-black text-slate-900 dark:text-white mt-6 mb-3 font-mono border-b border-slate-200 dark:border-[#0A1F44] pb-2 tracking-tight"
         >
           {trimmed.slice(2)}
         </h1>
@@ -76,9 +76,9 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
       elements.push(
         <h2
           key={`h2-${index}`}
-          className="text-xl font-bold text-white mt-5 mb-2 font-mono flex items-center gap-2"
+          className="text-xl font-bold text-slate-900 dark:text-white mt-5 mb-2 font-mono flex items-center gap-2"
         >
-          <span className="text-[#00D1FF]">#</span> {trimmed.slice(3)}
+          <span className="text-[#0057FF] dark:text-[#00D1FF]">#</span> {trimmed.slice(3)}
         </h2>
       );
       return;
@@ -87,7 +87,7 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
       elements.push(
         <h3
           key={`h3-${index}`}
-          className="text-base font-medium text-slate-200 mt-4 mb-2 font-mono"
+          className="text-base font-semibold text-slate-800 dark:text-slate-200 mt-4 mb-2 font-mono"
         >
           {trimmed.slice(4)}
         </h3>
@@ -98,7 +98,7 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
     // Lists
     if (trimmed.startsWith("- ")) {
       elements.push(
-        <li key={`li-${index}`} className="ml-5 list-disc text-sm text-slate-300 my-1 leading-relaxed">
+        <li key={`li-${index}`} className="ml-5 list-disc text-sm text-slate-700 dark:text-slate-300 my-1 leading-relaxed">
           {trimmed.slice(2)}
         </li>
       );
@@ -107,14 +107,14 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
 
     // Normal Paragraph
     elements.push(
-      <p key={`p-${index}`} className="text-sm text-slate-300 my-2 leading-relaxed">
+      <p key={`p-${index}`} className="text-sm text-slate-700 dark:text-slate-300 my-2 leading-relaxed">
         {trimmed}
       </p>
     );
   });
 
   return (
-    <article className="prose prose-invert max-w-none text-slate-300">
+    <article className="prose dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
       {elements}
     </article>
   );

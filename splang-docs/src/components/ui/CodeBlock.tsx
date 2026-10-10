@@ -116,11 +116,11 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   return (
     <div
       className={cn(
-        "rounded-xl border border-[#0A1F44] bg-[#020D21] overflow-hidden shadow-2xl text-xs sm:text-sm font-mono my-5",
+        "rounded-xl border border-slate-300 dark:border-[#0A1F44] bg-[#020D21] overflow-hidden shadow-md dark:shadow-2xl text-xs sm:text-sm font-mono my-5",
         className
       )}
     >
-      <div className="flex items-center justify-between px-4 py-2.5 bg-[#081735]/90 border-b border-[#0A1F44]">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 dark:bg-[#081735]/90 border-b border-slate-800 dark:border-[#0A1F44]">
         <div className="flex items-center gap-3">
           {/* macOS window control dots */}
           <div className="flex items-center gap-1.5">
@@ -143,7 +143,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
 
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-[#0A1F44] transition-colors min-h-[36px]"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 dark:hover:bg-[#0A1F44] transition-colors min-h-[36px]"
           title="Copy code"
           aria-label="Copy code to clipboard"
         >

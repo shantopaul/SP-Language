@@ -21,47 +21,47 @@ export const Footer: React.FC = () => {
                   className="object-contain"
                 />
               </div>
-              <span className="font-extrabold text-white text-base tracking-tight group-hover:text-[#00D1FF] transition-colors">
+              <span className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight group-hover:text-[#0057FF] dark:group-hover:text-[#00D1FF] transition-colors">
                 SP Registry
               </span>
             </Link>
-            <p className="text-xs text-slate-400 leading-relaxed mb-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
               The official centralized package repository for the SP Programming Language. Distributing cryptographically verified, high-performance packages for SP 3.1.0 GA.
             </p>
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-[#00D1FF]/30 bg-[#0057FF]/15 text-[#00D1FF] text-xs font-mono">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#00D1FF]" />
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-blue-200 dark:border-[#00D1FF]/30 bg-blue-50 dark:bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] text-xs font-mono">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />
               <span>SHA-256 Verified Registry</span>
             </div>
           </div>
 
           {/* Registry Navigation */}
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200 mb-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200 mb-4">
               Registry
             </h3>
             <ul className="space-y-2.5 text-xs">
               <li>
-                <Link href="/packages" className="hover:text-[#00D1FF] transition-colors">
+                <Link href="/packages" className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors">
                   Explore All Packages
                 </Link>
               </li>
               <li>
-                <Link href="/publish" className="hover:text-[#00D1FF] transition-colors">
+                <Link href="/publish" className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors">
                   Publishing Guide
                 </Link>
               </li>
               <li>
-                <Link href="/security" className="hover:text-[#00D1FF] transition-colors">
+                <Link href="/security" className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors">
                   Security &amp; Integrity
                 </Link>
               </li>
               <li>
-                <Link href="/categories/utilities" className="hover:text-[#00D1FF] transition-colors">
+                <Link href="/categories/utilities" className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors">
                   Utilities &amp; Helpers
                 </Link>
               </li>
               <li>
-                <Link href="/categories/web" className="hover:text-[#00D1FF] transition-colors">
+                <Link href="/categories/web" className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors">
                   Web &amp; Networking
                 </Link>
               </li>
@@ -70,26 +70,26 @@ export const Footer: React.FC = () => {
 
           {/* Developer CLI Tools */}
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200 mb-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200 mb-4">
               SPM CLI &amp; Protocol
             </h3>
             <ul className="space-y-2.5 text-xs font-mono">
               <li>
-                <span className="text-slate-300">spm search &lt;query&gt;</span>
+                <span className="text-slate-700 dark:text-slate-300">spm search &lt;query&gt;</span>
               </li>
               <li>
-                <span className="text-slate-300">spm add &lt;pkg&gt;</span>
+                <span className="text-slate-700 dark:text-slate-300">spm add &lt;pkg&gt;</span>
               </li>
               <li>
-                <span className="text-slate-300">spm publish</span>
+                <span className="text-slate-700 dark:text-slate-300">spm publish</span>
               </li>
               <li>
-                <span className="text-slate-300">spm verify</span>
+                <span className="text-slate-700 dark:text-slate-300">spm verify</span>
               </li>
               <li className="pt-2">
                 <a
                   href="/api/v1/packages"
-                  className="text-[#00D1FF] hover:underline flex items-center gap-1 font-mono text-[11px]"
+                  className="text-[#0057FF] dark:text-[#00D1FF] hover:underline flex items-center gap-1 font-mono text-[11px]"
                 >
                   <Terminal className="w-3 h-3" />
                   <span>REST API v1 Endpoints</span>
@@ -100,7 +100,7 @@ export const Footer: React.FC = () => {
 
           {/* SP Ecosystem Network */}
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200 mb-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200 mb-4">
               Ecosystem
             </h3>
             <ul className="space-y-2.5 text-xs">
@@ -109,11 +109,11 @@ export const Footer: React.FC = () => {
                   href="https://splang.shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
                 >
                   <Cpu className="w-3.5 h-3.5 text-slate-400" />
                   <span>Official Website</span>
-                  <ExternalLink className="w-3 h-3 text-slate-500" />
+                  <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500" />
                 </a>
               </li>
               <li>
@@ -121,11 +121,11 @@ export const Footer: React.FC = () => {
                   href="https://docs.splang.shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
                 >
                   <BookOpen className="w-3.5 h-3.5 text-slate-400" />
                   <span>Documentation Portal</span>
-                  <ExternalLink className="w-3 h-3 text-slate-500" />
+                  <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500" />
                 </a>
               </li>
               <li>
@@ -133,11 +133,11 @@ export const Footer: React.FC = () => {
                   href="https://github.com/shantopaul/SP-Language"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
                 >
                   <Boxes className="w-3.5 h-3.5 text-slate-400" />
                   <span>GitHub Repository</span>
-                  <ExternalLink className="w-3 h-3 text-slate-500" />
+                  <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500" />
                 </a>
               </li>
             </ul>

@@ -52,24 +52,24 @@ export default function RegistryHomePage() {
   return (
     <div className="space-y-16 pb-16">
       {/* Hero Section */}
-      <section className="relative pt-16 pb-16 overflow-hidden border-b border-[#0A1F44] bg-gradient-to-b from-[#081735]/40 via-[#020D21] to-[#020D21]">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0057FF]/20 via-transparent to-transparent pointer-events-none" />
+      <section className="relative pt-16 pb-16 overflow-hidden border-b border-slate-200 dark:border-[#0A1F44] bg-gradient-to-b from-blue-50/50 via-slate-50 to-white dark:from-[#081735]/40 dark:via-[#020D21] dark:to-[#020D21]">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0057FF]/10 dark:from-[#0057FF]/20 via-transparent to-transparent pointer-events-none" />
 
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
           {/* Release Radar Pill */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#00D1FF]/40 bg-[#0057FF]/15 text-[#00D1FF] text-xs font-mono mb-6 shadow-[0_0_15px_rgba(0,209,255,0.2)]">
-            <span className="w-2 h-2 rounded-full bg-[#00D1FF] animate-pulse" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-blue-200 dark:border-[#00D1FF]/40 bg-blue-50 dark:bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] text-xs font-mono mb-6 shadow-sm dark:shadow-[0_0_15px_rgba(0,209,255,0.2)]">
+            <span className="w-2 h-2 rounded-full bg-[#0057FF] dark:bg-[#00D1FF] animate-pulse" />
             <span>Official Package Registry for SP v3.1.0 GA</span>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight">
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
             Discover &amp; Distribute <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00D1FF] via-[#0057FF] to-[#2563EB]">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0057FF] via-[#0284C7] to-[#00D1FF]">
               SP Packages
             </span>
           </h1>
 
-          <p className="mt-4 text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
+          <p className="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
             The central distribution network for high-performance libraries, tools, and frameworks built with the SP Programming Language.
           </p>
 
@@ -78,32 +78,32 @@ export default function RegistryHomePage() {
             onSubmit={handleSearchSubmit}
             className="mt-8 max-w-2xl mx-auto relative group"
           >
-            <div className="relative flex items-center shadow-2xl">
-              <Search className="w-4 sm:w-5 h-4 sm:h-5 text-slate-400 absolute left-3.5 sm:left-4 pointer-events-none group-focus-within:text-[#00D1FF] transition-colors" />
+            <div className="relative flex items-center shadow-lg dark:shadow-2xl">
+              <Search className="w-4 sm:w-5 h-4 sm:h-5 text-slate-400 absolute left-3.5 sm:left-4 pointer-events-none group-focus-within:text-[#0057FF] dark:group-focus-within:text-[#00D1FF] transition-colors" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search packages, keywords... (e.g. web, db)"
-                className="w-full pl-10 sm:pl-12 pr-24 sm:pr-28 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl border border-[#0A1F44] bg-[#081735]/90 text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#00D1FF]/50 focus:border-[#00D1FF]/60 shadow-xl transition-all"
+                className="w-full pl-10 sm:pl-12 pr-24 sm:pr-28 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/90 text-slate-900 dark:text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0057FF]/40 dark:focus:ring-[#00D1FF]/50 focus:border-[#0057FF] dark:focus:border-[#00D1FF]/60 shadow-sm dark:shadow-xl transition-all"
               />
               <button
                 type="submit"
-                className="absolute right-2 px-3.5 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-[#0057FF] to-[#00D1FF] hover:opacity-90 text-white font-bold text-xs rounded-lg sm:rounded-xl transition-all shadow-md shadow-[#0057FF]/30 flex items-center gap-1.5 min-h-[36px]"
+                className="absolute right-2 px-3.5 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-[#0057FF] to-[#0284C7] hover:opacity-90 text-white font-bold text-xs rounded-lg sm:rounded-xl transition-all shadow-md shadow-[#0057FF]/30 flex items-center gap-1.5 min-h-[36px]"
               >
                 <span>Search</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
             {/* Quick keyword chips */}
-            <div className="flex items-center justify-center gap-2 mt-3 flex-wrap text-xs text-slate-400">
+            <div className="flex items-center justify-center gap-2 mt-3 flex-wrap text-xs text-slate-500 dark:text-slate-400">
               <span className="font-mono text-[11px] sm:text-xs">Quick tags:</span>
               {quickKeywords.map((tag) => (
                 <button
                   key={tag}
                   type="button"
                   onClick={() => router.push(`/packages?q=${tag}`)}
-                  className="min-h-[28px] inline-flex items-center px-2.5 py-0.5 rounded-full border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#0057FF]/20 hover:border-[#00D1FF]/40 text-slate-300 hover:text-[#00D1FF] transition-all font-mono text-[11px]"
+                  className="min-h-[28px] inline-flex items-center px-2.5 py-0.5 rounded-full border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/60 hover:bg-blue-50 dark:hover:bg-[#0057FF]/20 hover:border-blue-300 dark:hover:border-[#00D1FF]/40 text-slate-600 dark:text-slate-300 hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-all font-mono text-[11px] shadow-sm dark:shadow-none"
                 >
                   #{tag}
                 </button>
@@ -113,38 +113,38 @@ export default function RegistryHomePage() {
 
           {/* Quick ecosystem metrics */}
           <div className="mt-10 sm:mt-12 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 max-w-4xl mx-auto text-left">
-            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#0A1F44] bg-[#081735]/60 backdrop-blur-md shadow-lg hover:border-[#0057FF]/40 transition-colors">
-              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
-                <Boxes className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#00D1FF]" />
+            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/60 backdrop-blur-md shadow-sm dark:shadow-lg hover:border-blue-300 dark:hover:border-[#0057FF]/40 transition-colors">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-500 dark:text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
+                <Boxes className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#0057FF] dark:text-[#00D1FF]" />
                 <span className="truncate">Verified Packages</span>
               </div>
-              <div className="text-xl sm:text-2xl font-black text-white font-mono">{PACKAGES.length}</div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">{PACKAGES.length}</div>
             </div>
 
-            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#0A1F44] bg-[#081735]/60 backdrop-blur-md shadow-lg hover:border-[#0057FF]/40 transition-colors">
-              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
-                <Download className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#60A5FA]" />
+            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/60 backdrop-blur-md shadow-sm dark:shadow-lg hover:border-blue-300 dark:hover:border-[#0057FF]/40 transition-colors">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-500 dark:text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
+                <Download className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#0057FF] dark:text-[#60A5FA]" />
                 <span className="truncate">Downloads</span>
               </div>
-              <div className="text-xl sm:text-2xl font-black text-white font-mono">
+              <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">
                 {totalDownloads.toLocaleString()}
               </div>
             </div>
 
-            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#0A1F44] bg-[#081735]/60 backdrop-blur-md shadow-lg hover:border-[#0057FF]/40 transition-colors">
-              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
-                <ShieldCheck className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#00D1FF]" />
+            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/60 backdrop-blur-md shadow-sm dark:shadow-lg hover:border-blue-300 dark:hover:border-[#0057FF]/40 transition-colors">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-500 dark:text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
+                <ShieldCheck className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#0057FF] dark:text-[#00D1FF]" />
                 <span className="truncate">Integrity Guard</span>
               </div>
-              <div className="text-xl sm:text-2xl font-black text-[#00D1FF] font-mono">100% SHA-256</div>
+              <div className="text-xl sm:text-2xl font-black text-[#0057FF] dark:text-[#00D1FF] font-mono">100% SHA-256</div>
             </div>
 
-            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#0A1F44] bg-[#081735]/60 backdrop-blur-md shadow-lg hover:border-[#0057FF]/40 transition-colors">
-              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
-                <Zap className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#00D1FF]" />
+            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/60 backdrop-blur-md shadow-sm dark:shadow-lg hover:border-blue-300 dark:hover:border-[#0057FF]/40 transition-colors">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-slate-500 dark:text-slate-400 text-[11px] sm:text-xs font-mono mb-1">
+                <Zap className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#0057FF] dark:text-[#00D1FF]" />
                 <span className="truncate">Stdlib Modules</span>
               </div>
-              <div className="text-xl sm:text-2xl font-black text-white font-mono">23 Modules</div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">23 Modules</div>
             </div>
           </div>
         </div>
@@ -155,13 +155,13 @@ export default function RegistryHomePage() {
         {/* Categories Section */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#00D1FF]" />
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <Layers className="w-4 h-4 text-[#0057FF] dark:text-[#00D1FF]" />
               <span>Browse by Category</span>
             </h2>
             <Link
               href="/packages"
-              className="text-xs font-semibold text-[#00D1FF] hover:text-white flex items-center gap-1 transition-colors"
+              className="text-xs font-semibold text-[#0057FF] dark:text-[#00D1FF] hover:underline flex items-center gap-1 transition-colors"
             >
               <span>View all categories</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -172,18 +172,18 @@ export default function RegistryHomePage() {
 
         {/* Popular Packages Grid */}
         <section className="space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44]">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#0A1F44]">
             <div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 Most Popular Packages
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Widely adopted ecosystem and official standard packages with high download volume
               </p>
             </div>
             <Link
               href="/packages"
-              className="text-xs font-semibold text-[#00D1FF] hover:text-white flex items-center gap-1 transition-colors"
+              className="text-xs font-semibold text-[#0057FF] dark:text-[#00D1FF] hover:underline flex items-center gap-1 transition-colors"
             >
               <span>Explore all</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -199,18 +199,18 @@ export default function RegistryHomePage() {
 
         {/* Recently Updated Packages Grid */}
         <section className="space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44]">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#0A1F44]">
             <div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 Recently Published &amp; Updated
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 The latest production versions released to the official registry
               </p>
             </div>
             <Link
               href="/packages"
-              className="text-xs font-semibold text-[#00D1FF] hover:text-white flex items-center gap-1 transition-colors"
+              className="text-xs font-semibold text-[#0057FF] dark:text-[#00D1FF] hover:underline flex items-center gap-1 transition-colors"
             >
               <span>Explore all</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -225,29 +225,29 @@ export default function RegistryHomePage() {
         </section>
 
         {/* Quick Start with SPM CLI */}
-        <section className="rounded-3xl border border-[#0A1F44] bg-gradient-to-br from-[#081735]/90 via-[#081735]/50 to-[#020D21] p-6 sm:p-10 shadow-2xl">
+        <section className="rounded-3xl border border-slate-200 dark:border-[#0A1F44] bg-gradient-to-br from-blue-50/70 via-white to-slate-50 dark:from-[#081735]/90 dark:via-[#081735]/50 dark:to-[#020D21] p-6 sm:p-10 shadow-sm dark:shadow-2xl">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8">
             <div className="max-w-xl">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0057FF]/20 border border-[#00D1FF]/40 text-[#00D1FF] text-xs font-mono font-semibold mb-4 shadow-[0_0_12px_rgba(0,209,255,0.2)]">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-[#0057FF]/20 border border-blue-200 dark:border-[#00D1FF]/40 text-[#0057FF] dark:text-[#00D1FF] text-xs font-mono font-semibold mb-4 shadow-sm dark:shadow-[0_0_12px_rgba(0,209,255,0.2)]">
                 <Terminal className="w-3.5 h-3.5" />
                 <span>SPM Package Manager</span>
               </div>
-              <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              <h3 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
                 Manage Dependencies Seamlessly
               </h3>
-              <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-                The SP Language toolchain includes <code className="text-[#00D1FF] font-mono font-semibold">spm</code>, a zero-overhead package manager that enforces semantic versioning, reproducible builds, and cryptographic verification on every package.
+              <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                The SP Language toolchain includes <code className="text-[#0057FF] dark:text-[#00D1FF] font-mono font-semibold">spm</code>, a zero-overhead package manager that enforces semantic versioning, reproducible builds, and cryptographic verification on every package.
               </p>
               <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <Link
                   href="/publish"
-                  className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-[#0057FF] to-[#00D1FF] hover:opacity-90 text-white font-bold text-xs transition-all shadow-md shadow-[#0057FF]/30 inline-flex items-center justify-center min-h-[44px]"
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-[#0057FF] to-[#0284C7] hover:opacity-90 text-white font-bold text-xs transition-all shadow-md shadow-[#0057FF]/30 inline-flex items-center justify-center min-h-[44px]"
                 >
                   Publish a Package
                 </Link>
                 <Link
                   href="/security"
-                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-[#0A1F44] bg-[#020D21] hover:bg-[#0057FF]/15 hover:border-[#00D1FF]/40 text-slate-200 text-xs font-medium transition-all inline-flex items-center justify-center min-h-[44px]"
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#020D21] hover:bg-slate-50 dark:hover:bg-[#0057FF]/15 hover:border-blue-300 dark:hover:border-[#00D1FF]/40 text-slate-700 dark:text-slate-200 text-xs font-medium transition-all inline-flex items-center justify-center min-h-[44px] shadow-sm"
                 >
                   Security Architecture
                 </Link>
@@ -255,8 +255,8 @@ export default function RegistryHomePage() {
             </div>
 
             {/* Terminal snippet box */}
-            <div className="w-full lg:max-w-md rounded-2xl border border-[#0A1F44] bg-[#020D21] p-4 sm:p-5 font-mono text-xs shadow-2xl overflow-x-auto scrollbar-thin scrollbar-thumb-[#0A1F44]">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-[#0A1F44] text-slate-500">
+            <div className="w-full lg:max-w-md rounded-2xl border border-slate-800 dark:border-[#0A1F44] bg-[#020D21] p-4 sm:p-5 font-mono text-xs shadow-2xl overflow-x-auto scrollbar-thin scrollbar-thumb-[#0A1F44]">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 dark:border-[#0A1F44] text-slate-500">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
                   <div className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />

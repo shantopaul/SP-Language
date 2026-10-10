@@ -21,12 +21,12 @@ export const Footer: React.FC = () => {
                   className="rounded-lg object-contain"
                 />
               </div>
-              <div className="font-extrabold text-white text-base tracking-tight flex items-center gap-1">
+              <div className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight flex items-center gap-1">
                 <span>SP</span>
-                <span className="text-[#00D1FF]">Lang</span>
+                <span className="text-[#0057FF] dark:text-[#00D1FF]">Lang</span>
               </div>
             </div>
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-slate-600 dark:text-slate-400 text-xs leading-relaxed">
               The modern, high-performance systems and backend platform language with LLVM native compilation, deterministic ARC memory safety, and 23 standard library modules.
             </p>
             <div className="pt-2 text-xs text-slate-500">
@@ -36,16 +36,16 @@ export const Footer: React.FC = () => {
 
           {/* Ecosystem Column */}
           <div className="space-y-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200">
               Ecosystem &amp; Domains
             </h4>
             <ul className="space-y-2 text-xs">
               <li>
                 <a
                   href="https://splang.shantopaul.com"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors flex items-center gap-1.5"
                 >
-                  <Cpu className="w-3.5 h-3.5 text-slate-500" />
+                  <Cpu className="w-3.5 h-3.5 text-slate-400" />
                   <span>Main Portal (splang.shantopaul.com)</span>
                 </a>
               </li>
@@ -54,9 +54,9 @@ export const Footer: React.FC = () => {
                   href="https://docs.splang.shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors flex items-center gap-1.5"
                 >
-                  <BookOpen className="w-3.5 h-3.5 text-slate-500" />
+                  <BookOpen className="w-3.5 h-3.5 text-slate-400" />
                   <span>Documentation (docs.splang.shantopaul.com)</span>
                 </a>
               </li>
@@ -65,15 +65,15 @@ export const Footer: React.FC = () => {
                   href="https://registry.splang.shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors flex items-center gap-1.5"
                 >
-                  <Boxes className="w-3.5 h-3.5 text-slate-500" />
+                  <Boxes className="w-3.5 h-3.5 text-slate-400" />
                   <span>Package Registry (registry.splang.shantopaul.com)</span>
                 </a>
               </li>
               <li>
-                <Link href="/downloads" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">
-                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                <Link href="/downloads" className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5 text-slate-400" />
                   <span>Official Binaries &amp; Toolchains</span>
                 </Link>
               </li>
@@ -82,23 +82,23 @@ export const Footer: React.FC = () => {
 
           {/* Tools & Resources */}
           <div className="space-y-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200">
               Developer Tools
             </h4>
             <ul className="space-y-2 text-xs">
               <li>
                 <a
                   href="https://docs.splang.shantopaul.com/tools/compiler-cli"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors flex items-center gap-1.5"
                 >
-                  <Terminal className="w-3.5 h-3.5 text-slate-500" />
+                  <Terminal className="w-3.5 h-3.5 text-slate-400" />
                   <span>Compiler (spc build, run, fmt, test)</span>
                 </a>
               </li>
               <li>
                 <a
                   href="https://docs.splang.shantopaul.com/tools/package-manager"
-                  className="hover:text-cyan-400 transition-colors"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors"
                 >
                   Package Manager (spm init, add, publish)
                 </a>
@@ -106,7 +106,7 @@ export const Footer: React.FC = () => {
               <li>
                 <a
                   href="https://docs.splang.shantopaul.com/tools/lsp-server"
-                  className="hover:text-cyan-400 transition-colors"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors"
                 >
                   Language Server Protocol (spls)
                 </a>
@@ -114,13 +114,13 @@ export const Footer: React.FC = () => {
               <li>
                 <a
                   href="https://docs.splang.shantopaul.com/tools/debugger"
-                  className="hover:text-cyan-400 transition-colors"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors"
                 >
                   Debug Adapter Protocol (spd)
                 </a>
               </li>
               <li>
-                <Link href="/benchmarks" className="hover:text-cyan-400 transition-colors">
+                <Link href="/benchmarks" className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors">
                   Multi-Language Benchmarks
                 </Link>
               </li>
@@ -129,7 +129,7 @@ export const Footer: React.FC = () => {
 
           {/* Project & Community */}
           <div className="space-y-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-200">
               Community &amp; Author
             </h4>
             <ul className="space-y-2 text-xs">
@@ -138,14 +138,14 @@ export const Footer: React.FC = () => {
                   href="https://github.com/shantopaul/SP-Language"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors flex items-center gap-1.5"
                 >
-                  <Github className="w-3.5 h-3.5 text-slate-500" />
+                  <Github className="w-3.5 h-3.5 text-slate-400" />
                   <span>GitHub Repository</span>
                 </a>
               </li>
               <li>
-                <Link href="/blog" className="hover:text-cyan-400 transition-colors">
+                <Link href="/blog" className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors">
                   Release Notes &amp; Announcements
                 </Link>
               </li>
@@ -154,7 +154,7 @@ export const Footer: React.FC = () => {
                   href="https://github.com/shantopaul/SP-Language/issues"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors"
                 >
                   Issue Tracker &amp; Bug Reports
                 </a>
@@ -164,7 +164,7 @@ export const Footer: React.FC = () => {
                   href="https://shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors"
+                  className="hover:text-[#0057FF] dark:hover:text-cyan-400 transition-colors"
                 >
                   Author Website (shantopaul.com)
                 </a>

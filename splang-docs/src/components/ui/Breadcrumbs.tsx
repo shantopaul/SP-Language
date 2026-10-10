@@ -15,10 +15,10 @@ interface BreadcrumbsProps {
 
 export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
   return (
-    <nav className="flex items-center gap-1.5 text-xs text-slate-400 mb-6 flex-wrap">
+    <nav className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-6 flex-wrap">
       <Link
         href="/getting-started"
-        className="hover:text-[#00D1FF] transition-colors flex items-center gap-1 text-slate-400"
+        className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors flex items-center gap-1 text-slate-500 dark:text-slate-400"
       >
         <Home className="w-3.5 h-3.5" />
         <span>Docs</span>
@@ -27,13 +27,13 @@ export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
         const isLast = idx === items.length - 1;
         return (
           <React.Fragment key={idx}>
-            <ChevronRight className="w-3 h-3 text-slate-600" />
+            <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-600" />
             {item.href && !isLast ? (
-              <Link href={item.href} className="hover:text-[#00D1FF] transition-colors">
+              <Link href={item.href} className="hover:text-[#0057FF] dark:hover:text-[#00D1FF] transition-colors">
                 {item.title}
               </Link>
             ) : (
-              <span className="text-slate-200 font-medium">{item.title}</span>
+              <span className="text-slate-900 dark:text-slate-200 font-medium">{item.title}</span>
             )}
           </React.Fragment>
         );

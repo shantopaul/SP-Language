@@ -46,82 +46,82 @@ fn main() -> void {
       </div>
 
       {/* Header */}
-      <header className="mb-12 border-b border-[#0A1F44] pb-8">
+      <header className="mb-12 border-b border-slate-200 dark:border-[#0A1F44] pb-8">
         <div className="flex items-center gap-3 mb-4">
           <Badge variant="secondary">Historical Release</Badge>
-          <span className="flex items-center gap-1.5 text-xs text-slate-400">
-            <Calendar className="w-3.5 h-3.5 text-[#00D1FF]" />
+          <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <Calendar className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />
             October 6, 2026
           </span>
         </div>
 
-        <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight mb-6">
+        <h1 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight leading-tight mb-6">
           Announcing SP 1.0.0: The Production-Ready Systems &amp; Application Language
         </h1>
 
-        <div className="flex items-center gap-3 text-xs sm:text-sm text-slate-300">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#0057FF] to-[#00D1FF] p-0.5 shadow-[0_0_15px_rgba(0,209,255,0.4)]">
-            <div className="w-full h-full bg-[#020D21] rounded-full flex items-center justify-center font-bold text-[#00D1FF]">
+        <div className="flex items-center gap-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#0057FF] to-[#00D1FF] p-0.5 shadow-md dark:shadow-[0_0_15px_rgba(0,209,255,0.4)]">
+            <div className="w-full h-full bg-white dark:bg-[#020D21] rounded-full flex items-center justify-center font-bold text-[#0057FF] dark:text-[#00D1FF]">
               SP
             </div>
           </div>
           <div>
-            <div className="font-semibold text-white">Shanto Paul</div>
-            <div className="text-slate-400 text-xs">Language Creator &amp; Lead Architect</div>
+            <div className="font-semibold text-slate-900 dark:text-white">Shanto Paul</div>
+            <div className="text-slate-500 dark:text-slate-400 text-xs">Language Creator &amp; Lead Architect</div>
           </div>
         </div>
       </header>
 
       {/* Article Body */}
-      <article className="space-y-6 text-slate-300 text-sm sm:text-base leading-relaxed">
-        <p className="text-lg text-slate-200 font-medium">
+      <article className="space-y-6 text-slate-600 dark:text-slate-300 text-sm sm:text-base leading-relaxed">
+        <p className="text-lg text-slate-800 dark:text-slate-200 font-medium">
           Today marks a landmark achievement in the development of the SP Programming Language. After extensive architecture design, compiler engineering, rigorous test suite development, and real-world benchmarking, we are thrilled to announce the general availability of <strong>SP 1.0.0</strong>.
         </p>
 
-        <h2 className="text-2xl font-bold text-white pt-6 border-t border-[#0A1F44]">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white pt-6 border-t border-slate-200 dark:border-[#0A1F44]">
           What is SP?
         </h2>
         <p>
           SP is a statically typed, compiled programming language engineered from the ground up to combine the raw execution speed and low resource footprint of languages like C and Rust with the ergonomics, clean syntax, and rapid developer velocity of modern languages like TypeScript and Go.
         </p>
 
-        <h2 className="text-2xl font-bold text-white pt-6 border-t border-[#0A1F44]">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white pt-6 border-t border-slate-200 dark:border-[#0A1F44]">
           Core Pillars of SP 1.0.0
         </h2>
         <ul className="space-y-3 list-none pl-0">
           <li className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-[#00D1FF] shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#0057FF] dark:text-[#00D1FF] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">LLVM Native Compilation:</strong> Emits clean SP IR lowered to LLVM IR, running LLVM 18+ optimization passes (-O0, -O1, -O2, -O3) and linking native executables via Clang.
+              <strong className="text-slate-900 dark:text-white">LLVM Native Compilation:</strong> Emits clean SP IR lowered to LLVM IR, running LLVM 18+ optimization passes (-O0, -O1, -O2, -O3) and linking native executables via Clang.
             </div>
           </li>
           <li className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-[#00D1FF] shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#0057FF] dark:text-[#00D1FF] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">Zero-Cost Generics:</strong> Generic classes (<code>Box&lt;T&gt;</code>, <code>List&lt;T&gt;</code>, <code>Map&lt;K, V&gt;</code>) and functions are fully monomorphized at compile time, eliminating runtime type boxing or casting overhead.
+              <strong className="text-slate-900 dark:text-white">Zero-Cost Generics:</strong> Generic classes (<code>Box&lt;T&gt;</code>, <code>List&lt;T&gt;</code>, <code>Map&lt;K, V&gt;</code>) and functions are fully monomorphized at compile time, eliminating runtime type boxing or casting overhead.
             </div>
           </li>
           <li className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-[#00D1FF] shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#0057FF] dark:text-[#00D1FF] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">Standard Library Out-of-the-Box:</strong> 8 comprehensive modules covering I/O, strings, mathematics, collections, filesystem, clock, OS environment, and child processes.
+              <strong className="text-slate-900 dark:text-white">Standard Library Out-of-the-Box:</strong> 8 comprehensive modules covering I/O, strings, mathematics, collections, filesystem, clock, OS environment, and child processes.
             </div>
           </li>
           <li className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-[#00D1FF] shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#0057FF] dark:text-[#00D1FF] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">SP Package Manager (spm):</strong> Full dependency resolution, SemVer compatibility solver, cycle detection, and tamper-proof cryptographic <code>sp.lock</code> lockfiles.
+              <strong className="text-slate-900 dark:text-white">SP Package Manager (spm):</strong> Full dependency resolution, SemVer compatibility solver, cycle detection, and tamper-proof cryptographic <code>sp.lock</code> lockfiles.
             </div>
           </li>
           <li className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-[#00D1FF] shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#0057FF] dark:text-[#00D1FF] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">First-Class Tooling:</strong> Built-in <code>spc fmt</code> code formatter, native <code>spc test</code> test runner, automatic <code>spc doc</code> generator, and official VS Code LSP/DAP extension.
+              <strong className="text-slate-900 dark:text-white">First-Class Tooling:</strong> Built-in <code>spc fmt</code> code formatter, native <code>spc test</code> test runner, automatic <code>spc doc</code> generator, and official VS Code LSP/DAP extension.
             </div>
           </li>
         </ul>
 
-        <h2 className="text-2xl font-bold text-white pt-6 border-t border-[#0A1F44]">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white pt-6 border-t border-slate-200 dark:border-[#0A1F44]">
           Code in Action
         </h2>
         <p>Here is a taste of writing modern SP code:</p>
@@ -132,27 +132,27 @@ fn main() -> void {
           showLineNumbers={true}
         />
 
-        <h2 className="text-2xl font-bold text-white pt-6 border-t border-[#0A1F44]">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white pt-6 border-t border-slate-200 dark:border-[#0A1F44]">
           Performance Benchmarks
         </h2>
         <p>
           We benchmarked SP against 6 industry languages across 5 compute-heavy workloads. SP consistently achieved performance parity with optimized C and Rust, running up to <strong>62x faster than Python</strong> and <strong>3x faster than Java</strong> on recursive CPU tasks.
         </p>
 
-        <h2 className="text-2xl font-bold text-white pt-6 border-t border-[#0A1F44]">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white pt-6 border-t border-slate-200 dark:border-[#0A1F44]">
           Official Ecosystem Endpoints
         </h2>
         <p>The SP ecosystem is live today across three dedicated web portals:</p>
-        <ul className="list-disc pl-5 space-y-1 text-sm">
-          <li><strong>Official Website:</strong> <a href="https://splang.shantopaul.com" className="text-[#00D1FF] hover:underline">splang.shantopaul.com</a></li>
-          <li><strong>Documentation:</strong> <a href="https://docs.splang.shantopaul.com" className="text-[#00D1FF] hover:underline">docs.splang.shantopaul.com</a></li>
-          <li><strong>Package Registry:</strong> <a href="https://registry.splang.shantopaul.com" className="text-[#00D1FF] hover:underline">registry.splang.shantopaul.com</a></li>
+        <ul className="list-disc pl-5 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+          <li><strong className="text-slate-900 dark:text-white">Official Website:</strong> <a href="https://splang.shantopaul.com" className="text-[#0057FF] dark:text-[#00D1FF] hover:underline">splang.shantopaul.com</a></li>
+          <li><strong className="text-slate-900 dark:text-white">Documentation:</strong> <a href="https://docs.splang.shantopaul.com" className="text-[#0057FF] dark:text-[#00D1FF] hover:underline">docs.splang.shantopaul.com</a></li>
+          <li><strong className="text-slate-900 dark:text-white">Package Registry:</strong> <a href="https://registry.splang.shantopaul.com" className="text-[#0057FF] dark:text-[#00D1FF] hover:underline">registry.splang.shantopaul.com</a></li>
         </ul>
 
-        <div className="pt-8 border-t border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="pt-8 border-t border-slate-200 dark:border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
-            <p className="text-xs text-slate-400 mb-1">Ready to start building?</p>
-            <p className="text-sm font-semibold text-white">Install SP and scaffold your first project.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Ready to start building?</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Install SP and scaffold your first project.</p>
           </div>
           <Link href="/downloads">
             <Button variant="primary">Download SP 3.1.0</Button>

@@ -120,34 +120,38 @@ html:not(.dark) body {
 }
 
 html:not(.dark) .card-glass {
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.95);
   border-color: #E2E8F0;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06);
 }
 
 html:not(.dark) .card-glass:hover {
-  border-color: rgba(0, 87, 255, 0.35);
+  border-color: rgba(0, 87, 255, 0.4);
   box-shadow: 0 10px 30px -10px rgba(0, 87, 255, 0.12);
 }
 
 /* Surface backgrounds */
-html:not(.dark) .bg-\[\#020D21\] {
+html:not(.dark) .bg-\[\#020D21\]:not(pre):not(code):not(.font-mono) {
   background-color: #F8FAFC !important;
 }
 
 html:not(.dark) .bg-\[\#020D21\]\/80,
+html:not(.dark) .bg-\[\#020D21\]\/85,
 html:not(.dark) .bg-\[\#020D21\]\/90,
 html:not(.dark) .bg-\[\#020D21\]\/95 {
-  background-color: rgba(255, 255, 255, 0.92) !important;
+  background-color: rgba(255, 255, 255, 0.95) !important;
 }
 
 html:not(.dark) .bg-\[\#081735\] {
   background-color: #FFFFFF !important;
 }
 
+html:not(.dark) .bg-\[\#081735\]\/40,
+html:not(.dark) .bg-\[\#081735\]\/60,
 html:not(.dark) .bg-\[\#081735\]\/70,
-html:not(.dark) .bg-\[\#081735\]\/80 {
-  background-color: rgba(255, 255, 255, 0.92) !important;
+html:not(.dark) .bg-\[\#081735\]\/80,
+html:not(.dark) .bg-\[\#081735\]\/90 {
+  background-color: #FFFFFF !important;
 }
 
 html:not(.dark) .bg-\[\#0A1F44\] {
@@ -156,6 +160,27 @@ html:not(.dark) .bg-\[\#0A1F44\] {
 
 html:not(.dark) .border-\[\#0A1F44\] {
   border-color: #E2E8F0 !important;
+}
+
+/* Accent colors in Light Mode */
+html:not(.dark) .text-\[\#00D1FF\]:not(pre *):not(code *):not([data-preserve="true"] *):not(.terminal *):not(.bg-\[\#020D21\] *) {
+  color: #0057FF !important;
+}
+
+html:not(.dark) .text-cyan-300:not(pre *):not(code *):not([data-preserve="true"] *):not(.terminal *):not(.bg-\[\#020D21\] *),
+html:not(.dark) .text-cyan-400:not(pre *):not(code *):not([data-preserve="true"] *):not(.terminal *):not(.bg-\[\#020D21\] *) {
+  color: #0284C7 !important;
+}
+
+html:not(.dark) .border-\[\#00D1FF\]\/30,
+html:not(.dark) .border-\[\#00D1FF\]\/40,
+html:not(.dark) .border-\[\#00D1FF\]\/50 {
+  border-color: #BFDBFE !important;
+}
+
+html:not(.dark) .bg-\[\#0057FF\]\/15,
+html:not(.dark) .bg-\[\#0057FF\]\/20 {
+  background-color: #EFF6FF !important;
 }
 
 /* Prose in Light Mode */
@@ -192,7 +217,7 @@ html:not(.dark) h4 {
   color: #0F172A;
 }
 
-html:not(.dark) .text-white:not(button *):not(a.bg-gradient-to-r *):not(.bg-\[\#0057FF\] *):not([data-preserve="true"]) {
+html:not(.dark) .text-white:not(button):not(button *):not(a.bg-gradient-to-r):not(a.bg-gradient-to-r *):not(.bg-\[\#0057FF\]):not(.bg-\[\#0057FF\] *):not([data-preserve="true"]):not(pre *):not(.terminal *):not(.bg-\[\#020D21\] *) {
   color: #0F172A;
 }
 
@@ -200,23 +225,36 @@ html:not(.dark) .text-slate-100 {
   color: #0F172A !important;
 }
 
-html:not(.dark) .text-slate-200 {
+html:not(.dark) .text-slate-200:not(pre *):not(code *):not(.terminal *):not(.bg-\[\#020D21\] *) {
   color: #1E293B !important;
 }
 
-html:not(.dark) .text-slate-300 {
+html:not(.dark) .text-slate-300:not(pre *):not(code *):not(.terminal *):not(.bg-\[\#020D21\] *) {
   color: #334155 !important;
 }
 
-html:not(.dark) .text-slate-400 {
+html:not(.dark) .text-slate-400:not(pre *):not(code *):not(.terminal *):not(.bg-\[\#020D21\] *) {
   color: #64748B !important;
 }
 
 /* Maintain dark code blocks in documentation articles for syntax clarity */
 html:not(.dark) pre,
-html:not(.dark) pre code {
+html:not(.dark) pre code,
+html:not(.dark) .bg-\[\#020D21\].font-mono,
+html:not(.dark) .font-mono.bg-\[\#020D21\] {
   background-color: #0B1528 !important;
   color: #F8FAFC !important;
+  border-color: #1E293B !important;
+}
+
+html:not(.dark) .bg-\[\#020D21\].font-mono *,
+html:not(.dark) .font-mono.bg-\[\#020D21\] * {
+  color: #F8FAFC;
+}
+
+html:not(.dark) .bg-\[\#020D21\].font-mono .text-\[\#00D1FF\],
+html:not(.dark) .font-mono.bg-\[\#020D21\] .text-\[\#00D1FF\] {
+  color: #00D1FF !important;
 }
 
 /* Buttons with gradients */
@@ -227,4 +265,17 @@ html:not(.dark) a.bg-gradient-to-r *,
 html:not(.dark) .bg-\[\#0057FF\],
 html:not(.dark) .bg-\[\#0057FF\] * {
   color: #FFFFFF !important;
+}
+
+/* Subtle modern shadows in Light Mode */
+html:not(.dark) .shadow-2xl {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.07), 0 8px 10px -6px rgba(15, 23, 42, 0.04) !important;
+}
+
+html:not(.dark) .shadow-xl {
+  box-shadow: 0 4px 15px -3px rgba(15, 23, 42, 0.06), 0 4px 6px -4px rgba(15, 23, 42, 0.03) !important;
+}
+
+html:not(.dark) .shadow-glow-sm {
+  box-shadow: 0 2px 8px rgba(0, 87, 255, 0.08) !important;
 }

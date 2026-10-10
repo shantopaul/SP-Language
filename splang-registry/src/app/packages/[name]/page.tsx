@@ -109,44 +109,44 @@ export default function PackageDetailPage({ params }: PageProps) {
             </div>
 
             {/* Metadata Card */}
-            <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/70 p-6 space-y-4 shadow-xl">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono pb-3 border-b border-[#0A1F44]">
+            <div className="rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/70 p-6 space-y-4 shadow-sm dark:shadow-xl">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-200 font-mono pb-3 border-b border-slate-100 dark:border-[#0A1F44]">
                 Package Details
               </h3>
 
               <div className="space-y-3 text-xs font-mono">
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                   <span>Version:</span>
-                  <span className="text-white font-semibold">v{pkg.version}</span>
+                  <span className="text-slate-900 dark:text-white font-semibold">v{pkg.version}</span>
                 </div>
 
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                   <span>License:</span>
-                  <span className="text-white">{pkg.license}</span>
+                  <span className="text-slate-900 dark:text-white">{pkg.license}</span>
                 </div>
 
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                   <span>Total Downloads:</span>
-                  <span className="text-[#00D1FF] font-bold">
+                  <span className="text-[#0057FF] dark:text-[#00D1FF] font-bold">
                     {formatDownloads(pkg.totalDownloads)}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                   <span>Published:</span>
-                  <span className="text-slate-200">{formatDate(pkg.publishedAt)}</span>
+                  <span className="text-slate-700 dark:text-slate-200">{formatDate(pkg.publishedAt)}</span>
                 </div>
 
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                   <span>SPM Min Version:</span>
-                  <span className="text-slate-200">
+                  <span className="text-slate-700 dark:text-slate-200">
                     &gt;= {pkg.versions[0]?.spmMinVersion || "1.0.0"}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                   <span>Checksum:</span>
-                  <span className="text-[#00D1FF] flex items-center gap-1 font-semibold">
+                  <span className="text-[#0057FF] dark:text-[#00D1FF] flex items-center gap-1 font-semibold">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     <span>SHA-256</span>
                   </span>
@@ -154,10 +154,10 @@ export default function PackageDetailPage({ params }: PageProps) {
               </div>
 
               {/* Author & Repository */}
-              <div className="pt-3 border-t border-[#0A1F44] space-y-2 text-xs">
+              <div className="pt-3 border-t border-slate-100 dark:border-[#0A1F44] space-y-2 text-xs">
                 <div>
-                  <span className="text-slate-400 font-mono block mb-1">Author:</span>
-                  <span className="text-slate-200 break-words">{pkg.author}</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-mono block mb-1">Author:</span>
+                  <span className="text-slate-800 dark:text-slate-200 break-words font-medium">{pkg.author}</span>
                 </div>
 
                 {pkg.repositoryUrl && (
@@ -166,7 +166,7 @@ export default function PackageDetailPage({ params }: PageProps) {
                       href={pkg.repositoryUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[#00D1FF] hover:underline flex items-center gap-1 font-mono text-xs"
+                      className="text-[#0057FF] dark:text-[#00D1FF] hover:underline flex items-center gap-1 font-mono text-xs"
                     >
                       <GitBranch className="w-3.5 h-3.5" />
                       <span className="truncate">{pkg.repositoryUrl}</span>
@@ -177,14 +177,14 @@ export default function PackageDetailPage({ params }: PageProps) {
               </div>
 
               {/* Keywords */}
-              <div className="pt-3 border-t border-[#0A1F44] space-y-2">
-                <span className="text-xs text-slate-400 font-mono block">Keywords:</span>
+              <div className="pt-3 border-t border-slate-100 dark:border-[#0A1F44] space-y-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-mono block">Keywords:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {pkg.keywords.map((kw) => (
                     <Link
                       key={kw}
                       href={`/packages?q=${encodeURIComponent(kw)}`}
-                      className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#020D21] border border-[#0A1F44] text-slate-300 hover:text-[#00D1FF] hover:border-[#00D1FF]/40 transition-colors"
+                      className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#020D21] border border-slate-200 dark:border-[#0A1F44] text-slate-600 dark:text-slate-300 hover:text-[#0057FF] dark:hover:text-[#00D1FF] hover:border-blue-300 dark:hover:border-[#00D1FF]/40 transition-colors"
                     >
                       #{kw}
                     </Link>
@@ -194,15 +194,15 @@ export default function PackageDetailPage({ params }: PageProps) {
             </div>
 
             {/* Quick Command Reference */}
-            <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/40 p-5 text-xs font-mono text-slate-400 space-y-2.5 shadow-lg">
-              <div className="flex items-center gap-2 text-white font-bold">
-                <Terminal className="w-4 h-4 text-[#00D1FF]" />
+            <div className="rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/40 p-5 text-xs font-mono text-slate-500 dark:text-slate-400 space-y-2.5 shadow-sm dark:shadow-lg">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
+                <Terminal className="w-4 h-4 text-[#0057FF] dark:text-[#00D1FF]" />
                 <span>Quick SPM command</span>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                 Run inside any SP project directory:
               </p>
-              <div className="p-2.5 bg-[#020D21] rounded-xl border border-[#0A1F44] text-[#00D1FF] font-semibold select-all">
+              <div className="p-2.5 bg-slate-900 dark:bg-[#020D21] rounded-xl border border-slate-800 dark:border-[#0A1F44] text-[#00D1FF] font-semibold select-all">
                 spm add {pkg.name}
               </div>
             </div>

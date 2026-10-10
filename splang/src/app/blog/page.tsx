@@ -43,14 +43,14 @@ export default function BlogIndexPage() {
 
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto mb-16">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0057FF]/15 border border-[#00D1FF]/30 text-[#00D1FF] text-xs font-semibold mb-3 shadow-[0_0_15px_rgba(0,209,255,0.15)]">
-          <BookOpen className="w-4 h-4 text-[#00D1FF]" />
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-[#0057FF]/15 border border-blue-200 dark:border-[#00D1FF]/30 text-[#0057FF] dark:text-[#00D1FF] text-xs font-semibold mb-3 shadow-sm dark:shadow-[0_0_15px_rgba(0,209,255,0.15)]">
+          <BookOpen className="w-4 h-4 text-[#0057FF] dark:text-[#00D1FF]" />
           <span>Engineering Blog</span>
         </div>
-        <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight">
-          News & <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-[#00D1FF]">Announcements</span>
+        <h1 className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
+          News &amp; <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-sky-600 to-[#0057FF] dark:from-white dark:via-slate-100 dark:to-[#00D1FF]">Announcements</span>
         </h1>
-        <p className="mt-3 text-base text-slate-300">
+        <p className="mt-3 text-base text-slate-600 dark:text-slate-300">
           Official release notes, architecture deep dives, and language design essays from the core team.
         </p>
       </div>
@@ -60,36 +60,36 @@ export default function BlogIndexPage() {
         {POSTS.map((post) => (
           <article
             key={post.slug}
-            className="rounded-2xl border border-[#0A1F44] bg-[#081735]/60 backdrop-blur-md p-6 sm:p-8 hover:border-[#0057FF]/50 transition-all shadow-xl group relative overflow-hidden"
+            className="rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/60 backdrop-blur-md p-6 sm:p-8 hover:border-blue-300 dark:hover:border-[#0057FF]/50 transition-all shadow-sm dark:shadow-xl group relative overflow-hidden"
           >
             <div className="flex flex-wrap items-center gap-3 mb-4 text-xs">
               <Badge variant={post.badgeVariant}>{post.category}</Badge>
-              <span className="flex items-center gap-1.5 text-slate-400">
-                <Calendar className="w-3.5 h-3.5 text-[#00D1FF]" />
+              <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <Calendar className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />
                 {post.date}
               </span>
-              <span className="text-[#0A1F44]">•</span>
-              <span className="flex items-center gap-1.5 text-slate-400">
-                <User className="w-3.5 h-3.5 text-[#00D1FF]" />
+              <span className="text-slate-300 dark:text-[#0A1F44]">•</span>
+              <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <User className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />
                 {post.author} ({post.authorRole})
               </span>
-              <span className="text-[#0A1F44]">•</span>
+              <span className="text-slate-300 dark:text-[#0A1F44]">•</span>
               <span className="text-slate-500 font-mono">{post.readTime}</span>
             </div>
 
             <Link href={`/blog/${post.slug}`}>
-              <h2 className="text-2xl sm:text-3xl font-bold text-white group-hover:text-[#00D1FF] transition-colors mb-3 leading-snug">
+              <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white group-hover:text-[#0057FF] dark:group-hover:text-[#00D1FF] transition-colors mb-3 leading-snug">
                 {post.title}
               </h2>
             </Link>
 
-            <p className="text-slate-300 text-sm sm:text-base leading-relaxed mb-6">
+            <p className="text-slate-600 dark:text-slate-300 text-sm sm:text-base leading-relaxed mb-6">
               {post.excerpt}
             </p>
 
             <Link
               href={`/blog/${post.slug}`}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#00D1FF] group-hover:text-cyan-300 transition-colors"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#0057FF] dark:text-[#00D1FF] hover:text-blue-700 dark:hover:text-cyan-300 transition-colors"
             >
               <span>Read Full Announcement</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

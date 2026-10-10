@@ -46,17 +46,17 @@ export const EcosystemGrid: React.FC = () => {
   ];
 
   return (
-    <section className="py-24 relative bg-[#020D21] border-t border-[#0A1F44]">
+    <section className="py-24 relative bg-slate-50 dark:bg-[#020D21] border-t border-slate-200 dark:border-[#0A1F44] transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-cyan-500/40 text-cyan-300 text-xs font-semibold mb-3 shadow-glow-sm">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-blue-50 dark:bg-[#081735] border border-blue-200 dark:border-cyan-500/40 text-[#0057FF] dark:text-cyan-300 text-xs font-semibold mb-3 shadow-sm dark:shadow-glow-sm">
+            <Sparkles className="w-3.5 h-3.5 text-[#0057FF] dark:text-cyan-400" />
             <span>Developer Ecosystem</span>
           </div>
-          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             The Complete SP Ecosystem
           </h2>
-          <p className="mt-4 text-base text-slate-300 leading-relaxed">
+          <p className="mt-4 text-base text-slate-600 dark:text-slate-300 leading-relaxed">
             A cohesive suite of portals, tools, and libraries engineered to maximize developer velocity and reliability.
           </p>
         </div>
@@ -70,27 +70,27 @@ export const EcosystemGrid: React.FC = () => {
                 href={item.url}
                 target={item.url.startsWith("http") ? "_blank" : undefined}
                 rel={item.url.startsWith("http") ? "noopener noreferrer" : undefined}
-                className={`group rounded-2xl border border-[#0A1F44] bg-gradient-to-br ${item.accent} p-8 flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 ${item.border} shadow-xl hover:shadow-[0_12px_35px_rgba(0,87,255,0.15)]`}
+                className={`group rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-gradient-to-br dark:${item.accent} p-8 flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:border-blue-300 dark:${item.border} shadow-sm hover:shadow-xl dark:shadow-xl dark:hover:shadow-[0_12px_35px_rgba(0,87,255,0.15)]`}
               >
                 <div>
                   <div className="flex items-center justify-between mb-5">
-                    <div className="w-12 h-12 rounded-xl bg-[#020D21] border border-[#0A1F44] flex items-center justify-center shadow-md">
-                      <Icon className="w-6 h-6 text-cyan-400" />
+                    <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-[#020D21] border border-blue-200 dark:border-[#0A1F44] flex items-center justify-center shadow-sm">
+                      <Icon className="w-6 h-6 text-[#0057FF] dark:text-cyan-400" />
                     </div>
-                    <span className="font-mono text-xs px-3 py-1 rounded-full bg-[#020D21]/90 border border-[#0A1F44] text-slate-300 flex items-center gap-1.5 shadow-sm">
+                    <span className="font-mono text-xs px-3 py-1 rounded-full bg-slate-100 dark:bg-[#020D21]/90 border border-slate-200 dark:border-[#0A1F44] text-slate-700 dark:text-slate-300 flex items-center gap-1.5 shadow-sm">
                       {item.badge}
-                      <ExternalLink className="w-3 h-3 text-slate-500" />
+                      <ExternalLink className="w-3 h-3 text-slate-400 dark:text-slate-500" />
                     </span>
                   </div>
-                  <h3 className="text-xl font-bold text-white group-hover:text-cyan-300 transition-colors mb-2.5">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white group-hover:text-[#0057FF] dark:group-hover:text-cyan-300 transition-colors mb-2.5">
                     {item.title}
                   </h3>
-                  <p className="text-sm text-slate-300/90 leading-relaxed">
+                  <p className="text-sm text-slate-600 dark:text-slate-300/90 leading-relaxed">
                     {item.description}
                   </p>
                 </div>
 
-                <div className="mt-8 pt-4 border-t border-[#0A1F44] flex items-center justify-between text-xs text-cyan-400 font-semibold">
+                <div className="mt-8 pt-4 border-t border-slate-100 dark:border-[#0A1F44] flex items-center justify-between text-xs text-[#0057FF] dark:text-cyan-400 font-semibold">
                   <span>Explore Resource</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1.5 transition-transform" />
                 </div>

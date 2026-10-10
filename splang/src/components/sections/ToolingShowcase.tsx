@@ -39,17 +39,17 @@ export const ToolingShowcase: React.FC = () => {
   ];
 
   return (
-    <section className="py-24 relative bg-[#020D21] border-t border-[#0A1F44]">
+    <section className="py-24 relative bg-white dark:bg-[#020D21] border-t border-slate-200 dark:border-[#0A1F44] transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-blue-500/40 text-blue-300 text-xs font-semibold mb-3 shadow-glow-sm">
-            <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-blue-50 dark:bg-[#081735] border border-blue-200 dark:border-blue-500/40 text-[#0057FF] dark:text-blue-300 text-xs font-semibold mb-3 shadow-sm dark:shadow-glow-sm">
+            <Monitor className="w-3.5 h-3.5 text-[#0057FF] dark:text-cyan-400" />
             <span>Developer Experience</span>
           </div>
-          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             Complete Tooling Out-of-the-Box
           </h2>
-          <p className="mt-4 text-base text-slate-300 leading-relaxed">
+          <p className="mt-4 text-base text-slate-600 dark:text-slate-300 leading-relaxed">
             No need to configure disparate third-party tools. Everything you need to format, test, document, and debug SP code comes pre-bundled in the binary distribution.
           </p>
         </div>
@@ -58,43 +58,43 @@ export const ToolingShowcase: React.FC = () => {
           {tools.map((tool, idx) => (
             <div
               key={idx}
-              className="rounded-2xl border border-[#0A1F44] bg-[#081735]/70 backdrop-blur-xl p-6 sm:p-8 flex flex-col justify-between hover:border-cyan-400/40 hover:shadow-[0_12px_35px_rgba(0,87,255,0.12)] transition-all"
+              className="rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/70 backdrop-blur-xl p-6 sm:p-8 flex flex-col justify-between hover:border-blue-300 dark:hover:border-cyan-400/40 shadow-sm hover:shadow-xl dark:shadow-none transition-all"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold text-white font-mono">{tool.title}</h3>
-                  <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 shadow-glow-sm">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white font-mono">{tool.title}</h3>
+                  <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-cyan-950/80 text-[#0057FF] dark:text-cyan-300 border border-blue-200 dark:border-cyan-700/60 shadow-sm">
                     {tool.badge}
                   </span>
                 </div>
-                <p className="text-sm text-slate-300 leading-relaxed mb-6">
+                <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
                   {tool.description}
                 </p>
 
                 {/* Command Bar */}
-                <div className="bg-[#020D21] rounded-xl px-4 py-3 border border-[#0A1F44] font-mono text-xs text-cyan-300 mb-6 flex items-center gap-2 overflow-x-auto">
-                  <span className="text-slate-600 select-none">$</span>
+                <div className="bg-[#0B1528] rounded-xl px-4 py-3 border border-slate-800 dark:border-[#0A1F44] font-mono text-xs text-cyan-300 mb-6 flex items-center gap-2 overflow-x-auto shadow-inner">
+                  <span className="text-slate-500 select-none">$</span>
                   <span className="whitespace-nowrap">{tool.command}</span>
                 </div>
 
                 {/* Bullet Points */}
                 <ul className="space-y-2.5 mb-6">
                   {tool.features.map((feat, fIdx) => (
-                    <li key={fIdx} className="flex items-center gap-2.5 text-xs text-slate-300">
-                      <Check className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <li key={fIdx} className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300">
+                      <Check className="w-4 h-4 text-[#0057FF] dark:text-cyan-400 shrink-0" />
                       <span>{feat}</span>
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div className="pt-4 border-t border-[#0A1F44] flex items-center justify-between text-xs text-slate-400">
-                <span className="font-mono text-cyan-400">Included in SP v3.1.0 GA</span>
+              <div className="pt-4 border-t border-slate-100 dark:border-[#0A1F44] flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span className="font-mono text-[#0057FF] dark:text-cyan-400 font-semibold">Included in SP v3.1.0 GA</span>
                 <a
                   href="https://docs.splang.shantopaul.com/tools"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-cyan-300 hover:text-white font-medium flex items-center gap-1 transition-colors"
+                  className="text-[#0057FF] dark:text-cyan-300 hover:text-blue-700 dark:hover:text-white font-medium flex items-center gap-1 transition-colors"
                 >
                   <span>Read Docs</span>
                   <ArrowRight className="w-3.5 h-3.5" />

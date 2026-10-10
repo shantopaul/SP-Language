@@ -16,14 +16,14 @@ export const HeroSection: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         {/* Floating 3D Geometric Brand Emblem Centerpiece */}
         <div className="relative mx-auto mb-6 w-24 h-24 sm:w-28 sm:h-28 group">
-          <div className="absolute -inset-2 bg-gradient-to-tr from-[#0057FF]/40 via-[#00D1FF]/30 to-transparent rounded-3xl blur-2xl group-hover:blur-3xl transition-all" />
-          <div className="relative w-full h-full rounded-2xl bg-[#081735]/90 border border-[#0A1F44] p-3 shadow-2xl flex items-center justify-center animate-float">
+          <div className="absolute -inset-2 bg-gradient-to-tr from-[#0057FF]/30 via-cyan-400/20 to-transparent rounded-3xl blur-2xl group-hover:blur-3xl transition-all" />
+          <div className="relative w-full h-full rounded-2xl bg-white dark:bg-[#081735]/90 border border-slate-200 dark:border-[#0A1F44] p-3 shadow-xl dark:shadow-2xl flex items-center justify-center animate-float">
             <Image
               src="/brand/brand-emblem-navy.png"
               alt="SP Language 3D Emblem"
               width={88}
               height={88}
-              className="object-contain drop-shadow-[0_10px_20px_rgba(0,87,255,0.4)]"
+              className="object-contain drop-shadow-[0_10px_20px_rgba(0,87,255,0.25)] dark:drop-shadow-[0_10px_20px_rgba(0,87,255,0.4)]"
               priority
             />
           </div>
@@ -32,13 +32,13 @@ export const HeroSection: React.FC = () => {
         {/* Release Pill Banner */}
         <div className="inline-flex items-center gap-2 mb-6 max-w-full px-2">
           <Link href="/downloads" className="max-w-full">
-            <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-cyan-500/40 bg-white/80 dark:bg-[#081735]/80 text-xs sm:text-sm font-medium text-cyan-600 dark:text-cyan-300 hover:border-cyan-400 hover:bg-slate-100 dark:hover:bg-[#0A1F44] transition-all shadow-sm dark:shadow-[0_0_20px_rgba(0,209,255,0.15)] group cursor-pointer backdrop-blur-md max-w-full">
-              <span className="flex h-2 w-2 rounded-full bg-[#00D1FF] animate-ping flex-shrink-0" />
+            <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-blue-200 dark:border-cyan-500/40 bg-white/95 dark:bg-[#081735]/80 text-xs sm:text-sm font-medium text-[#0057FF] dark:text-cyan-300 hover:border-blue-300 dark:hover:border-cyan-400 hover:bg-blue-50/50 dark:hover:bg-[#0A1F44] transition-all shadow-sm dark:shadow-[0_0_20px_rgba(0,209,255,0.15)] group cursor-pointer backdrop-blur-md max-w-full">
+              <span className="flex h-2 w-2 rounded-full bg-[#0057FF] dark:bg-[#00D1FF] animate-ping flex-shrink-0" />
               <span className="font-semibold text-slate-900 dark:text-white truncate">
                 <span className="hidden sm:inline">SP 3.1.0 Universal Experience GA is officially released!</span>
                 <span className="sm:hidden">SP v3.1.0 GA Released</span>
               </span>
-              <span className="text-slate-500 dark:text-slate-400 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 flex items-center transition-colors flex-shrink-0">
+              <span className="text-slate-500 dark:text-slate-400 group-hover:text-[#0057FF] dark:group-hover:text-cyan-300 flex items-center transition-colors flex-shrink-0">
                 <span className="hidden sm:inline">Get v3.1.0</span> <ArrowRight className="w-3.5 h-3.5 ml-1" />
               </span>
             </div>

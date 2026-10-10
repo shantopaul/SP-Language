@@ -56,10 +56,10 @@ function PackagesExplorerContent() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+        <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
           Explore SP Packages
         </h1>
-        <p className="mt-1 text-xs sm:text-sm text-slate-300">
+        <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
           Search and browse {PACKAGES.length} production packages available in the SP registry.
         </p>
       </div>
@@ -74,12 +74,12 @@ function PackagesExplorerContent() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by name, keyword, or description..."
-            className="w-full min-h-[42px] pl-10 pr-9 py-2.5 rounded-xl border border-[#0A1F44] bg-[#081735] text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#00D1FF] focus:border-[#00D1FF] transition-all shadow-md"
+            className="w-full min-h-[42px] pl-10 pr-9 py-2.5 rounded-xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735] text-slate-900 dark:text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#0057FF] dark:focus:ring-[#00D1FF] focus:border-[#0057FF] dark:focus:border-[#00D1FF] transition-all shadow-sm"
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white p-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -88,7 +88,7 @@ function PackagesExplorerContent() {
 
         {/* Sort Selector */}
         <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
             <ArrowUpDown className="w-4 h-4 text-slate-400" />
             <label htmlFor="sort-select">
               Sort by:
@@ -100,7 +100,7 @@ function PackagesExplorerContent() {
             onChange={(e) =>
               setSortBy(e.target.value as "downloads" | "newest" | "name")
             }
-            className="flex-1 sm:flex-none min-h-[40px] px-3 py-2 rounded-xl border border-[#0A1F44] bg-[#081735] text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#00D1FF]"
+            className="flex-1 sm:flex-none min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735] text-slate-700 dark:text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#0057FF] dark:focus:ring-[#00D1FF] shadow-sm"
           >
             <option value="downloads">Most Downloaded</option>
             <option value="newest">Recently Published</option>
@@ -118,13 +118,13 @@ function PackagesExplorerContent() {
       </div>
 
       {/* Results Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44] text-xs font-mono text-slate-400">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#0A1F44] text-xs font-mono text-slate-500 dark:text-slate-400">
         <div>
-          Showing <span className="text-[#00D1FF] font-bold">{filteredPackages.length}</span>{" "}
+          Showing <span className="text-[#0057FF] dark:text-[#00D1FF] font-bold">{filteredPackages.length}</span>{" "}
           packages
           {selectedCategory && (
-            <span className="ml-1 text-slate-400">
-              in category <span className="text-white capitalize font-semibold">"{selectedCategory}"</span>
+            <span className="ml-1 text-slate-500 dark:text-slate-400">
+              in category <span className="text-slate-900 dark:text-white capitalize font-semibold">"{selectedCategory}"</span>
             </span>
           )}
         </div>
@@ -134,7 +134,7 @@ function PackagesExplorerContent() {
               setSearch("");
               setSelectedCategory(undefined);
             }}
-            className="text-[#00D1FF] hover:underline font-semibold"
+            className="text-[#0057FF] dark:text-[#00D1FF] hover:underline font-semibold"
           >
             Clear filters
           </button>

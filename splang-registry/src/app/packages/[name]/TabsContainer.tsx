@@ -23,13 +23,13 @@ export const TabsContainer: React.FC<TabsContainerProps> = ({
   return (
     <div className="space-y-6">
       {/* Tab Switcher */}
-      <div className="flex items-center gap-1 border-b border-[#0A1F44] pb-px overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin scrollbar-thumb-[#0A1F44]">
+      <div className="flex items-center gap-1 border-b border-slate-200 dark:border-[#0A1F44] pb-px overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-[#0A1F44]">
         <button
           onClick={() => setActiveTab("readme")}
           className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 font-mono whitespace-nowrap ${
             activeTab === "readme"
-              ? "border-[#00D1FF] text-[#00D1FF] bg-[#0057FF]/10 rounded-t-lg shadow-[0_0_12px_rgba(0,209,255,0.15)]"
-              : "border-transparent text-slate-400 hover:text-white"
+              ? "border-[#0057FF] dark:border-[#00D1FF] text-[#0057FF] dark:text-[#00D1FF] bg-blue-50 dark:bg-[#0057FF]/10 rounded-t-lg shadow-sm dark:shadow-[0_0_12px_rgba(0,209,255,0.15)]"
+              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           <BookOpen className="w-4 h-4" />
@@ -40,8 +40,8 @@ export const TabsContainer: React.FC<TabsContainerProps> = ({
           onClick={() => setActiveTab("versions")}
           className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 font-mono whitespace-nowrap ${
             activeTab === "versions"
-              ? "border-[#00D1FF] text-[#00D1FF] bg-[#0057FF]/10 rounded-t-lg shadow-[0_0_12px_rgba(0,209,255,0.15)]"
-              : "border-transparent text-slate-400 hover:text-white"
+              ? "border-[#0057FF] dark:border-[#00D1FF] text-[#0057FF] dark:text-[#00D1FF] bg-blue-50 dark:bg-[#0057FF]/10 rounded-t-lg shadow-sm dark:shadow-[0_0_12px_rgba(0,209,255,0.15)]"
+              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           <History className="w-4 h-4" />
@@ -52,8 +52,8 @@ export const TabsContainer: React.FC<TabsContainerProps> = ({
           onClick={() => setActiveTab("dependencies")}
           className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 font-mono whitespace-nowrap ${
             activeTab === "dependencies"
-              ? "border-[#00D1FF] text-[#00D1FF] bg-[#0057FF]/10 rounded-t-lg shadow-[0_0_12px_rgba(0,209,255,0.15)]"
-              : "border-transparent text-slate-400 hover:text-white"
+              ? "border-[#0057FF] dark:border-[#00D1FF] text-[#0057FF] dark:text-[#00D1FF] bg-blue-50 dark:bg-[#0057FF]/10 rounded-t-lg shadow-sm dark:shadow-[0_0_12px_rgba(0,209,255,0.15)]"
+              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -64,8 +64,8 @@ export const TabsContainer: React.FC<TabsContainerProps> = ({
           onClick={() => setActiveTab("security")}
           className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 font-mono whitespace-nowrap ${
             activeTab === "security"
-              ? "border-[#00D1FF] text-[#00D1FF] bg-[#0057FF]/10 rounded-t-lg shadow-[0_0_12px_rgba(0,209,255,0.15)]"
-              : "border-transparent text-slate-400 hover:text-white"
+              ? "border-[#0057FF] dark:border-[#00D1FF] text-[#0057FF] dark:text-[#00D1FF] bg-blue-50 dark:bg-[#0057FF]/10 rounded-t-lg shadow-sm dark:shadow-[0_0_12px_rgba(0,209,255,0.15)]"
+              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
@@ -76,7 +76,7 @@ export const TabsContainer: React.FC<TabsContainerProps> = ({
       {/* Tab Content Panes */}
       <div className="min-h-[400px]">
         {activeTab === "readme" && (
-          <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/40 p-4 sm:p-8 shadow-xl">
+          <div className="rounded-2xl border border-slate-200 dark:border-[#0A1F44] bg-white dark:bg-[#081735]/40 p-4 sm:p-8 shadow-sm dark:shadow-xl">
             {readmeContent}
           </div>
         )}

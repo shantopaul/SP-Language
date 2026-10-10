@@ -65,17 +65,17 @@ export const KeyFeatures: React.FC = () => {
   ];
 
   return (
-    <section className="py-24 relative bg-[#020D21]">
+    <section className="py-24 relative bg-slate-50 dark:bg-[#020D21] border-t border-slate-200 dark:border-transparent">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-cyan-500/40 text-cyan-300 text-xs font-semibold mb-3 shadow-glow-sm">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Architecture & Capabilities</span>
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-blue-50 dark:bg-[#081735] border border-blue-200 dark:border-cyan-500/40 text-[#0057FF] dark:text-cyan-300 text-xs font-semibold mb-3 shadow-sm dark:shadow-glow-sm">
+            <Sparkles className="w-3.5 h-3.5 text-[#0057FF] dark:text-cyan-400" />
+            <span>Architecture &amp; Capabilities</span>
           </div>
-          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
-            Engineered for Systems & Scale
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            Engineered for Systems &amp; Scale
           </h2>
-          <p className="mt-4 text-base text-slate-300 leading-relaxed">
+          <p className="mt-4 text-base text-slate-600 dark:text-slate-300 leading-relaxed">
             Every feature in SP is deliberately designed to provide modern developer ergonomics without compromising on raw hardware execution speed.
           </p>
         </div>
@@ -86,17 +86,17 @@ export const KeyFeatures: React.FC = () => {
             return (
               <Card
                 key={idx}
-                className="transition-all duration-300 hover:-translate-y-1.5 hover:border-cyan-400/40 hover:shadow-[0_12px_35px_rgba(0,87,255,0.15)] flex flex-col justify-between"
+                className="transition-all duration-300 hover:-translate-y-1.5 hover:border-blue-400 dark:hover:border-cyan-400/40 hover:shadow-lg dark:hover:shadow-[0_12px_35px_rgba(0,87,255,0.15)] flex flex-col justify-between"
               >
                 <div>
                   <CardHeader>
                     <div className={`w-12 h-12 rounded-xl border flex items-center justify-center mb-4 ${feature.glowBg}`}>
                       <Icon className={`w-6 h-6 ${feature.iconColor}`} />
                     </div>
-                    <CardTitle className="text-xl text-white font-bold">{feature.title}</CardTitle>
+                    <CardTitle className="text-xl text-slate-900 dark:text-white font-bold">{feature.title}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <CardDescription className="text-slate-300 leading-relaxed text-sm">
+                    <CardDescription className="text-slate-600 dark:text-slate-300 leading-relaxed text-sm">
                       {feature.description}
                     </CardDescription>
                   </CardContent>

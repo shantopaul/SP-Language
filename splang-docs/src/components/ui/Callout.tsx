@@ -29,43 +29,43 @@ export const Callout: React.FC<CalloutProps> = ({
     note: {
       icon: Info,
       defaultTitle: "Note",
-      border: "border-[#0057FF]/40",
-      bg: "bg-[#081735]/80",
-      text: "text-blue-300",
-      iconColor: "text-[#00D1FF]",
+      border: "border-blue-200 dark:border-[#0057FF]/40",
+      bg: "bg-blue-50/80 dark:bg-[#081735]/80",
+      text: "text-blue-700 dark:text-blue-300",
+      iconColor: "text-blue-600 dark:text-[#00D1FF]",
     },
     tip: {
       icon: Lightbulb,
       defaultTitle: "Tip",
-      border: "border-[#00D1FF]/40",
-      bg: "bg-[#081735]/80",
-      text: "text-[#00D1FF]",
-      iconColor: "text-[#00D1FF]",
-      glow: "shadow-[0_0_20px_rgba(0,209,255,0.1)]",
+      border: "border-sky-200 dark:border-[#00D1FF]/40",
+      bg: "bg-sky-50/80 dark:bg-[#081735]/80",
+      text: "text-sky-800 dark:text-[#00D1FF]",
+      iconColor: "text-sky-600 dark:text-[#00D1FF]",
+      glow: "dark:shadow-[0_0_20px_rgba(0,209,255,0.1)]",
     },
     important: {
       icon: AlertCircle,
       defaultTitle: "Important",
-      border: "border-indigo-500/40",
-      bg: "bg-[#081735]/80",
-      text: "text-indigo-300",
-      iconColor: "text-indigo-400",
+      border: "border-indigo-200 dark:border-indigo-500/40",
+      bg: "bg-indigo-50/80 dark:bg-[#081735]/80",
+      text: "text-indigo-800 dark:text-indigo-300",
+      iconColor: "text-indigo-600 dark:text-indigo-400",
     },
     warning: {
       icon: AlertTriangle,
       defaultTitle: "Warning",
-      border: "border-amber-500/40",
-      bg: "bg-[#081735]/80",
-      text: "text-amber-300",
-      iconColor: "text-amber-400",
+      border: "border-amber-200 dark:border-amber-500/40",
+      bg: "bg-amber-50/80 dark:bg-[#081735]/80",
+      text: "text-amber-800 dark:text-amber-300",
+      iconColor: "text-amber-600 dark:text-amber-400",
     },
     caution: {
       icon: ShieldAlert,
       defaultTitle: "Caution",
-      border: "border-rose-500/40",
-      bg: "bg-[#081735]/80",
-      text: "text-rose-300",
-      iconColor: "text-rose-400",
+      border: "border-rose-200 dark:border-rose-500/40",
+      bg: "bg-rose-50/80 dark:bg-[#081735]/80",
+      text: "text-rose-800 dark:text-rose-300",
+      iconColor: "text-rose-600 dark:text-rose-400",
     },
   };
 
@@ -75,7 +75,7 @@ export const Callout: React.FC<CalloutProps> = ({
   return (
     <div
       className={cn(
-        "rounded-xl border p-4 my-5 flex items-start gap-3 backdrop-blur-md transition-all",
+        "rounded-xl border p-4 my-5 flex items-start gap-3 backdrop-blur-md transition-all shadow-sm",
         config.border,
         config.bg,
         config.glow,
@@ -87,7 +87,7 @@ export const Callout: React.FC<CalloutProps> = ({
         <h5 className={cn("font-bold mb-1 tracking-tight", config.text)}>
           {title || config.defaultTitle}
         </h5>
-        <div className="text-slate-300 leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0">
+        <div className="text-slate-700 dark:text-slate-300 leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0">
           {children}
         </div>
       </div>
