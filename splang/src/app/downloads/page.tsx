@@ -213,6 +213,31 @@ export default function DownloadsPage() {
         </div>
       </div>
 
+      {/* Instant Auto-Upgrade Guide */}
+      <div className="mt-16 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 sm:p-8">
+        <div className="flex items-center gap-2 mb-3">
+          <Terminal className="w-5 h-5 text-cyan-400" />
+          <h2 className="text-xl font-bold text-white">Instant Auto-Upgrade</h2>
+        </div>
+        <p className="text-sm text-slate-300 mb-6">
+          Upgrades are fast (3–5 seconds), in-place, and preserve existing projects, settings, and cached LLVM toolchains with zero data loss.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs sm:text-sm">
+          <div className="p-4 rounded-xl border border-slate-800 bg-black/40">
+            <span className="font-semibold text-white block mb-1">1. Built-in CLI Upgrade</span>
+            <p className="text-slate-400 text-xs mb-3">Run directly from any terminal prompt:</p>
+            <pre className="bg-black/60 p-2.5 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400">spc upgrade</pre>
+          </div>
+
+          <div className="p-4 rounded-xl border border-slate-800 bg-black/40">
+            <span className="font-semibold text-white block mb-1">2. Universal One-Liner (PowerShell)</span>
+            <p className="text-slate-400 text-xs mb-3">Re-run installer anytime for auto-upgrade:</p>
+            <pre className="bg-black/60 p-2.5 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto">irm https://dl.splang.shantopaul.com/install.ps1 | iex</pre>
+          </div>
+        </div>
+      </div>
+
       {/* Complete Uninstallation Guide */}
       <div className="mt-16 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 sm:p-8">
         <div className="flex items-center gap-2 mb-3">

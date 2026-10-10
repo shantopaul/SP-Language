@@ -24,7 +24,59 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+
+$BinDir = Join-Path $InstallDir "bin"
+$LibDir = Join-Path $InstallDir "lib"
+$IncludeDir = Join-Path $InstallDir "runtime\include"
+$StdlibDir = Join-Path $InstallDir "stdlib"
+$ExamplesDir = Join-Path $InstallDir "examples"
+$ToolchainDir = Join-Path $InstallDir "toolchain"
+$ToolchainBin = Join-Path $ToolchainDir "bin"
+
+# Detect existing installation and version
+$isUpgrade = $false
+$isRepair = $false
+$installedVerStr = $null
+
+$existingSpc = Join-Path $BinDir "spc.exe"
+if (-not (Test-Path $existingSpc)) {
+    $foundCmd = Get-Command spc.exe -ErrorAction SilentlyContinue
+    if ($foundCmd) { $existingSpc = $foundCmd.Source }
+}
+
+if (Test-Path $existingSpc) {
+    try {
+        $verText = (& $existingSpc --version 2>&1) -join "`n"
+        if ($verText -match "version\s+([0-9]+(\.[0-9]+)+)") {
+            $installedVerStr = $matches[1]
+        }
+    } catch {}
+
+    if (-not $installedVerStr) {
+        try {
+            $regVer = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SPLang" -ErrorAction SilentlyContinue).DisplayVersion
+            if ($regVer) { $installedVerStr = $regVer }
+        } catch {}
+    }
+
+    if ($installedVerStr) {
+        try {
+            $curV = [version]$installedVerStr
+            $newV = [version]$Version
+            if ($newV -gt $curV) {
+                $isUpgrade = $true
+            } else {
+                $isRepair = $true
+            }
+        } catch {
+            $isUpgrade = ($installedVerStr -ne $Version)
+        }
+    } else {
+        $isRepair = $true
+    }
+}
 
 function Download-File([string]$Url, [string]$Destination) {
     if (Test-Path $Destination) { Remove-Item $Destination -Force -ErrorAction SilentlyContinue }
@@ -81,6 +133,14 @@ function Download-File([string]$Url, [string]$Destination) {
 }
 
 function Write-Banner {
+    $bannerB64 = "4paI4paI4paI4paI4paI4paI4paI4pWX4paI4paI4paI4paI4paI4paI4pWXICAgICDilojilojilZcgICAgICDilojilojilojilojilojilZcg4paI4paI4paI4pWXICAg4paI4paI4pWXIOKWiOKWiOKWiOKWiOKWiOKWiOKVlyAK4paI4paI4pWU4pWQ4pWQ4pWQ4pWQ4pWd4paI4paI4pWU4pWQ4pWQ4paI4paI4pWXICAgIOKWiOKWiOKVkSAgICAg4paI4paI4pWU4pWQ4pWQ4paI4paI4pWX4paI4paI4paI4paI4pWXICDilojilojilZHilojilojilZTilZDilZDilZDilZDilZ0gCuKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKWiOKWiOKWiOKWiOKVlOKVnSAgICDilojilojilZEgICAgIOKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVkeKWiOKWiOKVlOKWiOKWiOKVlyDilojilojilZHilojilojilZEgIOKWiOKWiOKWiOKVlwrilZrilZDilZDilZDilZDilojilojilZHilojilojilZTilZDilZDilZDilZ0gICAgIOKWiOKWiOKVkSAgICAg4paI4paI4pWU4pWQ4pWQ4paI4paI4pWR4paI4paI4pWR4pWa4paI4paI4pWX4paI4paI4pWR4paI4paI4pWRICAg4paI4paI4pWRCuKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVkeKWiOKWiOKVkSAgICAgICAgIOKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKVkSAg4paI4paI4pWR4paI4paI4pWRIOKVmuKWiOKWiOKWiOKWiOKVkeKVmuKWiOKWiOKWiOKWiOKWiOKWiOKVlOKVnQrilZrilZDilZDilZDilZDilZDilZDilZ3ilZrilZDilZ0gICAgICAgICDilZrilZDilZDilZDilZDilZDilZDilZ3ilZrilZDilZ0gIOKVmuKVkOKVneKVmuKVkOKVnSAg4pWa4pWQ4pWQ4pWQ4pWdIOKVmuKVkOKVkOKVkOKVkOKVkOKVnSA="
+    $bannerText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($bannerB64))
+    $bannerLines = $bannerText -split "`n"
+
+    Write-Host ""
+    foreach ($line in $bannerLines) {
+        Write-Host ("        " + $line.TrimEnd("`r")) -ForegroundColor Cyan
+    }
     Write-Host ""
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host "         SP Programming Language - Windows Instant Installer          " -ForegroundColor Cyan
@@ -89,26 +149,60 @@ function Write-Banner {
     Write-Host "  Target Location : $InstallDir" -ForegroundColor Yellow
     Write-Host "  OS Architecture : $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Gray
     Write-Host "  Operating System: $([System.Environment]::OSVersion.VersionString)" -ForegroundColor Gray
+    if ($isUpgrade) {
+        Write-Host "  Operation Mode  : Auto-Upgrade (v$installedVerStr -> v$Version)" -ForegroundColor Green
+    } elseif ($isRepair) {
+        Write-Host "  Operation Mode  : Reinstall / Repair (v$Version)" -ForegroundColor Cyan
+    } else {
+        Write-Host "  Operation Mode  : Clean System Installation (v$Version)" -ForegroundColor Green
+    }
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host ""
 }
 
 Write-Banner
 
-# 1. Prepare target installation directories
-Write-Host "[1/5] Preparing installation directories..." -ForegroundColor Green
-$BinDir = Join-Path $InstallDir "bin"
-$LibDir = Join-Path $InstallDir "lib"
-$IncludeDir = Join-Path $InstallDir "runtime\include"
-$StdlibDir = Join-Path $InstallDir "stdlib"
-$ExamplesDir = Join-Path $InstallDir "examples"
-$ToolchainDir = Join-Path $InstallDir "toolchain"
-$ToolchainBin = Join-Path $ToolchainDir "bin"
+# 1. Prepare target installation directories & release process locks
+Write-Host "[1/5] Preparing installation directories & system processes..." -ForegroundColor Green
+
+# Gracefully release any locks by stopping background SP processes (e.g. language server or running compiler)
+try {
+    $parentPid = 0
+    try {
+        $parentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID" -ErrorAction SilentlyContinue).ParentProcessId
+    } catch {}
+
+    # Background daemon processes only (do not terminate spc/spm which may be driving the upgrade)
+    $spProcs = Get-Process -Name "spd", "spls" -ErrorAction SilentlyContinue
+    foreach ($proc in $spProcs) {
+        try {
+            if ($parentPid -and $proc.Id -eq $parentPid) {
+                continue
+            }
+            if ($proc.Path -like "*$InstallDir*" -or $proc.Path -like "*\.sp\*") {
+                Write-Host "  -> Releasing process lock: $($proc.ProcessName).exe (PID: $($proc.Id))..." -ForegroundColor Gray
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+    }
+    Start-Sleep -Milliseconds 200
+} catch {}
 
 $directories = @($InstallDir, $BinDir, $LibDir, $IncludeDir, $StdlibDir, $ExamplesDir)
 foreach ($dir in $directories) {
     if (-not (Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+}
+
+if ($isUpgrade) {
+    Write-Host "  -> Preparing clean upgrade of standard library & headers..." -ForegroundColor Gray
+    # Clean previous stdlib modules to avoid outdated or conflicting files
+    if (Test-Path $StdlibDir) {
+        Remove-Item -Path "$StdlibDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $IncludeDir) {
+        Remove-Item -Path "$IncludeDir\*" -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -144,10 +238,29 @@ if ($isLocalRepo) {
     Write-Host "  -> Installing from local repository build artifacts: $repoRoot" -ForegroundColor Cyan
     $localBuildBin = Join-Path $repoRoot "build\bin"
     
-    # Copy core binaries
-    Get-ChildItem -Path $localBuildBin -Filter "*.exe" | ForEach-Object {
+    # Copy core binaries and companion DLLs
+    Get-ChildItem -Path "$localBuildBin\*" -Include "*.exe", "*.dll" | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $BinDir -Force
         Write-Host "     Installed binary: $($_.Name)" -ForegroundColor Gray
+    }
+    
+    # Also ensure companion runtime DLLs are copied to bin if available
+    $runtimeDllDirs = @(
+        (Join-Path $repoRoot "dist\SP-Language\bin"),
+        (Join-Path $repoRoot "build\bin")
+    )
+    $neededDlls = @("libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")
+    foreach ($dll in $neededDlls) {
+        if (-not (Test-Path (Join-Path $BinDir $dll))) {
+            foreach ($d in $runtimeDllDirs) {
+                $candDll = Join-Path $d $dll
+                if (Test-Path $candDll) {
+                    Copy-Item -Path $candDll -Destination (Join-Path $BinDir $dll) -Force
+                    Write-Host "     Installed runtime DLL: $dll" -ForegroundColor Gray
+                    break
+                }
+            }
+        }
     }
     
     # Copy precompiled runtime static library
@@ -160,15 +273,11 @@ if ($isLocalRepo) {
     # Copy or bundle static OpenSSL libraries (libssl.a, libcrypto.a)
     $sslCandidates = @(
         (Join-Path $repoRoot "build\lib\libssl.a"),
-        "C:\msys64\ucrt64\lib\libssl.a",
-        "C:\msys64\mingw64\lib\libssl.a",
-        "C:\msys64\clang64\lib\libssl.a"
+        (Join-Path $repoRoot "dist\SP-Language\lib\libssl.a")
     )
     $cryptoCandidates = @(
         (Join-Path $repoRoot "build\lib\libcrypto.a"),
-        "C:\msys64\ucrt64\lib\libcrypto.a",
-        "C:\msys64\mingw64\lib\libcrypto.a",
-        "C:\msys64\clang64\lib\libcrypto.a"
+        (Join-Path $repoRoot "dist\SP-Language\lib\libcrypto.a")
     )
 
     foreach ($s in $sslCandidates) {
@@ -239,8 +348,22 @@ if ($isLocalRepo) {
     
     if ($Downloaded) {
         Write-Host "     Extracting package to $InstallDir..." -ForegroundColor Cyan
+
+        # In-place rename for running executables to eliminate sharing violations on Windows
+        foreach ($exeName in @("spc.exe", "spls.exe", "spd.exe", "spm.exe")) {
+            $exePath = Join-Path $BinDir $exeName
+            if (Test-Path $exePath) {
+                $oldPath = $exePath + ".old"
+                Remove-Item $oldPath -Force -ErrorAction SilentlyContinue
+                try {
+                    Rename-Item -Path $exePath -NewName ($exeName + ".old") -Force -ErrorAction SilentlyContinue
+                } catch {}
+            }
+        }
+
         Expand-Archive -Path $TempZip -DestinationPath $InstallDir -Force
         Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path (Join-Path $BinDir "*.old") -Force -ErrorAction SilentlyContinue
     } else {
         # Fallback check: check if C:\SP-Language or ~/.sp has pre-existing binaries
         $fallbackPaths = @("C:\SP-Language", "D:\SP-Language", "$env:LOCALAPPDATA\SP-Language")
@@ -366,8 +489,6 @@ if (-not ($hasClang -or $hasClangC -or $hasBundled)) {
     $standardClangPaths = @(
         "C:\Program Files\LLVM\bin\clang++.exe",
         "C:\Program Files (x86)\LLVM\bin\clang++.exe",
-        "C:\msys64\ucrt64\bin\clang++.exe",
-        "C:\msys64\clang64\bin\clang++.exe",
         "D:\Program Files\LLVM\bin\clang++.exe"
     )
     foreach ($candClang in $standardClangPaths) {
@@ -408,6 +529,19 @@ if ($hasClang -or $hasClangC -or $hasBundled) {
                 if ($env:Path -notlike "*$ToolchainBin*") {
                     $env:Path = "$ToolchainBin;$env:Path"
                 }
+                # Persist ToolchainBin to User PATH in Registry so future terminals have it
+                try {
+                    $curUserPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
+                    $curEntries = if ([string]::IsNullOrEmpty($curUserPath)) { @() } else { $curUserPath -split ";" }
+                    if ($curEntries -notcontains $ToolchainBin) {
+                        $curEntries += $ToolchainBin
+                        $newPath = ($curEntries -join ";").TrimEnd(";")
+                        [Environment]::SetEnvironmentVariable("Path", $newPath, [EnvironmentVariableTarget]::User)
+                    }
+                    if ($result -ne $null) {
+                        [Win32.NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", 2, 2000, [ref]$result) | Out-Null
+                    }
+                } catch {}
                 Write-Host "     Portable LLVM Clang toolchain installed and ready!" -ForegroundColor Green
                 break
             }
@@ -460,8 +594,20 @@ fn main() {
 }
 
 Write-Host ""
-Write-Host "========================================================================" -ForegroundColor Green
-Write-Host "           SP Programming Language Successfully Installed!              " -ForegroundColor Green
+if ($isUpgrade) {
+    Write-Host "========================================================================" -ForegroundColor Green
+    Write-Host "       SP Programming Language Successfully Upgraded to v$Version!     " -ForegroundColor Green
+    Write-Host "========================================================================" -ForegroundColor Green
+    Write-Host "  Upgrade Details:" -ForegroundColor White
+    Write-Host "    Previous Version : v$installedVerStr" -ForegroundColor Gray
+    Write-Host "    Current Version  : v$Version" -ForegroundColor Green
+    Write-Host "    Compiler Path    : $BinDir\spc.exe" -ForegroundColor Gray
+    Write-Host "    Toolchain Status : Operational" -ForegroundColor Gray
+} else {
+    Write-Host "========================================================================" -ForegroundColor Green
+    Write-Host "           SP Programming Language Successfully Installed!              " -ForegroundColor Green
+    Write-Host "========================================================================" -ForegroundColor Green
+}
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host "  Quickstart Commands (open a new terminal window):" -ForegroundColor White
 Write-Host "    spc --version                 # Check compiler version" -ForegroundColor Gray
@@ -469,6 +615,7 @@ Write-Host "    spc doctor                    # View toolchain health report" -F
 Write-Host "    spc run examples\hello.sp     # Build & run directly" -ForegroundColor Gray
 Write-Host "    spc build main.sp -o app.exe  # Build native standalone executable" -ForegroundColor Gray
 Write-Host "    spm init my_project           # Create a new SP project" -ForegroundColor Gray
+Write-Host "    spc upgrade                   # Auto-upgrade SP Language to latest release" -ForegroundColor Gray
 Write-Host "    spc uninstall                 # Cleanly remove SP Language & toolchains" -ForegroundColor Gray
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host ""

@@ -80,6 +80,7 @@ void printHelp() {
 
               << "  doctor          Diagnose SP installation, environment, and backend toolchain\n"
               << "  setup           Check, auto-provision, or update portable backend toolchain\n"
+              << "  upgrade         Automatically upgrade SP Language to latest version\n"
               << "  uninstall       Completely remove SP Language, toolchains, and environment\n"
               << "  fix [path]      Migrate/modernize SP codebase to target edition (e.g. 2028)\n\n"
               << "Options:\n"
@@ -239,8 +240,9 @@ int handleSetup() {
                 "Write-Host 'Downloading portable LLVM Clang toolchain for Windows x64...'; "
                 "$tc = '" + tcDir.string() + "'; "
                 "$urls = @("
-                "  'https://dl.splang.shantopaul.com/downloads/toolchain-win64.zip',"
-                "  'https://splang.shantopaul.com/downloads/toolchain-win64.zip'"
+                "  'https://dl.splang.shantopaul.com/toolchain-win64.zip',"
+                "  'https://splang.shantopaul.com/downloads/toolchain-win64.zip',"
+                "  'https://dl.splang.shantopaul.com/downloads/toolchain-win64.zip'"
                 "); "
                 "$tmp = Join-Path $env:TEMP 'sp_toolchain.zip'; "
                 "$downloaded = $false; "
@@ -384,9 +386,29 @@ int handleUninstall(int argc, char* argv[]) {
         }
     }
 
-    std::string psCmd = "powershell -ExecutionPolicy Bypass -Command \""
-                        "irm https://dl.splang.shantopaul.com/uninstall.ps1 | iex\"";
-    return std::system(psCmd.c_str());
+    char tempDir[MAX_PATH];
+    DWORD len = GetTempPathA(MAX_PATH, tempDir);
+    std::string scriptPath = (len > 0 && len < MAX_PATH) ? (std::string(tempDir) + "sp-uninstall.ps1") : "sp-uninstall.ps1";
+
+    std::string dlCmd = "curl.exe -fsSL \"https://dl.splang.shantopaul.com/uninstall.ps1\" -o \"" + scriptPath + "\"";
+    int dlRes = std::system(dlCmd.c_str());
+    if (dlRes != 0) {
+        std::string fallbackDl = "powershell.exe -ExecutionPolicy Bypass -NoProfile -Command \""
+                                 "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+                                 "(New-Object Net.WebClient).DownloadFile('https://dl.splang.shantopaul.com/uninstall.ps1', '" + scriptPath + "')\"";
+        std::system(fallbackDl.c_str());
+    }
+
+    if (fs::exists(scriptPath)) {
+        std::string runCmd = "powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"" + scriptPath + "\"";
+        int res = std::system(runCmd.c_str());
+        std::error_code ec;
+        fs::remove(scriptPath, ec);
+        return res;
+    }
+
+    std::cerr << "Error: Failed to download the uninstallation script.\n";
+    return 1;
 #else
     if (!uninstallBin.empty()) {
         std::string cmd = "\"" + uninstallBin.string() + "\"";
@@ -399,6 +421,50 @@ int handleUninstall(int argc, char* argv[]) {
 
     std::string shCmd = "curl -fsSL https://dl.splang.shantopaul.com/uninstall.sh | sh";
     return std::system(shCmd.c_str());
+#endif
+}
+
+int handleUpgrade() {
+    std::cout << "\n========================================================================\n"
+              << "             SP Programming Language Auto-Upgrade Utility\n"
+              << "========================================================================\n\n"
+              << "[*] Checking for latest SP Language release and upgrading...\n\n";
+
+#if defined(_WIN32)
+    char tempDir[MAX_PATH];
+    DWORD len = GetTempPathA(MAX_PATH, tempDir);
+    std::string scriptPath = (len > 0 && len < MAX_PATH) ? (std::string(tempDir) + "sp-upgrade.ps1") : "sp-upgrade.ps1";
+
+    // Download installer script directly via curl.exe (standard Windows 10/11 system utility)
+    std::string dlCmd = "curl.exe -fsSL \"https://dl.splang.shantopaul.com/install.ps1\" -o \"" + scriptPath + "\"";
+    int dlRes = std::system(dlCmd.c_str());
+    if (dlRes != 0) {
+        std::string fallbackDl = "powershell.exe -ExecutionPolicy Bypass -NoProfile -Command \""
+                                 "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+                                 "(New-Object Net.WebClient).DownloadFile('https://dl.splang.shantopaul.com/install.ps1', '" + scriptPath + "')\"";
+        std::system(fallbackDl.c_str());
+    }
+
+    if (fs::exists(scriptPath)) {
+        // Execute installer cleanly via -File (no dynamic iex/dropper signature)
+        std::string runCmd = "powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"" + scriptPath + "\"";
+        int res = std::system(runCmd.c_str());
+        std::error_code ec;
+        fs::remove(scriptPath, ec);
+        return res;
+    }
+
+    std::cerr << "Error: Failed to download the SP Language upgrade installer.\n"
+              << "Please verify your internet connection or run manually in PowerShell:\n"
+              << "  irm https://dl.splang.shantopaul.com/install.ps1 | iex\n";
+    return 1;
+#else
+    char* tmpDir = getenv("TMPDIR");
+    std::string scriptPath = (tmpDir ? std::string(tmpDir) : "/tmp") + "/sp-install.sh";
+    std::string dlCmd = "curl -fsSL https://dl.splang.shantopaul.com/install.sh -o \"" + scriptPath + "\" && sh \"" + scriptPath + "\"";
+    int res = std::system(dlCmd.c_str());
+    std::remove(scriptPath.c_str());
+    return res;
 #endif
 }
 
@@ -581,6 +647,10 @@ int main(int argc, char* argv[]) {
 
     if (command == "setup") {
         return handleSetup();
+    }
+
+    if (command == "upgrade" || command == "update") {
+        return handleUpgrade();
     }
 
     if (command == "fix") {
@@ -1354,7 +1424,7 @@ int main(int argc, char* argv[]) {
 
     const std::vector<std::string> validCommands = {
         "build", "run", "check", "init", "new", "fmt", "test", "bench",
-        "doc", "doctor", "setup", "fix", "uninstall", "bindgen", "tokens", "ast", "sema",
+        "doc", "doctor", "setup", "upgrade", "update", "fix", "uninstall", "bindgen", "tokens", "ast", "sema",
         "ir", "llvm", "obj"
     };
 

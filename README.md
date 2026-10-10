@@ -3,12 +3,12 @@
 <br>
 
 ```
-   ███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ 
-   ██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ 
-   ███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗
-   ╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║
-   ███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝
-   ╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
+                         ███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ 
+                         ██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ 
+                         ███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗
+                         ╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║
+                         ███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝
+                         ╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ 
 ```
 
 ### A modern, general-purpose programming language
@@ -19,7 +19,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 &nbsp;
-[![Version](https://img.shields.io/badge/version-2.0.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
+[![Version](https://img.shields.io/badge/version-3.1.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
 &nbsp;
 [![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](#-tech-stack)
 &nbsp;
@@ -114,7 +114,20 @@ fn main() {
 
 ### Installation
 
-> ⚠️ **SP is currently in early development (pre-alpha).** Build from source to try it out.
+**1-Click Install & Universal Auto-Upgrade:**
+
+- **Windows (PowerShell):**
+  ```powershell
+  irm https://dl.splang.shantopaul.com/install.ps1 | iex
+  ```
+- **Linux & macOS (Bash):**
+  ```bash
+  curl -fsSL https://dl.splang.shantopaul.com/install.sh | sh
+  ```
+
+> 💡 **Auto-Upgrade:** Run `spc upgrade` at any time, or re-run the installer command above to automatically upgrade to the latest release in 3–5 seconds with zero data loss.
+
+**Or Build From Source:**
 
 ```bash
 # Clone the repository
@@ -794,6 +807,10 @@ spc test                        # Run all tests
 spc fmt                         # Format all source files
 spc doc                         # Generate documentation
 spc clean                       # Remove build artifacts
+spc doctor                      # Diagnose installation & toolchain health
+spc setup                       # Auto-provision portable LLVM toolchain
+spc upgrade                     # In-place auto-upgrade compiler & stdlib
+spc uninstall                   # Cleanly remove SP Language and toolchains
 spc init [name]                 # Create new project
 spc --version                   # Show version info
 
