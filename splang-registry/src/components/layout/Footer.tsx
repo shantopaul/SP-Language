@@ -2,10 +2,11 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Boxes, ExternalLink, ShieldCheck, Terminal, BookOpen, Cpu, Heart } from "lucide-react";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="border-t border-[#0A1F44] bg-[#020D21] text-slate-400 py-12 mt-20">
+    <footer className="border-t border-slate-200 dark:border-[#0A1F44] bg-slate-100 dark:bg-[#020D21] text-slate-600 dark:text-slate-400 py-12 mt-20 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
           {/* Brand Col */}
@@ -144,10 +145,11 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Bottom Bar */}
-        <div className="pt-8 border-t border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
+        <div className="pt-8 border-t border-slate-200 dark:border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
           <p>© 2026 SP Language Initiative by Shanto Paul. Released under Apache-2.0 / MIT licenses.</p>
-          <div className="flex items-center gap-1 text-slate-400">
-            <span>Crafted for high-performance systems software engineering</span>
+          <div className="flex items-center gap-4">
+            <ThemeToggle variant="segmented" />
+            <span className="hidden md:inline text-slate-500 dark:text-slate-400">Crafted for high-performance systems engineering</span>
           </div>
         </div>
       </div>

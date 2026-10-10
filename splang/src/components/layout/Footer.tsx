@@ -2,10 +2,11 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Github, Heart, Terminal, BookOpen, Boxes, Cpu, ShieldCheck, Download } from "lucide-react";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="border-t border-[#0A1F44] bg-[#020D21] text-slate-400 text-sm">
+    <footer className="border-t border-slate-200 dark:border-[#0A1F44] bg-slate-100 dark:bg-[#020D21] text-slate-600 dark:text-slate-400 text-sm transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 lg:gap-12">
           {/* Brand Col */}
@@ -173,15 +174,16 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Bottom Bar */}
-        <div className="mt-12 pt-8 border-t border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
+        <div className="mt-12 pt-8 border-t border-slate-200 dark:border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
           <div className="flex items-center gap-2">
             <span>&copy; {new Date().getFullYear()} Shanto Paul. All rights reserved.</span>
             <span>•</span>
-            <span className="text-cyan-400 font-mono">v3.1.0 GA</span>
+            <span className="text-[#0057FF] dark:text-cyan-400 font-mono">v3.1.0 GA</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1">
+          <div className="flex items-center gap-4">
+            <ThemeToggle variant="segmented" />
+            <span className="hidden md:flex items-center gap-1">
               Crafted with <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" /> for systems programmers.
             </span>
           </div>
