@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # SP Programming Language - Universal Windows Installer
 # ==============================================================================
 # One-command installation for any Windows Desktop (Windows 10, 11, Server).
@@ -24,6 +24,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 
 function Download-File([string]$Url, [string]$Destination) {
@@ -81,6 +82,19 @@ function Download-File([string]$Url, [string]$Destination) {
 }
 
 function Write-Banner {
+    $bannerLines = @(
+        "███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ ",
+        "██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ ",
+        "███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗",
+        "╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║",
+        "███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝",
+        "╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ "
+    )
+
+    Write-Host ""
+    foreach ($line in $bannerLines) {
+        Write-Host ("        " + $line) -ForegroundColor Cyan
+    }
     Write-Host ""
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host "         SP Programming Language - Windows Instant Installer          " -ForegroundColor Cyan
