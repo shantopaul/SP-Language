@@ -48,7 +48,7 @@ fn check(Role r) -> string {
       <Breadcrumbs items={[{ title: "Language Tour", href: "/syntax-guide" }]} />
 
       <h1 className="text-3xl font-extrabold text-white">SP Language Syntax Tour</h1>
-      <p className="text-sm text-slate-300">
+      <p className="text-sm text-slate-300 leading-relaxed">
         SP combines the best parts of C-family ergonomics with modern type safety. Explore the core syntax chapters below:
       </p>
 
@@ -57,21 +57,21 @@ fn check(Role r) -> string {
       {/* Complete 100 Examples Banner */}
       <Link
         href="/syntax-guide/all-examples"
-        className="block p-5 rounded-xl border border-cyan-500/40 bg-gradient-to-r from-cyan-950/40 via-slate-900/60 to-purple-950/40 hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-500/10 transition-all group"
+        className="block p-5 sm:p-6 rounded-2xl border border-[#00D1FF]/40 bg-gradient-to-r from-[#0057FF]/20 via-[#081735]/80 to-[#020D21] hover:border-[#00D1FF] hover:shadow-[0_0_25px_rgba(0,209,255,0.2)] transition-all group shadow-xl"
       >
         <div className="flex items-center justify-between">
           <div>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 mb-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#0057FF]/30 text-[#00D1FF] border border-[#00D1FF]/40 mb-2">
               ⭐ New: All 100 Code Examples
             </span>
-            <h3 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+            <h3 className="text-base sm:text-lg font-bold text-white group-hover:text-[#00D1FF] transition-colors">
               Complete SP Syntax Guide (1–100 Examples)
             </h3>
-            <p className="text-xs text-slate-300 mt-1">
+            <p className="text-xs sm:text-sm text-slate-300 mt-1">
               Browse, search, and copy all 100 serial code examples from basic syntax to multi-threaded REST microservices.
             </p>
           </div>
-          <ArrowRight className="w-5 h-5 text-cyan-400 group-hover:translate-x-1 transition-transform shrink-0 ml-4" />
+          <ArrowRight className="w-5 h-5 text-[#00D1FF] group-hover:translate-x-1.5 transition-transform shrink-0 ml-4" />
         </div>
       </Link>
 
@@ -80,13 +80,13 @@ fn check(Role r) -> string {
           <Link
             key={sec.href}
             href={sec.href}
-            className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+            className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#081735] hover:border-[#0057FF]/50 transition-all group shadow-lg"
           >
-            <h3 className="text-sm font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
               <span>{sec.title}</span>
-              <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
+              <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
             </h3>
-            <p className="text-xs text-slate-400 mt-1">{sec.desc}</p>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">{sec.desc}</p>
           </Link>
         ))}
       </div>

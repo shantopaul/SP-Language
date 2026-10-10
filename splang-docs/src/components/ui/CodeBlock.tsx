@@ -35,31 +35,31 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
 
   const highlightLine = (line: string): React.ReactNode => {
     if (line.trim().startsWith("//") || line.trim().startsWith("///")) {
-      return <span className="text-emerald-400/80 italic">{line}</span>;
+      return <span className="text-slate-500 italic">{line}</span>;
     }
 
     const tokens = line.split(
-      /(\b(?:import|fn|class|interface|struct|enum|let|var|if|else|match|for|in|while|do|switch|case|default|return|break|continue|new|this|super|public|private|protected|override|virtual|abstract|true|false|null|void|int|double|string|bool|Array|List|Map|Set)\b|"[^"]*"|'[^']*'|\b\d+(?:\.\d+)?\b|[{}()[\];.,+\-*/=<>!&|?:]+)/g
+      /(\b(?:import|fn|class|interface|struct|enum|let|var|if|else|match|for|in|while|do|switch|case|default|return|break|continue|new|this|super|public|private|protected|override|virtual|abstract|async|await|comptime|static|const|true|false|null|void|int|double|float|string|bool|byte|char|Array|List|Map|Set|Context|Response|Request|Result|Option)\b|"[^"]*"|'[^']*'|\b\d+(?:\.\d+)?\b|[{}()[\];.,+\-*/=<>!&|?:]+)/g
     );
 
     return tokens.map((token, i) => {
       if (!token) return null;
 
       if (
-        /^(import|fn|class|interface|struct|enum|let|var|if|else|match|for|in|while|do|switch|case|default|return|break|continue|new|this|super|public|private|protected|override|virtual|abstract)$/.test(
+        /^(import|fn|class|interface|struct|enum|let|var|if|else|match|for|in|while|do|switch|case|default|return|break|continue|new|this|super|public|private|protected|override|virtual|abstract|async|await|comptime|static|const)$/.test(
           token
         )
       ) {
         return (
-          <span key={i} className="text-cyan-400 font-semibold">
+          <span key={i} className="text-[#00D1FF] font-semibold">
             {token}
           </span>
         );
       }
 
-      if (/^(void|int|double|string|bool|Array|List|Map|Set|true|false|null)$/.test(token)) {
+      if (/^(void|int|double|float|string|bool|byte|char|Array|List|Map|Set|Context|Response|Request|Result|Option|true|false|null)$/.test(token)) {
         return (
-          <span key={i} className="text-emerald-400 font-medium">
+          <span key={i} className="text-[#60a5fa] font-medium">
             {token}
           </span>
         );
@@ -72,7 +72,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
             <span key={i} className="text-amber-300">
               {parts.map((p, idx) =>
                 p.startsWith("${") ? (
-                  <span key={idx} className="text-cyan-300 font-bold">
+                  <span key={idx} className="text-[#00D1FF] font-bold">
                     {p}
                   </span>
                 ) : (
@@ -116,32 +116,40 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   return (
     <div
       className={cn(
-        "rounded-xl border border-slate-800 bg-[#0a0f1d] overflow-hidden shadow-xl text-xs sm:text-sm font-mono my-4",
+        "rounded-xl border border-[#0A1F44] bg-[#020D21] overflow-hidden shadow-2xl text-xs sm:text-sm font-mono my-5",
         className
       )}
     >
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-900/90 border-b border-slate-800/80">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#081735]/90 border-b border-[#0A1F44]">
+        <div className="flex items-center gap-3">
+          {/* macOS window control dots */}
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]/80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]/80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#27c93f]/80" />
+          </div>
+
           {filename ? (
-            <span className="text-xs font-sans text-slate-300 font-medium flex items-center gap-1.5">
-              <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-              {filename}
+            <span className="text-xs font-sans text-slate-300 font-medium flex items-center gap-1.5 pl-1">
+              <Terminal className="w-3.5 h-3.5 text-[#00D1FF]" />
+              <span>{filename}</span>
             </span>
           ) : (
-            <span className="text-[11px] font-sans uppercase tracking-wider text-slate-400 font-semibold">
+            <span className="text-[11px] font-sans uppercase tracking-wider text-slate-400 font-semibold pl-1">
               {language}
             </span>
           )}
         </div>
+
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-slate-400 hover:text-white hover:bg-[#0A1F44] transition-colors"
           title="Copy code"
         >
           {copied ? (
             <>
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-emerald-400">Copied</span>
+              <Check className="w-3.5 h-3.5 text-[#00D1FF]" />
+              <span className="text-[#00D1FF] font-medium">Copied</span>
             </>
           ) : (
             <>

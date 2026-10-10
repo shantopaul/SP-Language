@@ -72,52 +72,52 @@ export default function BenchmarksPage() {
       <Breadcrumbs items={[{ title: "Performance & Architecture", href: "/benchmarks" }]} />
 
       <h1 className="text-3xl font-extrabold text-white">7-Language Performance Benchmarks</h1>
-      <p className="text-sm text-slate-300">
-        SP combines modern high-level abstractions with bare-metal LLVM code generation. Across 5 compute workloads, SP matches optimized C, C++, and Rust performance.
+      <p className="text-sm text-slate-300 leading-relaxed">
+        SP combines modern high-level abstractions with bare-metal LLVM code generation. Across 5 compute workloads, SP matches optimized C, C++, and Rust performance while drastically outperforming interpreted languages.
       </p>
 
       <div className="space-y-8 pt-4">
         {BENCHMARKS.map((b, idx) => (
-          <div key={idx} className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+          <div key={idx} className="rounded-2xl border border-[#0A1F44] bg-[#081735]/60 p-5 sm:p-6 shadow-xl">
             <h3 className="text-base font-bold text-white mb-1">{b.name}</h3>
             <p className="text-xs text-slate-400 mb-4">{b.desc}</p>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
-                <thead className="border-b border-slate-800 text-slate-400">
+                <thead className="border-b border-[#0A1F44] text-slate-400 uppercase text-[11px] tracking-wider">
                   <tr>
-                    <th className="pb-2 font-sans font-semibold">Language</th>
-                    <th className="pb-2 font-semibold">Execution Time & Memory</th>
+                    <th className="pb-3 px-3 font-sans font-semibold">Language</th>
+                    <th className="pb-3 px-3 font-semibold">Execution Time &amp; Memory</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  <tr className="bg-cyan-950/20 text-cyan-300 font-bold">
-                    <td className="py-2 font-sans">SP (spc -O3)</td>
-                    <td className="py-2">{b.sp}</td>
+                <tbody className="divide-y divide-[#0A1F44]/60">
+                  <tr className="bg-[#0057FF]/15 text-[#00D1FF] border-l-2 border-[#00D1FF] font-bold">
+                    <td className="py-2.5 px-3 font-sans">SP (spc -O3)</td>
+                    <td className="py-2.5 px-3">{b.sp}</td>
                   </tr>
-                  <tr>
-                    <td className="py-2 font-sans text-slate-300">C (gcc -O3)</td>
-                    <td className="py-2 text-slate-400">{b.c}</td>
+                  <tr className="hover:bg-[#020D21]/40">
+                    <td className="py-2.5 px-3 font-sans text-slate-300">C (gcc -O3)</td>
+                    <td className="py-2.5 px-3 text-slate-400">{b.c}</td>
                   </tr>
-                  <tr>
-                    <td className="py-2 font-sans text-slate-300">C++ (clang++ -O3)</td>
-                    <td className="py-2 text-slate-400">{b.cpp}</td>
+                  <tr className="hover:bg-[#020D21]/40">
+                    <td className="py-2.5 px-3 font-sans text-slate-300">C++ (clang++ -O3)</td>
+                    <td className="py-2.5 px-3 text-slate-400">{b.cpp}</td>
                   </tr>
-                  <tr>
-                    <td className="py-2 font-sans text-slate-300">Rust (rustc --release)</td>
-                    <td className="py-2 text-slate-400">{b.rust}</td>
+                  <tr className="hover:bg-[#020D21]/40">
+                    <td className="py-2.5 px-3 font-sans text-slate-300">Rust (rustc --release)</td>
+                    <td className="py-2.5 px-3 text-slate-400">{b.rust}</td>
                   </tr>
-                  <tr>
-                    <td className="py-2 font-sans text-slate-300">Java (OpenJDK 21)</td>
-                    <td className="py-2 text-slate-400">{b.java}</td>
+                  <tr className="hover:bg-[#020D21]/40">
+                    <td className="py-2.5 px-3 font-sans text-slate-300">Java (OpenJDK 21)</td>
+                    <td className="py-2.5 px-3 text-slate-400">{b.java}</td>
                   </tr>
-                  <tr>
-                    <td className="py-2 font-sans text-slate-300">Node.js (v20 V8)</td>
-                    <td className="py-2 text-slate-400">{b.node}</td>
+                  <tr className="hover:bg-[#020D21]/40">
+                    <td className="py-2.5 px-3 font-sans text-slate-300">Node.js (v20 V8)</td>
+                    <td className="py-2.5 px-3 text-slate-400">{b.node}</td>
                   </tr>
-                  <tr>
-                    <td className="py-2 font-sans text-slate-300">Python (3.12)</td>
-                    <td className="py-2 text-slate-400">{b.python}</td>
+                  <tr className="hover:bg-[#020D21]/40">
+                    <td className="py-2.5 px-3 font-sans text-slate-300">Python (3.12)</td>
+                    <td className="py-2.5 px-3 text-slate-400">{b.python}</td>
                   </tr>
                 </tbody>
               </table>
@@ -127,9 +127,9 @@ export default function BenchmarksPage() {
       </div>
 
       {/* TechEmpower Section Link */}
-      <div className="p-6 rounded-xl border border-cyan-800/40 bg-gradient-to-r from-cyan-950/30 to-slate-900/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="p-6 rounded-2xl border border-[#0A1F44] bg-gradient-to-r from-[#0057FF]/15 to-[#081735]/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
         <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400">Web Performance</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-[#00D1FF]">Web Platform Performance</span>
           <h3 className="text-lg font-bold text-white mt-0.5">TechEmpower Backend Benchmarks</h3>
           <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
             Comparing HTTP/1.1 throughput across Plaintext (185k req/s), JSON (142k req/s), and Database queries (118k req/s) against Rust Actix, Go Gin, and Node.js Fastify.
@@ -137,7 +137,7 @@ export default function BenchmarksPage() {
         </div>
         <a
           href="/backend/benchmarks"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition-colors shrink-0"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#0057FF] to-[#00D1FF] text-white font-semibold text-xs shadow-[0_0_20px_rgba(0,87,255,0.3)] hover:opacity-95 transition-all shrink-0"
         >
           <span>View TechEmpower Results</span>
         </a>

@@ -25,6 +25,14 @@ export const SEARCH_INDEX: SearchItem[] = [
     excerpt: "Step-by-step installation instructions for Windows, Linux, and macOS platforms.",
   },
   {
+    id: "gs-upgrade",
+    title: "Upgrading SP Language (spc upgrade)",
+    category: "Getting Started",
+    href: "/getting-started/installation",
+    keywords: ["upgrade", "update", "spc upgrade", "latest version", "auto-upgrade", "download"],
+    excerpt: "Auto-upgrade SP Language compiler and standard libraries in-place with zero downtime.",
+  },
+  {
     id: "gs-uninstall",
     title: "Uninstalling SP Language",
     category: "Getting Started",

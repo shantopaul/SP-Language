@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DOCS_NAVIGATION } from "@/data/navigation";
 import { cn } from "@/lib/utils";
-import { ChevronRight } from "lucide-react";
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -20,7 +19,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       {/* Mobile backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm lg:hidden animate-in fade-in duration-200"
           onClick={onClose}
         />
       )}
@@ -28,17 +27,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       {/* Sidebar container */}
       <aside
         className={cn(
-          "fixed top-16 bottom-0 left-0 z-40 w-64 border-r border-slate-800 bg-slate-950/95 overflow-y-auto px-4 py-6 transition-transform duration-200 lg:translate-x-0 lg:static lg:w-64 lg:shrink-0",
+          "fixed top-16 bottom-0 left-0 z-40 w-64 border-r border-[#0A1F44] bg-[#020D21]/95 lg:bg-transparent overflow-y-auto px-4 py-6 transition-transform duration-200 lg:translate-x-0 lg:static lg:w-64 lg:shrink-0 scrollbar-thin",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <nav className="space-y-8">
+        <nav className="space-y-7">
           {DOCS_NAVIGATION.map((section, idx) => (
-            <div key={idx} className="space-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 px-2">
+            <div key={idx} className="space-y-1.5">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2.5">
                 {section.title}
               </h4>
-              <ul className="space-y-1">
+              <ul className="space-y-0.5">
                 {section.items.map((item) => {
                   const isActive = pathname === item.href;
                   return (
@@ -47,15 +46,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                         href={item.href}
                         onClick={onClose}
                         className={cn(
-                          "flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                          "flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150",
                           isActive
-                            ? "bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 font-semibold"
-                            : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
+                            ? "bg-[#0057FF]/15 text-[#00D1FF] border border-[#00D1FF]/40 font-semibold shadow-[0_0_12px_rgba(0,209,255,0.15)]"
+                            : "text-slate-400 hover:text-white hover:bg-[#081735]/70"
                         )}
                       >
                         <span className="truncate">{item.title}</span>
                         {item.badge && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#0057FF]/20 text-[#00D1FF] border border-[#00D1FF]/30 font-medium">
                             {item.badge}
                           </span>
                         )}

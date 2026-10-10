@@ -63,17 +63,17 @@ export function SyntaxGuideClient() {
       />
 
       {/* Hero Header */}
-      <div className="border-b border-slate-800 pb-8 space-y-4">
+      <div className="border-b border-[#0A1F44] pb-8 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#0057FF]/15 text-[#00D1FF] border border-[#00D1FF]/30 shadow-[0_0_10px_rgba(0,209,255,0.15)]">
             <Sparkles className="w-3.5 h-3.5" /> Complete 100 Examples
           </span>
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-            SP Language v1.0
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#0057FF]/20 text-white border border-[#0057FF]/50">
+            SP Language v3.1.0 GA
           </span>
         </div>
 
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+        <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           Complete Syntax Guide (1–100)
         </h1>
         <p className="text-sm sm:text-base text-slate-300 max-w-3xl leading-relaxed">
@@ -84,37 +84,37 @@ export function SyntaxGuideClient() {
 
         {/* Quick Stats Banner */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-          <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div className="p-3.5 rounded-xl border border-[#0A1F44] bg-[#081735]/60 shadow-md">
             <span className="text-xs text-slate-400">Total Examples</span>
             <p className="text-xl font-bold text-white">100</p>
           </div>
-          <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div className="p-3.5 rounded-xl border border-[#0A1F44] bg-[#081735]/60 shadow-md">
             <span className="text-xs text-slate-400">Categories</span>
-            <p className="text-xl font-bold text-cyan-400">10 Groups</p>
+            <p className="text-xl font-bold text-[#00D1FF]">10 Groups</p>
           </div>
-          <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div className="p-3.5 rounded-xl border border-[#0A1F44] bg-[#081735]/60 shadow-md">
             <span className="text-xs text-slate-400">Toolchain</span>
-            <p className="text-xl font-bold text-purple-400">spc v1.0.0</p>
+            <p className="text-xl font-bold text-[#60a5fa]">spc v3.1.0 GA</p>
           </div>
-          <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div className="p-3.5 rounded-xl border border-[#0A1F44] bg-[#081735]/60 shadow-md">
             <span className="text-xs text-slate-400">Compiled Outputs</span>
-            <p className="text-xl font-bold text-emerald-400">Verified</p>
+            <p className="text-xl font-bold text-[#00D1FF]">100% Verified</p>
           </div>
         </div>
       </div>
 
       {/* Interactive Controls & Filters */}
-      <div className="sticky top-16 z-30 bg-[#020617]/95 backdrop-blur-md border border-slate-800 rounded-xl p-4 shadow-xl space-y-3">
+      <div className="sticky top-16 z-30 bg-[#020D21]/95 backdrop-blur-md border border-[#0A1F44] rounded-2xl p-4 shadow-2xl space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           {/* Search Input */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-[#00D1FF] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by keyword, title, code, or number (e.g. 47, mutex, json, defer)..."
-              className="w-full pl-9 pr-4 py-2 bg-slate-900/90 border border-slate-700/80 rounded-lg text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
+              className="w-full pl-9 pr-4 py-2 bg-[#081735] border border-[#0A1F44] rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#00D1FF] transition-colors"
             />
             {searchQuery && (
               <button
@@ -129,9 +129,9 @@ export function SyntaxGuideClient() {
           {/* Quick Index Toggle Button */}
           <button
             onClick={() => setShowIndexGrid((prev) => !prev)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors shrink-0"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-[#081735] border border-[#0A1F44] hover:border-[#00D1FF]/40 rounded-xl text-xs font-semibold text-slate-300 hover:text-white transition-colors shrink-0"
           >
-            <Hash className="w-3.5 h-3.5 text-cyan-400" />
+            <Hash className="w-3.5 h-3.5 text-[#00D1FF]" />
             <span>Jump to Number (1–100)</span>
             {showIndexGrid ? (
               <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
@@ -143,7 +143,7 @@ export function SyntaxGuideClient() {
 
         {/* Collapsible Numbered Grid Jump */}
         {showIndexGrid && (
-          <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800 max-h-56 overflow-y-auto">
+          <div className="p-3 bg-[#020D21] rounded-xl border border-[#0A1F44] max-h-56 overflow-y-auto">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
               Select example number to jump directly:
             </p>
@@ -154,7 +154,7 @@ export function SyntaxGuideClient() {
                   href={`#example-${ex.id}`}
                   onClick={() => setShowIndexGrid(false)}
                   title={`${ex.id}. ${ex.title}`}
-                  className="w-8 h-8 rounded text-xs flex items-center justify-center font-mono bg-slate-900 hover:bg-cyan-950 hover:text-cyan-300 border border-slate-800 hover:border-cyan-700 text-slate-300 transition-colors"
+                  className="w-8 h-8 rounded-lg text-xs flex items-center justify-center font-mono bg-[#081735] hover:bg-[#0057FF]/30 hover:text-[#00D1FF] border border-[#0A1F44] hover:border-[#00D1FF]/50 text-slate-300 transition-colors"
                 >
                   {ex.id}
                 </a>
@@ -165,17 +165,17 @@ export function SyntaxGuideClient() {
 
         {/* Category Pills Filter */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-          <Filter className="w-3.5 h-3.5 text-slate-500 shrink-0 ml-1" />
+          <Filter className="w-3.5 h-3.5 text-[#00D1FF] shrink-0 ml-1" />
           {SYNTAX_CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat;
             return (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${
+                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all shrink-0 ${
                   isSelected
-                    ? "bg-cyan-500 text-slate-950 font-bold shadow-sm"
-                    : "bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800/80"
+                    ? "bg-gradient-to-r from-[#0057FF] to-[#00D1FF] text-white font-bold shadow-[0_0_12px_rgba(0,209,255,0.3)]"
+                    : "bg-[#081735] text-slate-400 hover:text-slate-200 hover:bg-[#0A1F44] border border-[#0A1F44]"
                 }`}
               >
                 {cat}
@@ -185,9 +185,9 @@ export function SyntaxGuideClient() {
         </div>
 
         {/* Search Result Counter */}
-        <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800/60">
+        <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-[#0A1F44]/60">
           <span>
-            Showing <strong className="text-cyan-400">{filteredExamples.length}</strong> of 100
+            Showing <strong className="text-[#00D1FF]">{filteredExamples.length}</strong> of 100
             examples
           </span>
           {(searchQuery || selectedCategory !== "All") && (
@@ -196,7 +196,7 @@ export function SyntaxGuideClient() {
                 setSearchQuery("");
                 setSelectedCategory("All");
               }}
-              className="text-xs text-cyan-400 hover:underline"
+              className="text-xs text-[#00D1FF] hover:underline"
             >
               Reset filters
             </button>
@@ -207,7 +207,7 @@ export function SyntaxGuideClient() {
       {/* Examples List */}
       <div className="space-y-12">
         {filteredExamples.length === 0 ? (
-          <div className="text-center py-16 p-6 border border-slate-800 rounded-xl bg-slate-900/20">
+          <div className="text-center py-16 p-6 border border-[#0A1F44] rounded-2xl bg-[#081735]/40 shadow-xl">
             <BookOpen className="w-10 h-10 text-slate-600 mx-auto mb-3" />
             <h3 className="text-base font-semibold text-white">No matching syntax examples</h3>
             <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
@@ -219,7 +219,7 @@ export function SyntaxGuideClient() {
                 setSearchQuery("");
                 setSelectedCategory("All");
               }}
-              className="mt-4 px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold"
+              className="mt-4 px-4 py-2 bg-gradient-to-r from-[#0057FF] to-[#00D1FF] text-white rounded-xl text-xs font-semibold shadow-md"
             >
               Show all 100 examples
             </button>
@@ -229,13 +229,13 @@ export function SyntaxGuideClient() {
             <section
               key={ex.id}
               id={`example-${ex.id}`}
-              className="scroll-mt-36 p-6 rounded-2xl border border-slate-800/90 bg-[#0a0f1d]/70 hover:border-slate-700 transition-colors shadow-lg space-y-4"
+              className="scroll-mt-36 p-6 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:border-[#0057FF]/50 transition-all shadow-xl space-y-4"
             >
               {/* Section Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#0A1F44] pb-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-extrabold px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60">
+                    <span className="font-mono text-xs font-extrabold px-2 py-0.5 rounded-full bg-[#0057FF]/20 text-[#00D1FF] border border-[#00D1FF]/40">
                       #{ex.id}
                     </span>
                     <span className="text-[11px] font-medium text-slate-400">
@@ -248,7 +248,7 @@ export function SyntaxGuideClient() {
                 </div>
                 <a
                   href={`#example-${ex.id}`}
-                  className="text-xs text-slate-500 hover:text-cyan-400 font-mono transition-colors self-start sm:self-center"
+                  className="text-xs text-slate-500 hover:text-[#00D1FF] font-mono transition-colors self-start sm:self-center"
                   title="Permanent anchor link"
                 >
                   #example-{ex.id}
@@ -272,7 +272,7 @@ export function SyntaxGuideClient() {
                   return (
                     <div key={sIdx} className="space-y-2">
                       {snippet.subtitle && (
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-400/90 pt-1">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-[#00D1FF] pt-1">
                           {snippet.subtitle}
                         </h4>
                       )}
@@ -292,17 +292,17 @@ export function SyntaxGuideClient() {
 
                       {/* Terminal Expected Output */}
                       {snippet.output && (
-                        <div className="rounded-xl border border-slate-800 bg-[#060a14] overflow-hidden mt-3 shadow-inner">
-                          <div className="flex items-center justify-between px-3.5 py-1.5 bg-slate-900/70 border-b border-slate-800/80">
-                            <span className="text-[11px] font-mono text-emerald-400 font-semibold flex items-center gap-1.5">
-                              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                        <div className="rounded-xl border border-[#0A1F44] bg-[#020D21] overflow-hidden mt-3 shadow-inner">
+                          <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#081735]/80 border-b border-[#0A1F44]">
+                            <span className="text-[11px] font-mono text-[#00D1FF] font-semibold flex items-center gap-1.5">
+                              <Terminal className="w-3.5 h-3.5 text-[#00D1FF]" />
                               Expected Terminal Output
                             </span>
-                            <span className="text-[10px] text-slate-500 font-mono">
+                            <span className="text-[10px] text-slate-400 font-mono">
                               spc run {filename}
                             </span>
                           </div>
-                          <pre className="p-3.5 text-xs font-mono text-emerald-300/95 overflow-x-auto whitespace-pre leading-relaxed">
+                          <pre className="p-3.5 text-xs font-mono text-cyan-300/95 overflow-x-auto whitespace-pre leading-relaxed">
                             {snippet.output}
                           </pre>
                         </div>
@@ -320,7 +320,7 @@ export function SyntaxGuideClient() {
       <div className="fixed bottom-6 right-6 z-40">
         <button
           onClick={scrollToTop}
-          className="p-3 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white shadow-xl shadow-cyan-900/40 transition-all hover:scale-105"
+          className="p-3 rounded-full bg-gradient-to-r from-[#0057FF] to-[#00D1FF] text-white shadow-xl shadow-[#0057FF]/30 transition-all hover:scale-105"
           title="Scroll to top"
         >
           <ArrowUp className="w-5 h-5" />

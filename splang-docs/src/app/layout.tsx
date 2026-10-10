@@ -22,20 +22,51 @@ export const metadata: Metadata = {
     template: "%s | SP Language Docs",
   },
   description:
-    "Official documentation for the SP Programming Language. Syntax guides, standard library API reference, toolchain CLI manual, and language tutorials.",
+    "Official developer documentation for the SP Programming Language (v3.1.0 GA). Complete syntax guides, 23 standard library modules, std.web framework, LLVM compiler toolchain, and package manager.",
   keywords: [
-    "SP Documentation",
-    "SP Syntax Guide",
+    "SP Programming Language Documentation",
+    "SP Docs",
+    "std.web",
     "std.io",
+    "std.db",
     "std.collections",
-    "spc build",
+    "spc compiler",
+    "spc upgrade",
     "spm package manager",
     "LLVM",
     "Shanto Paul",
   ],
   icons: {
-    icon: "/logo.svg",
-    shortcut: "/logo.svg",
+    icon: [
+      { url: "/brand/favicon.ico", sizes: "any" },
+      { url: "/brand/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/brand/app-icon-navy.png",
+    shortcut: "/brand/favicon.ico",
+  },
+  openGraph: {
+    title: "SP Programming Language Documentation (v3.1.0 GA)",
+    description:
+      "Comprehensive syntax guides, 23 standard library modules, std.web platform, and native LLVM toolchain manuals.",
+    url: "https://docs.splang.shantopaul.com",
+    siteName: "SP Language Docs",
+    images: [
+      {
+        url: "/brand/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "SP Programming Language Documentation",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SP Programming Language Documentation (v3.1.0 GA)",
+    description:
+      "Syntax guides, 23 standard library modules, std.web microservices, and native LLVM toolchain manuals.",
+    images: ["/brand/og-image.png"],
   },
 };
 
@@ -46,7 +77,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`dark scroll-smooth ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+      <body className="font-sans antialiased bg-[#020D21] text-slate-100 selection:bg-[#0057FF]/30 selection:text-[#00D1FF] min-h-screen">
         <DocsLayoutClient>{children}</DocsLayoutClient>
       </body>
     </html>

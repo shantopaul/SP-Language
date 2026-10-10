@@ -9,42 +9,53 @@ interface CalloutProps {
   className?: string;
 }
 
+interface CalloutConfig {
+  icon: React.ComponentType<{ className?: string }>;
+  defaultTitle: string;
+  border: string;
+  bg: string;
+  text: string;
+  iconColor: string;
+  glow?: string;
+}
+
 export const Callout: React.FC<CalloutProps> = ({
   type = "note",
   title,
   children,
   className,
 }) => {
-  const configs = {
+  const configs: Record<NonNullable<CalloutProps["type"]>, CalloutConfig> = {
     note: {
       icon: Info,
       defaultTitle: "Note",
-      border: "border-blue-500/40",
-      bg: "bg-blue-950/20",
+      border: "border-[#0057FF]/40",
+      bg: "bg-[#081735]/80",
       text: "text-blue-300",
-      iconColor: "text-blue-400",
+      iconColor: "text-[#00D1FF]",
     },
     tip: {
       icon: Lightbulb,
       defaultTitle: "Tip",
-      border: "border-emerald-500/40",
-      bg: "bg-emerald-950/20",
-      text: "text-emerald-300",
-      iconColor: "text-emerald-400",
+      border: "border-[#00D1FF]/40",
+      bg: "bg-[#081735]/80",
+      text: "text-[#00D1FF]",
+      iconColor: "text-[#00D1FF]",
+      glow: "shadow-[0_0_20px_rgba(0,209,255,0.1)]",
     },
     important: {
       icon: AlertCircle,
       defaultTitle: "Important",
-      border: "border-cyan-500/40",
-      bg: "bg-cyan-950/20",
-      text: "text-cyan-300",
-      iconColor: "text-cyan-400",
+      border: "border-indigo-500/40",
+      bg: "bg-[#081735]/80",
+      text: "text-indigo-300",
+      iconColor: "text-indigo-400",
     },
     warning: {
       icon: AlertTriangle,
       defaultTitle: "Warning",
       border: "border-amber-500/40",
-      bg: "bg-amber-950/20",
+      bg: "bg-[#081735]/80",
       text: "text-amber-300",
       iconColor: "text-amber-400",
     },
@@ -52,7 +63,7 @@ export const Callout: React.FC<CalloutProps> = ({
       icon: ShieldAlert,
       defaultTitle: "Caution",
       border: "border-rose-500/40",
-      bg: "bg-rose-950/20",
+      bg: "bg-[#081735]/80",
       text: "text-rose-300",
       iconColor: "text-rose-400",
     },
@@ -64,15 +75,16 @@ export const Callout: React.FC<CalloutProps> = ({
   return (
     <div
       className={cn(
-        "rounded-xl border p-4 my-4 flex items-start gap-3 backdrop-blur-sm",
+        "rounded-xl border p-4 my-5 flex items-start gap-3 backdrop-blur-md transition-all",
         config.border,
         config.bg,
+        config.glow,
         className
       )}
     >
       <Icon className={cn("w-5 h-5 shrink-0 mt-0.5", config.iconColor)} />
       <div className="flex-1 text-xs sm:text-sm">
-        <h5 className={cn("font-semibold mb-1", config.text)}>
+        <h5 className={cn("font-bold mb-1 tracking-tight", config.text)}>
           {title || config.defaultTitle}
         </h5>
         <div className="text-slate-300 leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0">

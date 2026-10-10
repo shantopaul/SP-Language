@@ -4,7 +4,7 @@ import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { Callout } from "@/components/ui/Callout";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { PrevNextNav } from "@/components/ui/PrevNextNav";
-import { Sparkles, Cpu, Globe, Zap, ArrowRight, ShieldCheck, RefreshCw } from "lucide-react";
+import { Sparkles, Cpu, Globe, Zap, ArrowRight, RefreshCw } from "lucide-react";
 
 export const metadata = {
   title: "SP 2.0.0 Release Overview",
@@ -44,15 +44,15 @@ fn main() -> void {
 
       {/* Hero Badge & Title */}
       <div>
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/60 text-cyan-400 text-xs font-semibold mb-4">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Milestone Release &bull; October 2026</span>
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0057FF]/15 border border-[#00D1FF]/30 text-[#00D1FF] text-xs font-semibold mb-4 shadow-[0_0_15px_rgba(0,209,255,0.15)]">
+          <Sparkles className="w-3.5 h-3.5 text-[#00D1FF]" />
+          <span>Milestone Release &bull; Language Architecture</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          SP 2.0.0 General Availability
+          SP 2.0.0 Evolution &amp; Capabilities
         </h1>
         <p className="mt-3 text-base text-slate-300 leading-relaxed">
-          SP 2.0 marks the definitive milestone in the language’s evolution: combining bare-metal LLVM compilation, compile-time metaprogramming, structured asynchronous coroutines, first-class WebAssembly targeting, and forward-compatible Language Editions.
+          SP 2.0 marked the foundational leap in the language’s evolution: combining bare-metal LLVM compilation, compile-time metaprogramming, structured asynchronous coroutines, first-class WebAssembly targeting, and forward-compatible Language Editions.
         </p>
       </div>
 
@@ -74,14 +74,14 @@ fn main() -> void {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Link
           href="/sp2/editions"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#081735] hover:border-[#0057FF]/50 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center text-emerald-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/20 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <RefreshCw className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
             <span>Language Editions</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
             Evolve codebases without breaking existing modules. Seamlessly mix <code>2026</code> and <code>2028</code> editions in a single build.
@@ -90,14 +90,14 @@ fn main() -> void {
 
         <Link
           href="/sp2/comptime"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#081735] hover:border-[#0057FF]/50 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-purple-950/60 border border-purple-800/60 flex items-center justify-center text-purple-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/20 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <Zap className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
             <span>Compile-Time Execution (comptime)</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
             Execute arbitrary deterministic functions at build time. Constant fold heavy calculations directly into LLVM IR immediate values.
@@ -106,14 +106,14 @@ fn main() -> void {
 
         <Link
           href="/sp2/wasm"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#081735] hover:border-[#0057FF]/50 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-blue-950/60 border border-blue-800/60 flex items-center justify-center text-blue-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/20 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <Globe className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
             <span>WebAssembly (wasm32-wasi)</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
             First-class cross-compilation target. Deploy sandboxed SP binaries onto Cloudflare Workers, Fastly Compute, Wasmer, and browsers.
@@ -122,14 +122,14 @@ fn main() -> void {
 
         <Link
           href="/sp2/async-await"
-          className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 hover:border-cyan-500/50 transition-all group"
+          className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 hover:bg-[#081735] hover:border-[#0057FF]/50 transition-all group shadow-lg"
         >
-          <div className="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan-800/60 flex items-center justify-center text-cyan-400 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0057FF]/20 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] mb-3">
             <Cpu className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center justify-between">
+          <h3 className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors flex items-center justify-between">
             <span>Structured Coroutines</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#00D1FF] group-hover:translate-x-1 transition-transform" />
           </h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
             Cooperative non-blocking multitasking using <code>async</code>, <code>await</code>, and <code>spawn</code> with zero OS thread overhead.
@@ -138,7 +138,7 @@ fn main() -> void {
       </div>
 
       {/* Migration Notice */}
-      <div className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="p-5 rounded-2xl border border-[#0A1F44] bg-[#081735]/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg">
         <div>
           <h3 className="text-base font-bold text-white">Upgrading from SP 1.x?</h3>
           <p className="text-xs text-slate-400 mt-1">
@@ -147,7 +147,7 @@ fn main() -> void {
         </div>
         <Link
           href="/sp2/migration"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition-colors shrink-0"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0057FF] to-[#00D1FF] text-white font-semibold text-xs transition-all shadow-[0_0_15px_rgba(0,87,255,0.25)] shrink-0"
         >
           <span>Migration Guide</span>
           <ArrowRight className="w-3.5 h-3.5" />
