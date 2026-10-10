@@ -22,52 +22,52 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({ pkg }) => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-        <h2 className="text-base font-semibold text-white font-mono flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          <span>Security & Integrity Analysis</span>
+      <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44]">
+        <h2 className="text-base font-bold text-white font-mono flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-[#00D1FF]" />
+          <span>Security &amp; Integrity Analysis</span>
         </h2>
-        <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-0.5 rounded-full">
-          Audit: PASSED
+        <span className="text-xs font-mono font-semibold text-[#00D1FF] bg-[#0057FF]/20 border border-[#00D1FF]/40 px-3 py-0.5 rounded-full shadow-[0_0_12px_rgba(0,209,255,0.2)]">
+          Audit: PASSED (100%)
         </span>
       </div>
 
       {/* SHA-256 Card */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
+      <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/60 p-5 space-y-3 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-cyan-400" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+            <Lock className="w-4 h-4 text-[#00D1FF]" />
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
               Cryptographic Checksum (SHA-256)
             </span>
           </div>
-          <span className="text-xs font-mono text-slate-400">
+          <span className="text-xs font-mono text-[#00D1FF] bg-[#0057FF]/15 px-2 py-0.5 rounded border border-[#00D1FF]/30">
             v{latestVersion?.version}
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-3 p-3 bg-slate-950 rounded-lg border border-slate-800">
-          <code className="text-xs font-mono text-cyan-300 break-all select-all">
+        <div className="flex items-center justify-between gap-3 p-3 bg-[#020D21] rounded-xl border border-[#0A1F44]">
+          <code className="text-xs font-mono text-[#00D1FF] break-all select-all font-semibold">
             {checksum}
           </code>
           <CopyButton text={checksum} label="Copy" className="shrink-0 h-7 text-xs px-2" />
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed">
-          The SP Package Manager (<code className="text-cyan-400">spm</code>) automatically verifies this digest against <code className="text-cyan-400">sp.lock</code> before uncompressing any archive. If the digest differs by even a single bit, installation is immediately aborted.
+          The SP Package Manager (<code className="text-[#00D1FF]">spm</code>) automatically verifies this digest against <code className="text-[#00D1FF]">sp.lock</code> before uncompressing any archive. If the digest differs by even a single bit, installation is immediately aborted.
         </p>
       </div>
 
       {/* Verification Instructions */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-          <Terminal className="w-4 h-4 text-cyan-400" />
+      <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/60 p-5 space-y-3 shadow-lg">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+          <Terminal className="w-4 h-4 text-[#00D1FF]" />
           <span>Verify Integrity via CLI</span>
         </h3>
-        <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 font-mono text-xs text-slate-200 flex items-center justify-between">
+        <div className="p-3 bg-[#020D21] rounded-xl border border-[#0A1F44] font-mono text-xs text-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-cyan-400">$</span>
-            <span>spm verify {pkg.name}</span>
+            <span className="text-[#00D1FF] font-bold">$</span>
+            <span className="text-white font-semibold">spm verify {pkg.name}</span>
           </div>
           <CopyButton text={`spm verify ${pkg.name}`} label="Copy" className="h-7 text-xs px-2" />
         </div>
@@ -75,27 +75,27 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({ pkg }) => {
 
       {/* Security Features List */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60">
-          <FileCheck2 className="w-5 h-5 text-emerald-400 mb-2" />
+        <div className="p-4 rounded-xl border border-[#0A1F44] bg-[#081735]/40 hover:border-[#0057FF]/40 transition-colors">
+          <FileCheck2 className="w-5 h-5 text-[#00D1FF] mb-2" />
           <h4 className="text-xs font-bold text-white mb-1">Immutable Tarballs</h4>
           <p className="text-[11px] text-slate-400 leading-relaxed">
             Published versions can never be rewritten or modified. Once released, the SHA-256 hash is permanent.
           </p>
         </div>
 
-        <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60">
-          <ShieldCheck className="w-5 h-5 text-cyan-400 mb-2" />
+        <div className="p-4 rounded-xl border border-[#0A1F44] bg-[#081735]/40 hover:border-[#0057FF]/40 transition-colors">
+          <ShieldCheck className="w-5 h-5 text-[#00D1FF] mb-2" />
           <h4 className="text-xs font-bold text-white mb-1">Sandboxed Builds</h4>
           <p className="text-[11px] text-slate-400 leading-relaxed">
             SP packages have no pre/post-install arbitrary shell hooks, eliminating common npm-style supply chain attacks.
           </p>
         </div>
 
-        <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60">
-          <Lock className="w-5 h-5 text-indigo-400 mb-2" />
+        <div className="p-4 rounded-xl border border-[#0A1F44] bg-[#081735]/40 hover:border-[#0057FF]/40 transition-colors">
+          <Lock className="w-5 h-5 text-[#60A5FA] mb-2" />
           <h4 className="text-xs font-bold text-white mb-1">Strict Lockfile</h4>
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            All transient sub-dependencies are deterministically locked with exact hashes in <code className="text-cyan-400">sp.lock</code>.
+            All transient sub-dependencies are deterministically locked with exact hashes in <code className="text-[#00D1FF]">sp.lock</code>.
           </p>
         </div>
       </div>

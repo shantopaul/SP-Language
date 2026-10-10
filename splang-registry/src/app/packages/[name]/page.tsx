@@ -65,16 +65,16 @@ export default function PackageDetailPage({ params }: PageProps) {
     <div className="space-y-6 pb-16">
       {/* Breadcrumb Bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-        <nav className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
-          <Link href="/" className="hover:text-cyan-400">
+        <nav className="flex items-center gap-2 text-xs text-slate-400 font-mono">
+          <Link href="/" className="hover:text-[#00D1FF] transition-colors">
             Registry
           </Link>
           <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-          <Link href="/packages" className="hover:text-cyan-400">
+          <Link href="/packages" className="hover:text-[#00D1FF] transition-colors">
             Packages
           </Link>
           <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-          <span className="text-white">{pkg.name}</span>
+          <span className="text-[#00D1FF] font-semibold">{pkg.name}</span>
         </nav>
       </div>
 
@@ -102,15 +102,15 @@ export default function PackageDetailPage({ params }: PageProps) {
           <div className="space-y-6">
             {/* Install Command Box */}
             <div className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
                 Install Package
               </h3>
               <InstallCommand packageName={pkg.name} version={pkg.version} />
             </div>
 
             {/* Metadata Card */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono pb-2 border-b border-slate-800/80">
+            <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/70 p-6 space-y-4 shadow-xl">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono pb-3 border-b border-[#0A1F44]">
                 Package Details
               </h3>
 
@@ -127,7 +127,7 @@ export default function PackageDetailPage({ params }: PageProps) {
 
                 <div className="flex items-center justify-between text-slate-400">
                   <span>Total Downloads:</span>
-                  <span className="text-cyan-400 font-semibold">
+                  <span className="text-[#00D1FF] font-bold">
                     {formatDownloads(pkg.totalDownloads)}
                   </span>
                 </div>
@@ -146,7 +146,7 @@ export default function PackageDetailPage({ params }: PageProps) {
 
                 <div className="flex items-center justify-between text-slate-400">
                   <span>Checksum:</span>
-                  <span className="text-emerald-400 flex items-center gap-1">
+                  <span className="text-[#00D1FF] flex items-center gap-1 font-semibold">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     <span>SHA-256</span>
                   </span>
@@ -154,7 +154,7 @@ export default function PackageDetailPage({ params }: PageProps) {
               </div>
 
               {/* Author & Repository */}
-              <div className="pt-3 border-t border-slate-800/80 space-y-2 text-xs">
+              <div className="pt-3 border-t border-[#0A1F44] space-y-2 text-xs">
                 <div>
                   <span className="text-slate-400 font-mono block mb-1">Author:</span>
                   <span className="text-slate-200 break-words">{pkg.author}</span>
@@ -166,7 +166,7 @@ export default function PackageDetailPage({ params }: PageProps) {
                       href={pkg.repositoryUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono text-xs"
+                      className="text-[#00D1FF] hover:underline flex items-center gap-1 font-mono text-xs"
                     >
                       <GitBranch className="w-3.5 h-3.5" />
                       <span className="truncate">{pkg.repositoryUrl}</span>
@@ -177,14 +177,14 @@ export default function PackageDetailPage({ params }: PageProps) {
               </div>
 
               {/* Keywords */}
-              <div className="pt-3 border-t border-slate-800/80 space-y-2">
+              <div className="pt-3 border-t border-[#0A1F44] space-y-2">
                 <span className="text-xs text-slate-400 font-mono block">Keywords:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {pkg.keywords.map((kw) => (
                     <Link
                       key={kw}
                       href={`/packages?q=${encodeURIComponent(kw)}`}
-                      className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition-colors"
+                      className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#020D21] border border-[#0A1F44] text-slate-300 hover:text-[#00D1FF] hover:border-[#00D1FF]/40 transition-colors"
                     >
                       #{kw}
                     </Link>
@@ -194,15 +194,15 @@ export default function PackageDetailPage({ params }: PageProps) {
             </div>
 
             {/* Quick Command Reference */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-xs font-mono text-slate-400 space-y-2">
-              <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-                <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/40 p-5 text-xs font-mono text-slate-400 space-y-2.5 shadow-lg">
+              <div className="flex items-center gap-2 text-white font-bold">
+                <Terminal className="w-4 h-4 text-[#00D1FF]" />
                 <span>Quick SPM command</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 Run inside any SP project directory:
               </p>
-              <div className="p-2 bg-slate-950 rounded border border-slate-800/80 text-cyan-300 select-all">
+              <div className="p-2.5 bg-[#020D21] rounded-xl border border-[#0A1F44] text-[#00D1FF] font-semibold select-all">
                 spm add {pkg.name}
               </div>
             </div>

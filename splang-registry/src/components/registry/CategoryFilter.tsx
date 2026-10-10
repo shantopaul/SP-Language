@@ -40,10 +40,10 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
       {isLink ? (
         <Link
           href="/packages"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
             !selectedCategory
-              ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-400"
-              : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+              ? "bg-[#0057FF]/20 border-[#00D1FF]/50 text-[#00D1FF] font-semibold shadow-[0_0_12px_rgba(0,209,255,0.2)]"
+              : "bg-[#081735]/80 border-[#0A1F44] text-slate-400 hover:text-white hover:border-[#0057FF]/40"
           }`}
         >
           <LayoutGrid className="w-3.5 h-3.5" />
@@ -52,10 +52,10 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
       ) : (
         <button
           onClick={() => onSelectCategory?.(undefined)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
             !selectedCategory
-              ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-400"
-              : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+              ? "bg-[#0057FF]/20 border-[#00D1FF]/50 text-[#00D1FF] font-semibold shadow-[0_0_12px_rgba(0,209,255,0.2)]"
+              : "bg-[#081735]/80 border-[#0A1F44] text-slate-400 hover:text-white hover:border-[#0057FF]/40"
           }`}
         >
           <LayoutGrid className="w-3.5 h-3.5" />
@@ -72,10 +72,10 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
             <Link
               key={cat.id}
               href={`/categories/${cat.id}`}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
                 isSelected
-                  ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-400"
-                  : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                  ? "bg-[#0057FF]/20 border-[#00D1FF]/50 text-[#00D1FF] font-semibold shadow-[0_0_12px_rgba(0,209,255,0.2)]"
+                  : "bg-[#081735]/80 border-[#0A1F44] text-slate-400 hover:text-white hover:border-[#0057FF]/40"
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -88,10 +88,10 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
           <button
             key={cat.id}
             onClick={() => onSelectCategory?.(cat.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
               isSelected
-                ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-400"
-                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                ? "bg-[#0057FF]/20 border-[#00D1FF]/50 text-[#00D1FF] font-semibold shadow-[0_0_12px_rgba(0,209,255,0.2)]"
+                : "bg-[#081735]/80 border-[#0A1F44] text-slate-400 hover:text-white hover:border-[#0057FF]/40"
             }`}
           >
             <Icon className="w-3.5 h-3.5" />

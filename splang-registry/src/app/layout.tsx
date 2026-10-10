@@ -17,34 +17,46 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://registry.splang.shantopaul.com"),
+  metadataBase: new URL("https://register.splang.shantopaul.com"),
   title: {
     default: "SP Package Registry — Discover, install, and publish packages for SP",
     template: "%s | SP Package Registry",
   },
   description:
-    "The official centralized package repository for the SP Programming Language. Find, inspect, and install verified community and standard libraries for SP 1.0.",
+    "The official centralized package repository for the SP Programming Language. Find, inspect, and install verified community and standard libraries for SP 3.1.0 GA.",
   keywords: [
     "SP Language",
     "Package Registry",
     "SPM",
     "spm install",
     "spm add",
+    "spm publish",
     "SP packages",
     "systems programming",
     "compiler",
   ],
   authors: [{ name: "Shanto Paul", url: "https://shantopaul.com" }],
   icons: {
-    icon: "/logo.svg",
-    shortcut: "/logo.svg",
-    apple: "/logo.svg",
+    icon: [
+      { url: "/brand/favicon.ico", sizes: "any" },
+      { url: "/brand/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/brand/favicon.ico",
+    apple: "/brand/app-icon-navy.png",
   },
   openGraph: {
-    title: "SP Package Registry",
+    title: "SP Package Registry (v3.1.0 GA)",
     description: "Official package registry for the SP Programming Language ecosystem.",
-    url: "https://registry.splang.shantopaul.com",
+    url: "https://register.splang.shantopaul.com",
     siteName: "SP Package Registry",
+    images: [
+      {
+        url: "/brand/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "SP Package Registry",
+      },
+    ],
     locale: "en_US",
     type: "website",
   },
@@ -57,7 +69,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-cyan-500/20 selection:text-cyan-300">
+      <body className="min-h-screen bg-[#020D21] text-slate-100 flex flex-col font-sans antialiased selection:bg-[#00D1FF]/20 selection:text-[#00D1FF]">
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />

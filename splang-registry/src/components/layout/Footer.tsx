@@ -1,29 +1,34 @@
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Boxes, ExternalLink, ShieldCheck, Terminal, BookOpen, Cpu, Heart } from "lucide-react";
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="border-t border-slate-800 bg-slate-950 text-slate-400 py-12 mt-20">
+    <footer className="border-t border-[#0A1F44] bg-[#020D21] text-slate-400 py-12 mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
           {/* Brand Col */}
           <div className="md:col-span-1">
-            <Link href="/" className="flex items-center gap-2.5 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 via-blue-500 to-indigo-500 p-0.5 shadow-md shadow-cyan-500/20">
-                <div className="w-full h-full bg-slate-950 rounded-[6px] flex items-center justify-center font-bold text-transparent bg-clip-text bg-gradient-to-tr from-cyan-400 to-blue-400 text-sm">
-                  SP
-                </div>
+            <Link href="/" className="flex items-center gap-3 mb-4 group">
+              <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#0A1F44] bg-[#081735] flex items-center justify-center p-1 group-hover:border-[#00D1FF]/50 transition-colors">
+                <Image
+                  src="/brand/brand-emblem-navy.png"
+                  alt="SP Language Emblem"
+                  width={28}
+                  height={28}
+                  className="object-contain"
+                />
               </div>
-              <span className="font-bold text-white text-base tracking-tight">
-                SP Package Registry
+              <span className="font-extrabold text-white text-base tracking-tight group-hover:text-[#00D1FF] transition-colors">
+                SP Registry
               </span>
             </Link>
             <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              The official centralized package repository for the SP Programming Language. Distributing cryptographically verified, high-performance packages for SP 1.0.
+              The official centralized package repository for the SP Programming Language. Distributing cryptographically verified, high-performance packages for SP 3.1.0 GA.
             </p>
-            <div className="flex items-center gap-2 text-xs font-mono text-cyan-400">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-[#00D1FF]/30 bg-[#0057FF]/15 text-[#00D1FF] text-xs font-mono">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#00D1FF]" />
               <span>SHA-256 Verified Registry</span>
             </div>
           </div>
@@ -35,28 +40,28 @@ export const Footer: React.FC = () => {
             </h3>
             <ul className="space-y-2.5 text-xs">
               <li>
-                <Link href="/packages" className="hover:text-cyan-400 transition-colors">
+                <Link href="/packages" className="hover:text-[#00D1FF] transition-colors">
                   Explore All Packages
                 </Link>
               </li>
               <li>
-                <Link href="/publish" className="hover:text-cyan-400 transition-colors">
+                <Link href="/publish" className="hover:text-[#00D1FF] transition-colors">
                   Publishing Guide
                 </Link>
               </li>
               <li>
-                <Link href="/security" className="hover:text-cyan-400 transition-colors">
-                  Security & Integrity
+                <Link href="/security" className="hover:text-[#00D1FF] transition-colors">
+                  Security &amp; Integrity
                 </Link>
               </li>
               <li>
-                <Link href="/categories/utilities" className="hover:text-cyan-400 transition-colors">
-                  Utilities & Helpers
+                <Link href="/categories/utilities" className="hover:text-[#00D1FF] transition-colors">
+                  Utilities &amp; Helpers
                 </Link>
               </li>
               <li>
-                <Link href="/categories/web" className="hover:text-cyan-400 transition-colors">
-                  Web & Networking
+                <Link href="/categories/web" className="hover:text-[#00D1FF] transition-colors">
+                  Web &amp; Networking
                 </Link>
               </li>
             </ul>
@@ -65,25 +70,25 @@ export const Footer: React.FC = () => {
           {/* Developer CLI Tools */}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200 mb-4">
-              SPM CLI & Protocol
+              SPM CLI &amp; Protocol
             </h3>
-            <ul className="space-y-2.5 text-xs">
+            <ul className="space-y-2.5 text-xs font-mono">
               <li>
-                <span className="font-mono text-slate-300">spm search &lt;query&gt;</span>
+                <span className="text-slate-300">spm search &lt;query&gt;</span>
               </li>
               <li>
-                <span className="font-mono text-slate-300">spm add &lt;pkg&gt;</span>
+                <span className="text-slate-300">spm add &lt;pkg&gt;</span>
               </li>
               <li>
-                <span className="font-mono text-slate-300">spm publish</span>
+                <span className="text-slate-300">spm publish</span>
               </li>
               <li>
-                <span className="font-mono text-slate-300">spm verify</span>
+                <span className="text-slate-300">spm verify</span>
               </li>
               <li className="pt-2">
                 <a
                   href="/api/v1/packages"
-                  className="text-cyan-400 hover:underline flex items-center gap-1 font-mono text-[11px]"
+                  className="text-[#00D1FF] hover:underline flex items-center gap-1 font-mono text-[11px]"
                 >
                   <Terminal className="w-3 h-3" />
                   <span>REST API v1 Endpoints</span>
@@ -103,7 +108,7 @@ export const Footer: React.FC = () => {
                   href="https://splang.shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
                 >
                   <Cpu className="w-3.5 h-3.5 text-slate-400" />
                   <span>Official Website</span>
@@ -115,7 +120,7 @@ export const Footer: React.FC = () => {
                   href="https://docs.splang.shantopaul.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
                 >
                   <BookOpen className="w-3.5 h-3.5 text-slate-400" />
                   <span>Documentation Portal</span>
@@ -127,7 +132,7 @@ export const Footer: React.FC = () => {
                   href="https://github.com/shantopaul/SP-Language"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-cyan-400 transition-colors flex items-center gap-1.5"
+                  className="hover:text-[#00D1FF] transition-colors flex items-center gap-1.5"
                 >
                   <Boxes className="w-3.5 h-3.5 text-slate-400" />
                   <span>GitHub Repository</span>
@@ -139,12 +144,10 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Bottom Bar */}
-        <div className="pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
+        <div className="pt-8 border-t border-[#0A1F44] flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
           <p>© 2026 SP Language Initiative by Shanto Paul. Released under Apache-2.0 / MIT licenses.</p>
           <div className="flex items-center gap-1 text-slate-400">
-            <span>Crafted with</span>
-            <Heart className="w-3.5 h-3.5 text-red-500 inline fill-red-500" />
-            <span>for high-performance software engineering</span>
+            <span>Crafted for high-performance systems software engineering</span>
           </div>
         </div>
       </div>

@@ -31,15 +31,15 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
     <button
       onClick={handleCopy}
       className={cn(
-        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition-colors text-xs font-medium",
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#081735] hover:bg-[#0057FF]/15 border border-[#0A1F44] hover:border-[#00D1FF]/40 text-slate-300 hover:text-white transition-all text-xs font-medium",
         className
       )}
       title="Copy to clipboard"
     >
       {copied ? (
         <>
-          <Check className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="text-emerald-400">Copied</span>
+          <Check className="w-3.5 h-3.5 text-[#00D1FF]" />
+          <span className="text-[#00D1FF] font-semibold">Copied</span>
         </>
       ) : (
         <>

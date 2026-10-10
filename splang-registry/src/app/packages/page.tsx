@@ -56,11 +56,11 @@ function PackagesExplorerContent() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-extrabold text-white tracking-tight">
+        <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           Explore SP Packages
         </h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Search and browse {PACKAGES.length} packages available in the SP registry.
+        <p className="mt-1 text-sm text-slate-300">
+          Search and browse {PACKAGES.length} production packages available in the SP registry.
         </p>
       </div>
 
@@ -74,7 +74,7 @@ function PackagesExplorerContent() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by name, keyword, or description..."
-            className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-slate-800 bg-slate-900 text-slate-100 placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+            className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-[#0A1F44] bg-[#081735] text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#00D1FF] focus:border-[#00D1FF] transition-all shadow-md"
           />
           {search && (
             <button
@@ -98,7 +98,7 @@ function PackagesExplorerContent() {
             onChange={(e) =>
               setSortBy(e.target.value as "downloads" | "newest" | "name")
             }
-            className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-900 text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            className="px-3 py-2 rounded-xl border border-[#0A1F44] bg-[#081735] text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#00D1FF]"
           >
             <option value="downloads">Most Downloaded</option>
             <option value="newest">Recently Published</option>
@@ -116,13 +116,13 @@ function PackagesExplorerContent() {
       </div>
 
       {/* Results Header */}
-      <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 text-xs font-mono text-slate-400">
+      <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44] text-xs font-mono text-slate-400">
         <div>
-          Showing <span className="text-cyan-400 font-semibold">{filteredPackages.length}</span>{" "}
+          Showing <span className="text-[#00D1FF] font-bold">{filteredPackages.length}</span>{" "}
           packages
           {selectedCategory && (
             <span className="ml-1 text-slate-400">
-              in category <span className="text-white capitalize">"{selectedCategory}"</span>
+              in category <span className="text-white capitalize font-semibold">"{selectedCategory}"</span>
             </span>
           )}
         </div>
@@ -132,7 +132,7 @@ function PackagesExplorerContent() {
               setSearch("");
               setSelectedCategory(undefined);
             }}
-            className="text-cyan-400 hover:underline"
+            className="text-[#00D1FF] hover:underline font-semibold"
           >
             Clear filters
           </button>
@@ -147,14 +147,14 @@ function PackagesExplorerContent() {
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center">
-          <div className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center mx-auto mb-3">
+        <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/40 p-12 text-center shadow-xl">
+          <div className="w-12 h-12 rounded-full bg-[#020D21] border border-[#0A1F44] text-[#00D1FF] flex items-center justify-center mx-auto mb-3">
             <PackageX className="w-6 h-6" />
           </div>
-          <h3 className="text-base font-semibold text-white font-mono mb-1">
+          <h3 className="text-base font-bold text-white font-mono mb-1">
             No packages matched your query
           </h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
+          <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4 leading-relaxed">
             Try searching for a different keyword, category, or clear your search filters.
           </p>
           <button
@@ -162,7 +162,7 @@ function PackagesExplorerContent() {
               setSearch("");
               setSelectedCategory(undefined);
             }}
-            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors"
+            className="px-4 py-2 rounded-xl bg-[#0057FF]/20 border border-[#00D1FF]/40 text-[#00D1FF] hover:bg-[#0057FF]/30 text-xs font-semibold transition-all"
           >
             Reset Filters
           </button>

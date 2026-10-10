@@ -28,13 +28,20 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
         elements.push(
           <div
             key={`code-${index}`}
-            className="my-4 rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-lg"
+            className="my-5 rounded-2xl border border-[#0A1F44] bg-[#020D21] overflow-hidden shadow-xl"
           >
-            <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-slate-800/80 bg-slate-900/60 text-[11px] font-mono text-slate-400">
-              <span>{codeLanguage || "text"}</span>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[#0A1F44] bg-[#081735]/70 text-[11px] font-mono">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />
+                </div>
+                <span className="text-[#00D1FF] font-semibold ml-2">{codeLanguage || "sp"}</span>
+              </div>
               <CopyButton text={codeText} label="Copy" className="h-6 text-[10px] px-2" />
             </div>
-            <pre className="p-4 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed">
+            <pre className="p-4 font-mono text-xs text-slate-100 overflow-x-auto leading-relaxed">
               <code>{codeText}</code>
             </pre>
           </div>
@@ -58,7 +65,7 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
       elements.push(
         <h1
           key={`h1-${index}`}
-          className="text-2xl font-bold text-white mt-6 mb-3 font-mono border-b border-slate-800 pb-2"
+          className="text-2xl font-black text-white mt-6 mb-3 font-mono border-b border-[#0A1F44] pb-2 tracking-tight"
         >
           {trimmed.slice(2)}
         </h1>
@@ -69,9 +76,9 @@ export const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ content }) => {
       elements.push(
         <h2
           key={`h2-${index}`}
-          className="text-xl font-semibold text-slate-100 mt-5 mb-2 font-mono flex items-center gap-2"
+          className="text-xl font-bold text-white mt-5 mb-2 font-mono flex items-center gap-2"
         >
-          <span className="text-cyan-400">#</span> {trimmed.slice(3)}
+          <span className="text-[#00D1FF]">#</span> {trimmed.slice(3)}
         </h2>
       );
       return;

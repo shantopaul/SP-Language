@@ -1,17 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
-    <linearGradient id="spRegGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#10b981" />
-      <stop offset="50%" stop-color="#06b6d4" />
-      <stop offset="100%" stop-color="#3b82f6" />
+    <linearGradient id="spRibbonGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D1FF" />
+      <stop offset="100%" stop-color="#0057FF" />
     </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3" result="blur" />
+    <linearGradient id="spRibbonGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0057FF" />
+      <stop offset="100%" stop-color="#0A1F44" />
+    </linearGradient>
+    <filter id="spGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
-  <rect width="100" height="100" rx="22" fill="#0f172a" />
-  <rect x="2" y="2" width="96" height="96" rx="20" stroke="url(#spRegGrad)" stroke-width="2.5" />
-  <path d="M30 36 C30 28, 48 26, 50 34 C52 42, 30 44, 30 54 C30 64, 52 64, 52 54" stroke="url(#spRegGrad)" stroke-width="7" stroke-linecap="round" fill="none" filter="url(#glow)" />
-  <path d="M58 30 L58 66 M58 30 L72 30 C78 30, 80 34, 80 42 C80 50, 76 52, 58 52" stroke="url(#spRegGrad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow)" />
+  <!-- Dark Navy Squircle Backdrop -->
+  <rect width="64" height="64" rx="14" fill="#020D21" stroke="#0A1F44" stroke-width="1.5"/>
+  <!-- Geometric 3D Hexagonal Ribbon -->
+  <!-- Left Ribbon Loop (S/P Top) -->
+  <path d="M32 10 L48 19 L48 27 L32 18 Z" fill="url(#spRibbonGrad1)"/>
+  <!-- Top Left Wing -->
+  <path d="M32 10 L16 19 L16 35 L24 39 L24 23 L32 18 Z" fill="#0057FF"/>
+  <!-- Center Vertical Stem -->
+  <path d="M32 20 L40 25 L40 54 L32 50 Z" fill="url(#spRibbonGrad1)"/>
+  <!-- Lower Left Diagonal -->
+  <path d="M16 41 L30 49 L25 54 L11 46 Z" fill="#0A1F44"/>
+  <!-- Right Lower Wing -->
+  <path d="M48 27 L48 37 L32 46 L32 38 L40 33 Z" fill="url(#spRibbonGrad1)"/>
 </svg>
