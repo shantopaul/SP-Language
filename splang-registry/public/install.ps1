@@ -133,17 +133,13 @@ function Download-File([string]$Url, [string]$Destination) {
 }
 
 function Write-Banner {
-    $bannerLines = @(
-        "  ____  ____    _        _    _   _  ____ ",
-        " / ___||  _ \  | |      / \  | \ | |/ ___|",
-        " \___ \| |_) | | |     / _ \ |  \| | |  _ ",
-        "  ___) |  __/  | |___ / ___ \| |\  | |_| |",
-        " |____/|_|     |_____/_/   \_\_| \_|\____|"
-    )
+    $bannerB64 = "4paI4paI4paI4paI4paI4paI4paI4pWX4paI4paI4paI4paI4paI4paI4pWXICAgICDilojilojilZcgICAgICDilojilojilojilojilojilZcg4paI4paI4paI4pWXICAg4paI4paI4pWXIOKWiOKWiOKWiOKWiOKWiOKWiOKVlyAK4paI4paI4pWU4pWQ4pWQ4pWQ4pWQ4pWd4paI4paI4pWU4pWQ4pWQ4paI4paI4pWXICAgIOKWiOKWiOKVkSAgICAg4paI4paI4pWU4pWQ4pWQ4paI4paI4pWX4paI4paI4paI4paI4pWXICDilojilojilZHilojilojilZTilZDilZDilZDilZDilZ0gCuKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKWiOKWiOKWiOKWiOKVlOKVnSAgICDilojilojilZEgICAgIOKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVkeKWiOKWiOKVlOKWiOKWiOKVlyDilojilojilZHilojilojilZEgIOKWiOKWiOKWiOKVlwrilZrilZDilZDilZDilZDilojilojilZHilojilojilZTilZDilZDilZDilZ0gICAgIOKWiOKWiOKVkSAgICAg4paI4paI4pWU4pWQ4pWQ4paI4paI4pWR4paI4paI4pWR4pWa4paI4paI4pWX4paI4paI4pWR4paI4paI4pWRICAg4paI4paI4pWRCuKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVkeKWiOKWiOKVkSAgICAgICAgIOKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKVkSAg4paI4paI4pWR4paI4paI4pWRIOKVmuKWiOKWiOKWiOKWiOKVkeKVmuKWiOKWiOKWiOKWiOKWiOKWiOKVlOKVnQrilZrilZDilZDilZDilZDilZDilZDilZ3ilZrilZDilZ0gICAgICAgICDilZrilZDilZDilZDilZDilZDilZDilZ3ilZrilZDilZ0gIOKVmuKVkOKVneKVmuKVkOKVnSAg4pWa4pWQ4pWQ4pWQ4pWdIOKVmuKVkOKVkOKVkOKVkOKVkOKVnSA="
+    $bannerText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($bannerB64))
+    $bannerLines = $bannerText -split "`n"
 
     Write-Host ""
     foreach ($line in $bannerLines) {
-        Write-Host ("                " + $line) -ForegroundColor Cyan
+        Write-Host ("        " + $line.TrimEnd("`r")) -ForegroundColor Cyan
     }
     Write-Host ""
     Write-Host "========================================================================" -ForegroundColor Cyan
