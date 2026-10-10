@@ -26,7 +26,7 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({ pkg }) => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-3xl sm:text-4xl font-black text-white font-mono tracking-tight">
+              <h1 className="text-2xl sm:text-4xl font-black text-white font-mono tracking-tight break-all sm:break-normal">
                 {pkg.name}
               </h1>
               <span className="text-sm font-mono text-[#00D1FF] bg-[#0057FF]/15 border border-[#00D1FF]/40 px-3 py-0.5 rounded-full shadow-[0_0_12px_rgba(0,209,255,0.2)] font-semibold">
@@ -38,18 +38,18 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({ pkg }) => {
                 </Badge>
               )}
             </div>
-            <p className="mt-3 text-base text-slate-300 max-w-3xl leading-relaxed">
+            <p className="mt-3 text-sm sm:text-base text-slate-300 max-w-3xl leading-relaxed">
               {pkg.description}
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
             {pkg.repositoryUrl && (
               <a
                 href={pkg.repositoryUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0A1F44] bg-[#081735] hover:bg-[#0057FF]/15 hover:border-[#00D1FF]/40 text-slate-200 hover:text-white text-xs font-semibold transition-all shadow-md"
+                className="w-full sm:w-auto justify-center min-h-[40px] flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0A1F44] bg-[#081735] hover:bg-[#0057FF]/15 hover:border-[#00D1FF]/40 text-slate-200 hover:text-white text-xs font-semibold transition-all shadow-md"
               >
                 <GitBranch className="w-3.5 h-3.5 text-[#00D1FF]" />
                 <span>Repository</span>
@@ -60,7 +60,7 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({ pkg }) => {
         </div>
 
         {/* Quick Stats Bar */}
-        <div className="mt-6 flex flex-wrap items-center gap-6 text-xs text-slate-400 pt-4 border-t border-[#0A1F44] font-mono">
+        <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2.5 text-xs text-slate-400 pt-4 border-t border-[#0A1F44] font-mono">
           <div className="flex items-center gap-1.5">
             <Download className="w-4 h-4 text-[#00D1FF]" />
             <span className="text-white font-bold">
