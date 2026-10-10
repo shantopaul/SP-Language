@@ -134,17 +134,16 @@ function Download-File([string]$Url, [string]$Destination) {
 
 function Write-Banner {
     $bannerLines = @(
-        "███████╗██████╗     ██╗      █████╗ ███╗   ██╗ ██████╗ ",
-        "██╔════╝██╔══██╗    ██║     ██╔══██╗████╗  ██║██╔════╝ ",
-        "███████╗██████╔╝    ██║     ███████║██╔██╗ ██║██║  ███╗",
-        "╚════██║██╔═══╝     ██║     ██╔══██║██║╚██╗██║██║   ██║",
-        "███████║██║         ███████╗██║  ██║██║ ╚████║╚██████╔╝",
-        "╚══════╝╚═╝         ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ "
+        "  ____  ____    _        _    _   _  ____ ",
+        " / ___||  _ \  | |      / \  | \ | |/ ___|",
+        " \___ \| |_) | | |     / _ \ |  \| | |  _ ",
+        "  ___) |  __/  | |___ / ___ \| |\  | |_| |",
+        " |____/|_|     |_____/_/   \_\_| \_|\____|"
     )
 
     Write-Host ""
     foreach ($line in $bannerLines) {
-        Write-Host ("        " + $line) -ForegroundColor Cyan
+        Write-Host ("                " + $line) -ForegroundColor Cyan
     }
     Write-Host ""
     Write-Host "========================================================================" -ForegroundColor Cyan
@@ -172,9 +171,18 @@ Write-Host "[1/5] Preparing installation directories & system processes..." -For
 
 # Gracefully release any locks by stopping background SP processes (e.g. language server or running compiler)
 try {
-    $spProcs = Get-Process -Name "spc", "spm", "spd", "spls" -ErrorAction SilentlyContinue
+    $parentPid = 0
+    try {
+        $parentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID" -ErrorAction SilentlyContinue).ParentProcessId
+    } catch {}
+
+    # Background daemon processes only (do not terminate spc/spm which may be driving the upgrade)
+    $spProcs = Get-Process -Name "spd", "spls" -ErrorAction SilentlyContinue
     foreach ($proc in $spProcs) {
         try {
+            if ($parentPid -and $proc.Id -eq $parentPid) {
+                continue
+            }
             if ($proc.Path -like "*$InstallDir*" -or $proc.Path -like "*\.sp\*") {
                 Write-Host "  -> Releasing process lock: $($proc.ProcessName).exe (PID: $($proc.Id))..." -ForegroundColor Gray
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -235,7 +243,7 @@ if ($isLocalRepo) {
     $localBuildBin = Join-Path $repoRoot "build\bin"
     
     # Copy core binaries and companion DLLs
-    Get-ChildItem -Path $localBuildBin -Include "*.exe", "*.dll" -Recurse:$false | ForEach-Object {
+    Get-ChildItem -Path "$localBuildBin\*" -Include "*.exe", "*.dll" | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $BinDir -Force
         Write-Host "     Installed binary: $($_.Name)" -ForegroundColor Gray
     }
@@ -344,8 +352,22 @@ if ($isLocalRepo) {
     
     if ($Downloaded) {
         Write-Host "     Extracting package to $InstallDir..." -ForegroundColor Cyan
+
+        # In-place rename for running executables to eliminate sharing violations on Windows
+        foreach ($exeName in @("spc.exe", "spls.exe", "spd.exe", "spm.exe")) {
+            $exePath = Join-Path $BinDir $exeName
+            if (Test-Path $exePath) {
+                $oldPath = $exePath + ".old"
+                Remove-Item $oldPath -Force -ErrorAction SilentlyContinue
+                try {
+                    Rename-Item -Path $exePath -NewName ($exeName + ".old") -Force -ErrorAction SilentlyContinue
+                } catch {}
+            }
+        }
+
         Expand-Archive -Path $TempZip -DestinationPath $InstallDir -Force
         Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path (Join-Path $BinDir "*.old") -Force -ErrorAction SilentlyContinue
     } else {
         # Fallback check: check if C:\SP-Language or ~/.sp has pre-existing binaries
         $fallbackPaths = @("C:\SP-Language", "D:\SP-Language", "$env:LOCALAPPDATA\SP-Language")
