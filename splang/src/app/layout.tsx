@@ -19,11 +19,11 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://splang.shantopaul.com"),
   title: {
-    default: "SP Programming Language — High-Performance Systems & Applications",
+    default: "SP Programming Language — Modern High-Performance Systems & Backend Platform",
     template: "%s | SP Programming Language",
   },
   description:
-    "The modern, high-performance systems and application programming language with LLVM native compilation, safe memory ergonomics, zero-cost generics, and a unified toolchain.",
+    "The modern, high-performance systems and backend platform language with LLVM native compilation, deterministic ARC memory safety, 23 standard library modules, and 185,000 req/s enterprise web performance.",
   keywords: [
     "SP Language",
     "Programming Language",
@@ -33,6 +33,7 @@ export const metadata: Metadata = {
     "Native Compiler",
     "Package Manager",
     "Type Safe",
+    "std.web",
     "Shanto Paul",
   ],
   authors: [{ name: "Shanto Paul", url: "https://shantopaul.com" }],
@@ -42,21 +43,33 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: "https://splang.shantopaul.com",
     siteName: "SP Programming Language",
-    title: "SP Programming Language — Modern, High-Performance Systems & Application Language",
+    title: "SP Programming Language — Modern, High-Performance Systems & Backend Platform",
     description:
-      "Bare-metal LLVM native compilation meets modern developer ergonomics. Fast, safe, and productive.",
+      "Bare-metal LLVM native compilation meets deterministic ARC memory safety and an enterprise web platform delivering 185,000 req/s. Fast, safe, and productive.",
+    images: [
+      {
+        url: "/brand/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "SP Programming Language — High-Performance Systems Platform",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "SP Programming Language",
     description:
-      "Modern, high-performance systems language with native LLVM backend and built-in package manager.",
+      "Modern, high-performance systems language with native LLVM backend and enterprise web framework.",
     creator: "@shantopaul",
+    images: ["/brand/og-image.png"],
   },
   icons: {
-    icon: "/logo.svg",
-    shortcut: "/logo.svg",
-    apple: "/logo.svg",
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/brand/app-icon-navy.png",
   },
 };
 
@@ -67,7 +80,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`dark scroll-smooth ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="min-h-screen bg-[#020617] text-slate-100 flex flex-col font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+      <body className="min-h-screen bg-[#020D21] text-slate-100 flex flex-col font-sans antialiased selection:bg-cyan-500/30 selection:text-white">
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />

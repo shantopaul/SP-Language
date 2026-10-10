@@ -4,11 +4,11 @@ import {
   ShieldCheck,
   Zap,
   Boxes,
-  Code2,
   Terminal,
   Layers,
   Sparkles,
   Server,
+  Lock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 
@@ -16,75 +16,67 @@ export const KeyFeatures: React.FC = () => {
   const features = [
     {
       icon: Server,
-      title: "Enterprise Backend Platform (std.web)",
+      title: "Enterprise Web Platform (std.web)",
       description:
-        "Official high-throughput backend framework with sub-microsecond Radix routing, connection pooling (SQLite & Postgres), automated OpenAPI 3.0, and zero-socket in-memory testing.",
-      color: "text-rose-400",
-      border: "hover:border-rose-500/50",
+        "Official high-throughput backend framework with sub-microsecond Radix routing, connection pooling (SQLite & Postgres), automated OpenAPI 3.0 generation, and zero-socket in-memory testing delivering 185,000 req/s.",
+      iconColor: "text-cyan-400",
+      glowBg: "bg-cyan-500/10 border-cyan-500/30",
     },
     {
       icon: Cpu,
       title: "Native LLVM & WebAssembly Backend",
       description:
-        "Compiles directly to optimized machine code (.exe, ELF, Mach-O) and first-class WebAssembly (wasm32-wasi) via LLVM intermediate representation with -O3 optimization passes.",
-      color: "text-emerald-400",
-      border: "hover:border-emerald-500/50",
-    },
-    {
-      icon: Zap,
-      title: "Compile-Time Execution (comptime)",
-      description:
-        "Execute pure SP functions, compile-time assertions, and constant lookup tables at build time with zero runtime overhead.",
-      color: "text-amber-400",
-      border: "hover:border-amber-500/50",
-    },
-    {
-      icon: Layers,
-      title: "Language Editions (2026 & 2028)",
-      description:
-        "Perpetual backwards compatibility for existing packages with automated migration tooling (spc fix) to modernize legacy syntax seamlessly.",
-      color: "text-cyan-400",
-      border: "hover:border-cyan-500/50",
+        "Compiles directly to optimized machine code (.exe, ELF, Mach-O) and WebAssembly (wasm32-wasi) via LLVM intermediate representation with -O3 optimization and full LTO vectorization.",
+      iconColor: "text-blue-400",
+      glowBg: "bg-blue-500/10 border-blue-500/30",
     },
     {
       icon: ShieldCheck,
       title: "Deterministic ARC Memory Model",
       description:
-        "Hybrid value semantics and compiler-automated reference counting with RAII scope-exit drops. Zero stop-the-world GC pauses and 0 bytes leaked.",
-      color: "text-blue-400",
-      border: "hover:border-blue-500/50",
+        "Hybrid value semantics and compiler-automated reference counting with RAII scope-exit drops. Zero stop-the-world GC pauses, predictable microsecond latency, and 0 memory leaks.",
+      iconColor: "text-cyan-300",
+      glowBg: "bg-cyan-500/10 border-cyan-500/30",
     },
     {
-      icon: Boxes,
-      title: "Structured Coroutines & Async I/O",
+      icon: Zap,
+      title: "Compile-Time Execution (comptime)",
       description:
-        "First-class async fn and await expressions powered by an IOCP/epoll non-blocking event loop and work-stealing thread pool.",
-      color: "text-purple-400",
-      border: "hover:border-purple-500/50",
+        "Execute pure SP functions, compile-time assertions, and precomputed constant lookup tables directly during compiler build passes with zero runtime overhead.",
+      iconColor: "text-amber-400",
+      glowBg: "bg-amber-500/10 border-amber-500/30",
+    },
+    {
+      icon: Layers,
+      title: "23 Production Stdlib Modules",
+      description:
+        "Comprehensive battery-included standard library covering crypto (Argon2id, AES, SHA), database pooling, Redis client, WebSockets, HTTP client/server, metrics, and processes.",
+      iconColor: "text-indigo-400",
+      glowBg: "bg-indigo-500/10 border-indigo-500/30",
     },
     {
       icon: Terminal,
       title: "Unified Production Toolchain",
       description:
-        "Shipped with self-hosted compiler frontend, formatter (spc fmt), test runner (spc test), package manager (spm), and official VS Code LSP/DAP support.",
-      color: "text-indigo-400",
-      border: "hover:border-indigo-500/50",
+        "Shipped out-of-the-box with native compiler (spc), package manager (spm), code formatter (spc fmt), test runner (spc test), and Language Server Protocol (spls) for VS Code.",
+      iconColor: "text-blue-300",
+      glowBg: "bg-blue-500/10 border-blue-500/30",
     },
   ];
 
   return (
-    <section className="py-24 relative">
+    <section className="py-24 relative bg-[#020D21]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-medium mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#081735] border border-cyan-500/40 text-cyan-300 text-xs font-semibold mb-3 shadow-glow-sm">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
             <span>Architecture & Capabilities</span>
           </div>
-          <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
-            Engineered for Systems & Applications
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+            Engineered for Systems & Scale
           </h2>
-          <p className="mt-3 text-base text-slate-400 leading-relaxed">
-            Every feature in SP is deliberately crafted to provide modern developer joy without compromising on raw hardware execution speed.
+          <p className="mt-4 text-base text-slate-300 leading-relaxed">
+            Every feature in SP is deliberately designed to provide modern developer ergonomics without compromising on raw hardware execution speed.
           </p>
         </div>
 
@@ -94,17 +86,21 @@ export const KeyFeatures: React.FC = () => {
             return (
               <Card
                 key={idx}
-                className={`transition-all duration-300 hover:-translate-y-1 ${feature.border}`}
+                className="transition-all duration-300 hover:-translate-y-1.5 hover:border-cyan-400/40 hover:shadow-[0_12px_35px_rgba(0,87,255,0.15)] flex flex-col justify-between"
               >
-                <CardHeader>
-                  <div className="w-12 h-12 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-center mb-3">
-                    <Icon className={`w-6 h-6 ${feature.color}`} />
-                  </div>
-                  <CardTitle>{feature.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>{feature.description}</CardDescription>
-                </CardContent>
+                <div>
+                  <CardHeader>
+                    <div className={`w-12 h-12 rounded-xl border flex items-center justify-center mb-4 ${feature.glowBg}`}>
+                      <Icon className={`w-6 h-6 ${feature.iconColor}`} />
+                    </div>
+                    <CardTitle className="text-xl text-white font-bold">{feature.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="text-slate-300 leading-relaxed text-sm">
+                      {feature.description}
+                    </CardDescription>
+                  </CardContent>
+                </div>
               </Card>
             );
           })}
