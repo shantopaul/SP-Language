@@ -952,7 +952,11 @@ ToolchainHealth inspectToolchainHealth() {
     h.hasLinker = !h.linkerPath.empty() && fs::exists(h.linkerPath);
 
 #if defined(_WIN32)
+  #if defined(__MINGW32__) || defined(__MINGW64__) || defined(__clang__)
+    h.targetTriple = "x86_64-w64-windows-gnu";
+  #else
     h.targetTriple = "x86_64-pc-windows-msvc";
+  #endif
 #elif defined(__APPLE__)
     h.targetTriple = "arm64-apple-darwin";
 #else

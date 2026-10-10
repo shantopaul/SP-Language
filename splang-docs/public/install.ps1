@@ -144,10 +144,29 @@ if ($isLocalRepo) {
     Write-Host "  -> Installing from local repository build artifacts: $repoRoot" -ForegroundColor Cyan
     $localBuildBin = Join-Path $repoRoot "build\bin"
     
-    # Copy core binaries
-    Get-ChildItem -Path $localBuildBin -Filter "*.exe" | ForEach-Object {
+    # Copy core binaries and companion DLLs
+    Get-ChildItem -Path $localBuildBin -Include "*.exe", "*.dll" -Recurse:$false | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $BinDir -Force
         Write-Host "     Installed binary: $($_.Name)" -ForegroundColor Gray
+    }
+    
+    # Also ensure companion runtime DLLs are copied to bin if available
+    $runtimeDllDirs = @(
+        (Join-Path $repoRoot "dist\SP-Language\bin"),
+        (Join-Path $repoRoot "build\bin")
+    )
+    $neededDlls = @("libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")
+    foreach ($dll in $neededDlls) {
+        if (-not (Test-Path (Join-Path $BinDir $dll))) {
+            foreach ($d in $runtimeDllDirs) {
+                $candDll = Join-Path $d $dll
+                if (Test-Path $candDll) {
+                    Copy-Item -Path $candDll -Destination (Join-Path $BinDir $dll) -Force
+                    Write-Host "     Installed runtime DLL: $dll" -ForegroundColor Gray
+                    break
+                }
+            }
+        }
     }
     
     # Copy precompiled runtime static library
@@ -160,15 +179,11 @@ if ($isLocalRepo) {
     # Copy or bundle static OpenSSL libraries (libssl.a, libcrypto.a)
     $sslCandidates = @(
         (Join-Path $repoRoot "build\lib\libssl.a"),
-        "C:\msys64\ucrt64\lib\libssl.a",
-        "C:\msys64\mingw64\lib\libssl.a",
-        "C:\msys64\clang64\lib\libssl.a"
+        (Join-Path $repoRoot "dist\SP-Language\lib\libssl.a")
     )
     $cryptoCandidates = @(
         (Join-Path $repoRoot "build\lib\libcrypto.a"),
-        "C:\msys64\ucrt64\lib\libcrypto.a",
-        "C:\msys64\mingw64\lib\libcrypto.a",
-        "C:\msys64\clang64\lib\libcrypto.a"
+        (Join-Path $repoRoot "dist\SP-Language\lib\libcrypto.a")
     )
 
     foreach ($s in $sslCandidates) {
@@ -366,8 +381,6 @@ if (-not ($hasClang -or $hasClangC -or $hasBundled)) {
     $standardClangPaths = @(
         "C:\Program Files\LLVM\bin\clang++.exe",
         "C:\Program Files (x86)\LLVM\bin\clang++.exe",
-        "C:\msys64\ucrt64\bin\clang++.exe",
-        "C:\msys64\clang64\bin\clang++.exe",
         "D:\Program Files\LLVM\bin\clang++.exe"
     )
     foreach ($candClang in $standardClangPaths) {
@@ -408,6 +421,19 @@ if ($hasClang -or $hasClangC -or $hasBundled) {
                 if ($env:Path -notlike "*$ToolchainBin*") {
                     $env:Path = "$ToolchainBin;$env:Path"
                 }
+                # Persist ToolchainBin to User PATH in Registry so future terminals have it
+                try {
+                    $curUserPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
+                    $curEntries = if ([string]::IsNullOrEmpty($curUserPath)) { @() } else { $curUserPath -split ";" }
+                    if ($curEntries -notcontains $ToolchainBin) {
+                        $curEntries += $ToolchainBin
+                        $newPath = ($curEntries -join ";").TrimEnd(";")
+                        [Environment]::SetEnvironmentVariable("Path", $newPath, [EnvironmentVariableTarget]::User)
+                    }
+                    if ($result -ne $null) {
+                        [Win32.NativeMethods]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", 2, 2000, [ref]$result) | Out-Null
+                    }
+                } catch {}
                 Write-Host "     Portable LLVM Clang toolchain installed and ready!" -ForegroundColor Green
                 break
             }

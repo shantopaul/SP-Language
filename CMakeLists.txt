@@ -31,6 +31,11 @@ else()
     endif()
 endif()
 
+# Static runtime linking on Windows to eliminate DLL dependencies (libstdc++-6.dll, libgcc_s_seh-1.dll)
+if(WIN32 AND NOT MSVC)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++ -lpthread")
+endif()
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
