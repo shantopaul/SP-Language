@@ -19,15 +19,15 @@ export const InstallCommand: React.FC<InstallCommandProps> = ({
   const manifestSnippet = `[dependencies]\n${packageName} = "^${version}"`;
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/90 overflow-hidden shadow-lg">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-slate-950/60">
+    <div className="rounded-2xl border border-[#0A1F44] bg-[#081735] overflow-hidden shadow-xl">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[#0A1F44] bg-[#020D21]/80">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setTab("cli")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
               tab === "cli"
-                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/30"
-                : "text-slate-400 hover:text-slate-200"
+                ? "bg-[#0057FF]/20 text-[#00D1FF] border border-[#00D1FF]/40 shadow-[0_0_10px_rgba(0,209,255,0.15)]"
+                : "text-slate-400 hover:text-white"
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
@@ -35,10 +35,10 @@ export const InstallCommand: React.FC<InstallCommandProps> = ({
           </button>
           <button
             onClick={() => setTab("manifest")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
               tab === "manifest"
-                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/30"
-                : "text-slate-400 hover:text-slate-200"
+                ? "bg-[#0057FF]/20 text-[#00D1FF] border border-[#00D1FF]/40 shadow-[0_0_10px_rgba(0,209,255,0.15)]"
+                : "text-slate-400 hover:text-white"
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
@@ -52,14 +52,14 @@ export const InstallCommand: React.FC<InstallCommandProps> = ({
         />
       </div>
 
-      <div className="p-3 bg-slate-950/80 font-mono text-xs text-slate-200 overflow-x-auto select-all">
+      <div className="p-3.5 bg-[#020D21] font-mono text-xs text-slate-200 overflow-x-auto select-all">
         {tab === "cli" ? (
           <div className="flex items-center gap-2">
-            <span className="text-cyan-400 select-none">$</span>
-            <span className="text-slate-100">{cliCommand}</span>
+            <span className="text-[#00D1FF] select-none font-bold">$</span>
+            <span className="text-white font-semibold">{cliCommand}</span>
           </div>
         ) : (
-          <pre className="text-slate-300 font-mono leading-relaxed whitespace-pre">
+          <pre className="text-slate-200 font-mono leading-relaxed whitespace-pre">
             {manifestSnippet}
           </pre>
         )}

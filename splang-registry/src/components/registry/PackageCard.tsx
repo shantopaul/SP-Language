@@ -14,22 +14,22 @@ interface PackageCardProps {
 
 export const PackageCard: React.FC<PackageCardProps> = ({ pkg }) => {
   return (
-    <div className="group relative rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-900 hover:border-slate-700 transition-all duration-200 p-5 flex flex-col justify-between shadow-sm hover:shadow-md hover:shadow-cyan-950/20">
+    <div className="group relative rounded-2xl border border-[#0A1F44] bg-[#081735]/70 hover:bg-[#081735] hover:border-[#0057FF]/60 hover:shadow-[0_0_25px_rgba(0,87,255,0.2)] transition-all duration-300 p-5 flex flex-col justify-between shadow-lg">
       <div>
         {/* Top Header */}
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={`/packages/${pkg.name}`}
-              className="text-base font-semibold text-white group-hover:text-cyan-400 transition-colors font-mono tracking-tight"
+              className="text-base font-bold text-white group-hover:text-[#00D1FF] transition-colors font-mono tracking-tight"
             >
               {pkg.name}
             </Link>
-            <span className="text-xs font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
+            <span className="text-xs font-mono text-[#00D1FF] bg-[#0057FF]/15 px-2 py-0.5 rounded-md border border-[#00D1FF]/30">
               v{pkg.version}
             </span>
             {pkg.official && (
-              <Badge variant="cyan" className="text-[10px] py-0">
+              <Badge variant="cyan" className="text-[10px] py-0 font-semibold">
                 Official
               </Badge>
             )}
@@ -39,7 +39,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pkg }) => {
             <CopyButton
               text={`spm add ${pkg.name}`}
               label="spm add"
-              className="text-[11px] py-1 px-2 h-6 font-mono bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50"
+              className="text-[11px] py-1 px-2 h-6 font-mono bg-[#020D21]/80 hover:bg-[#0057FF]/20 border border-[#0A1F44] hover:border-[#00D1FF]/40"
             />
           </div>
         </div>
@@ -51,13 +51,13 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pkg }) => {
 
         {/* Tags */}
         <div className="flex items-center gap-1.5 flex-wrap mb-4">
-          <span className="text-[11px] font-mono text-cyan-400/90 bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded-full capitalize">
+          <span className="text-[11px] font-mono text-[#00D1FF] bg-[#0057FF]/15 border border-[#00D1FF]/30 px-2 py-0.5 rounded-full capitalize">
             {pkg.category}
           </span>
           {pkg.keywords.slice(0, 3).map((kw) => (
             <span
               key={kw}
-              className="text-[10px] font-mono text-slate-400 bg-slate-800/50 border border-slate-800 px-2 py-0.5 rounded-full"
+              className="text-[10px] font-mono text-slate-400 bg-[#020D21]/60 border border-[#0A1F44] px-2 py-0.5 rounded-full"
             >
               #{kw}
             </span>
@@ -66,10 +66,10 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pkg }) => {
       </div>
 
       {/* Meta Footer */}
-      <div className="pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+      <div className="pt-3 border-t border-[#0A1F44] flex items-center justify-between text-[11px] text-slate-400 font-mono">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 text-slate-300" title="Total Downloads">
-            <Download className="w-3.5 h-3.5 text-cyan-400" />
+            <Download className="w-3.5 h-3.5 text-[#00D1FF]" />
             <span>{formatDownloads(pkg.totalDownloads)}</span>
           </span>
           <span className="flex items-center gap-1" title="License">

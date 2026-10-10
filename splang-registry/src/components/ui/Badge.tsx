@@ -2,7 +2,7 @@ import React from "react";
 import { cn } from "@/lib/utils";
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: "default" | "success" | "cyan" | "outline" | "amber";
+  variant?: "default" | "success" | "cyan" | "primary" | "outline" | "amber";
 }
 
 export const Badge: React.FC<BadgeProps> = ({
@@ -12,11 +12,12 @@ export const Badge: React.FC<BadgeProps> = ({
   ...props
 }) => {
   const styles = {
-    default: "bg-slate-800 text-slate-300 border-slate-700",
-    success: "bg-emerald-950/80 text-emerald-400 border-emerald-800/80",
-    cyan: "bg-cyan-950/80 text-cyan-400 border-cyan-800/80",
+    default: "bg-[#081735] text-slate-300 border-[#0A1F44]",
+    success: "bg-[#0057FF]/20 text-[#00D1FF] border-[#00D1FF]/40",
+    cyan: "bg-[#0057FF]/15 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_10px_rgba(0,209,255,0.15)]",
+    primary: "bg-[#0057FF]/20 text-[#60A5FA] border-[#0057FF]/40",
     amber: "bg-amber-950/80 text-amber-400 border-amber-800/80",
-    outline: "bg-transparent text-slate-400 border-slate-800",
+    outline: "bg-transparent text-slate-400 border-[#0A1F44]",
   };
 
   return (

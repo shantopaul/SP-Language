@@ -17,24 +17,24 @@ export const VersionHistory: React.FC<VersionHistoryProps> = ({
 }) => {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-        <h2 className="text-base font-semibold text-white font-mono">
+      <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44]">
+        <h2 className="text-base font-bold text-white font-mono">
           Release History ({versions.length} versions)
         </h2>
-        <span className="text-xs text-slate-400">
-          All releases are cryptographically signed & immutable
+        <span className="text-xs text-slate-400 font-mono">
+          All releases are cryptographically signed &amp; immutable
         </span>
       </div>
 
-      <div className="divide-y divide-slate-800/80 border border-slate-800 rounded-xl bg-slate-900/40 overflow-hidden">
+      <div className="divide-y divide-[#0A1F44] border border-[#0A1F44] rounded-2xl bg-[#081735]/40 overflow-hidden shadow-xl">
         {versions.map((ver) => (
-          <div key={ver.version} className="p-4 sm:p-5 hover:bg-slate-900/80 transition-colors">
+          <div key={ver.version} className="p-4 sm:p-5 hover:bg-[#081735]/80 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
               <div className="flex items-center gap-2.5">
                 <span className="text-base font-bold text-white font-mono">
                   v{ver.version}
                 </span>
-                <span className="text-[11px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/60 px-2 py-0.5 rounded">
+                <span className="text-[11px] font-mono text-[#00D1FF] bg-[#0057FF]/15 border border-[#00D1FF]/30 px-2.5 py-0.5 rounded-full">
                   spm &gt;= {ver.spmMinVersion}
                 </span>
               </div>
@@ -58,9 +58,9 @@ export const VersionHistory: React.FC<VersionHistoryProps> = ({
             )}
 
             {/* Checksum row */}
-            <div className="mt-3 pt-3 border-t border-slate-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
+            <div className="mt-3 pt-3 border-t border-[#0A1F44]/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
               <div className="flex items-center gap-1.5 overflow-hidden">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <ShieldCheck className="w-3.5 h-3.5 text-[#00D1FF] shrink-0" />
                 <span className="text-slate-400">SHA-256:</span>
                 <span className="text-slate-300 truncate max-w-xs sm:max-w-md">
                   {ver.checksum}
@@ -76,7 +76,7 @@ export const VersionHistory: React.FC<VersionHistoryProps> = ({
                 <CopyButton
                   text={`spm add ${packageName}@${ver.version}`}
                   label="Copy spm add"
-                  className="h-6 text-[10px] px-2 bg-cyan-950/40 text-cyan-400 hover:bg-cyan-900/60 border border-cyan-800/50"
+                  className="h-6 text-[10px] px-2 bg-[#0057FF]/15 text-[#00D1FF] hover:bg-[#0057FF]/30 border border-[#00D1FF]/40"
                 />
               </div>
             </div>

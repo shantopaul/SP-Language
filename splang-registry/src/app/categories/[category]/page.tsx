@@ -67,30 +67,30 @@ export default function CategoryDetailPage({ params }: CategoryPageProps) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
-        <Link href="/" className="hover:text-cyan-400">
+      <nav className="flex items-center gap-2 text-xs text-slate-400 font-mono">
+        <Link href="/" className="hover:text-[#00D1FF] transition-colors">
           Registry
         </Link>
         <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-        <Link href="/packages" className="hover:text-cyan-400">
+        <Link href="/packages" className="hover:text-[#00D1FF] transition-colors">
           Categories
         </Link>
         <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-        <span className="text-white capitalize">{category.name}</span>
+        <span className="text-[#00D1FF] capitalize font-semibold">{category.name}</span>
       </nav>
 
       {/* Category Banner */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 sm:p-8">
+      <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/60 p-6 sm:p-8 shadow-xl">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-[#0057FF]/15 border border-[#00D1FF]/40 text-[#00D1FF] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(0,209,255,0.2)]">
             <Icon className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                 {category.name}
               </h1>
-              <span className="text-xs font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/60 px-2.5 py-0.5 rounded-full">
+              <span className="text-xs font-mono font-semibold text-[#00D1FF] bg-[#0057FF]/20 border border-[#00D1FF]/40 px-3 py-0.5 rounded-full shadow-[0_0_10px_rgba(0,209,255,0.15)]">
                 {categoryPackages.length} {categoryPackages.length === 1 ? "package" : "packages"}
               </span>
             </div>
@@ -108,9 +108,9 @@ export default function CategoryDetailPage({ params }: CategoryPageProps) {
 
       {/* Package Grid */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 text-xs font-mono text-slate-400">
+        <div className="flex items-center justify-between pb-3 border-b border-[#0A1F44] text-xs font-mono text-slate-400">
           <span>Packages in {category.name}</span>
-          <Link href="/packages" className="text-cyan-400 hover:underline">
+          <Link href="/packages" className="text-[#00D1FF] hover:underline font-semibold">
             Browse all categories &rarr;
           </Link>
         </div>
@@ -122,17 +122,17 @@ export default function CategoryDetailPage({ params }: CategoryPageProps) {
             ))}
           </div>
         ) : (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center">
+          <div className="rounded-2xl border border-[#0A1F44] bg-[#081735]/40 p-12 text-center shadow-xl">
             <Package className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-            <h3 className="text-base font-semibold text-white font-mono mb-1">
+            <h3 className="text-base font-bold text-white font-mono mb-1">
               No packages published in this category yet
             </h3>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
+            <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4 leading-relaxed">
               Be the first to publish an SP package for {category.name}!
             </p>
             <Link
               href="/publish"
-              className="inline-flex items-center px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-colors"
+              className="inline-flex items-center px-4 py-2 rounded-xl bg-gradient-to-r from-[#0057FF] to-[#00D1FF] hover:opacity-90 text-white font-bold text-xs transition-all shadow-md"
             >
               Publish a Package
             </Link>

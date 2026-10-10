@@ -10,14 +10,24 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        brand: {
+          primary: "#0057FF",
+          accent: "#00D1FF",
+          secondary: "#2563EB",
+        },
+        canvas: {
+          deep: "#020D21",
+          surface: "#081735",
+          border: "#0A1F44",
+        },
         spbrand: {
-          500: "#10b981",
-          600: "#059669",
+          500: "#0057FF",
+          600: "#2563EB",
         },
         spcyan: {
-          400: "#22d3ee",
-          500: "#06b6d4",
-          600: "#0891b2",
+          400: "#00D1FF",
+          500: "#00B4D8",
+          600: "#0077B6",
         },
       },
       fontFamily: {
