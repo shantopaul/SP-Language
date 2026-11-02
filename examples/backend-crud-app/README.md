@@ -52,23 +52,23 @@ APP_NAME=SP Lang Fullstack API
 APP_ENV=production
 
 # Neon Cloud PostgreSQL Connection URL (TLS/SSL Wire Protocol)
-DATABASE_URL=postgresql://neondb_owner:npg_LJlK1OxDtz3V@ep-spring-king-b5clvs7m-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+DATABASE_URL=postgresql://user:password@ep-pooler.aws.neon.tech/neondb?sslmode=require&channel_binding=require
 
 # Secure API Key for Authenticated Endpoints
-API_KEY=sp_live_9f83b27c4a11488da128
+API_KEY=sp_live_your_secret_api_key_here
 ```
 
 ### Frontend `.env.local` (`fontend-next/.env.local`):
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_API_KEY=sp_live_9f83b27c4a11488da128
+NEXT_PUBLIC_API_KEY=sp_live_your_secret_api_key_here
 ```
 
 ### Authentication Rules:
 - **Public Endpoints**: `GET /api/health`, `GET /api/items`, `GET /api/items/:id`, `GET /openapi.json`, `GET /docs`, `GET /redoc`.
 - **Protected Mutations**: `POST /api/items`, `PUT /api/items/:id`, `DELETE /api/items/:id` require valid credentials via:
-  - Header: `X-API-Key: sp_live_9f83b27c4a11488da128`
-  - Or Header: `Authorization: Bearer sp_live_9f83b27c4a11488da128`
+  - Header: `X-API-Key: sp_live_your_secret_api_key_here`
+  - Or Header: `Authorization: Bearer sp_live_your_secret_api_key_here`
   - Missing/invalid key results in `401 Unauthorized`.
 
 ---
@@ -138,7 +138,7 @@ Visit **`http://localhost:3000`** in your browser to interact with the fullstack
 
 Connected via **PostgreSQL Wire Protocol 3.0 with native OpenSSL TLS & SNI host negotiation**:
 ```text
-postgresql://neondb_owner:npg_LJlK1OxDtz3V@ep-spring-king-b5clvs7m-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+postgresql://user:password@ep-pooler.aws.neon.tech/neondb?sslmode=require&channel_binding=require
 ```
 
 ### Table Schema:

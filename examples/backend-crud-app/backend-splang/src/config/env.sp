@@ -24,7 +24,7 @@ public class Env {
         if (db != "") {
             return db;
         }
-        return "postgresql://neondb_owner:npg_LJlK1OxDtz3V@ep-spring-king-b5clvs7m-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+        return "postgresql://user:password@localhost:5432/neondb";
     }
 
     public static fn apiKey() -> string {
@@ -32,7 +32,7 @@ public class Env {
         if (key != "") {
             return key;
         }
-        return "sp_live_9f83b27c4a11488da128";
+        return "sp_live_dev_sample_api_key";
     }
 
     public static fn appName() -> string {
