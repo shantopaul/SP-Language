@@ -60,7 +60,7 @@ jobs:
         Copy-Item -Recurse stdlib "$pkgDir/stdlib"
         Copy-Item -Recurse runtime/include "$pkgDir/include"
         Copy-Item -Recurse runtime/src "$pkgDir/runtime"
-        Copy-Item README.md, LICENSE, SP-Syntax-Guide.md "$pkgDir/"
+        Copy-Item README.md, LICENSE, docs/SP-Syntax-Guide.md "$pkgDir/"
         Compress-Archive -Path "$pkgDir/*" -DestinationPath "sp-1.0.0-${{ matrix.target }}.zip"
         Get-FileHash -Algorithm SHA256 "sp-1.0.0-${{ matrix.target }}.zip" | Out-File "sp-1.0.0-${{ matrix.target }}.zip.sha256"
 
@@ -73,7 +73,7 @@ jobs:
         cp -r stdlib "$PKG_DIR/stdlib"
         cp -r runtime/include "$PKG_DIR/include"
         cp -r runtime/src "$PKG_DIR/runtime"
-        cp README.md LICENSE SP-Syntax-Guide.md "$PKG_DIR/"
+        cp README.md LICENSE docs/SP-Syntax-Guide.md "$PKG_DIR/"
         tar -czf "sp-1.0.0-${{ matrix.target }}.tar.gz" -C "$PKG_DIR" .
         shasum -a 256 "sp-1.0.0-${{ matrix.target }}.tar.gz" > "sp-1.0.0-${{ matrix.target }}.tar.gz.sha256"
 

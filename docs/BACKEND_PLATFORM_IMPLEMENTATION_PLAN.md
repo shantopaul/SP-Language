@@ -4,7 +4,7 @@
 > **Date:** October 8, 2026  
 > **Status:** Architecture Review & Approval Phase  
 > **Lead Maintainer:** Shanto Paul  
-> **Primary Location:** [`Phases.md`](../Phases.md) (Part III: Phases 19–28) & [`docs/BACKEND_PLATFORM_IMPLEMENTATION_PLAN.md`](BACKEND_PLATFORM_IMPLEMENTATION_PLAN.md)
+> **Primary Location:** [`Phases.md`](planning/PHASES.md) (Part III: Phases 19–28) & [`docs/BACKEND_PLATFORM_IMPLEMENTATION_PLAN.md`](BACKEND_PLATFORM_IMPLEMENTATION_PLAN.md)
 
 ---
 

@@ -7,10 +7,10 @@ Thank you for your interest in contributing to the **SP Programming Language**! 
 ## 📌 Development Philosophy & Guidelines
 
 Before contributing, please review our core architectural documents:
-- [Architecture.md](Architecture.md) — System architecture, compiler pipeline, and internal design.
-- [Rules.md](Rules.md) — Coding conventions, forbidden anti-patterns, and library guidelines.
-- [Phases.md](Phases.md) — Current development roadmap and phase tasks.
-- [Design.md](Design.md) — CLI output design, theme colors, and error diagnostics styling.
+- [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) — System architecture, compiler pipeline, and internal design.
+- [docs/planning/RULES.md](docs/planning/RULES.md) — Coding conventions, forbidden anti-patterns, and library guidelines.
+- [docs/planning/PHASES.md](docs/planning/PHASES.md) — Current development roadmap and phase tasks.
+- [docs/design/DESIGN.md](docs/design/DESIGN.md) — CLI output design, theme colors, and error diagnostics styling.
 
 ---
 
@@ -71,7 +71,7 @@ We adhere to the [Conventional Commits](https://www.conventionalcommits.org/) sp
    ```bash
    git checkout -b feature/your-feature-name
    ```
-2. Write clean, readable modern C++ code following [Rules.md](Rules.md).
+2. Write clean, readable modern C++ code following [Rules.md](docs/planning/RULES.md).
 3. Ensure no memory leaks and verify tests pass.
 4. Open a Pull Request against `main` with a clear description of the problem solved.
 5. Link any related issues in the PR description.

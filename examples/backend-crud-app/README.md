@@ -9,7 +9,7 @@ Production-grade fullstack application showcasing **SP Lang 3.0** as an ultra-hi
 The SP Lang backend (`backend-splang`) is built following modern, production-grade clean architecture separated into modular domain layers:
 
 ```text
-backend-test-app/
+examples/backend-crud-app/
 ├── backend-splang/                      # Native SP Lang 3.0 REST Backend
 │   ├── .env                             # Environment Variables & Secrets
 │   ├── .env.example                     # Reference Environment Template
@@ -79,7 +79,7 @@ NEXT_PUBLIC_API_KEY=sp_live_9f83b27c4a11488da128
 
 ```bash
 # Terminal 1: Navigate to backend-splang
-cd backend-test-app/backend-splang
+cd examples/backend-crud-app/backend-splang
 
 # Start development server (auto-compiles and runs server.exe):
 npm run dev
@@ -108,7 +108,7 @@ The SP Lang native binary will bootstrap:
 
 ```bash
 # Terminal 2: Navigate to fontend-next
-cd backend-test-app/fontend-next
+cd examples/backend-crud-app/fontend-next
 
 # Start Next.js development server:
 npm run dev

@@ -94,3 +94,6 @@ editors/vscode/out/
 *.sqlite
 *.sqlite3
 
+
+# Graphify cache & temporary files
+graphify-out/

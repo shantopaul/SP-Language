@@ -924,21 +924,24 @@ SP-Language/
 │
 ├── runtime/                           # ⚙️ SP Runtime (GC, memory, threading)
 ├── stdlib/                            # 📚 Standard Library
-├── tools/                             # 🧰 spc CLI, spm, formatter
-├── language-server/                   # 🔌 LSP implementation
-├── vscode-extension/                  # 💻 VS Code extension
-├── tests/                             # ✅ Test suite
-├── examples/                          # 📝 Example programs
-├── docs/                              # 📖 Documentation
-├── benchmarks/                        # 📊 Performance benchmarks
+├── tools/                             # 🧰 Developer Toolchain (spc, spm, spls, spd, debugger)
+├── editors/                           # 🔌 VS Code extension & language tooling
+├── benchmarks/                        # 📊 Multi-language performance benchmarks
+├── examples/                          # 📝 Code examples & fullstack CRUD application
+├── tests/                             # ✅ Comprehensive unit & golden test suite
+├── installer/                         # 📦 Cross-platform installer definitions
+├── Logo/                              # 🎨 Official brand assets, emblems, and vector lockups
+├── docs/                              # 📖 Comprehensive documentation & specifications
+│   ├── architecture/                  #    System architecture & compiler pipeline
+│   ├── design/                        #    Design system & theme specifications
+│   ├── planning/                      #    Roadmap, phases, rules, and PRD
+│   ├── specifications/                #    Formal language & compiler specifications
+│   ├── reports/                       #    QA testing & verification reports
+│   └── SP-Syntax-Guide.md             #    100-section complete syntax guide
 │
-├── PRD.md                             # Project requirements
-├── Architecture.md                    # System architecture
-├── Rules.md                           # Development rules
-├── Phases.md                          # Development phases
-├── Design.md                          # Visual design system
-├── Memory.md                          # Progress tracker
-└── SP Programming Language — Complete Language & Compiler Specification.md
+├── splang/                            # 🌐 Official landing portal (Next.js 14)
+├── splang-docs/                       # 📖 Interactive documentation portal (Next.js 14)
+└── splang-registry/                   # 📦 Package registry portal (Next.js 14)
 ```
 
 ---
@@ -955,13 +958,14 @@ SP-Language/
 
 | Document | Description |
 |:---------|:------------|
-| **[Language Specification](SP%20Programming%20Language%20—%20Complete%20Language%20%26%20Compiler%20Specification.md)** | Complete 135-section language spec (4,000+ lines) |
-| **[PRD](PRD.md)** | Project requirements, target users, features |
-| **[Architecture](Architecture.md)** | Compiler pipeline, folder structure, tech decisions |
-| **[Rules](Rules.md)** | Coding standards, approved libraries, AI boundaries |
-| **[Phases](Phases.md)** | 11 development phases with task breakdowns |
-| **[Design](Design.md)** | Brand identity, colors, syntax themes, typography |
-| **[Memory](Memory.md)** | Progress tracker & development log |
+| **[Syntax Guide](docs/SP-Syntax-Guide.md)** | Complete 100-section syntax showcase with working examples |
+| **[Language & Compiler Spec](docs/specifications/COMPILER_LANGUAGE_SPEC.md)** | Complete 135-section language and compiler specification |
+| **[Architecture](docs/architecture/ARCHITECTURE.md)** | Compiler pipeline, intermediate representation, and runtime design |
+| **[Development Roadmap](docs/planning/PHASES.md)** | Comprehensive roadmap and task breakdown |
+| **[Coding Rules & Guidelines](docs/planning/RULES.md)** | Engineering standards, memory safety rules, and boundaries |
+| **[Project Requirements (PRD)](docs/planning/PRD.md)** | Core vision, target audience, and language pillars |
+| **[Design System](docs/design/DESIGN.md)** | Brand tokens, CLI palette, and error diagnostics styling |
+| **[Memory & Progress Log](docs/planning/MEMORY.md)** | Project milestones and architecture tracker |
 
 ---
 
@@ -1013,7 +1017,7 @@ docs:     update language spec for match expressions
 chore:    bump LLVM dependency to 17.0.6
 ```
 
-See **[Rules.md](Rules.md)** for complete coding standards and **[Phases.md](Phases.md)** for what to work on next.
+See **[Rules](docs/planning/RULES.md)** for complete coding standards and **[Phases](docs/planning/PHASES.md)** for development roadmap.
 
 ---
 

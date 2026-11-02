@@ -5619,6 +5619,6 @@ spc fix --edition 2028
 
 **Start writing code in `hello.sp` and run it with `spc run hello.sp`**
 
-[← Back to README](README.md) · [Language Specification](SP%20Programming%20Language%20—%20Complete%20Language%20%26%20Compiler%20Specification.md) · [Phases](Phases.md)
+[← Back to README](../README.md) · [Language Specification](specifications/COMPILER_LANGUAGE_SPEC.md) · [Phases](planning/PHASES.md)
 
 </div>
