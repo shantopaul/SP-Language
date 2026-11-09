@@ -42,17 +42,17 @@
 - [x] [28. Error Handling — Result Type](#28-error-handling--result-type) ✅
 - [x] [29. Lambda Functions](#29-lambda-functions) ✅
 - [x] [30. Higher-Order Functions](#30-higher-order-functions) ✅
-- [x] [31. Closures](#31-closures) ✅
+- [x] [31. Closures](#31-closures) ❌
 - [x] [32. String Methods](#32-string-methods) ✅
 - [x] [33. Method Overloading](#33-method-overloading) ✅
 - [x] [34. Operator Overloading](#34-operator-overloading) ✅
-- [x] [35. Extension Methods](#35-extension-methods) ✅
+- [x] [35. Extension Methods](#35-extension-methods) ❌
 - [x] [36. Traits](#36-traits) ✅
-- [x] [37. Annotations](#37-annotations) ✅
+- [x] [37. Annotations](#37-annotations) ❌
 - [x] [38. Modules & Imports](#38-modules--imports) ✅
 - [x] [39. Async & Await](#39-async--await) ✅
-- [x] [40. Threads & Concurrency](#40-threads--concurrency) ✅
-- [x] [41. Unsafe Mode](#41-unsafe-mode) ✅
+- [x] [40. Threads & Concurrency](#40-threads--concurrency) ❌
+- [x] [41. Unsafe Mode](#41-unsafe-mode) ❌
 - [x] [42. Native Interop (C FFI)](#42-native-interop-c-ffi) ✅
 - [x] [43. Testing](#43-testing) ✅
 - [x] [44. Comments & Documentation](#44-comments--documentation) ✅
@@ -84,7 +84,7 @@
 - [x] [70. Multi-Catch & Exception Filtering](#70-multi-catch--exception-filtering) ✅
 - [x] [71. Builder Design Pattern](#71-builder-design-pattern) ✅
 - [x] [72. Factory Design Pattern](#72-factory-design-pattern) ✅
-- [x] [73. Singleton Design Pattern](#73-singleton-design-pattern) ✅
+- [x] [73. Singleton Design Pattern](#73-singleton-design-pattern) ❌
 - [x] [74. Observer Design Pattern](#74-observer-design-pattern) ✅
 - [x] [75. Strategy Design Pattern with Lambdas](#75-strategy-design-pattern-with-lambdas) ✅
 - [x] [76. Custom Iterators & Iterable<T>](#76-custom-iterators--iterablet) ✅
@@ -1151,7 +1151,7 @@ fn main() {
     // ═══════════════════════════════════════
 
     fruits.push("Fig");                       // Add to end
-    fruits.remove("Date");                    // Remove by value
+    fruits.removeAt(3);                       // Remove by index ("Date")
     fruits[1] = "Blueberry";                  // Replace
 
     // ═══════════════════════════════════════
@@ -1179,9 +1179,11 @@ fn main() {
 
     let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-    let evens = nums.filter(n => n % 2 == 0);
-    let doubled = nums.map(n => n * 2);
-    let sum = nums.reduce((a, b) => a + b);
+    // Lambda parameters must be typed: an untyped parameter has
+    // type 'unknown' and no method or operator applies to it.
+    let evens = nums.filter((int n) => n % 2 == 0);
+    let doubled = nums.map((int n) => n * 2);
+    let sum = nums.reduce((int a, int b) => a + b);
 
     println("\nOriginal: ${nums}");
     println("Evens: ${evens}");       // [2, 4, 6, 8, 10]
@@ -1207,12 +1209,13 @@ fn main() {
     ages["Alice"] = 25;
     ages["Bob"] = 30;
 
-    // Modern literal syntax
-    let config = {
-        "host": "localhost",
-        "port": 8080,
-        "debug": true
-    };
+    // Mixed-value maps: build with index assignment. Map literals only
+    // support integer values (a string value fails loudly at build time
+    // with E1000), so a mixed map is written out explicitly.
+    Map<string, string> config = new Map<string, string>();
+    config["host"] = "localhost";
+    config["port"] = "8080";
+    config["debug"] = "true";
 
     let scores = {
         "math": 95,
@@ -1224,8 +1227,8 @@ fn main() {
     //  ACCESS
     // ═══════════════════════════════════════
 
-    println("Shanto's age: ${ages["Shanto"]}");   // 21
-    println("Math score: ${scores["math"]}");      // 95
+    println("Shanto's age: ${ages[\"Shanto\"]}");   // 21
+    println("Math score: ${scores[\"math\"]}");      // 95
 
     // ═══════════════════════════════════════
     //  MODIFY
@@ -1240,7 +1243,7 @@ fn main() {
     // ═══════════════════════════════════════
 
     if (ages.containsKey("Alice")) {
-        println("Alice is ${ages["Alice"]} years old");
+        println("Alice is ${ages[\"Alice\"]} years old");
     }
 
     println("Total entries: ${ages.size()}");
@@ -1248,15 +1251,21 @@ fn main() {
     // ═══════════════════════════════════════
     //  ITERATE
     // ═══════════════════════════════════════
+    //
+    // Iterating a Map directly is broken at runtime: the loop
+    // never terminates and yields garbage keys. Iterate a list of
+    // known keys and look each value up instead.
 
     println("\nAll ages:");
-    for (entry in ages) {
-        println("  ${entry.key}: ${entry.value}");
+    string[] names = ["Shanto", "Alice", "Charlie"];
+    for (string name in names) {
+        println("  ${name}: ${ages[name]}");
     }
 
     println("\nAll scores:");
-    for (entry in scores) {
-        println("  📚 ${entry.key} → ${entry.value}");
+    string[] subjects = ["math", "science", "english"];
+    for (string subject in subjects) {
+        println("  📚 ${subject} → ${scores[subject]}");
     }
 }
 ```
@@ -1431,12 +1440,24 @@ class BankAccount {
     // ═══════════════════════════════════════
     internal string branchCode;
 
+    // generateId is declared FIRST: a method may only call methods
+    // declared earlier in the same class. A constructor may not
+    // call a method at all (it segfaults), so the account number
+    // is set directly here; generateId is called from renewId().
+    private fn generateId() -> string {
+        return "123456789";
+    }
+
     public BankAccount(string owner, double initial) {
         this.ownerName = owner;
         this.balance = initial;
-        this.accountNumber = "ACC-" + generateId();
+        this.accountNumber = "ACC-123456789";
         this.accountType = "Savings";
         this.branchCode = "BR-001";
+    }
+
+    public fn renewId() {
+        this.accountNumber = "ACC-" + this.generateId();
     }
 
     // Public methods — anyone can call
@@ -1459,11 +1480,6 @@ class BankAccount {
     public fn getBalance() -> double {
         return balance;
     }
-
-    // Private method — internal use only
-    private fn generateId() -> string {
-        return "123456789";
-    }
 }
 
 fn main() {
@@ -1473,6 +1489,7 @@ fn main() {
     account.deposit(500.0);                  // ✅ public method
     account.withdraw(200.0);                 // ✅ public method
     println("Balance: \$${account.getBalance()}");
+    account.renewId();                       // ✅ public method calling the private one
 
     // ❌ These would NOT compile:
     // println(account.balance);         // error: 'balance' is private
@@ -1576,8 +1593,12 @@ fn main() {
     Cat cat = new Cat("Whiskers", 5, true);
     Bird bird = new Bird("Tweety", 2);
 
-    // Polymorphism
-    Animal[] animals = {dog, cat, bird};
+    // Polymorphism. A brace literal infers any[], which cannot
+    // initialize Animal[], so build the typed list explicitly.
+    List<Animal> animals = new List<Animal>();
+    animals.add(dog);
+    animals.add(cat);
+    animals.add(bird);
 
     println("=== Animal Shelter ===\n");
 
@@ -1690,21 +1711,29 @@ class Rectangle implements Drawable, Resizable {
 }
 
 fn main() {
-    Drawable[] shapes = {
-        new Circle(5.0, "Red"),
-        new Rectangle(4.0, 6.0, "Blue")
-    };
+    // Calling a method through an interface-typed variable fails
+    // IR generation today ("call to undeclared function"), so the
+    // polymorphic loop is replaced by concrete calls. A
+    // List<Drawable> can still hold both shapes.
+    List<Drawable> shapes = new List<Drawable>();
+    shapes.add(new Circle(5.0, "Red"));
+    shapes.add(new Rectangle(4.0, 6.0, "Blue"));
+    println("Shapes in the list: ${shapes.size()}");
 
-    for (Drawable shape in shapes) {
-        shape.draw();
-    }
+    Circle c = new Circle(5.0, "Red");
+    c.draw();
+    c.resize(2.0);
+
+    Rectangle r = new Rectangle(4.0, 6.0, "Blue");
+    r.draw();
+    r.resize(0.5);
 
     println("\nAreas:");
-    Circle c = new Circle(10.0, "Green");
-    println("Circle area: ${c.getArea()}");     // 314.159
+    Circle c2 = new Circle(10.0, "Green");
+    println("Circle area: ${c2.getArea()}");     // 314.159
 
-    Rectangle r = new Rectangle(5.0, 8.0, "Yellow");
-    println("Rectangle area: ${r.getArea()}");  // 40.0
+    Rectangle r2 = new Rectangle(5.0, 8.0, "Yellow");
+    println("Rectangle area: ${r2.getArea()}");  // 40.0
 }
 ```
 
@@ -1754,11 +1783,12 @@ class Bicycle extends Vehicle {
 }
 
 fn main() {
-    Vehicle[] vehicles = {
-        new Car("Toyota", 2024),
-        new ElectricCar("Tesla", 2025),
-        new Bicycle("Trek", 2023)
-    };
+    // A brace literal infers any[], which cannot initialize
+    // Vehicle[], so build the typed list explicitly.
+    List<Vehicle> vehicles = new List<Vehicle>();
+    vehicles.add(new Car("Toyota", 2024));
+    vehicles.add(new ElectricCar("Tesla", 2025));
+    vehicles.add(new Bicycle("Trek", 2023));
 
     println("=== Vehicle Fleet ===\n");
     for (Vehicle v in vehicles) {
@@ -1780,20 +1810,31 @@ Trek (2023) — Human Power 🚴, max 45 km/h
 
 ## 22. Static Members ✅
 
+> Static methods work, and static consts work when used inside
+> the class. Static mutable state does NOT work: a static field
+> assigned inside a static method still reads back its zero
+> value, and reading a static const from outside the class
+> (`MathUtils.PI`) segfaults. So there is no working static
+> counter — the counting below uses a plain instance.
+
 ```sp
 class Counter {
-    private static int count = 0;
+    private int count;
 
-    static fn increment() {
-        count++;
+    Counter() {
+        this.count = 0;
     }
 
-    static fn getCount() -> int {
-        return count;
+    fn increment() {
+        this.count = this.count + 1;
     }
 
-    static fn reset() {
-        count = 0;
+    fn getCount() -> int {
+        return this.count;
+    }
+
+    fn reset() {
+        this.count = 0;
     }
 }
 
@@ -1819,13 +1860,13 @@ class MathUtils {
 }
 
 fn main() {
-    // Static methods — no object needed
-    Counter.increment();
-    Counter.increment();
-    Counter.increment();
-    println("Count: ${Counter.getCount()}");    // 3
+    Counter counter = new Counter();
+    counter.increment();
+    counter.increment();
+    counter.increment();
+    println("Count: ${counter.getCount()}");    // 3
 
-    println("PI: ${MathUtils.PI}");
+    // Static methods — no object needed
     println("Circle area (r=5): ${MathUtils.circleArea(5.0)}");
     println("5² = ${MathUtils.square(5)}");
     println("2^10 = ${MathUtils.power(2, 10)}");
@@ -1861,7 +1902,7 @@ struct Rectangle {
 fn distance(Point a, Point b) -> double {
     int dx = b.x - a.x;
     int dy = b.y - a.y;
-    return math.sqrt(dx * dx + dy * dy);
+    return Math.sqrt(dx * dx + dy * dy);
 }
 
 fn main() {
@@ -1912,22 +1953,19 @@ enum LogLevel {
 }
 
 fn describeDirection(Direction dir) -> string {
-    match dir {
-        Direction.North => return "⬆️ Going North",
-        Direction.South => return "⬇️ Going South",
-        Direction.East  => return "➡️ Going East",
-        Direction.West  => return "⬅️ Going West"
-    }
+    // SP has no `match` expression: use an if/else chain.
+    if (dir == Direction.North) return "⬆️ Going North";
+    if (dir == Direction.South) return "⬇️ Going South";
+    if (dir == Direction.East) return "➡️ Going East";
+    return "⬅️ Going West";
 }
 
 fn log(LogLevel level, string message) {
-    match level {
-        LogLevel.Debug   => println("[DEBUG]   ${message}"),
-        LogLevel.Info    => println("[INFO]    ${message}"),
-        LogLevel.Warning => println("[WARNING] ${message}"),
-        LogLevel.Error   => println("[ERROR]   ${message}"),
-        LogLevel.Fatal   => println("[FATAL]   ${message}")
-    }
+    if (level == LogLevel.Debug) println("[DEBUG]   ${message}");
+    else if (level == LogLevel.Info) println("[INFO]    ${message}");
+    else if (level == LogLevel.Warning) println("[WARNING] ${message}");
+    else if (level == LogLevel.Error) println("[ERROR]   ${message}");
+    else println("[FATAL]   ${message}");
 }
 
 fn main() {
@@ -2016,7 +2054,7 @@ class Stack<T> {
     }
 
     fn pop() -> T {
-        return items.removeLast();
+        return items.pop();
     }
 
     fn peek() -> T {
@@ -2036,9 +2074,18 @@ class Stack<T> {
 //  GENERIC FUNCTIONS
 // ═══════════════════════════════════════════════════
 
-fn max<T>(T a, T b) -> T {
-    return a > b ? a : b;
-}
+    // No comparison on a generic T: `a > b` needs numeric operands,
+    // and T is 'any' inside the generic. Comparison helpers are
+    // written per concrete type (overloading, see §33).
+    fn max(int a, int b) -> int {
+        if (a > b) return a;
+        return b;
+    }
+
+    fn max(double a, double b) -> double {
+        if (a > b) return a;
+        return b;
+    }
 
 fn swap<T>(T a, T b) -> Pair<T, T> {
     return new Pair<T, T>(b, a);
@@ -2069,7 +2116,7 @@ fn main() {
 
     // Generic functions
     println("\nmax(10, 20) = ${max(10, 20)}");
-    println("max(\"apple\", \"banana\") = ${max("apple", "banana")}");
+    println("max(3.5, 2.5) = ${max(3.5, 2.5)}");
 }
 ```
 
@@ -2124,26 +2171,45 @@ fn main() {
 
     println("User 1 name: ${user1?.name}");       // Shanto
     println("User 1 email: ${user1?.email}");      // shanto@email.com
-    println("User 3 name: ${user3?.name}");        // null (no crash!)
+    // ?. on a null object segfaults in interpolation, so check first:
+    if (user3 == null) {
+        println("User 3 name: null (no crash!)");
+    }
 
     // ═══════════════════════════════════════
     //  NULL COALESCING (??)
     // ═══════════════════════════════════════
 
-    string email1 = user1?.email ?? "no-email@default.com";
-    string email2 = user2?.email ?? "no-email@default.com";
-    string name3 = user3?.name ?? "Unknown User";
+    // The `??` operator generates invalid LLVM IR, so write the
+    // fallback out by hand:
+    string? e1 = user1?.email;
+    if (e1 == null) {
+        println("\nEmail 1: no-email@default.com");
+    } else {
+        println("\nEmail 1: ${e1}");    // shanto@email.com
+    }
 
-    println("\nEmail 1: ${email1}");    // shanto@email.com
-    println("Email 2: ${email2}");      // no-email@default.com
-    println("Name 3: ${name3}");        // Unknown User
+    string? e2 = user2?.email;
+    if (e2 == null) {
+        println("Email 2: no-email@default.com");
+    } else {
+        println("Email 2: ${e2}");
+    }
+
+    if (user3 == null) {
+        println("Name 3: Unknown User");
+    } else {
+        println("Name 3: ${user3?.name}");
+    }
 
     // ═══════════════════════════════════════
     //  NULL CHECK
     // ═══════════════════════════════════════
 
     if (user1 != null) {
-        println("\n✅ Found user: ${user1.name}");
+        // No flow narrowing: user1 is still User? here, so keep the
+        // safe-navigation operator even after the null check.
+        println("\n✅ Found user: ${user1?.name}");
     }
 
     if (user3 == null) {
@@ -2294,13 +2360,13 @@ fn main() {
 
     let numbers = [1, 2, 3, 4, 5];
 
-    let doubled = numbers.map(x => x * 2);
+    let doubled = numbers.map((int x) => x * 2);
     println("Doubled: ${doubled}");       // [2, 4, 6, 8, 10]
 
-    let evens = numbers.filter(x => x % 2 == 0);
+    let evens = numbers.filter((int x) => x % 2 == 0);
     println("Evens: ${evens}");           // [2, 4]
 
-    let sum = numbers.reduce((a, b) => a + b);
+    let sum = numbers.reduce((int a, int b) => a + b);
     println("Sum: ${sum}");               // 15
 }
 ```
@@ -2309,72 +2375,37 @@ fn main() {
 
 ## 30. Higher-Order Functions ✅
 
+> `fn(int) -> int` as a parameter or return type is **not** supported:
+> SP has no function-type syntax, so a user-defined function cannot
+> take a function as a parameter or return one. The higher-order
+> surface that does exist is: a bare function name is a value (store
+> it in a variable and call it), and `List`/array `map`/`filter`/
+> `reduce` take a lambda directly.
+
 ```sp
 // ═══════════════════════════════════════════════════
-//  FUNCTIONS THAT TAKE FUNCTIONS AS PARAMETERS
+//  FUNCTIONS AS VALUES (named functions in variables)
 // ═══════════════════════════════════════════════════
 
-fn applyTwice(fn(int) -> int operation, int value) -> int {
-    return operation(operation(value));
-}
-
-fn transform(int[] arr, fn(int) -> int func) -> int[] {
-    int[] result = new int[arr.length()];
-    for (int i = 0; i < arr.length(); i++) {
-        result[i] = func(arr[i]);
-    }
-    return result;
-}
-
-fn executeIf(bool condition, fn() action) {
-    if (condition) {
-        action();
-    }
-}
-
-// ═══════════════════════════════════════════════════
-//  FUNCTIONS THAT RETURN FUNCTIONS
-// ═══════════════════════════════════════════════════
-
-fn multiplier(int factor) -> fn(int) -> int {
-    return (int x) => x * factor;
-}
-
-fn adder(int amount) -> fn(int) -> int {
-    return (int x) => x + amount;
-}
+fn doubleIt(int x) -> int { return x * 2; }
+fn squareIt(int x) -> int { return x * x; }
 
 fn main() {
-    // Pass lambda to function
-    int result = applyTwice(x => x * 2, 3);
-    println("applyTwice(double, 3) = ${result}");  // 12
+    // A bare function name is a value: store it and call it.
+    var f = doubleIt;
+    println("f(5) = ${f(5)}");     // 10
 
-    // Transform array
-    int[] nums = {1, 2, 3, 4, 5};
-    int[] squared = transform(nums, x => x * x);
-    println("Squared: ${squared}");    // [1, 4, 9, 16, 25]
-
-    // Conditional execution
-    executeIf(true, () => println("This runs!"));
-    executeIf(false, () => println("This doesn't!"));
-
-    // Function factories
-    var double = multiplier(2);
-    var triple = multiplier(3);
-    var addTen = adder(10);
-
-    println("double(5) = ${double(5)}");     // 10
-    println("triple(5) = ${triple(5)}");     // 15
-    println("addTen(5) = ${addTen(5)}");     // 15
+    var g = squareIt;
+    println("g(5) = ${g(5)}");     // 25
 
     // ═══════════════════════════════════════
     //  CHAINING: map → filter → reduce
     // ═══════════════════════════════════════
 
     let result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        .map(x => x * x)           // square each
-        .filter(x => x > 20)       // keep > 20
-        .reduce((a, b) => a + b);  // sum them
+        .map((int x) => x * x)           // square each
+        .filter((int x) => x > 20)       // keep > 20
+        .reduce((int a, int b) => a + b);  // sum them
 
     println("\nSum of squares > 20: ${result}");  // 25+36+49+64+81+100 = 355
 }
@@ -2382,34 +2413,53 @@ fn main() {
 
 ---
 
-## 31. Closures ✅
+## 31. Closures ❌ Not Implemented
+
+> Capturing lambdas are **not** supported: a lambda that reads a
+> variable from its enclosing scope fails loudly with E1000
+> (`lambda captures variable ...`). State that would live in a
+> closure lives in a class instead, or is passed explicitly as a
+> parameter. (Non-capturing lambdas — see §29 — work fine.)
 
 ```sp
-fn makeCounter() -> fn() -> int {
-    int count = 0;
-    return () => {
-        count++;
-        return count;
-    };
+class Counter {
+    private int count;
+
+    Counter() {
+        this.count = 0;
+    }
+
+    public fn next() -> int {
+        this.count = this.count + 1;
+        return this.count;
+    }
 }
 
-fn makeGreeter(string greeting) -> fn(string) -> string {
-    return (string name) => "${greeting}, ${name}!";
+class Greeter {
+    private string greeting;
+
+    Greeter(string greeting) {
+        this.greeting = greeting;
+    }
+
+    public fn greet(string name) -> string {
+        return "${this.greeting}, ${name}!";
+    }
 }
 
 fn main() {
-    // Counter closure — captures and modifies `count`
-    var counter = makeCounter();
-    println(counter());    // 1
-    println(counter());    // 2
-    println(counter());    // 3
+    // Counter — the state lives in the object, not in a closure
+    var counter = new Counter();
+    println(counter.next());    // 1
+    println(counter.next());    // 2
+    println(counter.next());    // 3
 
-    // Greeter closure — captures `greeting`
-    var hello = makeGreeter("Hello");
-    var hi = makeGreeter("Hi");
+    // Greeter — the "captured" greeting is a field
+    var hello = new Greeter("Hello");
+    var hi = new Greeter("Hi");
 
-    println(hello("Shanto"));    // Hello, Shanto!
-    println(hi("Alice"));        // Hi, Alice!
+    println(hello.greet("Shanto"));    // Hello, Shanto!
+    println(hi.greet("Alice"));        // Hi, Alice!
 }
 ```
 
@@ -2430,13 +2480,16 @@ fn main() {
     println("Length:     ${text.trim().length()}");
     println("Upper:      ${text.trim().upper()}");
     println("Lower:      ${text.trim().lower()}");
-    println("Contains:   ${text.contains("SP")}");         // true
-    println("StartsWith: ${text.trim().startsWith("Hello")}");  // true
-    println("EndsWith:   ${text.trim().endsWith("!")}");        // true
-    println("IndexOf:    ${text.indexOf("SP")}");           // 9
-    println("Replace:    ${text.trim().replace("SP", "Shanto Paul")}");
+    // String literals inside ${...} must escape their quotes: an
+    // unescaped " ends the outer string and the parse fails.
+    println("Contains:   ${text.contains(\"SP\")}");         // true
+    println("StartsWith: ${text.trim().startsWith(\"Hello\")}");  // true
+    println("EndsWith:   ${text.trim().endsWith(\"!\")}");        // true
+    println("IndexOf:    ${text.indexOf(\"SP\")}");           // 9
+    println("Replace:    ${text.trim().replace(\"SP\", \"Shanto Paul\")}");
     println("Substring:  ${text.trim().substring(0, 5)}");  // Hello
-    println("CharAt:     ${text.trim().charAt(0)}");        // H
+    // No charAt(): take a one-character substring instead.
+    println("CharAt:     ${text.trim().substring(0, 1)}");        // H
 
     // ═══════════════════════════════════════
     //  SPLIT & JOIN
@@ -2449,7 +2502,12 @@ fn main() {
         println("  - ${fruit}");
     }
 
-    string joined = fruits.join(" | ");
+    // No join() on arrays: build the joined string by hand.
+    string joined = "";
+    for (int i = 0; i < fruits.length(); i++) {
+        if (i > 0) joined = joined + " | ";
+        joined = joined + fruits[i];
+    }
     println("Joined: ${joined}");
     // apple | banana | cherry | date
 
@@ -2553,48 +2611,45 @@ fn main() {
 
 ---
 
-## 35. Extension Methods ✅
+## 35. Extension Methods ❌ Not Implemented
+
+> SP has no `extend` blocks: you cannot add methods to `string` or
+> `int` from outside. The same behaviour lives in free functions
+> (or the `String`/`Math` static classes), with the value as an
+> argument instead of a receiver.
 
 ```sp
-extend string {
-    fn isEmail() -> bool {
-        return this.contains("@") && this.contains(".");
-    }
-
-    fn reverse() -> string {
-        string result = "";
-        for (int i = this.length() - 1; i >= 0; i--) {
-            result += this.charAt(i);
-        }
-        return result;
-    }
-
-    fn wordCount() -> int {
-        return this.trim().split(" ").length();
-    }
+fn isEmail(string s) -> bool {
+    return s.contains("@") && s.contains(".");
 }
 
-extend int {
-    fn isEven() -> bool { return this % 2 == 0; }
-    fn isOdd() -> bool { return this % 2 != 0; }
-    fn factorial() -> int {
-        int result = 1;
-        for (int i = 2; i <= this; i++) result *= i;
-        return result;
-    }
+fn reverseStr(string s) -> string {
+    return s.reverse();
+}
+
+fn wordCount(string s) -> int {
+    return s.trim().split(" ").length();
+}
+
+fn isEven(int n) -> bool { return n % 2 == 0; }
+fn isOdd(int n) -> bool { return n % 2 != 0; }
+fn factorial(int n) -> int {
+    int result = 1;
+    for (int i = 2; i <= n; i++) result = result * i;
+    return result;
 }
 
 fn main() {
-    // String extensions
-    println("test@email.com".isEmail());         // true
-    println("not-an-email".isEmail());            // false
-    println("Hello".reverse());                   // olleH
-    println("Hello SP World".wordCount());        // 3
+    // String helpers
+    println(isEmail("test@email.com"));         // true
+    println(isEmail("not-an-email"));            // false
+    println(reverseStr("Hello"));                   // olleH
+    println(wordCount("Hello SP World"));        // 3
 
-    // Int extensions
-    println(42.isEven());        // true
-    println(7.isOdd());          // true
-    println(5.factorial());      // 120
+    // Int helpers
+    println(isEven(42));        // true
+    println(isOdd(7));          // true
+    println(factorial(5));      // 120
 }
 ```
 
@@ -2602,17 +2657,21 @@ fn main() {
 
 ## 36. Traits ✅
 
+> SP has no `trait` keyword and no `with` clause: shared behaviour
+> is expressed with `interface` + `implements` (a class may implement
+> several interfaces, as below).
+
 ```sp
-trait Serializable {
+interface Serializable {
     fn serialize() -> string;
     fn deserialize(string data);
 }
 
-trait Displayable {
+interface Displayable {
     fn display();
 }
 
-class User with Serializable, Displayable {
+class User implements Serializable, Displayable {
     string name;
     int age;
 
@@ -2643,47 +2702,40 @@ fn main() {
 
 ---
 
-## 37. Annotations ✅
+## 37. Annotations ❌ Not Implemented
+
+> SP has no annotations: `@Route`, `@Method`, `@Deprecated`,
+> `@Test`, `@Serializable` and `@inline` do not exist. Routing is
+> registered in code (see §85, `std.http` / `std.web`), and tests are
+> plain functions using the builtin `assert()`. The same classes,
+> without decoration:
 
 ```sp
-@Serializable
 class Config {
     string host;
     int port;
     bool debug;
 }
 
-class ApiController {
-
-    @Route("/users")
-    @Method("GET")
-    fn getUsers() -> List<User> {
-        return userService.findAll();
-    }
-
-    @Route("/users")
-    @Method("POST")
-    fn createUser(User user) -> User {
-        return userService.save(user);
-    }
-
-    @Deprecated("Use getUsers() instead")
-    fn listUsers() -> List<User> {
-        return getUsers();
-    }
-}
-
 class MathService {
-
-    @inline
     fn add(int a, int b) -> int {
         return a + b;
     }
+}
 
-    @Test
-    fn testAdd() {
-        assert(add(2, 3) == 5);
-    }
+fn testAdd() {
+    MathService m = new MathService();
+    assert(m.add(2, 3) == 5);
+    println("testAdd passed");
+}
+
+fn main() {
+    Config cfg = new Config();
+    cfg.host = "localhost";
+    cfg.port = 8080;
+    cfg.debug = true;
+    println("host=${cfg.host} port=${cfg.port}");
+    testAdd();
 }
 ```
 
@@ -2691,11 +2743,21 @@ class MathService {
 
 ## 38. Modules & Imports ✅
 
-```sp
-// ═══════════════════════════════════════════════════
-//  FILE: src/models/user.sp
-// ═══════════════════════════════════════════════════
+> The three blocks below are three separate files of one project.
+> Module paths are lowercase file paths: `import myapp.models.user`
+> loads `src/myapp/models/user.sp` (searched from the project root
+> and from `src/`). Importing by class name (`import
+> myapp.models.User`) does **not** resolve, and `import` statements
+> belong at the top of the file, never inside `main`. Check the whole
+> project with `spc check src/main.sp` from the project root.
+>
+> Field initializers with `new` are silently dropped at runtime
+> (the field stays null — a known compiler gap, see the Phase 34
+> slice D notes), so the service builds its list in the constructor.
 
+**FILE: `src/myapp/models/user.sp`**
+
+```sp
 module myapp.models;
 
 public class User {
@@ -2707,17 +2769,21 @@ public class User {
         this.age = age;
     }
 }
+```
 
-// ═══════════════════════════════════════════════════
-//  FILE: src/services/user_service.sp
-// ═══════════════════════════════════════════════════
+**FILE: `src/myapp/services/user_service.sp`**
 
+```sp
 module myapp.services;
 
-import myapp.models.User;
+import myapp.models.user;
 
 public class UserService {
-    private List<User> users = new List<User>();
+    private List<User> users;
+
+    public UserService() {
+        this.users = new List<User>();
+    }
 
     public fn addUser(User user) {
         users.add(user);
@@ -2730,14 +2796,14 @@ public class UserService {
         return null;
     }
 }
+```
 
-// ═══════════════════════════════════════════════════
-//  FILE: src/main.sp
-// ═══════════════════════════════════════════════════
+**FILE: `src/main.sp`**
 
+```sp
 import std.io;
-import myapp.models.User;
-import myapp.services.UserService;
+import myapp.models.user;
+import myapp.services.user_service;
 
 fn main() {
     UserService service = new UserService();
@@ -2746,14 +2812,6 @@ fn main() {
 
     User? user = service.findByName("Shanto");
     println("Found: ${user?.name}, age ${user?.age}");
-
-    // Standard library imports
-    import std.math;
-    import std.collections;
-    import std.fs;
-    import std.json;
-    import std.http;
-    import std.time;
 }
 ```
 
@@ -2792,54 +2850,56 @@ async fn main() {
 
 ---
 
-## 40. Threads & Concurrency ✅
+## 40. Threads & Concurrency ❌ Not Implemented (from SP)
+
+> There is no `thread { ... }` block, and `Thread.spawn` cannot be
+> called from SP: it takes a raw `int` function pointer, and neither
+> a function value nor a `ptr` coerces to it (verified with
+> `spc check`). The runtime has the primitives (`std.sync`), and
+> `Mutex` / `AtomicInt` / `Thread.sleep` work from SP — but spawning
+> a thread does not. `async fn` + `await` (§39) is the way to write
+> concurrent-looking code today.
 
 ```sp
+import std.sync;
+
 fn main() {
-    // ═══════════════════════════════════════
-    //  SPAWN A THREAD
-    // ═══════════════════════════════════════
+    println("CPUs: ${Thread.hardwareConcurrency()}");
 
-    thread {
-        for (i in 0..5) {
-            println("Background: ${i}");
-        }
-    }
+    Mutex m = new Mutex();
+    m.lock();
+    println("in critical section");
+    m.unlock();
 
-    for (i in 0..5) {
-        println("Main: ${i}");
-    }
+    AtomicInt counter = new AtomicInt(0);
+    counter.add(5);
+    counter.increment();
+    println("counter: ${counter.get()}");   // 6
 
-    // ═══════════════════════════════════════
-    //  FUTURE PRIMITIVES
-    // ═══════════════════════════════════════
-    // spawn    — launch concurrent task
-    // channel  — message passing
-    // mutex    — mutual exclusion
-    // atomic   — atomic operations
+    Thread.sleep(10);
+    println("slept 10ms");
 }
 ```
 
 ---
 
-## 41. Unsafe Mode ✅
+## 41. Unsafe Mode ❌ Not Implemented
+
+> There is no `unsafe { ... }` block, no `pointer` type and no
+> `allocate`/`free` in SP. The low-level surface that does exist is
+> the `ptr` type (for FFI, see §42) and the `std.mem` arena
+> allocator, which hands out integer addresses inside a bump arena:
 
 ```sp
+import std.mem;
+
 fn main() {
-    // ═══════════════════════════════════════
-    //  UNSAFE BLOCK — for systems programming
-    // ═══════════════════════════════════════
-
-    unsafe {
-        pointer p = allocate(1024);   // Raw memory allocation
-        // Direct memory operations
-        // Pointer arithmetic
-        // No bounds checking
-        free(p);
-    }
-
-    // Outside unsafe: full safety guarantees
-    println("Back to safe SP! ✅");
+    Arena arena = new Arena();
+    int addr = arena.alloc(1024);
+    println("allocated bytes: ${arena.allocatedBytes()}");
+    arena.reset();
+    arena.destroy();
+    println("Back to safe SP!");
 }
 ```
 
@@ -2851,21 +2911,26 @@ fn main() {
 // ═══════════════════════════════════════════════════
 //  CALL C FUNCTIONS FROM SP
 // ═══════════════════════════════════════════════════
+//
+// Pointers are `ptr`, not `pointer`. Declared functions must be
+// called with exactly the declared parameters (C variadics such as
+// printf with format arguments cannot be declared).
 
 extern "C" {
-    fn printf(string format);
     fn strlen(string s) -> int;
-    fn malloc(int size) -> pointer;
-    fn free(pointer p);
+    fn malloc(int size) -> ptr;
+    fn free(ptr p);
 }
 
 fn main() {
-    // Call C's printf directly
-    printf("Hello from C! %d\n", 42);
-
     // Use C's strlen
     int len = strlen("Hello");
     println("strlen: ${len}");   // 5
+
+    // Raw allocation through C
+    ptr p = malloc(1024);
+    free(p);
+    println("ffi ok");
 }
 ```
 
@@ -2873,9 +2938,11 @@ fn main() {
 
 ## 43. Testing ✅
 
-```sp
-import std.testing;
+> SP has no test framework: there is no `std.testing` module and no
+> `test "..." {}` blocks. Tests are plain functions using the builtin
+> `assert()`, run from `main`.
 
+```sp
 // ═══════════════════════════════════════════════════
 //  FUNCTIONS TO TEST
 // ═══════════════════════════════════════════════════
@@ -2888,35 +2955,48 @@ fn factorial(int n) -> int {
 fn isEven(int n) -> bool { return n % 2 == 0; }
 
 // ═══════════════════════════════════════════════════
-//  TEST BLOCKS
+//  TEST FUNCTIONS
 // ═══════════════════════════════════════════════════
 
-test "addition works" {
+fn testAddition() {
     assert(add(2, 3) == 5);
     assert(add(-1, 1) == 0);
     assert(add(0, 0) == 0);
+    println("addition works");
 }
 
-test "factorial is correct" {
+fn testFactorial() {
     assert(factorial(0) == 1);
     assert(factorial(1) == 1);
     assert(factorial(5) == 120);
     assert(factorial(10) == 3628800);
+    println("factorial is correct");
 }
 
-test "even/odd detection" {
+fn testEvenOdd() {
     assert(isEven(0) == true);
     assert(isEven(2) == true);
     assert(isEven(3) == false);
     assert(isEven(100) == true);
+    println("even/odd detection works");
 }
 
-test "string operations" {
+fn testStrings() {
     string name = "Shanto";
     assert(name.length() == 6);
     assert(name.upper() == "SHANTO");
     assert(name.contains("han") == true);
+    println("string operations work");
 }
+
+fn main() {
+    testAddition();
+    testFactorial();
+    testEvenOdd();
+    testStrings();
+    println("all tests passed");
+}
+```
 ```
 
 **Run tests:**
@@ -2992,113 +3072,186 @@ class User {
 
 ## 45. Multi-Syntax Compatibility ✅
 
-SP's unique feature — multiple syntax styles that compile to identical code:
+SP's unique feature — multiple syntax styles that compile to identical code.
+Each style below is its own program: the styles cannot share one file,
+because redeclaring the same function or class twice is an error.
+
+**Function declaration — 3 valid styles:**
 
 ```sp
-// ═══════════════════════════════════════════════════
-//  FUNCTION DECLARATION — 3 valid styles
-// ═══════════════════════════════════════════════════
-
 // Style 1: SP-native
 fn add(int a, int b) -> int {
     return a + b;
 }
 
-// Style 2: Java / C++ / C#
+fn main() {
+    println("2 + 3 = ${add(2, 3)}");
+}
+```
+
+```sp
+// Style 2: Java / C++ / C# — return type first
 int add(int a, int b) {
     return a + b;
 }
 
-// Style 3: Short form
-fn add(a, b) => a + b;
+fn main() {
+    println("2 + 3 = ${add(2, 3)}");
+}
+```
 
+```sp
+// Style 3: Short form (parameters must still be typed)
+fn add(int a, int b) => a + b;
 
-// ═══════════════════════════════════════════════════
-//  VOID FUNCTIONS — 2 valid styles
-// ═══════════════════════════════════════════════════
+fn main() {
+    println("2 + 3 = ${add(2, 3)}");
+}
+```
 
+**Void functions — 2 valid styles:**
+
+```sp
 // SP-native
 fn printName() {
     println("Shanto");
 }
 
+fn main() {
+    printName();
+}
+```
+
+```sp
 // Java/C++ style
 void printName() {
     println("Shanto");
 }
 
+fn main() {
+    printName();
+}
+```
 
-// ═══════════════════════════════════════════════════
-//  INHERITANCE — 2 valid styles
-// ═══════════════════════════════════════════════════
+**Inheritance — 2 valid styles:**
 
+```sp
 // Java style
+class Animal {
+    fn speak() { println("..."); }
+}
 class Dog extends Animal { }
 
+fn main() {
+    Dog d = new Dog();
+    d.speak();
+}
+```
+
+```sp
 // C# style
+class Animal {
+    fn speak() { println("..."); }
+}
 class Dog : Animal { }
 
+fn main() {
+    Dog d = new Dog();
+    d.speak();
+}
+```
 
-// ═══════════════════════════════════════════════════
-//  INTERFACE IMPLEMENTATION — 2 valid styles
-// ═══════════════════════════════════════════════════
+**Interface implementation — 2 valid styles:**
 
+```sp
 // Java style
-class User implements Serializable { }
+interface Serializable {
+    fn serialize() -> string;
+}
+class User implements Serializable {
+    fn serialize() -> string { return "{}"; }
+}
 
+fn main() {
+    User u = new User();
+    println(u.serialize());
+}
+```
+
+```sp
 // C# style
-class User : Serializable { }
-
-
-// ═══════════════════════════════════════════════════
-//  SWITCH vs MATCH
-// ═══════════════════════════════════════════════════
-
-// Classic (C/Java)
-switch (x) {
-    case 1: println("one"); break;
-    default: println("other");
+interface Serializable {
+    fn serialize() -> string;
+}
+class User : Serializable {
+    fn serialize() -> string { return "{}"; }
 }
 
-// Modern (SP)
-match x {
-    1 => println("one"),
-    _ => println("other")
+fn main() {
+    User u = new User();
+    println(u.serialize());
 }
+```
 
+**Switch — the classic multi-way branch:**
 
-// ═══════════════════════════════════════════════════
-//  CONSTRUCTOR — 2 valid styles
-// ═══════════════════════════════════════════════════
+```sp
+fn main() {
+    int x = 1;
+    switch (x) {
+        case 1: println("one"); break;
+        default: println("other");
+    }
+}
+```
 
+> There is no `match` expression in SP (see §24, §61): the modern
+> alternative is an if/else chain.
+
+**Constructor — 2 valid styles:**
+
+```sp
 // SP-native
 class User {
+    string name;
     constructor(string name) {
         this.name = name;
     }
 }
 
+fn main() {
+    User u = new User("Shanto");
+    println(u.name);
+}
+```
+
+```sp
 // Java/C# style
 class User {
+    string name;
     User(string name) {
         this.name = name;
     }
 }
 
+fn main() {
+    User u = new User("Shanto");
+    println(u.name);
+}
+```
 
-// ═══════════════════════════════════════════════════
-//  ENTRY POINT — 2 valid styles
-// ═══════════════════════════════════════════════════
+**Entry point:**
 
+```sp
 // SP-native (recommended)
 fn main() {
     println("Hello, SP!");
 }
+```
 
-// Java-style (compatibility)
-public static void main() {
-    System.out.println("Hello, SP!");
-}
+> The Java-style `public static void main()` with
+> `System.out.println` does **not** exist in SP: there is no `System`
+> class and `main` is a plain `fn main()`.
 ```
 
 > **All styles compile to the same AST → same LLVM IR → same native binary.**
@@ -3172,7 +3325,13 @@ class Task {
 }
 
 class TodoApp {
-    private List<Task> tasks = new List<Task>();
+    private List<Task> tasks;
+
+    TodoApp() {
+        // Field initializers with `new` are silently dropped at
+        // runtime (the field stays null), so build it here.
+        this.tasks = new List<Task>();
+    }
 
     fn add(string title) {
         tasks.add(new Task(title));
@@ -3199,7 +3358,7 @@ class TodoApp {
             println("║  ${i + 1}. ${tasks[i].toString()}");
         }
 
-        int done = tasks.filter(t => t.done).size();
+        int done = tasks.filter((Task t) => t.done).size();
         println("╠══════════════════════════════╣");
         println("║  ${done}/${tasks.size()} completed");
         println("╚══════════════════════════════╝");
@@ -3254,12 +3413,22 @@ import std.collections;
 class Account {
     private string owner;
     private double balance;
-    private List<string> history = new List<string>();
+    private List<string> history;
+
+    // `log` is declared FIRST: a method may only call methods
+    // declared earlier in the same class — calling a
+    // later-declared method segfaults at runtime.
+    private fn log(string message) {
+        history.add(message);
+    }
 
     Account(string owner, double initial) {
         this.owner = owner;
         this.balance = initial;
-        log("Account created with \$${initial}");
+        // Field initializers with `new` are silently dropped at
+        // runtime (the field stays null), so build it here.
+        this.history = new List<string>();
+        this.log("Account created with \$${initial}");
     }
 
     fn deposit(double amount) {
@@ -3268,7 +3437,9 @@ class Account {
             return;
         }
         balance += amount;
-        log("Deposit: +\$${amount}");
+        // Bare method calls do not resolve inside a class: methods
+        // must be called on an explicit receiver (`this.`).
+        this.log("Deposit: +\$${amount}");
         println("✅ Deposited \$${amount}");
     }
 
@@ -3278,7 +3449,7 @@ class Account {
             return;
         }
         balance -= amount;
-        log("Withdraw: -\$${amount}");
+        this.log("Withdraw: -\$${amount}");
         println("✅ Withdrew \$${amount}");
     }
 
@@ -3289,7 +3460,7 @@ class Account {
         }
         balance -= amount;
         target.balance += amount;
-        log("Transfer: -\$${amount} → ${target.owner}");
+        this.log("Transfer: -\$${amount} → ${target.owner}");
         target.log("Received: +\$${amount} from ${owner}");
         println("✅ Transferred \$${amount} to ${target.owner}");
     }
@@ -3303,10 +3474,6 @@ class Account {
         for (string entry in history) {
             println("   ${entry}");
         }
-    }
-
-    private fn log(string message) {
-        history.add(message);
     }
 }
 
@@ -3370,23 +3537,25 @@ import std.fs;
 
 fn main() {
     string filePath = "notes.txt";
-    
-    // Write text to a file
-    fs.writeString(filePath, "Hello from SP File System!\nSecond line of notes.\n");
+
+    // Write text to a file. The API is the `FS` class (free
+    // functions `writeText`/`readText`/… exist too); there is no
+    // `fs` namespace object and no `writeString`/`readString`.
+    FS.writeText(filePath, "Hello from SP File System!\nSecond line of notes.\n");
     println("File written successfully.");
-    
+
     // Check if file exists
-    if (fs.exists(filePath)) {
+    if (FS.exists(filePath)) {
         println("Verified: ${filePath} exists.");
     }
-    
+
     // Read the file contents
-    string contents = fs.readString(filePath);
+    string contents = FS.readText(filePath);
     println("File Contents:\n${contents}");
-    
-    // Append to file
-    fs.appendString(filePath, "Third line added via append.\n");
-    println("Updated Size: ${fs.size(filePath)} bytes");
+
+    // Append to file (there is no `size()` in std.fs)
+    FS.appendText(filePath, "Third line added via append.\n");
+    println("Appended a third line.");
 }
 ```
 
@@ -3413,21 +3582,23 @@ import std.fs;
 
 fn main() {
     string logFile = "app.log";
-    fs.writeString(logFile, "INFO: System started\nWARN: High memory usage\nERROR: Connection timed out\nINFO: Retry succeeded\n");
-    
-    FileStream stream = fs.openRead(logFile);
+    FS.writeText(logFile, "INFO: System started\nWARN: High memory usage\nERROR: Connection timed out\nINFO: Retry succeeded\n");
+
+    // No FileStream in std.fs: read the whole file and split it
+    // into lines instead of streaming.
+    string[] lines = FS.readText(logFile).split("\n");
     int lineNumber = 1;
-    
-    while (!stream.isEOF()) {
-        string line = stream.readLine();
-        if (line.contains("ERROR")) {
-            println("🚨 Alert on line ${lineNumber}: ${line}");
-        } else {
-            println("[${lineNumber}] ${line}");
+
+    for (string line in lines) {
+        if (line.length() > 0) {
+            if (line.contains("ERROR")) {
+                println("🚨 Alert on line ${lineNumber}: ${line}");
+            } else {
+                println("[${lineNumber}] ${line}");
+            }
+            lineNumber = lineNumber + 1;
         }
-        lineNumber += 1;
     }
-    stream.close();
 }
 ```
 
@@ -3450,19 +3621,21 @@ import std.io;
 import std.fs;
 
 fn main() {
-    Path p = new Path("src/compiler/parser.sp");
-    println("File Name: " + p.fileName());
-    println("Extension: " + p.extension());
-    println("Directory: " + p.parent());
-    
-    string joined = Path.join(["build", "bin", "spc.exe"]);
-    println("Joined Path: ${joined}");
-    
-    // Create directory tree if not exists
-    fs.createDirAll("test_workspace/logs");
-    println("Directory created: test_workspace/logs");
-    
-    List<string> entries = fs.listDir(".");
+    // No Path class in std.fs: path pieces are plain strings,
+    // split apart with string.split().
+    string p = "src/compiler/parser.sp";
+    string[] parts = p.split("/");
+    string fileName = parts[parts.length() - 1];
+    println("File Name: ${fileName}");
+    string[] nameParts = fileName.split(".");
+    println("Extension: ${nameParts[1]}");
+    println("Directory: src/compiler");
+
+    // createDir creates one level (there is no createDirAll).
+    FS.createDir("test_workspace");
+    println("Directory created: test_workspace");
+
+    string[] entries = FS.listDir(".");
     println("Total root entries found: ${entries.length()}");
 }
 ```
@@ -3489,18 +3662,20 @@ import std.math;
 
 fn main() {
     double x = 45.0;
-    double rad = math.toRadians(x);
-    
+    // No `math` namespace and no `toRadians`: use the Math class
+    // and convert degrees to radians by hand.
+    double rad = x * Math.PI / 180.0;
+
     println("Angle: ${x} deg = ${rad} rad");
-    println("sin(45 deg): ${math.sin(rad)}");
-    println("cos(45 deg): ${math.cos(rad)}");
-    
-    println("Square root of 144: ${math.sqrt(144.0)}");
-    println("2^10 power: ${math.pow(2.0, 10.0)}");
-    println("log10(1000): ${math.log10(1000.0)}");
-    println("Round 3.75: ${math.round(3.75)}");
-    println("Floor 3.75: ${math.floor(3.75)}");
-    println("Ceil 3.75: ${math.ceil(3.75)}");
+    println("sin(45 deg): ${Math.sin(rad)}");
+    println("cos(45 deg): ${Math.cos(rad)}");
+
+    println("Square root of 144: ${Math.sqrt(144.0)}");
+    println("2^10 power: ${Math.pow(2.0, 10.0)}");
+    println("log10(1000): ${Math.log10(1000.0)}");
+    println("Round 3.75: ${Math.round(3.75)}");
+    println("Floor 3.75: ${Math.floor(3.75)}");
+    println("Ceil 3.75: ${Math.ceil(3.75)}");
 }
 ```
 
@@ -3525,23 +3700,39 @@ Generate cryptographically sound or fast pseudo-random values.
 
 ```sp
 import std.io;
-import std.math;
+import std.time;
+
+// No Random class in the stdlib: the only randomness source is
+// Crypto.randomHex / randomUuid. A small deterministic PRNG is
+// enough for a dice demo (seeded for reproducibility).
+class SimpleRng {
+    private int64 state;
+    SimpleRng(int64 seed) { this.state = seed; }
+    public fn nextInt(int low, int high) -> int64 {
+        this.state = (this.state * 1103515245 + 12345) % 2147483648;
+        return low + (this.state % (high - low));
+    }
+    public fn nextDouble() -> double {
+        this.state = (this.state * 1103515245 + 12345) % 2147483648;
+        return this.state / 2147483648.0;
+    }
+}
 
 fn main() {
-    Random rng = new Random(1337); // Seeded for reproducibility
-    
+    SimpleRng rng = new SimpleRng(1337); // Seeded for reproducibility
+
     println("🎲 Rolling a 6-sided dice 5 times:");
     for (int i = 0; i < 5; i++) {
-        int roll = rng.nextInt(1, 7); // [1, 6]
+        int64 roll = rng.nextInt(1, 7); // [1, 6]
         print("${roll} ");
     }
     println("");
-    
+
     double probability = rng.nextDouble();
     println("Random probability: ${probability}");
-    
-    List<string> choices = ["Red", "Green", "Blue", "Cyan", "Amber"];
-    string picked = rng.choice(choices);
+
+    string[] choices = ["Red", "Green", "Blue", "Cyan", "Amber"];
+    string picked = choices[rng.nextInt(0, 5)];
     println("Randomly picked color: ${picked}");
 }
 ```
@@ -3565,16 +3756,19 @@ import std.io;
 import std.time;
 
 fn main() {
-    DateTime now = DateTime.now();
-    println("Current UTC Timestamp: ${now.toIsoString()}");
-    println("Year: ${now.year()}, Month: ${now.month()}, Day: ${now.day()}");
-    
-    Duration tenDays = Duration.fromDays(10);
-    DateTime future = now.add(tenDays);
-    println("10 Days in Future: ${future.toIsoString()}");
-    
-    Duration diff = future.diff(now);
-    println("Hours between: ${diff.inHours()} hours");
+    // No DateTime class in std.time: time is an int64 of epoch
+    // milliseconds from Time.now(), formatted by Time.format().
+    int64 now = Time.now();
+    println("Current epoch millis: ${now}");
+    println("Formatted: ${Time.format(now)}");
+    println("Seconds: ${Time.nowSeconds()}");
+
+    Duration tenDays = Duration.fromHours(240);
+    println("Ten days in millis: ${tenDays.toMillis()}");
+
+    int64 future = now + tenDays.toMillis();
+    println("10 days in future (epoch ms): ${future}");
+    println("Formatted future: ${Time.format(future)}");
 }
 ```
 
@@ -3596,23 +3790,24 @@ Measure execution elapsed time in microseconds and nanoseconds.
 import std.io;
 import std.time;
 
-fn heavyCalculation() -> long {
-    long sum = 0;
-    for (long i = 0; i < 1000000; i++) {
-        sum += i;
+fn heavyCalculation() -> int64 {
+    int64 sum = 0;
+    for (int64 i = 0; i < 1000000; i = i + 1) {
+        sum = sum + i;
     }
     return sum;
 }
 
 fn main() {
-    Stopwatch sw = Stopwatch.startNew();
-    
-    long result = heavyCalculation();
-    sw.stop();
-    
+    // No Stopwatch in std.time: time it with Time.now() before
+    // and after. `long` does not exist either — use int64.
+    int64 start = Time.now();
+
+    int64 result = heavyCalculation();
+    int64 elapsed = Time.now() - start;
+
     println("Computation Result: ${result}");
-    println("Elapsed Milliseconds: ${sw.elapsedMilliseconds()} ms");
-    println("Elapsed Microseconds: ${sw.elapsedMicroseconds()} us");
+    println("Elapsed Milliseconds: ${elapsed} ms");
 }
 ```
 
@@ -3632,18 +3827,27 @@ Inspect hardware architecture, OS platform, and environment variables.
 ```sp
 import std.io;
 import std.os;
+import std.sync;
 
 fn main() {
-    println("OS Platform: " + os.platform());
-    println("CPU Architecture: " + os.arch());
-    println("Logical CPU Cores: ${os.cpuCount()}");
-    
-    // Environment Variables
-    string user = os.getEnv("USER", os.getEnv("USERNAME", "Developer"));
+    // The API is the `OS` class (free functions exist too);
+    // there is no `os` namespace object.
+    println("OS Platform: " + OS.platform());
+    println("CPU Architecture: " + OS.arch());
+    println("Logical CPU Cores: ${Thread.hardwareConcurrency()}");
+
+    // getEnv takes one argument (no default): fall back by hand.
+    string user = OS.getEnv("USER");
+    if (user == "") {
+        user = OS.getEnv("USERNAME");
+    }
+    if (user == "") {
+        user = "Developer";
+    }
     println("Current User: ${user}");
-    
-    os.setEnv("SP_ENV", "PRODUCTION");
-    println("SP_ENV: " + os.getEnv("SP_ENV", "DEFAULT"));
+
+    OS.setEnv("SP_ENV", "PRODUCTION");
+    println("SP_ENV: " + OS.getEnv("SP_ENV"));
 }
 ```
 
@@ -3668,12 +3872,15 @@ import std.process;
 
 fn main() {
     println("Spawning git version check process...");
-    
-    ProcessResult res = process.run("git", ["--version"]);
-    if (res.exitCode == 0) {
-        println("Success! Output: " + res.stdout.trim());
+
+    // No ProcessResult: Process.exec returns the exit code and
+    // Process.run returns stdout as a string.
+    int code = Process.exec("git --version");
+    if (code == 0) {
+        string out = Process.run("git --version");
+        println("Success! Output: " + out.trim());
     } else {
-        println("Command failed with code ${res.exitCode}: ${res.stderr}");
+        println("Command failed with code ${code}");
     }
 }
 ```
@@ -3695,17 +3902,20 @@ import std.io;
 import std.collections;
 
 fn isBalanced(string expr) -> bool {
-    Stack<char> stack = new Stack<char>();
+    // No char type in SP: work with one-character strings.
+    // Single quotes are char literals, so "({[]})" must use
+    // double quotes.
+    Stack<string> stack = new Stack<string>();
     for (int i = 0; i < expr.length(); i++) {
-        char c = expr[i];
-        if (c == '(' || c == '{' || c == '[') {
+        string c = expr.substring(i, i + 1);
+        if (c == "(" || c == "{" || c == "[") {
             stack.push(c);
-        } else if (c == ')' || c == '}' || c == ']') {
+        } else if (c == ")" || c == "}" || c == "]") {
             if (stack.isEmpty()) return false;
-            char top = stack.pop();
-            if ((c == ')' && top != '(') ||
-                (c == '}' && top != '{') ||
-                (c == ']' && top != '[')) {
+            string top = stack.pop();
+            if ((c == ")" && top != "(") ||
+                (c == "}" && top != "{") ||
+                (c == "]" && top != "[")) {
                 return false;
             }
         }
@@ -3714,8 +3924,10 @@ fn isBalanced(string expr) -> bool {
 }
 
 fn main() {
-    println("Balanced '({[]})': ${isBalanced('({[]})')}");
-    println("Balanced '([)]': ${isBalanced('([)]')}");
+    bool ok1 = isBalanced("({[]})");
+    bool ok2 = isBalanced("([)]");
+    println("Balanced ({[]}): ${ok1}");
+    println("Balanced ([)]: ${ok2}");
 }
 ```
 
@@ -3776,18 +3988,36 @@ import std.io;
 import std.collections;
 
 fn main() {
-    Set<int> setA = Set.of([1, 2, 3, 4, 5]);
-    Set<int> setB = Set.of([4, 5, 6, 7, 8]);
-    
-    Set<int> unionSet = setA.union(setB);
-    Set<int> intersectSet = setA.intersect(setB);
-    Set<int> diffSet = setA.difference(setB);
-    
-    println("Set A: ${setA}");
-    println("Set B: ${setB}");
-    println("Union (A ∪ B): ${unionSet}");
-    println("Intersection (A ∩ B): ${intersectSet}");
-    println("Difference (A - B): ${diffSet}");
+    Set<int> setA = new Set<int>();
+    setA.add(1); setA.add(2); setA.add(3); setA.add(4); setA.add(5);
+    Set<int> setB = new Set<int>();
+    setB.add(4); setB.add(5); setB.add(6); setB.add(7); setB.add(8);
+
+    // No Set.of / union / intersect / difference, and Set is not
+    // iterable: build the results by testing membership over the
+    // known value range.
+    Set<int> unionSet = new Set<int>();
+    Set<int> intersectSet = new Set<int>();
+    Set<int> diffSet = new Set<int>();
+    for (int x = 1; x <= 8; x++) {
+        if (setA.contains(x)) {
+            unionSet.add(x);
+            if (setB.contains(x)) { intersectSet.add(x); } else { diffSet.add(x); }
+        } else if (setB.contains(x)) {
+            unionSet.add(x);
+        }
+    }
+
+    // A Set cannot be printed directly (interpolating one prints
+    // raw pointer bytes), so show sizes and membership instead.
+    println("Set A size: ${setA.size()}, Set B size: ${setB.size()}");
+    println("Union size: ${unionSet.size()}");
+    println("Intersection size: ${intersectSet.size()}");
+    println("Difference size: ${diffSet.size()}");
+    println("Union contains 7: ${unionSet.contains(7)}");
+    println("Intersection contains 4: ${intersectSet.contains(4)}");
+    println("Difference contains 1: ${diffSet.contains(1)}");
+    println("Difference contains 4: ${diffSet.contains(4)}");
 }
 ```
 
@@ -3821,13 +4051,13 @@ class Job {
 }
 
 fn main() {
-    // Highest priority job dequeues first
-    PriorityQueue<Job> pq = new PriorityQueue<Job>((a, b) => b.priority - a.priority);
-    
-    pq.push(new Job("Send telemetry", 1));
-    pq.push(new Job("Critical security patch", 10));
-    pq.push(new Job("Database backup", 5));
-    
+    // No comparator constructor: pass the priority with each push.
+    PriorityQueue<Job> pq = new PriorityQueue<Job>();
+
+    pq.push(new Job("Send telemetry", 1), 1);
+    pq.push(new Job("Critical security patch", 10), 10);
+    pq.push(new Job("Database backup", 5), 5);
+
     while (!pq.isEmpty()) {
         Job job = pq.pop();
         println("Processing Job: ${job.name} (Priority ${job.priority})");
@@ -3851,28 +4081,35 @@ Group multiple typed values together without creating dedicated structs.
 ```sp
 import std.io;
 
-fn findMinMax(int[] arr) -> (int, int) {
+// No tuples in SP: return a small class (or an int[]) instead.
+class MinMax {
+    public int min;
+    public int max;
+    MinMax(int min, int max) { this.min = min; this.max = max; }
+}
+
+fn findMinMax(int[] arr) -> MinMax {
     int min = arr[0];
     int max = arr[0];
-    for (n in arr) {
-        if (n < min) min = n;
-        if (n > max) max = n;
+    for (int n in arr) {
+        if (n < min) { min = n; }
+        if (n > max) { max = n; }
     }
-    return (min, max);
+    return new MinMax(min, max);
 }
 
 fn main() {
     int[] scores = [84, 92, 45, 99, 73, 61];
-    
-    // Tuple destructuring
-    (int lowest, int highest) = findMinMax(scores);
-    
-    println("Lowest Score: ${lowest}");
-    println("Highest Score: ${highest}");
-    
-    // Direct index access
-    var coordinate = ("X_AXIS", 1920, 1080);
-    println("Label: ${coordinate.0}, Width: ${coordinate.1}, Height: ${coordinate.2}");
+
+    MinMax result = findMinMax(scores);
+    println("Lowest Score: ${result.min}");
+    println("Highest Score: ${result.max}");
+
+    // A coordinate is a small class too.
+    string label = "X_AXIS";
+    int width = 1920;
+    int height = 1080;
+    println("Label: ${label}, Width: ${width}, Height: ${height}");
 }
 ```
 
@@ -3892,13 +4129,12 @@ Multi-way matching with value pattern tests and boolean conditions.
 ```sp
 import std.io;
 
+// No `match` in SP: the same logic is an if/else chain.
 fn categorizeNumber(int n) -> string {
-    return match (n) {
-        0 => "Zero",
-        val if val < 0 => "Negative number",
-        val if val % 2 == 0 => "Positive Even number",
-        _ => "Positive Odd number"
-    };
+    if (n == 0) { return "Zero"; }
+    if (n < 0) { return "Negative number"; }
+    if (n % 2 == 0) { return "Positive Even number"; }
+    return "Positive Odd number";
 }
 
 fn main() {
@@ -3926,13 +4162,14 @@ Guarantee thread-safety and avoid accidental side-effects using `const`.
 ```sp
 import std.io;
 
-const double PI = 3.141592653589793;
-const string ECOSYSTEM_NAME = "SP 1.0 Production";
-
 fn main() {
+    // Top-level `const` is not visible inside fn bodies, so
+    // declare constants where they are used.
+    const double PI = 3.141592653589793;
+    const string ECOSYSTEM_NAME = "SP 1.0 Production";
     println("Constant PI: ${PI}");
     println("Ecosystem: ${ECOSYSTEM_NAME}");
-    
+
     // Immutable array reference
     const int[] primeNumbers = [2, 3, 5, 7, 11, 13, 17];
     println("Primes count: ${primeNumbers.length()}");
@@ -3955,13 +4192,15 @@ Structs in SP have value semantics: passing or assigning creates a direct stack 
 ```sp
 import std.io;
 
+// Structs have fields only, no methods (and no `public` on
+// fields): put the logic in a free function instead.
 struct Vector2D {
-    public double x;
-    public double y;
-    
-    public fn length() -> double {
-        return math.sqrt(x * x + y * y);
-    }
+    double x;
+    double y;
+}
+
+fn length(Vector2D v) -> double {
+    return Math.sqrt(v.x * v.x + v.y * v.y);
 }
 
 fn main() {
@@ -3973,8 +4212,8 @@ fn main() {
     Vector2D v2 = v1;
     v2.x = 10.0;
     
-    println("v1: (${v1.x}, ${v1.y}) - Length: ${v1.length()}");
-    println("v2: (${v2.x}, ${v2.y}) - Length: ${v2.length()}");
+    println("v1: (${v1.x}, ${v1.y}) - Length: ${length(v1)}");
+    println("v2: (${v2.x}, ${v2.y}) - Length: ${length(v2)}");
 }
 ```
 
@@ -3993,6 +4232,9 @@ Query exact byte size and memory alignment for primitives and structures.
 ```sp
 import std.io;
 
+// SP has no `sizeof` operator, so the size of a type is not
+// observable from SP code. The fixed sizes of the primitives are
+// documented here instead:
 struct CompactHeader {
     int id;       // 4 bytes
     bool active;  // 1 byte
@@ -4000,11 +4242,11 @@ struct CompactHeader {
 }
 
 fn main() {
-    println("Size of bool:   ${sizeof(bool)} byte");
-    println("Size of int:    ${sizeof(int)} bytes");
-    println("Size of long:   ${sizeof(long)} bytes");
-    println("Size of double: ${sizeof(double)} bytes");
-    println("Size of CompactHeader struct: ${sizeof(CompactHeader)} bytes");
+    println("Size of bool:   1 byte");
+    println("Size of int:    4 bytes");
+    println("Size of int64:  8 bytes");
+    println("Size of double: 8 bytes");
+    println("CompactHeader holds id (4) + active (1) + ratio (8)");
 }
 ```
 
@@ -4026,28 +4268,32 @@ Pass arguments by reference to allow callers to observe mutations directly.
 ```sp
 import std.io;
 
-fn swap(ref int a, ref int b) {
-    int temp = a;
-    a = b;
-    b = temp;
+// No ref/out parameters in SP: return the results instead.
+fn swapped(int a, int b) -> int[] {
+    return [b, a];
 }
 
-fn divideWithRemainder(int dividend, int divisor, out int quotient, out int remainder) {
-    quotient = dividend / divisor;
-    remainder = dividend % divisor;
+class DivResult {
+    public int quotient;
+    public int remainder;
+    DivResult(int q, int r) { this.quotient = q; this.remainder = r; }
+}
+
+fn divideWithRemainder(int dividend, int divisor) -> DivResult {
+    return new DivResult(dividend / divisor, dividend % divisor);
 }
 
 fn main() {
     int x = 100;
     int y = 500;
     println("Before swap: x=${x}, y=${y}");
-    swap(ref x, ref y);
+    int[] s = swapped(x, y);
+    x = s[0];
+    y = s[1];
     println("After swap:  x=${x}, y=${y}");
-    
-    int q;
-    int r;
-    divideWithRemainder(29, 6, out q, out r);
-    println("29 / 6 = ${q} with remainder ${r}");
+
+    DivResult d = divideWithRemainder(29, 6);
+    println("29 / 6 = ${d.quotient} with remainder ${d.remainder}");
 }
 ```
 
@@ -4067,14 +4313,16 @@ Guarantee clean execution of resource cleanup when exiting the current block.
 ```sp
 import std.io;
 
+// No `defer` in SP: use try/finally for guaranteed cleanup.
 fn simulateDatabaseTransaction() {
     println("1. Begin transaction");
-    defer println("4. Close database connection (deferred)");
-    
-    println("2. Execute write queries");
-    defer println("3. Commit transaction (deferred)");
-    
-    println("Working inside transaction scope...");
+    try {
+        println("2. Execute write queries");
+        println("Working inside transaction scope...");
+    } finally {
+        println("3. Commit transaction (finally)");
+        println("4. Close database connection (finally)");
+    }
 }
 
 fn main() {
@@ -4138,28 +4386,32 @@ Railway-oriented error handling for operations that can fail without throwing ex
 ```sp
 import std.io;
 
+// `string` has no toInt(): use int.parse. It returns 0 for
+// non-numeric input (it never throws), so the range check is what
+// rejects bad values.
 fn parsePort(string input) -> Result<int, string> {
-    try {
-        int port = input.toInt();
-        if (port >= 1 && port <= 65535) {
-            return Result.Ok(port);
-        }
-        return Result.Err("Port must be between 1 and 65535");
-    } catch {
-        return Result.Err("Invalid numerical format");
+    int port = int.parse(input);
+    if (port >= 1 && port <= 65535) {
+        return Result.Ok(port);
     }
+    return Result.Err("Port must be between 1 and 65535");
 }
 
 fn main() {
     var valid = parsePort("8080");
     var invalid = parsePort("999999");
-    
+    var garbage = parsePort("abc");
+
     if (valid.isOk()) {
         println("Server listening on port: ${valid.unwrap()}");
     }
-    
+
     if (invalid.isErr()) {
         println("Configuration error: " + invalid.unwrapErr());
+    }
+
+    if (garbage.isErr()) {
+        println("Configuration error: " + garbage.unwrapErr());
     }
 }
 ```
@@ -4179,27 +4431,37 @@ Define domain-specific exception hierarchies with custom payload data.
 ```sp
 import std.io;
 
-class ValidationException extends Exception {
+// There is no Exception base class and objects cannot be thrown
+// (only string, int, bool, char and float). A custom error type
+// still works as a Result error value.
+class ValidationException {
     public string field;
     public string rule;
-    
-    public ValidationException(string field, string rule, string message) : super(message) {
+    public string message;
+
+    ValidationException(string field, string rule, string message) {
         this.field = field;
         this.rule = rule;
+        this.message = message;
     }
 }
 
-fn validateUsername(string name) {
+fn validateUsername(string name) -> Result<bool, ValidationException> {
     if (name.length() < 3) {
-        throw new ValidationException("username", "minLength", "Username must be at least 3 characters");
+        return Result.Err(new ValidationException("username", "minLength", "Username must be at least 3 characters"));
     }
+    return Result.Ok(true);
 }
 
 fn main() {
-    try {
-        validateUsername("yo");
-    } catch (ValidationException e) {
+    var result = validateUsername("yo");
+    if (result.isErr()) {
+        ValidationException e = result.unwrapErr();
         println("❌ Validation Error on field '${e.field}': ${e.message} (Rule: ${e.rule})");
+    }
+    var ok = validateUsername("shanto");
+    if (ok.isOk()) {
+        println("Username is valid");
     }
 }
 ```
@@ -4218,22 +4480,26 @@ Handle different exceptions cleanly in specialized catch handlers.
 ```sp
 import std.io;
 
-fn executeJob(int code) {
-    if (code == 1) throw new ArgumentException("Negative value disallowed");
-    if (code == 2) throw new TimeoutException("Service did not respond within 500ms");
-    println("Job code ${code} completed successfully.");
-}
-
+// Only string, int, bool, char and float values can be thrown —
+// there is no Exception base class and no `throw new X`.
+// Two more limits: a throw inside a called function is NOT caught
+// by the caller's try (it panics), and catch clauses do NOT filter
+// by type at runtime — the first catch wins. So dispatch on an
+// error-code prefix inside a single catch instead.
 fn main() {
     for (int i = 0; i < 3; i++) {
         try {
-            executeJob(i);
-        } catch (ArgumentException e) {
-            println("Caught argument error: " + e.message);
-        } catch (TimeoutException e) {
-            println("Caught network timeout: " + e.message);
-        } catch (Exception e) {
-            println("Generic error: " + e.message);
+            if (i == 1) throw "ARG:Negative value disallowed";
+            if (i == 2) throw "TIMEOUT:Service did not respond within 500ms";
+            println("Job code ${i} completed successfully.");
+        } catch (string e) {
+            if (e.startsWith("ARG:")) {
+                println("Caught argument error: " + e.substring(4, e.length()));
+            } else if (e.startsWith("TIMEOUT:")) {
+                println("Caught network timeout: " + e.substring(8, e.length()));
+            } else {
+                println("Generic error: " + e);
+            }
         }
     }
 }
@@ -4270,14 +4536,23 @@ class HttpRequest {
 }
 
 class RequestBuilder {
-    private string method = "GET";
-    private string url = "";
-    private Map<string, string> headers = new Map<string, string>();
-    private string body = "";
-    
+    private string method;
+    private string url;
+    private Map<string, string> headers;
+    private string body;
+
+    RequestBuilder() {
+        // Field initializers with `new` are silently dropped at
+        // runtime (the field stays null), so build them here.
+        this.method = "GET";
+        this.url = "";
+        this.headers = new Map<string, string>();
+        this.body = "";
+    }
+
     public fn setMethod(string m) -> RequestBuilder { this.method = m; return this; }
     public fn setUrl(string u) -> RequestBuilder { this.url = u; return this; }
-    public fn addHeader(string k, string v) -> RequestBuilder { this.headers.put(k, v); return this; }
+    public fn addHeader(string k, string v) -> RequestBuilder { this.headers[k] = v; return this; }
     public fn setBody(string b) -> RequestBuilder { this.body = b; return this; }
     
     public fn build() -> HttpRequest {
@@ -4326,17 +4601,23 @@ class SmsService implements NotificationService {
 }
 
 class NotificationFactory {
-    public static fn create(string channel) -> NotificationService {
-        if (channel == "email") return new EmailService();
-        if (channel == "sms") return new SmsService();
-        throw new ArgumentException("Unknown notification channel: ${channel}");
+    // `channel` is a reserved word in SP, so the parameter is
+    // named channelName. And a method cannot be called through an
+    // interface-typed variable (IR generation fails), so the
+    // factory returns the concrete types.
+    public static fn createEmail() -> EmailService {
+        return new EmailService();
+    }
+
+    public static fn createSms() -> SmsService {
+        return new SmsService();
     }
 }
 
 fn main() {
-    NotificationService email = NotificationFactory.create("email");
-    NotificationService sms = NotificationFactory.create("sms");
-    
+    EmailService email = NotificationFactory.createEmail();
+    SmsService sms = NotificationFactory.createSms();
+
     email.notify("Your SP compiler v1.0 build has finished!");
     sms.notify("Two-factor code: 489201");
 }
@@ -4350,40 +4631,40 @@ fn main() {
 
 ---
 
-## 73. Singleton Design Pattern ✅
+## 73. Singleton Design Pattern ❌ Not Implemented
 
 Ensure only a single global instance of a resource manager exists.
+
+> A singleton cannot be written in SP today. Three ways to write
+> one all fail: a lazily-initialized static instance cannot be
+> unwrapped back to the plain type (no flow narrowing, no `!`
+> operator), an eagerly-initialized static instance segfaults at
+> runtime, and static field initializers are silently dropped
+> (a static string initialized to `"Production"` reads back
+> empty). Static mutable state does not work at all: a static
+> field assigned inside a static method still reads back its
+> zero value. The closest working form is one shared instance
+> created in `main` and passed to everything that needs it.
 
 ```sp
 import std.io;
 
 class ConfigurationManager {
-    private static ConfigurationManager instance = null;
     public string environment;
-    
-    private ConfigurationManager() {
+
+    ConfigurationManager() {
         this.environment = "Production";
-    }
-    
-    public static fn getInstance() -> ConfigurationManager {
-        if (instance == null) {
-            instance = new ConfigurationManager();
-        }
-        return instance;
     }
 }
 
 fn main() {
-    ConfigurationManager cfg1 = ConfigurationManager.getInstance();
-    ConfigurationManager cfg2 = ConfigurationManager.getInstance();
-    
-    println("cfg1 env: " + cfg1.environment);
-    cfg1.environment = "Staging";
-    
-    // Both references point to the exact same instance
-    println("cfg2 env: " + cfg2.environment);
-    println("Identical reference: ${cfg1 === cfg2}");
+    // One instance, created once and shared by passing it around.
+    ConfigurationManager cfg = new ConfigurationManager();
+    println("cfg env: " + cfg.environment);
+    cfg.environment = "Staging";
+    println("cfg env now: " + cfg.environment);
 }
+```
 ```
 
 **Output:**
@@ -4408,15 +4689,33 @@ interface Observer {
 }
 
 class EventHub {
-    private List<Observer> listeners = new List<Observer>();
-    
-    public fn subscribe(Observer obs) {
-        listeners.add(obs);
+    private List<UserLogger> loggers;
+    private List<EmailAlert> alerts;
+
+    EventHub() {
+        // Field initializers with `new` are silently dropped at
+        // runtime, so build the lists here.
+        this.loggers = new List<UserLogger>();
+        this.alerts = new List<EmailAlert>();
     }
-    
+
+    public fn subscribeLogger(UserLogger obs) {
+        this.loggers.add(obs);
+    }
+
+    public fn subscribeAlert(EmailAlert obs) {
+        this.alerts.add(obs);
+    }
+
+    // Calling a method through an interface-typed variable fails
+    // IR generation, so the hub keeps one list per concrete
+    // listener type instead of a single List<Observer>.
     public fn emit(string eventName) {
         println("📢 Event emitted: ${eventName}");
-        for (obs in listeners) {
+        for (UserLogger obs in this.loggers) {
+            obs.onEvent(eventName);
+        }
+        for (EmailAlert obs in this.alerts) {
             obs.onEvent(eventName);
         }
     }
@@ -4432,9 +4731,9 @@ class EmailAlert implements Observer {
 
 fn main() {
     EventHub hub = new EventHub();
-    hub.subscribe(new UserLogger());
-    hub.subscribe(new EmailAlert());
-    
+    hub.subscribeLogger(new UserLogger());
+    hub.subscribeAlert(new EmailAlert());
+
     hub.emit("USER_REGISTERED");
 }
 ```
@@ -4455,31 +4754,40 @@ Dynamically configure algorithms using first-class function closures.
 ```sp
 import std.io;
 
-type PaymentStrategy = fn(double) -> bool;
-
+// No `type X = fn...` alias and no fn values as parameters, so a
+// strategy is a named method selected by name instead of a
+// first-class function.
+//
+// NOTE: a method may only call methods declared EARLIER in the
+// same class — calling a later-declared method segfaults at
+// runtime — so the strategy methods come first.
 class Checkout {
-    public fn processPayment(double amount, PaymentStrategy strategy) {
+    private fn payByCard(double amount) -> bool {
+        println("Charging $${amount} via Credit Card gateway.");
+        return true;
+    }
+    private fn payByCrypto(double amount) -> bool {
+        println("Generating on-chain transaction for $${amount}.");
+        return true;
+    }
+
+    public fn processPayment(double amount, string method) {
         println("Initiating checkout of $${amount}...");
-        bool ok = strategy(amount);
+        bool ok = false;
+        if (method == "card") {
+            ok = this.payByCard(amount);
+        } else if (method == "crypto") {
+            ok = this.payByCrypto(amount);
+        }
         if (ok) println("✅ Payment settled successfully.");
     }
 }
 
 fn main() {
     Checkout shop = new Checkout();
-    
-    PaymentStrategy creditCard = (amt) => {
-        println("Charging $${amt} via Credit Card gateway.");
-        return true;
-    };
-    
-    PaymentStrategy crypto = (amt) => {
-        println("Generating on-chain transaction for $${amt}.");
-        return true;
-    };
-    
-    shop.processPayment(150.0, creditCard);
-    shop.processPayment(420.0, crypto);
+
+    shop.processPayment(150.0, "card");
+    shop.processPayment(420.0, "crypto");
 }
 ```
 
@@ -4502,41 +4810,30 @@ Implement custom iterators to allow any class to be traversed with `for-in` loop
 ```sp
 import std.io;
 
-class NumberRange implements Iterable<int> {
-    private int start;
-    private int end;
-    
-    public NumberRange(int start, int end) {
-        this.start = start;
-        this.end = end;
-    }
-    
-    public fn iterator() -> Iterator<int> {
-        return new RangeIterator(this.start, this.end);
-    }
-}
-
-class RangeIterator implements Iterator<int> {
+// No generic `Iterable<T>` / `Iterator<T>` interfaces and no
+// for-in over a custom class: expose hasNext()/next() and drive
+// the iteration with a while loop instead.
+class NumberRange {
     private int current;
     private int end;
-    
-    public RangeIterator(int current, int end) {
-        this.current = current;
+
+    public NumberRange(int start, int end) {
+        this.current = start;
         this.end = end;
     }
-    
+
     public fn hasNext() -> bool { return this.current <= this.end; }
     public fn next() -> int {
         int val = this.current;
-        this.current += 1;
+        this.current = this.current + 1;
         return val;
     }
 }
 
 fn main() {
     NumberRange range = new NumberRange(5, 10);
-    for (num in range) {
-        print("${num} ");
+    while (range.hasNext()) {
+        print("${range.next()} ");
     }
     println("");
 }
@@ -4555,23 +4852,27 @@ Produce infinite or lazy data sequences on demand without upfront memory allocat
 
 ```sp
 import std.io;
+import std.collections;
 
-fn fibonacciSequence() -> Generator<int> {
+// No generators / yield in SP: build the whole list up front.
+fn fibonacciSequence(int count) -> List<int> {
+    List<int> out = new List<int>();
     int a = 0;
     int b = 1;
-    while (true) {
-        yield a;
+    for (int i = 0; i < count; i++) {
+        out.add(a);
         int next = a + b;
         a = b;
         b = next;
     }
+    return out;
 }
 
 fn main() {
     println("Generating first 8 Fibonacci numbers:");
-    var fib = fibonacciSequence();
-    for (int i = 0; i < 8; i++) {
-        print("${fib.next()} ");
+    List<int> fib = fibonacciSequence(8);
+    for (int i = 0; i < fib.size(); i++) {
+        print("${fib[i]} ");
     }
     println("");
 }
@@ -4591,20 +4892,32 @@ Format numbers with precision, align table columns, and pad strings.
 
 ```sp
 import std.io;
-import std.string;
+
+// No string.format / padStart / toHex in SP: pad by hand with
+// String.repeat and build the columns with concatenation.
+fn padRight(string s, int width) -> string {
+    int needed = width - s.length();
+    if (needed <= 0) { return s; }
+    return s + " ".repeat(needed);
+}
+
+fn padLeft(string s, int width) -> string {
+    int needed = width - s.length();
+    if (needed <= 0) { return s; }
+    return " ".repeat(needed) + s;
+}
 
 fn main() {
     println("=== Invoice Report ===");
-    println(string.format("%-15s | %8s | %10s", ["Item", "Qty", "Price"]));
+    println(padRight("Item", 15) + " | " + padLeft("Qty", 8) + " | " + padLeft("Price", 10));
     println("----------------------------------------");
-    
-    println(string.format("%-15s | %8d | $%9.2f", ["SP Compiler Pro", 2, 99.50]));
-    println(string.format("%-15s | %8d | $%9.2f", ["Cloud License", 1, 450.00]));
-    println(string.format("%-15s | %8d | $%9.2f", ["Support SLA", 12, 25.00]));
-    
-    // Hex and Binary padding
-    int hexVal = 255;
-    println("Hex: 0x" + hexVal.toHex().padStart(4, '0'));
+
+    println(padRight("SP Compiler Pro", 15) + " | " + padLeft("2", 8) + " | $" + padLeft("99.5", 9));
+    println(padRight("Cloud License", 15) + " | " + padLeft("1", 8) + " | $" + padLeft("450.0", 9));
+    println(padRight("Support SLA", 15) + " | " + padLeft("12", 8) + " | $" + padLeft("25.0", 9));
+
+    // No toHex either: 255 is 0xFF.
+    println("Hex: 0xFF");
 }
 ```
 
@@ -4627,21 +4940,40 @@ Validate input format, extract capture groups, and replace text using patterns.
 
 ```sp
 import std.io;
-import std.string;
+
+// No Regex in SP: validate with plain string operations, and
+// mask digits by scanning one character at a time.
+fn isValidEmail(string email) -> bool {
+    int at = email.indexOf("@");
+    if (at <= 0) { return false; }
+    string domain = email.substring(at + 1, email.length());
+    if (!domain.contains(".")) { return false; }
+    if (email.contains(" ")) { return false; }
+    return true;
+}
+
+fn maskDigits(string text) -> string {
+    string out = "";
+    for (int i = 0; i < text.length(); i++) {
+        string c = text.substring(i, i + 1);
+        if ("0123456789".contains(c)) {
+            out = out + "*";
+        } else {
+            out = out + c;
+        }
+    }
+    return out;
+}
 
 fn main() {
-    string emailPattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$";
-    Regex reg = new Regex(emailPattern);
-    
     string email1 = "team@splang.shantopaul.com";
     string email2 = "invalid-email-address";
-    
-    println("'${email1}' is valid: ${reg.test(email1)}");
-    println("'${email2}' is valid: ${reg.test(email2)}");
-    
+
+    println("'${email1}' is valid: ${isValidEmail(email1)}");
+    println("'${email2}' is valid: ${isValidEmail(email2)}");
+
     string text = "Order #1042 was placed on 2026-10-06";
-    string masked = text.replaceAll("\\d", "*");
-    println("Masked text: ${masked}");
+    println("Masked text: ${maskDigits(text)}");
 }
 ```
 
@@ -4661,22 +4993,23 @@ Low-level binary data serialization and byte slicing.
 ```sp
 import std.io;
 
+// No ByteBuffer in SP: a plain int[] holds the bytes.
 fn main() {
-    ByteBuffer buffer = new ByteBuffer(16);
-    buffer.writeInt32(1048576);
-    buffer.writeFloat64(3.14159);
-    buffer.writeString("SP");
-    
-    println("Total bytes written: ${buffer.position()} bytes");
-    
-    buffer.seek(0);
-    int readInt = buffer.readInt32();
-    double readFloat = buffer.readFloat64();
-    string readStr = buffer.readString(2);
-    
-    println("Decoded Int: ${readInt}");
-    println("Decoded Float: ${readFloat}");
-    println("Decoded String: ${readStr}");
+    int[] buffer = [0, 0, 0, 0, 0, 0, 0, 0];
+    // Write the int 1048576 (0x100000) little-endian, one byte each.
+    int value = 1048576;
+    buffer[0] = value % 256;
+    buffer[1] = (value / 256) % 256;
+    buffer[2] = (value / 65536) % 256;
+    buffer[3] = (value / 16777216) % 256;
+
+    println("Total bytes written: 4 bytes");
+
+    int readBack = buffer[0] + buffer[1] * 256 + buffer[2] * 65536 + buffer[3] * 16777216;
+    println("Decoded Int: ${readBack}");
+
+    string text = "SP";
+    println("Decoded String: ${text}");
 }
 ```
 
@@ -4696,22 +5029,27 @@ Streamlined JSON encode/decode with native SP mapping.
 
 ```sp
 import std.io;
-import json;
+import std.json;
 
 fn main() {
     string rawJson = "{\"language\": \"SP\", \"version\": 1.0, \"active\": true}";
-    
-    JsonObject obj = json.parse(rawJson);
-    println("Language: " + obj.getString("language"));
-    println("Version:  ${obj.getDouble('version')}");
-    println("Active:   ${obj.getBool('active')}");
-    
-    // Create and serialize
-    JsonObject outbound = new JsonObject();
-    outbound.put("status", "SUCCESS");
-    outbound.put("code", 200);
-    
-    println("Serialized: " + outbound.stringify());
+
+    // No JsonObject: the type is JsonValue, parsed by
+    // JsonValue.parse and read with get()/asString()/asDouble().
+    JsonValue obj = JsonValue.parse(rawJson);
+    string language = obj.get("language").asString();
+    double version = obj.get("version").asDouble();
+    bool active = obj.get("active").asBool();
+    println("Language: " + language);
+    println("Version:  ${version}");
+    println("Active:   ${active}");
+
+    // Create and serialize with objectVal() + set().
+    JsonValue outbound = JsonValue.objectVal();
+    outbound.set("status", JsonValue.stringVal("SUCCESS"));
+    outbound.set("code", JsonValue.intVal(200));
+
+    println("Serialized: " + outbound.stringify(0));
 }
 ```
 
@@ -4735,16 +5073,18 @@ import std.net;
 
 fn main() {
     println("Connecting to TCP echo service at 127.0.0.1:9000...");
-    
+    // Needs a local echo server on port 9000. TcpStream has no
+    // readLine: read(maxBytes) returns what the server sent.
+    // There is no NetworkException: failures throw strings.
     try {
-        TcpSocket client = TcpSocket.connect("127.0.0.1", 9000);
+        TcpStream client = TcpStream.connect("127.0.0.1", 9000);
         client.write("PING_SP_LANGUAGE\n");
-        
-        string reply = client.readLine();
+
+        string reply = client.read(1024);
         println("Server replied: ${reply}");
         client.close();
-    } catch (NetworkException e) {
-        println("Connection simulated: ${e.message}");
+    } catch (string e) {
+        println("Connection failed: ${e}");
     }
 }
 ```
@@ -4793,19 +5133,19 @@ Perform asynchronous REST API requests with request headers and status codes.
 
 ```sp
 import std.io;
-import http;
+import std.http;
 
 fn main() {
     println("Executing HTTP GET https://api.splang.shantopaul.com/v1/packages...");
-    
-    HttpResponse res = http.get("https://api.splang.shantopaul.com/v1/packages");
-    println("Response Status: ${res.statusCode}");
-    println("Server: " + res.headers.get("server"));
-    println("Body Length: ${res.body.length()} chars");
-    
+
+    HttpResponse res = HttpClient.get("https://api.splang.shantopaul.com/v1/packages");
+    println("Response Status: ${res.status()}");
+    println("Server: " + res.header("server"));
+    println("Body Length: ${res.body().length()} chars");
+
     // HTTP POST with JSON body
-    HttpResponse postRes = http.post("https://api.splang.shantopaul.com/v1/verify", "{\"pkg\": \"json\"}");
-    println("POST Status: ${postRes.statusCode}");
+    HttpResponse postRes = HttpClient.post("https://api.splang.shantopaul.com/v1/verify", "{\"pkg\": \"json\"}");
+    println("POST Status: ${postRes.status()}");
 }
 ```
 
@@ -4826,21 +5166,26 @@ Build microservice HTTP APIs with route endpoints and middleware.
 
 ```sp
 import std.io;
-import http;
+import std.http;
+import std.time;
 
 fn main() {
-    HttpServer app = new HttpServer(8080);
-    
-    app.get("/", (req, res) => {
-        res.send("Welcome to SP Web Framework!");
-    });
-    
-    app.get("/api/health", (req, res) => {
-        res.json("{\"status\": \"healthy\", \"version\": \"1.0.0\"}");
-    });
-    
+    HttpServer app = HttpServer.create();
+
+    // Static JSON routes work. A fn-pointer handler registered
+    // with app.get(path, handlerFn) segfaults the server on its
+    // first request, so dynamic handlers are not shown here.
+    app.routeJson("GET", "/", "{\"message\": \"Welcome to SP Web Framework!\"}");
+    app.routeJson("GET", "/api/health", "{\"status\": \"healthy\", \"version\": \"1.0.0\"}");
+
     println("Server running at http://localhost:8080/");
     println("Serving routes: GET /, GET /api/health");
+    app.listen(8080);
+
+    // listen() returns immediately: keep the process alive.
+    while (true) {
+        Time.sleep(1000);
+    }
 }
 ```
 
@@ -4858,17 +5203,18 @@ Compute cryptographic hashes, digests, and verify secure signatures.
 
 ```sp
 import std.io;
-import crypto;
+import std.crypto;
 
 fn main() {
     string payload = "The SP Programming Language 1.0 Production Release";
-    
-    string sha256Hash = crypto.sha256(payload);
+
+    string sha256Hash = Crypto.sha256(payload);
     println("Payload: ${payload}");
     println("SHA-256: ${sha256Hash}");
-    
+
     string secretKey = "super-secret-key-2026";
-    string signature = crypto.hmacSha256(payload, secretKey);
+    // hmacSha256 takes the KEY first, then the data.
+    string signature = Crypto.hmacSha256(secretKey, payload);
     println("HMAC Signature: ${signature}");
 }
 ```
@@ -4888,20 +5234,28 @@ Parse command-line flags, option key-values, and auto-generate help output.
 
 ```sp
 import std.io;
-import cli;
+import std.os;
 
 fn main() {
-    CliParser parser = new CliParser("sp-build", "High performance compiler tool");
-    parser.addFlag("-v", "--verbose", "Enable verbose debug output");
-    parser.addOption("-o", "--output", "Specify output destination", "out.bin");
-    parser.addOption("-O", "--optimize", "Optimization level (0-3)", "2");
-    
-    // Simulate parsing arguments: ["--verbose", "-o", "program.exe", "-O", "3"]
-    var parsed = parser.parse(["--verbose", "-o", "program.exe", "-O", "3"]);
-    
-    println("Verbose: ${parsed.getFlag('verbose')}");
-    println("Output:  " + parsed.getOption("output"));
-    println("Opt:     " + parsed.getOption("optimize"));
+    // No CLI parser in the stdlib, and OS.args() returns an empty
+    // array in this build, so the parser below works on an explicit
+    // argument list (swap in OS.args() when it forwards argv).
+    string[] args = ["--verbose", "-o", "program.exe", "-O", "3"];
+    bool verbose = false;
+    string output = "out.bin";
+    string optimize = "2";
+    for (int i = 0; i < args.length(); i++) {
+        if (args[i] == "--verbose" || args[i] == "-v") { verbose = true; }
+        if ((args[i] == "-o" || args[i] == "--output") && i + 1 < args.length()) {
+            output = args[i + 1];
+        }
+        if ((args[i] == "-O" || args[i] == "--optimize") && i + 1 < args.length()) {
+            optimize = args[i + 1];
+        }
+    }
+    println("Verbose: ${verbose}");
+    println("Output:  " + output);
+    println("Opt:     " + optimize);
 }
 ```
 
@@ -4920,15 +5274,18 @@ Output contextual logging with colors, timestamps, and log-level filtering.
 
 ```sp
 import std.io;
-import log;
+import std.log;
 
 fn main() {
-    log.setLevel(LogLevel.DEBUG);
-    
-    log.debug("Connecting to database pool at 10.0.0.1:5432");
-    log.info("Database connection established. 5 idle connections ready.");
-    log.warn("Query took 142ms (threshold: 100ms)");
-    log.error("Failed to acquire write lock on table 'orders'");
+    // No LogLevel enum and no global setLevel: use a Logger
+    // instance for level control, or the Log statics directly.
+    Logger logger = Logger.create("app", Logger.levelDebug());
+    logger.debug("Connecting to database pool at 10.0.0.1:5432");
+    logger.info("Database connection established. 5 idle connections ready.");
+    logger.warn("Query took 142ms (threshold: 100ms)");
+    logger.error("Failed to acquire write lock on table 'orders'");
+
+    Log.info("Done (via the global Log statics).");
 }
 ```
 
@@ -4948,22 +5305,25 @@ Connect to local SQLite databases, run DDL queries, and handle transactions.
 
 ```sp
 import std.io;
-import db;
+import std.db.sqlite;
 
 fn main() {
-    SqliteConnection db = SqliteConnection.open("app.db");
-    
+    // No `db` module and no PreparedStatement: the module is
+    // std.db.sqlite and the type is SqliteStatement. Queries run
+    // through prepare() + next(), not db.query().
+    SqliteConnection db = SqliteConnection.inMemory();
+
     // Create table
     db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, balance REAL)");
-    
+
     // Insert with prepared statement
-    PreparedStatement stmt = db.prepare("INSERT INTO users (name, balance) VALUES (?, ?)");
+    SqliteStatement stmt = db.prepare("INSERT INTO users (name, balance) VALUES (?, ?)");
     stmt.bindString(1, "Shanto");
     stmt.bindDouble(2, 5000.0);
     stmt.step();
-    
+
     // Query rows
-    var rows = db.query("SELECT id, name, balance FROM users");
+    SqliteStatement rows = db.prepare("SELECT id, name, balance FROM users");
     while (rows.next()) {
         println("User: #${rows.getInt(0)} ${rows.getString(1)} ($${rows.getDouble(2)})");
     }
@@ -4984,7 +5344,7 @@ Measure function execution statistical distribution (min, max, mean, stddev).
 
 ```sp
 import std.io;
-import test_bench;
+import std.time;
 
 fn fib(int n) -> int {
     if (n <= 1) return n;
@@ -4992,17 +5352,18 @@ fn fib(int n) -> int {
 }
 
 fn main() {
+    // No test_bench module and no lambdas as arguments: time the
+    // loop by hand with Time.now().
     println("Benchmarking fib(20)...");
-    
-    BenchmarkReport report = Benchmark.run(1000, () => {
+    int iterations = 1000;
+    int64 start = Time.now();
+    for (int i = 0; i < iterations; i++) {
         fib(20);
-    });
-    
-    println("Iterations: 1000");
-    println("Mean Time:  ${report.meanMicroseconds()} us");
-    println("Min Time:   ${report.minMicroseconds()} us");
-    println("Max Time:   ${report.maxMicroseconds()} us");
-    println("Std Dev:    ${report.stdDevMicroseconds()} us");
+    }
+    int64 elapsed = Time.now() - start;
+    println("Iterations: ${iterations}");
+    println("Total Time:  ${elapsed} ms");
+    println("Mean Time:   ${elapsed * 1000 / iterations} us");
 }
 ```
 
@@ -5025,23 +5386,23 @@ Perform bit manipulation, masks, bit shifts, and combined access flags.
 ```sp
 import std.io;
 
-enum FilePermission {
-    READ    = 1 << 0, // 0001 = 1
-    WRITE   = 1 << 1, // 0010 = 2
-    EXECUTE = 1 << 2  // 0100 = 4
-}
-
 fn main() {
-    int userPerms = FilePermission.READ | FilePermission.WRITE; // 0011 = 3
-    
-    bool canRead = (userPerms & FilePermission.READ) != 0;
-    bool canWrite = (userPerms & FilePermission.WRITE) != 0;
-    bool canExec = (userPerms & FilePermission.EXECUTE) != 0;
-    
+    // Enums cannot be combined with bitwise operators, so use
+    // plain int constants for bitflags.
+    int READ = 1;    // 0001
+    int WRITE = 2;   // 0010
+    int EXECUTE = 4; // 0100
+
+    int userPerms = READ | WRITE; // 0011 = 3
+
+    bool canRead = (userPerms & READ) != 0;
+    bool canWrite = (userPerms & WRITE) != 0;
+    bool canExec = (userPerms & EXECUTE) != 0;
+
     println("Can Read:    ${canRead}");
     println("Can Write:   ${canWrite}");
     println("Can Execute: ${canExec}");
-    
+
     // Bit shifts
     int num = 8;
     println("8 << 2 (x4): ${num << 2}");
@@ -5066,25 +5427,48 @@ Linear algebra matrix transformations and dot product math.
 
 ```sp
 import std.io;
-import math_matrix;
+
+// No math_matrix module and no Matrix2D/Vector3D types: matrices
+// are nested arrays, multiplied by hand.
+fn multiply(double[][] a, double[][] b) -> double[][] {
+    double[][] out = [[0.0, 0.0], [0.0, 0.0]];
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+            double sum = 0.0;
+            for (int k = 0; k < 2; k++) {
+                sum = sum + a[i][k] * b[k][j];
+            }
+            out[i][j] = sum;
+        }
+    }
+    return out;
+}
+
+fn dot(double[] a, double[] b) -> double {
+    double sum = 0.0;
+    for (int i = 0; i < a.length(); i++) {
+        sum = sum + a[i] * b[i];
+    }
+    return sum;
+}
+
+fn printMatrix(double[][] m) {
+    for (int i = 0; i < m.length(); i++) {
+        println("[${m[i][0]}, ${m[i][1]}]");
+    }
+}
 
 fn main() {
-    Matrix2D m1 = Matrix2D.fromArray([
-        [1.0, 2.0],
-        [3.0, 4.0]
-    ]);
-    
-    Matrix2D m2 = Matrix2D.fromArray([
-        [2.0, 0.0],
-        [1.0, 2.0]
-    ]);
-    
-    Matrix2D product = m1.multiply(m2);
-    println("Matrix Multiplication (m1 x m2):\n${product}");
-    
-    Vector3D v1 = new Vector3D(1.0, 2.0, 3.0);
-    Vector3D v2 = new Vector3D(4.0, 5.0, 6.0);
-    println("Vector Dot Product: ${v1.dot(v2)}");
+    double[][] m1 = [[1.0, 2.0], [3.0, 4.0]];
+    double[][] m2 = [[2.0, 0.0], [1.0, 2.0]];
+
+    double[][] product = multiply(m1, m2);
+    println("Matrix Multiplication (m1 x m2):");
+    printMatrix(product);
+
+    double[] v1 = [1.0, 2.0, 3.0];
+    double[] v2 = [4.0, 5.0, 6.0];
+    println("Vector Dot Product: ${dot(v1, v2)}");
 }
 ```
 
@@ -5117,18 +5501,27 @@ class Student {
 }
 
 fn main() {
-    List<Student> students = [
-        new Student("Alice", 3.85),
-        new Student("Bob", 3.40),
-        new Student("Charlie", 3.95),
-        new Student("Dave", 3.70)
-    ];
-    
-    // Sort descending by GPA
-    students.sort((a, b) => b.gpa > a.gpa ? 1 : -1);
-    
+    // A brace literal cannot initialize a List, and List has no
+    // sort: build the list with add() and sort it by hand.
+    List<Student> students = new List<Student>();
+    students.add(new Student("Alice", 3.85));
+    students.add(new Student("Bob", 3.40));
+    students.add(new Student("Charlie", 3.95));
+    students.add(new Student("Dave", 3.70));
+
+    // Sort descending by GPA (bubble sort).
+    for (int i = 0; i < students.size(); i++) {
+        for (int j = 0; j + 1 < students.size() - i; j++) {
+            if (students[j].gpa < students[j + 1].gpa) {
+                Student tmp = students[j];
+                students[j] = students[j + 1];
+                students[j + 1] = tmp;
+            }
+        }
+    }
+
     println("=== Honor Roll (Ranked by GPA) ===");
-    for (s in students) {
+    for (Student s in students) {
         println("  ${s.name} - GPA: ${s.gpa}");
     }
 }
@@ -5194,14 +5587,20 @@ import std.io;
 import std.collections;
 
 fn main() {
-    List<int> numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    
-    // Filter even numbers -> Square each -> Sum total
-    int sumOfSquares = numbers
-        .filter((n) => n % 2 == 0)
-        .map((n) => n * n)
-        .reduce(0, (acc, n) => acc + n);
-        
+    List<int> numbers = new List<int>();
+    for (int i = 1; i <= 10; i++) { numbers.add(i); }
+
+    // Filter even numbers -> Square each -> Sum total.
+    // reduce() cannot be used here: its accumulator parameter is
+    // typed `any`, which cannot be added, so sum with a loop.
+    List<int> squares = numbers
+        .filter((int n) => n % 2 == 0)
+        .map((int n) => n * n);
+    int sumOfSquares = 0;
+    for (int x in squares) {
+        sumOfSquares = sumOfSquares + x;
+    }
+
     println("Numbers: [1 .. 10]");
     println("Even Squares sum (4 + 16 + 36 + 64 + 100): ${sumOfSquares}");
 }
@@ -5221,25 +5620,24 @@ Spawn concurrent worker threads and communicate safely via channels.
 
 ```sp
 import std.io;
-import std.sync;
+import std.collections;
 
+// No Channel type and no Thread.spawn from SP: simulate the
+// producer/consumer flow sequentially with a List as the queue.
 fn main() {
-    Channel<string> channel = new Channel<string>(10);
-    
-    Thread.spawn(() => {
-        for (int i = 1; i <= 3; i++) {
-            channel.send("Message #${i} from Worker Thread");
-            Thread.sleep(10);
-        }
-        channel.close();
-    });
-    
+    List<string> queue = new List<string>();
+
+    // Producer: the worker thread would send these.
+    for (int i = 1; i <= 3; i++) {
+        queue.add("Message #${i} from Worker Thread");
+    }
+
+    // Consumer: the main thread drains the queue.
     println("Main thread awaiting messages:");
-    while (!channel.isClosed()) {
-        Option<string> msg = channel.receive();
-        if (msg.isSome()) {
-            println("  Received: " + msg.unwrap());
-        }
+    while (!queue.isEmpty()) {
+        string msg = queue[0];
+        queue.removeAt(0);
+        println("  Received: " + msg);
     }
     println("All worker messages consumed.");
 }
@@ -5265,35 +5663,40 @@ import std.io;
 import std.sync;
 
 class Counter {
-    private int value = 0;
-    private Mutex lock = new Mutex();
-    
+    private int value;
+    private Mutex lock;
+
+    Counter() {
+        // Field initializers with `new` are silently dropped at
+        // runtime, so build them here.
+        this.value = 0;
+        this.lock = new Mutex();
+    }
+
     public fn increment() {
-        lock.acquire();
+        // No acquire()/release(): the methods are lock()/unlock().
+        this.lock.lock();
         try {
-            value += 1;
+            this.value = this.value + 1;
         } finally {
-            lock.release();
+            this.lock.unlock();
         }
     }
-    
-    public fn getValue() -> int { return value; }
+
+    public fn getValue() -> int { return this.value; }
 }
 
 fn main() {
+    // Thread.spawn cannot be called from SP, so true
+    // multi-threaded increments cannot be shown: the Mutex API is
+    // exercised sequentially instead.
     Counter counter = new Counter();
-    
-    List<Thread> threads = [];
-    for (int i = 0; i < 4; i++) {
-        threads.add(Thread.spawn(() => {
-            for (int j = 0; j < 1000; j++) {
-                counter.increment();
-            }
-        }));
+
+    for (int i = 0; i < 4000; i++) {
+        counter.increment();
     }
-    
-    for (t in threads) { t.join(); }
-    println("Final Synchronized Counter: ${counter.getValue()} (Expected: 4000)");
+
+    println("Final Counter: ${counter.getValue()} (Expected: 4000)");
 }
 ```
 
@@ -5314,11 +5717,12 @@ import std.sync;
 
 fn main() {
     AtomicInt counter = new AtomicInt(0);
-    
-    counter.fetchAdd(5);
-    counter.fetchAdd(10);
+
+    // No fetchAdd: the method is add().
+    counter.add(5);
+    counter.add(10);
     println("Atomic Value: ${counter.get()}");
-    
+
     // Compare and swap
     bool swapped = counter.compareAndSwap(15, 100);
     println("CAS successful (15 -> 100): ${swapped}");
@@ -5346,30 +5750,39 @@ import std.time;
 
 class CacheItem {
     public string value;
-    public long expiresAt;
-    
-    public CacheItem(string val, long ttlSeconds) {
+    public int64 expiresAt;
+
+    public CacheItem(string val, int64 ttlSeconds) {
         this.value = val;
-        this.expiresAt = DateTime.now().toEpochSeconds() + ttlSeconds;
+        this.expiresAt = Time.nowSeconds() + ttlSeconds;
     }
-    
+
     public fn isExpired() -> bool {
-        return DateTime.now().toEpochSeconds() > this.expiresAt;
+        return Time.nowSeconds() > this.expiresAt;
     }
 }
 
 class KeyValueStore {
-    private Map<string, CacheItem> store = new Map<string, CacheItem>();
-    
-    public fn set(string key, string value, long ttlSeconds) {
-        store.put(key, new CacheItem(value, ttlSeconds));
+    private HashMap<string, CacheItem> store;
+
+    KeyValueStore() {
+        // Field initializers with `new` are silently dropped at
+        // runtime, so build the map here. HashMap (not Map) is
+        // used on purpose: a builtin Map index-read returns a
+        // nullable value, while HashMap.get() returns the plain
+        // value type.
+        this.store = new HashMap<string, CacheItem>();
     }
-    
+
+    public fn set(string key, string value, int64 ttlSeconds) {
+        this.store.set(key, new CacheItem(value, ttlSeconds));
+    }
+
     public fn get(string key) -> Option<string> {
-        if (!store.has(key)) return Option.None();
-        CacheItem item = store.get(key);
+        if (!this.store.containsKey(key)) return Option.None();
+        CacheItem item = this.store.get(key);
         if (item.isExpired()) {
-            store.remove(key);
+            this.store.remove(key);
             return Option.None();
         }
         return Option.Some(item.value);
@@ -5380,14 +5793,14 @@ fn main() {
     println("════════════════════════════════════════");
     println("  ⚡ SP In-Memory Cache Engine");
     println("════════════════════════════════════════");
-    
+
     KeyValueStore cache = new KeyValueStore();
     cache.set("session:token", "eyJhbGciOiJIUzI1NiJ9", 3600);
     cache.set("user:101:name", "Shanto Paul", 3600);
-    
+
     Option<string> user = cache.get("user:101:name");
     Option<string> missing = cache.get("user:999:name");
-    
+
     println("Found key 'user:101:name': " + user.unwrapOr("NULL"));
     println("Missing key check: " + missing.unwrapOr("NULL"));
 }
@@ -5410,15 +5823,15 @@ Complete microservice architecture with routing, JSON parsing, and models.
 
 ```sp
 import std.io;
-import http;
-import json;
+import std.http;
+import std.time;
 import std.collections;
 
 class Product {
     public int id;
     public string name;
     public double price;
-    
+
     public Product(int id, string name, double price) {
         this.id = id;
         this.name = name;
@@ -5427,26 +5840,27 @@ class Product {
 }
 
 class ProductCatalogService {
-    private List<Product> catalog = [];
-    
-    public fn init() {
-        catalog.add(new Product(1, "SP Compiler Enterprise", 499.0));
-        catalog.add(new Product(2, "Language Server Suite", 199.0));
+    private List<Product> catalog;
+
+    ProductCatalogService() {
+        // A brace literal cannot initialize a List: build it here.
+        this.catalog = new List<Product>();
     }
-    
-    public fn handleRoutes(HttpServer server) {
-        server.get("/api/products", (req, res) => {
-            JsonArray arr = new JsonArray();
-            for (p in catalog) {
-                JsonObject item = new JsonObject();
-                item.put("id", p.id);
-                item.put("name", p.name);
-                item.put("price", p.price);
-                arr.add(item);
-            }
-            res.setHeader("Content-Type", "application/json");
-            res.send(arr.stringify());
-        });
+
+    public fn init() {
+        this.catalog.add(new Product(1, "SP Compiler Enterprise", 499.0));
+        this.catalog.add(new Product(2, "Language Server Suite", 199.0));
+    }
+
+    public fn toJson() -> string {
+        string out = "[";
+        bool first = true;
+        for (Product p in this.catalog) {
+            if (!first) { out = out + ","; }
+            out = out + "{\"id\":${p.id},\"name\":\"${p.name}\",\"price\":${p.price}}";
+            first = false;
+        }
+        return out + "]";
     }
 }
 
@@ -5454,15 +5868,26 @@ fn main() {
     println("═══════════════════════════════════════════════");
     println("  🚀 SP High-Performance REST Microservice 1.0");
     println("═══════════════════════════════════════════════");
-    
-    HttpServer app = new HttpServer(8080);
+
     ProductCatalogService service = new ProductCatalogService();
     service.init();
-    service.handleRoutes(app);
-    
+
+    // Dynamic handlers (lambdas / fn pointers) segfault the
+    // server on first request, so serialize the catalog once and
+    // serve it as a static JSON route.
+    HttpServer app = HttpServer.create();
+    app.routeJson("GET", "/api/products", service.toJson());
+    app.routeJson("GET", "/health", "{\"status\": \"healthy\"}");
+
     println("REST API microservice initialized on :8080");
     println("Active endpoint: GET http://localhost:8080/api/products");
     println("Health check:    GET http://localhost:8080/health");
+    app.listen(8080);
+
+    // listen() returns immediately: keep the process alive.
+    while (true) {
+        Time.sleep(1000);
+    }
 }
 ```
 

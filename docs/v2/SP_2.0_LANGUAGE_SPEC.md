@@ -98,16 +98,15 @@ const BUFFER_SIZE: int = comptime (1024 * 64);
 ### 3.2 Comptime Functions
 Functions marked `comptime` are guaranteed to evaluate at compile time when called with constant arguments:
 ```sp
-comptime fn fibonacci(n: int): int {
+comptime fn fibonacci(int n) -> int {
     if (n <= 1) return n;
     return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-fn main(): int {
+fn main() {
     // Computed during compilation into an immediate constant 55
-    let fib10: int = comptime fibonacci(10);
-    println("Fibonacci(10) = " + fib10.toString());
-    return 0;
+    int fib10 = comptime fibonacci(10);
+    println("Fibonacci(10) = ${fib10}");
 }
 ```
 
@@ -177,10 +176,16 @@ async fn fetchRemoteData(url: string) -> string {
 ### 5.2 Await Expressions
 Inside an async function context, `await <expr>` yields execution to the SP event loop until the operand task resolves:
 ```sp
-async fn processBatch(urls: string[]) {
-    for (let url in urls) {
-        let content = await fetchRemoteData(url);
-        println("Fetched: " + url + " (" + content.length().toString() + " bytes)");
+// The fetchRemoteData function from §5.1:
+async fn fetchRemoteData(string url) -> string {
+    await sleep_async(10);
+    return "data for " + url;
+}
+
+async fn processBatch(string[] urls) {
+    for (string url in urls) {
+        string content = await fetchRemoteData(url);
+        println("Fetched: " + url + " (${content.length()} bytes)");
     }
 }
 ```

@@ -800,6 +800,132 @@ TEST(PostgresB1, PgSpArrayMarshallingRoundTrip) {
 }
 
 // ---------------------------------------------------------------------------
+// Live-server round-trip (Phase 5 slice D)
+// ---------------------------------------------------------------------------
+//
+// Same C ABI + SP array marshalling as PgSpArrayMarshallingRoundTrip
+// above, but against a REAL PostgreSQL instead of the wire stub: connect,
+// CREATE TABLE, prepared INSERT with string[] params, empty-array edge,
+// queryParams select-back, 3-param order check, ordered scan-back.
+//
+// SKIP-guarded: the test only runs when a server answers at the
+// connection string from SP_TEST_PG_CONNSTR, or at the default local
+// scratch instance (host=127.0.0.1 port=5432 user=sp_test dbname=sp_test
+// sslmode=disable). To run it, start a local PostgreSQL and create the
+// scratch role/database, e.g.:
+//   pg_ctlcluster 16 main start
+//   su postgres -c "psql -c \"CREATE USER sp_test WITH PASSWORD
+//     'sp_throwaway_test_pw';\" -c \"CREATE DATABASE sp_test OWNER sp_test;\""
+// The credentials are throwaway / local-only; nothing here touches a
+// real server. The stub test above stays the no-server regression test.
+// The SP-level proof (stdlib PgConnection, same statements) is
+// docs/v2/PHASE-34-SLICE-D.md; run it with `spc run live_pg_proof.sp`.
+static std::string livePgConnStr() {
+    const char* env = std::getenv("SP_TEST_PG_CONNSTR");
+    if (env && *env) return env;
+    return "host=127.0.0.1 port=5432 user=sp_test password=sp_throwaway_test_pw "
+           "dbname=sp_test sslmode=disable";
+}
+
+static void* livePgAllocParams(std::initializer_list<const char*> values) {
+    void* arr = sp_rt_array_alloc(static_cast<int64_t>(values.size()),
+                                  static_cast<int64_t>(sizeof(const char*)));
+    if (!arr) return nullptr;
+    auto* slots = static_cast<const char**>(sp_rt_array_data(arr));
+    size_t i = 0;
+    for (const char* v : values) slots[i++] = v;
+    return arr;
+}
+
+TEST(PostgresB1, PgLiveStringArrayRoundTrip) {
+    void* conn = sp_rt_pg_connect(livePgConnStr().c_str());
+    if (!conn) {
+        GTEST_SKIP() << "No live PostgreSQL at SP_TEST_PG_CONNSTR (or the default "
+                        "local scratch instance). Start one to run this test; "
+                        "see the comment above PgLiveStringArrayRoundTrip.";
+    }
+
+    auto cleanup = [&]() {
+        void* drop = sp_rt_pg_query(conn, "DROP TABLE IF EXISTS sp_p5_live;");
+        if (drop) sp_rt_pg_res_free(drop);
+        sp_rt_pg_close(conn);
+    };
+
+    // Idempotent: a previous (failed) run may have left the table behind.
+    void* drop0 = sp_rt_pg_query(conn, "DROP TABLE IF EXISTS sp_p5_live;");
+    if (drop0) sp_rt_pg_res_free(drop0);
+    void* create = sp_rt_pg_query(
+        conn, "CREATE TABLE sp_p5_live (id int PRIMARY KEY, tags text[]);");
+    ASSERT_NE(create, nullptr);
+    ASSERT_TRUE(sp_rt_pg_res_is_ok(create)) << sp_rt_pg_res_error(create);
+    sp_rt_pg_res_free(create);
+
+    EXPECT_TRUE(sp_rt_pg_prepare(
+        conn, "ins", "INSERT INTO sp_p5_live (id, tags) VALUES ($1::int, $2::text[])"));
+
+    // Prepared INSERT with string[] params, in order.
+    void* p1 = livePgAllocParams({"1", "{alpha,beta,gamma}"});
+    ASSERT_NE(p1, nullptr);
+    void* r1 = sp_rt_pg_exec_prepared(
+        conn, "ins", static_cast<const char**>(sp_rt_array_data(p1)),
+        sp_rt_array_length(p1));
+    ASSERT_NE(r1, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(r1)) << sp_rt_pg_res_error(r1);
+    EXPECT_EQ(sp_rt_pg_res_affected_rows(r1), 1);
+    sp_rt_pg_res_free(r1);
+
+    // Empty-array edge: '{}' must round-trip as an empty text[].
+    void* p2 = livePgAllocParams({"2", "{}"});
+    ASSERT_NE(p2, nullptr);
+    void* r2 = sp_rt_pg_exec_prepared(
+        conn, "ins", static_cast<const char**>(sp_rt_array_data(p2)),
+        sp_rt_array_length(p2));
+    ASSERT_NE(r2, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(r2)) << sp_rt_pg_res_error(r2);
+    EXPECT_EQ(sp_rt_pg_res_affected_rows(r2), 1);
+    sp_rt_pg_res_free(r2);
+
+    // queryParams (unnamed) select-back.
+    void* p3 = livePgAllocParams({"1"});
+    ASSERT_NE(p3, nullptr);
+    void* sel = sp_rt_pg_query_params(
+        conn, "SELECT id, tags FROM sp_p5_live WHERE id = $1::int",
+        static_cast<const char**>(sp_rt_array_data(p3)), sp_rt_array_length(p3));
+    ASSERT_NE(sel, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(sel)) << sp_rt_pg_res_error(sel);
+    EXPECT_EQ(sp_rt_pg_res_row_count(sel), 1);
+    EXPECT_STREQ(sp_rt_pg_res_get_value(sel, 0, 1), "{alpha,beta,gamma}");
+    sp_rt_pg_res_free(sel);
+
+    // 3-param order check through the same marshalling.
+    EXPECT_TRUE(sp_rt_pg_prepare(conn, "sel3", "SELECT $1::text, $2::text, $3::text"));
+    void* p4 = livePgAllocParams({"first", "second", "third"});
+    ASSERT_NE(p4, nullptr);
+    void* o = sp_rt_pg_exec_prepared(
+        conn, "sel3", static_cast<const char**>(sp_rt_array_data(p4)),
+        sp_rt_array_length(p4));
+    ASSERT_NE(o, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(o)) << sp_rt_pg_res_error(o);
+    EXPECT_STREQ(sp_rt_pg_res_get_value(o, 0, 0), "first");
+    EXPECT_STREQ(sp_rt_pg_res_get_value(o, 0, 1), "second");
+    EXPECT_STREQ(sp_rt_pg_res_get_value(o, 0, 2), "third");
+    sp_rt_pg_res_free(o);
+
+    // Ordered scan-back of both rows.
+    void* all = sp_rt_pg_query(conn, "SELECT id, tags FROM sp_p5_live ORDER BY id;");
+    ASSERT_NE(all, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(all)) << sp_rt_pg_res_error(all);
+    EXPECT_EQ(sp_rt_pg_res_row_count(all), 2);
+    EXPECT_STREQ(sp_rt_pg_res_get_value(all, 0, 0), "1");
+    EXPECT_STREQ(sp_rt_pg_res_get_value(all, 0, 1), "{alpha,beta,gamma}");
+    EXPECT_STREQ(sp_rt_pg_res_get_value(all, 1, 0), "2");
+    EXPECT_STREQ(sp_rt_pg_res_get_value(all, 1, 1), "{}");
+    sp_rt_pg_res_free(all);
+
+    cleanup();
+}
+
+// ---------------------------------------------------------------------------
 // SCRAM server-signature verification
 // ---------------------------------------------------------------------------
 
