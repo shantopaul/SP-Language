@@ -41,9 +41,11 @@ add_executable(sp_tests
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
     ir/TryCatchTest.cpp
+    ir/CodegenCrashersIRTest.cpp
     codegen/LLVMGeneratorTest.cpp
     codegen/ExecutionTest.cpp
     codegen/TryCatchExecutionTest.cpp
+    codegen/CodegenCrashersExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
     codegen/ObjectEmitterTest.cpp

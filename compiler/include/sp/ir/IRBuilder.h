@@ -44,7 +44,11 @@ public:
     void compileSpecializedMethod(const ast::FunctionDecl& methodDecl, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs, const codegen::ClassLayout& layout);
     void compileSpecializedFunction(const ast::FunctionDecl& fnDecl, const std::vector<std::string>& typeArgs);
 
-    IRValuePtr emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType);
+    IRValuePtr emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType, IRValuePtr preEvaluatedObject = nullptr);
+    // The zero/null value of a type: null for pointers, 0 for integers
+    // and enums, false for bool, 0.0 for floats, zeroinitializer for
+    // structs. Used by safe navigation (?.) for the null-object case.
+    static IRValuePtr nullValueOf(IRTypePtr type);
     void setCurrentClass(const codegen::ClassLayout* layout) noexcept { m_currentClass = layout; }
     [[nodiscard]] const codegen::ClassLayout* getCurrentClass() const noexcept { return m_currentClass; }
     [[nodiscard]] codegen::VTableBuilder* getVTableBuilder() noexcept { return m_vtableBuilder.get(); }

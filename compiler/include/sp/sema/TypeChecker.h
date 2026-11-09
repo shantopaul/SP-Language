@@ -96,11 +96,17 @@ private:
     // returns `ret` unchanged. `ret` must be non-null.
     TypePtr wrapAsyncReturn(const std::shared_ptr<FunctionSymbol>& sym, TypePtr ret);
 
+    // Phase 6 slice A: reportErrors lets a caller try overload
+    // resolution quietly and fall back to another candidate set (the
+    // free-function call site uses it so a same-named builtin cannot
+    // shadow an enclosing-class method). When false, no diagnostic is
+    // emitted and the caller is responsible for reporting the failure.
     std::shared_ptr<FunctionSymbol> resolveOverload(
         const std::vector<std::shared_ptr<FunctionSymbol>>& candidates,
         const std::vector<TypePtr>& argTypes,
         const diagnostics::SourceLocation& loc,
-        const std::string& name
+        const std::string& name,
+        bool reportErrors = true
     );
 
     TypeContext& m_typeCtx;

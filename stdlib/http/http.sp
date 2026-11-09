@@ -21,6 +21,10 @@ extern "C" {
     fn sp_rt_http_req_query(ptr req, string name) -> string;
     fn sp_rt_http_req_param(ptr req, string name) -> string;
     fn sp_rt_http_req_cookie(ptr req, string name) -> string;
+    // Phase 6 slice A: normalize a handler-provided request pointer
+    // (a wrapped SP HttpRequest object yields its raw handle; a raw
+    // pointer passes through unchanged).
+    fn sp_rt_http_req_unwrap(ptr req) -> ptr;
 
     // Response construction
     fn sp_rt_http_resp_create(int status, string body) -> ptr;

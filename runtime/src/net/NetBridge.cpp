@@ -17,6 +17,25 @@
 #include <unordered_map>
 #include <iostream>
 
+// Phase 6 slice A: fn-pointer HTTP handlers.
+//
+// A handler declared `fn hello(HttpRequest req) -> HttpResponse`
+// expects a real SP HttpRequest object (slot 0 = vtable pointer,
+// slot 1 = the C++ HttpRequest handle), but the route ABI used to
+// pass the raw C++ HttpRequest* — so the handler's first vtable
+// dispatch read a garbage vtable and segfaulted the server on the
+// first request. The compiler emits the vtable as the global
+// @_vtable_HttpRequest in any program that imports std.http, and the
+// program links the precompiled static libsp_runtime.a, so a weak
+// reference to that symbol resolves to the program's vtable (or to
+// null when the program never imports std.http, in which case the old
+// raw-pointer behaviour is kept for `(ptr req)` handlers).
+//
+// The wrapper object is allocated per request and freed after the
+// handler returns — the same lifetime as the raw pointer it replaces,
+// so a handler must not retain the request object past the request.
+extern "C" void* _vtable_HttpRequest __attribute__((weak));
+
 namespace {
 
 const char* alloc_str(const std::string& s) {
@@ -987,6 +1006,45 @@ static sp::rt::http::HttpResponse extractResponse(void* respHandle) {
     return sp::rt::http::HttpResponse::ok();
 }
 
+// Phase 6 slice A: invoke a fn-pointer route handler, passing the
+// request in the form the handler declares. A typed handler
+// (`fn f(HttpRequest req)`) receives a real SP HttpRequest object —
+// slot 0 = the program's HttpRequest vtable (weak symbol above),
+// slot 1 = the raw C++ handle — allocated here and freed after the
+// handler returns. A `(ptr req)` handler receives the raw C++
+// pointer, exactly as before (also when the program never imports
+// std.http and the weak symbol is null).
+static sp::rt::http::HttpResponse callHandlerFn(void* (*handler_fn)(void* req),
+                                               const sp::rt::http::HttpRequest& req) {
+    void* reqArg = const_cast<void*>(static_cast<const void*>(&req));
+    bool wrapped = false;
+    if (&_vtable_HttpRequest) {
+        void** obj = static_cast<void**>(sp_rt_alloc(2 * sizeof(void*)));
+        if (obj) {
+            obj[0] = &_vtable_HttpRequest;
+            obj[1] = reqArg;
+            reqArg = obj;
+            wrapped = true;
+        }
+    }
+    void* respHandle = handler_fn(reqArg);
+    if (wrapped) sp_rt_free(reqArg);
+    return extractResponse(respHandle);
+}
+
+// Phase 6 slice A: normalize a handler-provided request pointer.
+// Route handlers receive either the raw C++ HttpRequest* (the old
+// `(ptr req)` contract) or a wrapped SP HttpRequest object (slot 0 =
+// the HttpRequest vtable, slot 1 = the raw handle — the new contract
+// for typed handlers). Context.create/init pass the pointer through
+// here so `req.handle` is always the raw handle.
+void* sp_rt_http_req_unwrap(void* req) {
+    if (!req || !&_vtable_HttpRequest) return req;
+    void** slots = static_cast<void**>(req);
+    if (slots[0] == &_vtable_HttpRequest) return slots[1];
+    return req;
+}
+
 void sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
                                      void* (*handler_fn)(void* req)) {
     if (!srv || !path || !handler_fn) return;
@@ -994,8 +1052,7 @@ void sp_rt_http_server_route_handler(void* srv, const char* method, const char* 
     std::string m = method ? method : "GET";
     std::string p = path;
     s->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
-        void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
-        return extractResponse(respHandle);
+        return callHandlerFn(handler_fn, req);
     });
 }
 
@@ -1090,8 +1147,7 @@ void sp_rt_http_group_route_handler(void* grp, const char* method, const char* p
     std::string m = method ? method : "GET";
     std::string p = path;
     g->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
-        void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
-        return extractResponse(respHandle);
+        return callHandlerFn(handler_fn, req);
     });
 }
 

@@ -91,6 +91,23 @@ void IRVerifier::verifyBlock(const IRBasicBlock& block, const std::string& funcN
                                "(it would print as 'unknown_inst')");
             continue;
         }
+        // (b2) Phase 6 slice A: a null operand used to segfault the
+        // compiler inside format() (a forward call to a
+        // value-returning method produced a StoreInst with a null
+        // value). Report it loudly instead of crashing.
+        bool hasNullOperand = false;
+        for (const auto& operand : inst->getOperands()) {
+            if (!operand) {
+                hasNullOperand = true;
+                break;
+            }
+        }
+        if (hasNullOperand) {
+            m_errors.push_back("Function '" + funcName + "': basic block '" + block.getName() +
+                               "' contains an instruction with a null operand (internal error: the "
+                               "call or value that produced it was not lowered)");
+            continue;
+        }
         if (inst->format().find("unknown_inst") != std::string::npos) {
             m_errors.push_back("Function '" + funcName + "': basic block '" + block.getName() +
                                "' contains an instruction with no lowering "

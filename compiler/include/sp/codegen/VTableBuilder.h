@@ -27,6 +27,22 @@ struct VTableSlotInfo {
     std::string originatingClass;
 };
 
+// Phase 6 slice A: one entry of the global interface-slot table.
+// Every interface method in the program gets exactly one global slot
+// (keyed by declaring interface + method + signature suffix), and
+// every class vtable starts with this region so an interface-typed
+// call dispatches to the same slot index no matter which class the
+// object really is. Slots a class does not fill stay null
+// (mangledName empty) — they are unreachable through that class,
+// since sema forbids viewing it through an interface it does not
+// implement.
+struct InterfaceSlotInfo {
+    std::string key; // e.g. "Drawable::draw__void"
+    std::string interfaceName;
+    std::string methodName;
+    ir::IRTypePtr functionType; // (ptr %this, params...) -> return
+};
+
 struct ClassLayout {
     std::string name;
     std::string baseClass;
@@ -101,9 +117,25 @@ private:
     void buildSpecializedClassLayout(const std::shared_ptr<sema::ClassType>& clsType, ir::IRModule& irModule);
     void buildStructLayout(const ast::StructDecl& structDecl, ir::IRModule& irModule);
 
+    // Phase 6 slice A: global interface-slot scheme (see
+    // InterfaceSlotInfo). buildInterfaceSlots() must run before any
+    // class layout is built; buildInterfaceLayout() registers a
+    // {ptr}-only layout per interface so interface-typed calls can
+    // dispatch through the same vtable path as class-typed calls.
+    void buildInterfaceSlots();
+    void buildInterfaceLayout(const std::shared_ptr<sema::InterfaceType>& iface, ir::IRModule& irModule);
+    // Global slot indices whose qualified key has this method-part
+    // key (methodName + suffix) AND whose interface is in
+    // implementedInterfaces (empty list = no interface slots).
+    std::vector<uint32_t> interfaceSlotsForMethod(
+        const std::string& methodKey, const std::vector<std::string>& implementedInterfaces) const;
+
     const sema::SemanticAnalyzer& m_sema;
     std::unordered_map<std::string, ClassLayout> m_layouts;
     std::unordered_map<std::string, const ast::ClassDecl*> m_classDecls;
+    std::vector<InterfaceSlotInfo> m_ifaceSlots;
+    std::unordered_map<std::string, uint32_t> m_ifaceSlotIndex;
+    bool m_ifaceSlotsBuilt = false;
 };
 
 } // namespace sp::codegen

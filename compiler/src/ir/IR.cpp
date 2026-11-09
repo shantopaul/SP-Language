@@ -1070,6 +1070,19 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)},
                    true);
 
+    // Phase 6 slice A: key access by ordinal for `for (key in map)`.
+    // ptr sp_rt_map_str_key_at(ptr, i64)
+    createFunction("sp_rt_map_str_key_at", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
+    // i64 sp_rt_map_int_key_at(ptr, i64)
+    createFunction("sp_rt_map_int_key_at", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
     // void sp_rt_map_set_str(ptr, ptr, i64)
     createFunction("sp_rt_map_set_str", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0),

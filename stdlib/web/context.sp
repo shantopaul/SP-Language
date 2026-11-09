@@ -23,17 +23,20 @@ public class Context {
     }
 
     public fn init(ptr reqHandle) {
-        this.reqHandle = reqHandle;
+        // Phase 6 slice A: a handler may hand us a wrapped SP
+        // HttpRequest object (typed handler) instead of the raw C++
+        // handle — unwrap it so req.handle is always the raw handle.
+        this.reqHandle = sp_rt_http_req_unwrap(reqHandle);
         this.req = new HttpRequest();
-        this.req.handle = reqHandle;
+        this.req.handle = this.reqHandle;
         this.res = HttpResponse.ok("");
         this.state = new HashMap<string, string>();
     }
 
     public static fn create(ptr reqHandle) -> Context {
         let ctx = new Context();
-        ctx.reqHandle = reqHandle;
-        ctx.req.handle = reqHandle;
+        ctx.reqHandle = sp_rt_http_req_unwrap(reqHandle);
+        ctx.req.handle = ctx.reqHandle;
         return ctx;
     }
 

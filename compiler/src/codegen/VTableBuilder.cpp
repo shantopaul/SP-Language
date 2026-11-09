@@ -1,5 +1,6 @@
 #include "sp/codegen/VTableBuilder.h"
 #include <algorithm>
+#include <unordered_set>
 
 namespace sp::codegen {
 
@@ -99,12 +100,12 @@ std::string VTableBuilder::mangleOverloaded(const std::string& baseName,
     return baseName + overloadSuffix(canonicalParamTypes);
 }
 
-std::vector<std::string> VTableBuilder::canonicalParamTypes(const sema::ClassType& clsType,
-                                                           const ast::FunctionDecl& decl) {
-    // Match this decl to its MemberMethod: same name + arity; prefer the
-    // candidate whose canonical param types spell the same as the decl's
-    // raw param strings. (Aliases such as `int32` vs `int` make a raw
-    // string comparison unreliable on its own.)
+// Match a decl to its MemberMethod: same name + arity; prefer the
+// candidate whose canonical param types spell the same as the decl's
+// raw param strings. (Aliases such as `int32` vs `int` make a raw
+// string comparison unreliable on its own.)
+static const sema::MemberMethod* findBestMemberMethod(const sema::ClassType& clsType,
+                                                      const ast::FunctionDecl& decl) {
     const sema::MemberMethod* best = nullptr;
     int bestScore = -1;
     for (const auto& mm : clsType.getMethods()) {
@@ -121,8 +122,13 @@ std::vector<std::string> VTableBuilder::canonicalParamTypes(const sema::ClassTyp
             best = &mm;
         }
     }
+    return best;
+}
+
+std::vector<std::string> VTableBuilder::canonicalParamTypes(const sema::ClassType& clsType,
+                                                           const ast::FunctionDecl& decl) {
     std::vector<std::string> out;
-    if (best) {
+    if (const auto* best = findBestMemberMethod(clsType, decl)) {
         for (const auto& p : best->functionType->getParamTypes()) {
             out.push_back(p ? p->toString() : "any");
         }
@@ -139,7 +145,160 @@ bool VTableBuilder::isMethodOverloaded(const sema::ClassType& clsType, const std
     return clsType.findMethods(methodName).size() > 1;
 }
 
+// --- Phase 6 slice A: global interface-slot scheme -----------------------
+//
+// The IR type of a sema type name, with a trailing '?' stripped: the
+// IR type of T? is the IR type of T (a nullable value type is its zero
+// value at the IR level). Without the strip, `int?` would map to ptr
+// and a vtable call returning int? would be declared `call ptr`.
+static ir::IRTypePtr mapTypeUnwrappingNullable(const VTableBuilder& vb, const std::string& typeName) {
+    std::string name = typeName;
+    while (!name.empty() && name.back() == '?') name.pop_back();
+    return vb.mapType(name);
+}
+
+// (ptr %this, params...) -> return, from a sema method signature.
+// Only the return type is consumed by the vtable dispatch (see
+// IRBuilder); the params are recorded for completeness.
+static ir::IRTypePtr methodFunctionType(const VTableBuilder& vb, const sema::FunctionType& fnT) {
+    std::vector<ir::IRTypePtr> params;
+    params.push_back(ir::IRType::getPointer()); // %this
+    for (const auto& pt : fnT.getParamTypes()) {
+        params.push_back(mapTypeUnwrappingNullable(vb, pt ? pt->toString() : "any"));
+    }
+    auto ret = fnT.getReturnType();
+    return ir::IRType::getFunction(
+        mapTypeUnwrappingNullable(vb, ret ? ret->toString() : "void"), params);
+}
+
+// (declaring interface name, method) pairs for every method an
+// interface exposes — its own methods plus, recursively, its
+// super-interfaces' (super-interfaces have no parser syntax today,
+// so the closure is usually just the interface itself, but the slot
+// scheme stays correct if that changes).
+static void collectExposedMethods(
+    const std::shared_ptr<sema::InterfaceType>& iface,
+    std::vector<std::pair<std::string, sema::MemberMethod>>& out,
+    std::unordered_set<std::string>& visited) {
+    if (!iface || !visited.insert(iface->getName()).second) return;
+    for (const auto& super : iface->getSuperInterfaces()) {
+        collectExposedMethods(super, out, visited);
+    }
+    for (const auto& mm : iface->getMethods()) {
+        out.emplace_back(iface->getName(), mm);
+    }
+}
+
+void VTableBuilder::buildInterfaceSlots() {
+    if (m_ifaceSlotsBuilt) return;
+    m_ifaceSlotsBuilt = true;
+
+    // Collect every interface, sorted by name: the slot order must be
+    // deterministic (getUserTypes() iterates an unordered_map), or
+    // vtable layouts would differ between builds.
+    std::vector<std::shared_ptr<sema::InterfaceType>> ifaces;
+    for (const auto& [name, userType] : m_sema.getTypeContext().getUserTypes()) {
+        if (userType && userType->isInterface()) {
+            ifaces.push_back(std::static_pointer_cast<sema::InterfaceType>(userType));
+        }
+    }
+    std::sort(ifaces.begin(), ifaces.end(),
+              [](const auto& a, const auto& b) { return a->getName() < b->getName(); });
+
+    // One slot per (declaring interface, method, signature). A method
+    // is registered under EVERY interface that exposes it (same slot
+    // index), so a call through any of those interface types finds
+    // the same slot.
+    std::unordered_map<std::string, uint32_t> slotByDeclaringKey;
+    for (const auto& iface : ifaces) {
+        std::vector<std::pair<std::string, sema::MemberMethod>> exposed;
+        std::unordered_set<std::string> visited;
+        collectExposedMethods(iface, exposed, visited);
+        for (const auto& [declaringIface, mm] : exposed) {
+            if (!mm.functionType) continue;
+            std::vector<std::string> paramTypes;
+            for (const auto& pt : mm.functionType->getParamTypes()) {
+                paramTypes.push_back(pt ? pt->toString() : "any");
+            }
+            std::string methodKey = mm.name + overloadSuffix(paramTypes);
+            std::string declaringKey = declaringIface + "::" + methodKey;
+            uint32_t slotIdx;
+            auto it = slotByDeclaringKey.find(declaringKey);
+            if (it != slotByDeclaringKey.end()) {
+                slotIdx = it->second;
+            } else {
+                slotIdx = static_cast<uint32_t>(m_ifaceSlots.size());
+                slotByDeclaringKey[declaringKey] = slotIdx;
+                InterfaceSlotInfo info;
+                info.key = declaringKey;
+                info.interfaceName = declaringIface;
+                info.methodName = mm.name;
+                info.functionType = methodFunctionType(*this, *mm.functionType);
+                m_ifaceSlots.push_back(std::move(info));
+            }
+            m_ifaceSlotIndex[iface->getName() + "::" + methodKey] = slotIdx;
+        }
+    }
+}
+
+void VTableBuilder::buildInterfaceLayout(const std::shared_ptr<sema::InterfaceType>& iface, ir::IRModule& irModule) {
+    const std::string& ifaceName = iface->getName();
+    if (m_layouts.find(ifaceName) != m_layouts.end()) return;
+
+    // An interface has no fields and no instances of its own: the
+    // object layout is just { vtable ptr }. No vtable global is
+    // emitted — no object is ever created with an interface vtable;
+    // the layout exists only so interface-typed calls can use the
+    // same vtable-dispatch path as class-typed calls (slot 0 load
+    // + slot[index] load), with indices taken from the global table.
+    ClassLayout layout;
+    layout.name = ifaceName;
+    layout.hasVTable = true;
+    layout.vtableName = "@_vtable_" + ifaceName;
+    layout.objectSize = 8;
+
+    std::vector<ir::IRTypePtr> elementTypes{ir::IRType::getPointer()};
+    layout.structType = ir::IRType::getStruct("class." + ifaceName, elementTypes);
+    irModule.addStructType("class." + ifaceName, elementTypes);
+
+    layout.vtableSlots.resize(m_ifaceSlots.size());
+    for (size_t i = 0; i < m_ifaceSlots.size(); ++i) {
+        VTableSlotInfo slot;
+        slot.methodName = m_ifaceSlots[i].methodName;
+        slot.mangledName = "";
+        slot.slotIndex = static_cast<uint32_t>(i);
+        slot.functionType = m_ifaceSlots[i].functionType;
+        slot.originatingClass = m_ifaceSlots[i].interfaceName;
+        layout.vtableSlots[i] = slot;
+    }
+    for (const auto& [key, idx] : m_ifaceSlotIndex) {
+        layout.methodSlotMap[key] = idx;
+    }
+
+    m_layouts[ifaceName] = std::move(layout);
+}
+
+std::vector<uint32_t> VTableBuilder::interfaceSlotsForMethod(
+    const std::string& methodKey, const std::vector<std::string>& implementedInterfaces) const {
+    std::vector<uint32_t> out;
+    if (implementedInterfaces.empty() || m_ifaceSlots.empty()) return out;
+    for (const auto& ifaceName : implementedInterfaces) {
+        auto it = m_ifaceSlotIndex.find(ifaceName + "::" + methodKey);
+        if (it != m_ifaceSlotIndex.end()) out.push_back(it->second);
+    }
+    return out;
+}
+
 void VTableBuilder::buildProgramLayouts(const ast::Program& program, ir::IRModule& irModule) {
+    // 0. Global interface-slot table first: every class layout starts
+    // with this region, and every interface gets a layout over it.
+    buildInterfaceSlots();
+    for (const auto& [typeName, userType] : m_sema.getTypeContext().getUserTypes()) {
+        if (userType && userType->isInterface()) {
+            buildInterfaceLayout(std::static_pointer_cast<sema::InterfaceType>(userType), irModule);
+        }
+    }
+
     // 1. Index all class and struct declarations
     for (const auto& decl : program.getDeclarations()) {
         if (!decl) continue;
@@ -259,6 +418,7 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
     uint32_t totalBytes = 8; // vtable pointer size
 
     // Inherit fields and vtable from base class
+    bool baseCopied = false;
     if (classDecl.hasBaseClass()) {
         const std::string& baseName = classDecl.getBaseClass();
         auto baseIt = m_classDecls.find(baseName);
@@ -278,6 +438,26 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
             // Copy base vtable slots
             layout.vtableSlots = baseLayout.vtableSlots;
             layout.methodSlotMap = baseLayout.methodSlotMap;
+            baseCopied = true;
+        }
+    }
+
+    // Phase 6 slice A: the interface region. Every vtable starts with
+    // the global interface slots (null until a method of this class
+    // fills one), so an interface-typed call dispatches to the same
+    // slot index for every implementing class. A derived class inherits
+    // the region from its base (base copy above), so it is only
+    // prepended when no base vtable was copied.
+    if (!baseCopied) {
+        for (size_t i = 0; i < m_ifaceSlots.size(); ++i) {
+            VTableSlotInfo slot;
+            slot.methodName = m_ifaceSlots[i].methodName;
+            slot.mangledName = "";
+            slot.slotIndex = static_cast<uint32_t>(i);
+            slot.functionType = m_ifaceSlots[i].functionType;
+            slot.originatingClass = m_ifaceSlots[i].interfaceName;
+            layout.vtableSlots.push_back(slot);
+            layout.methodSlotMap[m_ifaceSlots[i].key] = static_cast<uint32_t>(i);
         }
     }
 
@@ -341,13 +521,42 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
             std::string methodKey = methodName + overloadSuffix(paramTypes);
             std::string mangledName = mangleOverloaded(className + "_" + methodName, paramTypes, isOverloaded);
 
+            // Phase 6 slice A: the slot's function type, from the sema
+            // signature. Without it the vtable dispatch computed the
+            // call's return type from the module's function table,
+            // which only holds functions lowered so far — a forward
+            // call to a value-returning method got return type void,
+            // the call result became nullptr, and the verifier
+            // segfaulted formatting the null operand. (Builtin classes
+            // without a decl keep the module-lookup fallback.)
+            ir::IRTypePtr fnType = nullptr;
+            if (clsType) {
+                if (const auto* mm = findBestMemberMethod(*clsType, fnDecl)) {
+                    if (mm->functionType) fnType = methodFunctionType(*this, *mm->functionType);
+                }
+            }
+
+            // Phase 6 slice A: a method implementing an interface
+            // method belongs in that method's global interface slot(s)
+            // — otherwise an interface-typed call would load a
+            // different index for each class. An override updates
+            // BOTH its inherited slot (for base-typed dispatch) and
+            // the interface slot(s) (for interface-typed dispatch).
+            auto ifaceSlots = interfaceSlotsForMethod(methodKey, classDecl.getInterfaces());
             auto slotIt = layout.methodSlotMap.find(methodKey);
             if (slotIt != layout.methodSlotMap.end()) {
                 // Method override: update existing slot
                 uint32_t slotIdx = slotIt->second;
                 layout.vtableSlots[slotIdx].mangledName = mangledName;
                 layout.vtableSlots[slotIdx].originatingClass = className;
-            } else {
+                if (fnType) layout.vtableSlots[slotIdx].functionType = fnType;
+            }
+            for (uint32_t slotIdx : ifaceSlots) {
+                layout.vtableSlots[slotIdx].mangledName = mangledName;
+                layout.vtableSlots[slotIdx].originatingClass = className;
+                if (fnType) layout.vtableSlots[slotIdx].functionType = fnType;
+            }
+            if (slotIt == layout.methodSlotMap.end() && ifaceSlots.empty()) {
                 // New virtual method: append to vtable
                 uint32_t newSlotIdx = static_cast<uint32_t>(layout.vtableSlots.size());
                 VTableSlotInfo slotInfo;
@@ -355,9 +564,15 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
                 slotInfo.mangledName = mangledName;
                 slotInfo.slotIndex = newSlotIdx;
                 slotInfo.originatingClass = className;
+                slotInfo.functionType = fnType;
 
                 layout.vtableSlots.push_back(slotInfo);
                 layout.methodSlotMap[methodKey] = newSlotIdx;
+            } else if (slotIt == layout.methodSlotMap.end()) {
+                // First declaration is an interface implementation:
+                // the plain key resolves to the first interface slot
+                // (all of them hold this same function).
+                layout.methodSlotMap[methodKey] = ifaceSlots.front();
             }
         }
     }
@@ -375,7 +590,14 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
     } else {
         for (size_t i = 0; i < layout.vtableSlots.size(); ++i) {
             if (i > 0) vtableRawVal += ", ";
-            vtableRawVal += "ptr @" + layout.vtableSlots[i].mangledName;
+            // Phase 6 slice A: interface-region slots this class does
+            // not fill are null — emitting `ptr @` for an empty name
+            // would be invalid LLVM IR.
+            if (layout.vtableSlots[i].mangledName.empty()) {
+                vtableRawVal += "ptr null";
+            } else {
+                vtableRawVal += "ptr @" + layout.vtableSlots[i].mangledName;
+            }
         }
     }
     vtableRawVal += "]";
@@ -506,7 +728,18 @@ void VTableBuilder::buildSpecializedClassLayout(const std::shared_ptr<sema::Clas
             .originatingClass = className
         };
         layout.vtableSlots.push_back(slot);
-        layout.methodSlotMap[method.name] = currentSlot++;
+        layout.methodSlotMap[method.name] = currentSlot;
+        // Phase 6 slice A: also register the overload key
+        // (methodName + signature suffix) so the keyed lookup in
+        // IRBuilder finds bare method calls in generic classes, the
+        // same way it does for non-generic classes.
+        if (method.functionType) {
+            auto fnT = std::static_pointer_cast<sema::FunctionType>(method.functionType);
+            std::vector<std::string> paramStrs;
+            for (const auto& pt : fnT->getParamTypes()) paramStrs.push_back(pt->toString());
+            layout.methodSlotMap[method.name + overloadSuffix(paramStrs)] = currentSlot;
+        }
+        ++currentSlot;
     }
 
     layout.objectSize = totalBytes;
@@ -567,10 +800,13 @@ int VTableBuilder::getMethodVTableSlot(const std::string& className, const std::
     // Kept for non-overloaded callers and for generic-class layouts, whose
     // slot map is still keyed by plain name. Overloaded calls must use
     // getMethodVTableSlotByKey.
+    // Phase 6 slice A: skip unfilled interface-region slots (empty
+    // mangledName) — a null slot is never a valid dispatch target, and
+    // it precedes a same-named appended method in the table.
     const auto* layout = getClassLayout(className);
     if (!layout) return -1;
     for (const auto& slot : layout->vtableSlots) {
-        if (slot.methodName == methodName) return static_cast<int>(slot.slotIndex);
+        if (slot.methodName == methodName && !slot.mangledName.empty()) return static_cast<int>(slot.slotIndex);
     }
     return -1;
 }

@@ -127,6 +127,9 @@ extern "C" {
     void sp_rt_map_set_str(void* map, const char* key, int64_t val);
     int64_t sp_rt_map_get_str(void* map, const char* key);
     bool sp_rt_map_contains_str(void* map, const char* key);
+    // Phase 6 slice A: key access by ordinal for `for (key in map)`.
+    const char* sp_rt_map_str_key_at(void* map, int64_t index);
+    int64_t sp_rt_map_int_key_at(void* map, int64_t index);
     void sp_rt_map_set_i64(void* map, int64_t key, int64_t val);
     int64_t sp_rt_map_get_i64(void* map, int64_t key);
     bool sp_rt_map_contains_i64(void* map, int64_t key);
@@ -521,6 +524,10 @@ extern "C" {
     const char* sp_rt_http_req_query(void* req, const char* name);
     const char* sp_rt_http_req_param(void* req, const char* name);
     const char* sp_rt_http_req_cookie(void* req, const char* name);
+    // Phase 6 slice A: normalize a handler-provided request pointer —
+    // a wrapped SP HttpRequest object (slot 0 = vtable, slot 1 = raw
+    // handle) yields the raw handle; a raw pointer passes through.
+    void*       sp_rt_http_req_unwrap(void* req);
 
     void*       sp_rt_http_resp_create(int64_t status, const char* body);
     void        sp_rt_http_resp_set_status(void* resp, int64_t status);

@@ -948,6 +948,39 @@ int64_t sp_rt_map_size(void* map) {
     return impl->str_count + impl->int_count;
 }
 
+// Phase 6 slice A: key access by ordinal for `for (key in map)`.
+// Returns the key of the idx-th occupied entry in table order. The
+// order is unspecified and changes if the table rehashes, so the map
+// must not be mutated while it is being iterated. Out of range (or a
+// null map) returns null / 0.
+const char* sp_rt_map_str_key_at(void* map, int64_t index) {
+    if (!map || index < 0) return nullptr;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->str_entries || impl->str_capacity == 0) return nullptr;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            if (seen == index) return impl->str_entries[i].key;
+            ++seen;
+        }
+    }
+    return nullptr;
+}
+
+int64_t sp_rt_map_int_key_at(void* map, int64_t index) {
+    if (!map || index < 0) return 0;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->int_entries || impl->int_capacity == 0) return 0;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->int_capacity; ++i) {
+        if (impl->int_entries[i].occupied) {
+            if (seen == index) return impl->int_entries[i].key;
+            ++seen;
+        }
+    }
+    return 0;
+}
+
 static void sp_map_rehash_str(SPMapImpl* impl, int64_t new_cap) {
     auto* old_entries = impl->str_entries;
     int64_t old_cap = impl->str_capacity;

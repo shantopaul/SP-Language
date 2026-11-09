@@ -1595,12 +1595,14 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
 
     auto semaIterType = m_sema.getNodeType(&node.getIterable());
     bool isList = semaIterType && semaIterType->isClass() && semaIterType->toString().rfind("List", 0) == 0;
+    // Phase 6 slice A: maps iterate over their keys (see below).
+    bool isMap = semaIterType && semaIterType->isMap();
 
     // 1. Query collection length/size
     std::string lenReg = m_currentFunction->nextTempName("for_len");
     auto lenCall = std::make_shared<CallInst>(
         IRType::getInt64(),
-        (isList ? "sp_rt_list_size" : "sp_rt_array_length"),
+        (isMap ? "sp_rt_map_size" : (isList ? "sp_rt_list_size" : "sp_rt_array_length")),
         std::vector<IRValuePtr>{collVal},
         lenReg
     );
@@ -1638,6 +1640,10 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
     } else if (semaIterType && semaIterType->isArray()) {
         const auto& arr = static_cast<const sema::ArrayType&>(*semaIterType);
         itemIRType = mapType(arr.getElementType().get());
+    } else if (isMap) {
+        // Phase 6 slice A: a map iterates over its keys.
+        const auto& mapTy = static_cast<const sema::MapType&>(*semaIterType);
+        itemIRType = mapType(mapTy.getKeyType().get());
     } else if (isList) {
         std::string s = semaIterType->toString();
         size_t lt = s.find('<');
@@ -1685,7 +1691,35 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
     declareVariable(node.getVarName(), varAlloca, itemIRType);
 
     // Fetch element at curIdx and store into varAlloca
-    if (isList) {
+    if (isMap) {
+        // Phase 6 slice A: map keys, in table order (the runtime's
+        // key_at accessors). Before this fix every non-List iterable
+        // was treated as an array, so sp_rt_array_length read the
+        // map's entry-table pointer as a length and the loop never
+        // terminated, yielding garbage keys forever. The fetch mirrors
+        // the map index-assignment path: string keys via the str table,
+        // every other key via the i64 table. Iteration order is table
+        // order (unspecified) — do not mutate the map while iterating.
+        const auto& mapTy = static_cast<const sema::MapType&>(*semaIterType);
+        auto keyType = mapTy.getKeyType();
+        if (keyType && keyType->isString()) {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getPointer(IRType::getInt8()), "sp_rt_map_str_key_at",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("key"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        } else {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getInt64(), "sp_rt_map_int_key_at",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("key"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        }
+    } else if (isList) {
         if (itemIRType->isFloatingPoint()) {
             auto getCall = std::make_shared<CallInst>(
                 IRType::getDouble(), "sp_rt_list_get_f64",
@@ -3582,6 +3616,89 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
 
         m_lastExprValue = loadInst;
         m_lastExprType = IRType::getInt1();
+        return;
+    }
+
+    // Phase 6 slice A: null coalescing (??). Before this fix there was
+    // no QuestionQuestion case at all, so the switch below fell through
+    // to its default and emitted `Add` — invalid LLVM IR for pointer
+    // operands (`add ptr %v0, @.str.0`). The RHS is evaluated lazily,
+    // only when the LHS is null, and the result is carried through a
+    // stack slot (same pattern as &&/|| and TernaryExpr — Phi has no
+    // lowering in this IR).
+    //
+    // Null test mirrors what `== null` means for the LHS type in this
+    // compiler: nullable value types use their zero value as null
+    // (int? null is 0 — see the `== null` lowering), so the check is
+    // `== null` for pointers, `== 0` for integers/bools/enums and
+    // `oeq 0.0` for floats. A nullable STRUCT has no null
+    // representation in the IR and is a loud E1000. A non-nullable LHS
+    // can never be null, so ?? is a no-op there and the RHS is not
+    // evaluated.
+    if (node.getOp() == lexer::TokenType::QuestionQuestion &&
+        m_currentFunction && m_currentBlock && m_currentFunction->getEntryBlock() && lhs) {
+        auto semaNodeType = m_sema.getNodeType(&node);
+        IRTypePtr resType = semaNodeType ? mapType(semaNodeType.get())
+                                         : (lhsType ? lhsType : IRType::getInt32());
+        auto semaLhsType = m_sema.getNodeType(&node.getLeft());
+        if (!semaLhsType || !semaLhsType->isNullable()) {
+            m_lastExprValue = emitCastIfNeeded(lhs, resType);
+            m_lastExprType = resType;
+            return;
+        }
+        if (!lhsType || lhsType->isStruct()) {
+            reportUnsupported(node.getLocation(), "null coalescing \"??\"",
+                              "the left-hand side has a struct type, which has no null value in the IR "
+                              "(nullable structs are not supported as operands of \"??\")");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+
+        std::shared_ptr<CompareInst> isNull;
+        if (lhsType->isPointer()) {
+            isNull = std::make_shared<CompareInst>(
+                IROpcode::ICmpEq, lhs, std::make_shared<ConstantNull>(lhsType),
+                m_currentFunction->nextTempName("coalesce_null"));
+        } else if (lhsType->isFloatingPoint()) {
+            isNull = std::make_shared<CompareInst>(
+                IROpcode::FCmpEq, lhs, std::make_shared<ConstantFloat>(lhsType, 0.0),
+                m_currentFunction->nextTempName("coalesce_null"));
+        } else {
+            isNull = std::make_shared<CompareInst>(
+                IROpcode::ICmpEq, lhs, std::make_shared<ConstantInt>(lhsType, 0),
+                m_currentFunction->nextTempName("coalesce_null"));
+        }
+        m_currentBlock->addInstruction(isNull);
+
+        auto rhsBB = createBlock("coalesce_rhs");
+        auto mergeBB = createBlock("coalesce_merge");
+
+        auto resAlloca = std::make_shared<AllocaInst>(resType, m_currentFunction->nextTempName("coalesce_res"));
+        m_currentFunction->getEntryBlock()->addInstruction(resAlloca);
+        // The LHS is the default result; the RHS overwrites it only
+        // when the LHS is null.
+        auto lhsCast = emitCastIfNeeded(lhs, resType);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(lhsCast, resAlloca));
+        m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(isNull, rhsBB->getName(), mergeBB->getName()));
+
+        setInsertPoint(rhsBB);
+        node.getRight().accept(*this);
+        IRValuePtr rhs = m_lastExprValue;
+        if (rhs) {
+            rhs = emitCastIfNeeded(rhs, resType);
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhs, resAlloca));
+        }
+        if (!m_currentBlock->hasTerminator()) {
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+        }
+
+        setInsertPoint(mergeBB);
+        auto coalesceVal = std::make_shared<LoadInst>(resType, resAlloca, m_currentFunction->nextTempName("coalesce_val"));
+        mergeBB->addInstruction(coalesceVal);
+
+        m_lastExprValue = coalesceVal;
+        m_lastExprType = resType;
         return;
     }
 
@@ -6360,6 +6477,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         }
 
         std::string className;
+        // Phase 6 slice A: an interface-typed receiver dispatches
+        // through the interface layout's global slot table (the slot
+        // index is the same for every implementing class), so the slot
+        // key is qualified with the interface name.
+        bool receiverIsInterface = false;
         if (const auto* identObj = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject())) {
             if (identObj->getName() == "this" && m_currentClass) {
                 className = m_currentClass->name;
@@ -6375,6 +6497,9 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
             if (semaType && semaType->isClass()) {
                 className = codegen::VTableBuilder::mangleGenericName(semaType->toString());
+            } else if (semaType && semaType->isInterface()) {
+                className = codegen::VTableBuilder::mangleGenericName(semaType->toString());
+                receiverIsInterface = true;
             }
         }
         if (className.empty() && m_currentClass) {
@@ -6391,6 +6516,9 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             auto target = m_sema.getCallTarget(&node);
             if (target) {
                 std::string key = methodName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(target));
+                if (receiverIsInterface) {
+                    key = className + "::" + key;
+                }
                 slotIdx = m_vtableBuilder->getMethodVTableSlotByKey(className, key);
             }
             if (slotIdx < 0) {
@@ -6638,6 +6766,125 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         m_lastExprValue = nullptr;
         m_lastExprType = IRType::getVoid();
         return;
+    }
+
+    // Check if callee is a method on 'this'
+    // Phase 3 slice A: unqualified method call from inside a class.
+    // Phase 6 slice A: this runs BEFORE the builtin special cases
+    // (sqrt/log/panic/...) so a same-named method is never shadowed by
+    // a builtin. The vtable map is keyed by methodName + signature
+    // suffix, so use the overload sema resolved; the plain-name fallback
+    // is only for calls sema left unresolved. The method path is taken
+    // only when sema resolved the call to a method (isMethod) — a
+    // same-signature builtin must win when sema picked it.
+    int enclosingSlotIdx = -1;
+    if (m_currentClass) {
+        auto enclosingTarget = m_sema.getCallTarget(&node);
+        if (enclosingTarget && enclosingTarget->isMethod()) {
+            std::string key = calleeName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(enclosingTarget));
+            auto it = m_currentClass->methodSlotMap.find(key);
+            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
+        }
+        if (enclosingSlotIdx < 0 && !enclosingTarget) {
+            auto it = m_currentClass->methodSlotMap.find(calleeName);
+            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
+        }
+    }
+    if (enclosingSlotIdx >= 0) {
+        int slotIdx = enclosingSlotIdx;
+        auto [thisAlloca, thisType] = lookupVariable("this");
+        if (thisAlloca) {
+            auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+            m_currentBlock->addInstruction(thisVal);
+
+            auto gepVTable = std::make_shared<GetElementPtrInst>(
+                m_currentClass->structType,
+                thisVal,
+                std::vector<IRValuePtr>{
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+                },
+                m_currentFunction->nextTempName("vt_slot")
+            );
+            m_currentBlock->addInstruction(gepVTable);
+
+            auto loadVTable = std::make_shared<LoadInst>(
+                IRType::getPointer(),
+                gepVTable,
+                m_currentFunction->nextTempName("vtable")
+            );
+            m_currentBlock->addInstruction(loadVTable);
+
+            auto gepSlot = std::make_shared<GetElementPtrInst>(
+                IRType::getPointer(),
+                loadVTable,
+                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt32(), slotIdx)},
+                m_currentFunction->nextTempName("slot_ptr")
+            );
+            m_currentBlock->addInstruction(gepSlot);
+
+            auto loadFnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gepSlot, m_currentFunction->nextTempName("fn_ptr"));
+            m_currentBlock->addInstruction(loadFnPtr);
+
+            IRTypePtr returnType = IRType::getVoid();
+            const auto& slotInfo = m_currentClass->vtableSlots[slotIdx];
+            if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                if (fnType) returnType = fnType->getReturnType();
+            } else {
+                auto* existing = m_module->getFunction(slotInfo.mangledName);
+                if (existing) returnType = existing->getReturnType();
+            }
+
+            std::vector<IRValuePtr> loweredArgs;
+            loweredArgs.push_back(thisVal);
+            for (const auto& arg : node.getArgs()) {
+                arg->accept(*this);
+                loweredArgs.push_back(m_lastExprValue);
+            }
+
+            // Phase 5 slice A: an async method called unqualified
+            // from inside its class also dispatches virtually — spawn
+            // it by passing the vtable-loaded body address directly
+            // as the thunk to sp_rt_async_spawn_sm (Design 2).
+            if (auto enclosingTarget = m_sema.getCallTarget(&node); enclosingTarget && enclosingTarget->isAsync()) {
+                std::string kind;
+                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "the return type of this 'async' method cannot be carried by a Task "
+                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                // Param types come from sema; `this` is the current
+                // class (loweredArgs starts with thisVal).
+                sema::TypePtr thisType = nullptr;
+                if (m_currentClass) thisType = m_sema.getTypeContext().findUserType(m_currentClass->name);
+                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+                    enclosingTarget->getFunctionType()->getParamTypes(), thisType);
+                IRValuePtr task = emitAsyncSpawnSM(loadFnPtr, loweredArgs, paramTypes);
+                if (!task) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "an argument of this 'async' method cannot be passed through a Task "
+                                      "(only int, bool, string and double arguments are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                m_lastExprValue = task;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+
+            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
+            auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
+            m_currentBlock->addInstruction(callInst);
+
+            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+            m_lastExprType = returnType;
+            return;
+        }
     }
 
     if (calleeName == "Ok" && node.getArgs().size() == 1) {
@@ -7351,121 +7598,6 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
-    // Check if callee is a method on 'this'
-    // Phase 3 slice A: unqualified method call from inside a class.
-    // The vtable map is keyed by methodName + signature suffix, so use
-    // the overload sema resolved; fall back to the plain name for layouts
-    // keyed the old way (generic classes) and for unresolved calls.
-    int enclosingSlotIdx = -1;
-    if (m_currentClass) {
-        auto enclosingTarget = m_sema.getCallTarget(&node);
-        if (enclosingTarget) {
-            std::string key = calleeName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(enclosingTarget));
-            auto it = m_currentClass->methodSlotMap.find(key);
-            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
-        }
-        if (enclosingSlotIdx < 0) {
-            auto it = m_currentClass->methodSlotMap.find(calleeName);
-            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
-        }
-    }
-    if (enclosingSlotIdx >= 0) {
-        int slotIdx = enclosingSlotIdx;
-        auto [thisAlloca, thisType] = lookupVariable("this");
-        if (thisAlloca) {
-            auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
-            m_currentBlock->addInstruction(thisVal);
-
-            auto gepVTable = std::make_shared<GetElementPtrInst>(
-                m_currentClass->structType,
-                thisVal,
-                std::vector<IRValuePtr>{
-                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
-                    std::make_shared<ConstantInt>(IRType::getInt32(), 0)
-                },
-                m_currentFunction->nextTempName("vt_slot")
-            );
-            m_currentBlock->addInstruction(gepVTable);
-
-            auto loadVTable = std::make_shared<LoadInst>(
-                IRType::getPointer(),
-                gepVTable,
-                m_currentFunction->nextTempName("vtable")
-            );
-            m_currentBlock->addInstruction(loadVTable);
-
-            auto gepSlot = std::make_shared<GetElementPtrInst>(
-                IRType::getPointer(),
-                loadVTable,
-                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt32(), slotIdx)},
-                m_currentFunction->nextTempName("slot_ptr")
-            );
-            m_currentBlock->addInstruction(gepSlot);
-
-            auto loadFnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gepSlot, m_currentFunction->nextTempName("fn_ptr"));
-            m_currentBlock->addInstruction(loadFnPtr);
-
-            IRTypePtr returnType = IRType::getVoid();
-            const auto& slotInfo = m_currentClass->vtableSlots[slotIdx];
-            if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
-                auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
-                if (fnType) returnType = fnType->getReturnType();
-            } else {
-                auto* existing = m_module->getFunction(slotInfo.mangledName);
-                if (existing) returnType = existing->getReturnType();
-            }
-
-            std::vector<IRValuePtr> loweredArgs;
-            loweredArgs.push_back(thisVal);
-            for (const auto& arg : node.getArgs()) {
-                arg->accept(*this);
-                loweredArgs.push_back(m_lastExprValue);
-            }
-
-            // Phase 5 slice A: an async method called unqualified
-            // from inside its class also dispatches virtually — spawn
-            // it by passing the vtable-loaded body address directly
-            // as the thunk to sp_rt_async_spawn_sm (Design 2).
-            if (auto enclosingTarget = m_sema.getCallTarget(&node); enclosingTarget && enclosingTarget->isAsync()) {
-                std::string kind;
-                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
-                    reportUnsupported(node.getLocation(), "call to async method",
-                                      "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
-                    m_lastExprValue = nullptr;
-                    m_lastExprType = nullptr;
-                    return;
-                }
-                // Param types come from sema; `this` is the current
-                // class (loweredArgs starts with thisVal).
-                sema::TypePtr thisType = nullptr;
-                if (m_currentClass) thisType = m_sema.getTypeContext().findUserType(m_currentClass->name);
-                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
-                    enclosingTarget->getFunctionType()->getParamTypes(), thisType);
-                IRValuePtr task = emitAsyncSpawnSM(loadFnPtr, loweredArgs, paramTypes);
-                if (!task) {
-                    reportUnsupported(node.getLocation(), "call to async method",
-                                      "an argument of this 'async' method cannot be passed through a Task "
-                                      "(only int, bool, string and double arguments are supported)");
-                    m_lastExprValue = nullptr;
-                    m_lastExprType = nullptr;
-                    return;
-                }
-                m_lastExprValue = task;
-                m_lastExprType = IRType::getPointer();
-                return;
-            }
-
-            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
-            auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
-            m_currentBlock->addInstruction(callInst);
-
-            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
-            m_lastExprType = returnType;
-            return;
-        }
-    }
-
     // Check if callee is a local variable holding a function pointer
     if (!calleeName.empty()) {
         auto [localAlloca, localType] = lookupVariable(calleeName);
@@ -7655,10 +7787,25 @@ void IRBuilder::visit(const ast::TernaryExpr& node) {
     m_lastExprType = resType;
 }
 
-IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType) {
-    // 1. Evaluate the base object
-    node.getObject().accept(*this);
-    IRValuePtr objPtr = m_lastExprValue;
+IRValuePtr IRBuilder::nullValueOf(IRTypePtr type) {
+    if (!type) return nullptr;
+    if (type->isPointer()) return std::make_shared<ConstantNull>(type);
+    if (type->isStruct()) return std::make_shared<ConstantNull>(type);
+    if (type->isInt1()) return std::make_shared<ConstantBool>(false);
+    if (type->isInteger()) return std::make_shared<ConstantInt>(type, 0);
+    if (type->isFloatingPoint()) return std::make_shared<ConstantFloat>(type, 0.0);
+    return nullptr;
+}
+
+IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType, IRValuePtr preEvaluatedObject) {
+    // 1. Evaluate the base object (unless the caller already did —
+    // safe navigation evaluates it once for the null check and reuses
+    // the value here so side effects run exactly once).
+    IRValuePtr objPtr = preEvaluatedObject;
+    if (!objPtr) {
+        node.getObject().accept(*this);
+        objPtr = m_lastExprValue;
+    }
     if (!objPtr) return nullptr;
 
     // 2. Identify the class or struct of the object
@@ -7821,16 +7968,77 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
 
     // 3. Class/Struct member field access
     IRTypePtr fieldType = nullptr;
-    auto fieldPtr = emitMemberPointer(node, fieldType);
+    IRValuePtr fieldPtr = nullptr;
+    IRValuePtr objVal = nullptr;
+    if (node.isSafeNav()) {
+        // Phase 6 slice A: safe navigation (?.). Before this fix the
+        // field was loaded unconditionally, so a null object segfaulted
+        // here (the GEP + load ran on a null base with no null check).
+        // The object is evaluated once, up front; the GEP below only
+        // computes an address (legal on a null base — it does not
+        // dereference), and the load itself runs only in the non-null
+        // branch. A null object yields the null value of the field's
+        // type (null for pointers, 0 / false / 0.0 otherwise) — the
+        // same convention `??` and `== null` use for value types.
+        // NOTE: `?.` METHOD calls (obj?.method()) are not covered by
+        // this fix — the member-call path in visit(CallExpr) has no
+        // null check and still segfaults on a null receiver (see the
+        // slice doc for the follow-up).
+        node.getObject().accept(*this);
+        objVal = m_lastExprValue;
+        if (!objVal) {
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        fieldPtr = emitMemberPointer(node, fieldType, objVal);
+    } else {
+        fieldPtr = emitMemberPointer(node, fieldType);
+    }
     if (fieldPtr && fieldType) {
-        auto loadVal = std::make_shared<LoadInst>(
-            fieldType,
-            fieldPtr,
-            m_currentFunction->nextTempName("mem_val")
-        );
-        m_currentBlock->addInstruction(loadVal);
-        m_lastExprValue = loadVal;
-        m_lastExprType = fieldType;
+        if (node.isSafeNav() && m_currentFunction && m_currentBlock && m_currentFunction->getEntryBlock()) {
+            auto isNull = std::make_shared<CompareInst>(
+                IROpcode::ICmpEq, objVal, std::make_shared<ConstantNull>(objVal->getType()),
+                m_currentFunction->nextTempName("safenav_null"));
+            m_currentBlock->addInstruction(isNull);
+
+            auto nullBB = createBlock("safenav_null");
+            auto accessBB = createBlock("safenav_access");
+            auto mergeBB = createBlock("safenav_merge");
+
+            auto resAlloca = std::make_shared<AllocaInst>(fieldType, m_currentFunction->nextTempName("safenav_res"));
+            m_currentFunction->getEntryBlock()->addInstruction(resAlloca);
+            m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(isNull, nullBB->getName(), accessBB->getName()));
+
+            setInsertPoint(nullBB);
+            if (auto nullVal = nullValueOf(fieldType)) {
+                nullBB->addInstruction(std::make_shared<StoreInst>(nullVal, resAlloca));
+            }
+            nullBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+            setInsertPoint(accessBB);
+            auto loadVal = std::make_shared<LoadInst>(
+                fieldType, fieldPtr, m_currentFunction->nextTempName("mem_val"));
+            accessBB->addInstruction(loadVal);
+            accessBB->addInstruction(std::make_shared<StoreInst>(loadVal, resAlloca));
+            accessBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+
+            setInsertPoint(mergeBB);
+            auto mergeVal = std::make_shared<LoadInst>(
+                fieldType, resAlloca, m_currentFunction->nextTempName("safenav_val"));
+            mergeBB->addInstruction(mergeVal);
+            m_lastExprValue = mergeVal;
+            m_lastExprType = fieldType;
+        } else {
+            auto loadVal = std::make_shared<LoadInst>(
+                fieldType,
+                fieldPtr,
+                m_currentFunction->nextTempName("mem_val")
+            );
+            m_currentBlock->addInstruction(loadVal);
+            m_lastExprValue = loadVal;
+            m_lastExprType = fieldType;
+        }
     } else {
         m_lastExprValue = nullptr;
         m_lastExprType = nullptr;

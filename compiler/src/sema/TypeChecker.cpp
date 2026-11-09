@@ -332,10 +332,13 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
     const std::vector<std::shared_ptr<FunctionSymbol>>& candidates,
     const std::vector<TypePtr>& argTypes,
     const diagnostics::SourceLocation& loc,
-    const std::string& name
+    const std::string& name,
+    bool reportErrors
 ) {
     if (candidates.empty()) {
-        m_diagnostics.reportError("E1003", "Undefined function or method '" + name + "'", loc);
+        if (reportErrors) {
+            m_diagnostics.reportError("E1003", "Undefined function or method '" + name + "'", loc);
+        }
         return nullptr;
     }
 
@@ -374,8 +377,10 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
             if (i > 0) argList += ", ";
             argList += argTypes[i]->toString();
         }
-        m_diagnostics.reportError("E1001", "No matching overload for function '" + name + "' with argument types (" +
-                                  argList + ")", loc);
+        if (reportErrors) {
+            m_diagnostics.reportError("E1001", "No matching overload for function '" + name + "' with argument types (" +
+                                      argList + ")", loc);
+        }
         return nullptr;
     }
 
@@ -418,8 +423,18 @@ void TypeChecker::visit(const ast::CallExpr& node) {
         const std::string& fnName = idExpr.getName();
 
         auto candidates = m_symbolTable.lookupFunctions(fnName);
+        // Phase 6 slice A: remember whether a free function existed
+        // but no overload matched, so the final error below can stay
+        // the E1001 overload error instead of becoming E1003.
+        bool freeFnOverloadFailed = false;
         if (!candidates.empty()) {
-            auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), fnName);
+            // Phase 6 slice A: try the free functions quietly. A
+            // same-named builtin (e.g. log(double)) must not shadow an
+            // enclosing-class method (e.g. log(string)): when no free
+            // function matches, fall through to the method check below
+            // instead of reporting here — the method path reports
+            // exactly one error if it fails too.
+            auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), fnName, false);
             if (resolved) {
                 m_nodeCallTargets[&node] = resolved;
                 if (resolved->isGeneric() && resolved->getASTDecl()) {
@@ -437,10 +452,9 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 } else {
                     m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
                 }
-            } else {
-                m_currentExprType = m_typeCtx.getError();
+                return;
             }
-            return;
+            freeFnOverloadFailed = true;
         }
 
         // Check super constructor call: super(...)
@@ -460,7 +474,11 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             if (!methods.empty()) {
                 std::vector<std::shared_ptr<FunctionSymbol>> methodCandidates;
                 for (const auto& mm : methods) {
-                    auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation());
+                    // Phase 6 slice A: mark the target as a method so
+                    // IRBuilder can tell it apart from a same-named
+                    // (even same-signature) free function or builtin.
+                    auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
+                                                                 mm.visibility, mm.isStatic, true);
                     cand->setAsync(mm.isAsync);
                     methodCandidates.push_back(std::move(cand));
                 }
@@ -511,7 +529,20 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
-        m_diagnostics.reportError("E1003", "Undefined function or callable symbol '" + fnName + "'", node.getLocation());
+        if (freeFnOverloadFailed) {
+            // A free function with this name exists but no overload
+            // matched, and no fallback matched either: keep the
+            // overload error (same E1001 as before the fallback).
+            std::string argList;
+            for (size_t i = 0; i < argTypes.size(); ++i) {
+                if (i > 0) argList += ", ";
+                argList += argTypes[i]->toString();
+            }
+            m_diagnostics.reportError("E1001", "No matching overload for function '" + fnName + "' with argument types (" +
+                                      argList + ")", node.getLocation());
+        } else {
+            m_diagnostics.reportError("E1003", "Undefined function or callable symbol '" + fnName + "'", node.getLocation());
+        }
         m_currentExprType = m_typeCtx.getError();
         return;
     }
@@ -544,7 +575,9 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                     m_currentExprType = m_typeCtx.getError();
                     return;
                 }
-                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation());
+                // Phase 6 slice A: mark the target as a method (see above).
+                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
+                                                             mm.visibility, mm.isStatic, true);
                 cand->setAsync(mm.isAsync);
                 candidates.push_back(std::move(cand));
             }
@@ -565,7 +598,9 @@ void TypeChecker::visit(const ast::CallExpr& node) {
 
             std::vector<std::shared_ptr<FunctionSymbol>> candidates;
             for (const auto& mm : methods) {
-                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation());
+                // Phase 6 slice A: mark the target as a method (see above).
+                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
+                                                             mm.visibility, mm.isStatic, true);
                 cand->setAsync(mm.isAsync);
                 candidates.push_back(std::move(cand));
             }
