@@ -129,12 +129,15 @@ TEST(TryCatchExecutionTest, ThrowCaughtWithValue) {
     EXPECT_NE(output.find("done"), std::string::npos);
 }
 
-TEST(TryCatchExecutionTest, ThrowIntCaughtAsString) {
+TEST(TryCatchExecutionTest, ThrowIntCaughtAsInt) {
+    // Phase 5 slice B: typed catches -- `throw 42` binds as an int in
+    // `catch (int e)`. (Previously the first catch won regardless of
+    // type and `e` was always the stringified value.)
     const std::string source = R"(
         fn main() {
             try {
                 throw 42;
-            } catch (Exception e) {
+            } catch (int e) {
                 println("code " + e);
             }
         }
@@ -317,6 +320,394 @@ TEST(TryCatchExecutionTest, TryOperatorPropagatesErr) {
     std::string output = runSPProgram(source, "exec_try_err");
     EXPECT_NE(output.find("true"), std::string::npos);
     EXPECT_NE(output.find("bad"), std::string::npos);
+}
+
+// --- typed catches + composite throws (Phase 5 slice B) --------------
+
+TEST(TryCatchExecutionTest, TypedCatchSkipsNonMatchingClause) {
+    const std::string source = R"(
+        fn main() {
+            try {
+                throw 42;
+            } catch (string e) {
+                println("str " + e);
+            } catch (int e) {
+                println("int " + e);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_typed_skip_str");
+    EXPECT_EQ(output.find("str "), std::string::npos);
+    EXPECT_NE(output.find("int 42"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, TypedCatchStringSkipsIntClause) {
+    const std::string source = R"(
+        fn main() {
+            try {
+                throw "oops";
+            } catch (int e) {
+                println("int " + e);
+            } catch (string e) {
+                println("str " + e);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_typed_skip_int");
+    EXPECT_EQ(output.find("int "), std::string::npos);
+    EXPECT_NE(output.find("str oops"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, CatchAllCatchesAnything) {
+    const std::string source = R"(
+        fn main() {
+            try {
+                throw 42;
+            } catch (Exception e) {
+                println("caught " + e);
+            }
+            try {
+                throw "boom";
+            } catch (Exception e) {
+                println("caught " + e);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_catch_all");
+    EXPECT_NE(output.find("caught 42"), std::string::npos);
+    EXPECT_NE(output.find("caught boom"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, TypedCatchFallsThroughToOuter) {
+    // No clause matches in the inner try: the throw propagates to the
+    // outer catch (which matches), it does not vanish.
+    const std::string source = R"(
+        fn main() {
+            try {
+                try {
+                    throw 42;
+                } catch (string e) {
+                    println("inner str");
+                }
+                println("inner after");
+            } catch (int e) {
+                println("outer int " + e);
+            }
+            println("done");
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_typed_fallthrough");
+    EXPECT_EQ(output.find("inner str"), std::string::npos);
+    EXPECT_EQ(output.find("inner after"), std::string::npos);
+    EXPECT_NE(output.find("outer int 42"), std::string::npos);
+    EXPECT_NE(output.find("done"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ArrayThrowRoundTrip) {
+    const std::string source = R"(
+        fn main() {
+            var arr = [1, 2, 3];
+            try {
+                throw arr;
+            } catch (int[] e) {
+                println("len " + e.length());
+                println("first " + e[0]);
+                println("last " + e[2]);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_array");
+    EXPECT_NE(output.find("len 3"), std::string::npos);
+    EXPECT_NE(output.find("first 1"), std::string::npos);
+    EXPECT_NE(output.find("last 3"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, MapThrowRoundTrip) {
+    const std::string source = R"(
+        fn main() {
+            var m = {"a": 1, "b": 2};
+            try {
+                throw m;
+            } catch (Map<string, int> e) {
+                println("a " + e["a"]);
+                println("size " + e.size());
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_map");
+    EXPECT_NE(output.find("a 1"), std::string::npos);
+    EXPECT_NE(output.find("size 2"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ClassThrowRoundTrip) {
+    const std::string source = R"(
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn main() {
+            try {
+                throw new Counter(5);
+            } catch (Counter e) {
+                println("n " + e.n);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_class");
+    EXPECT_NE(output.find("n 5"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, StructThrowRoundTrip) {
+    const std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+        fn main() {
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            try {
+                throw p;
+            } catch (Point e) {
+                println("x " + e.x);
+                println("y " + e.y);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_struct");
+    EXPECT_NE(output.find("x 3"), std::string::npos);
+    EXPECT_NE(output.find("y 4"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, SubclassCatchMatches) {
+    const std::string source = R"(
+        class Animal {
+            public string name() { return "animal"; }
+        }
+        class Dog extends Animal {
+            public string name() { return "dog"; }
+        }
+        fn main() {
+            try {
+                throw new Dog();
+            } catch (Animal e) {
+                println("animal caught " + e.name());
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_subclass_catch");
+    EXPECT_NE(output.find("animal caught dog"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, BaseClassThrowSkipsDerivedClause) {
+    // Matching is on the thrown expression's static type: a variable
+    // statically typed Animal never matches `catch (Dog e)`, even
+    // though the clause set is ordered.
+    const std::string source = R"(
+        class Animal {
+            public string name() { return "animal"; }
+        }
+        class Dog extends Animal {
+            public string name() { return "dog"; }
+        }
+        fn main() {
+            try {
+                throw new Animal();
+            } catch (Dog e) {
+                println("dog caught");
+            } catch (Exception e) {
+                println("fallback " + e);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_base_skips_derived");
+    EXPECT_EQ(output.find("dog caught"), std::string::npos);
+    EXPECT_NE(output.find("fallback [Animal]"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, FloatAndBoolThrowRoundTrip) {
+    const std::string source = R"(
+        fn main() {
+            try {
+                throw 3.5;
+            } catch (double e) {
+                println("dbl " + e);
+            }
+            try {
+                throw true;
+            } catch (bool e) {
+                println("bool " + e);
+            }
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_scalar");
+    EXPECT_NE(output.find("dbl 3.5"), std::string::npos);
+    EXPECT_NE(output.find("bool true"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, UncaughtArrayThrowPanicsWithPlaceholder) {
+    // A composite value has no string form: the panic message is the
+    // "[<type>]" placeholder, never the raw pointer bytes.
+    const std::string source = R"(
+        fn main() {
+            var arr = [1, 2, 3];
+            throw arr;
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_uncaught_array");
+    EXPECT_NE(output.find("SP Panic: [int[]]"), std::string::npos);
+}
+
+// --- throw-path refcount cleanup (Phase 5 slice B) ----------------------
+// Measured with the runtime's live ARC-object counter
+// (sp_rt_mem_live_objects): a refcounted local created inside a try
+// must be released when a throw unwinds past it.
+
+TEST(TryCatchExecutionTest, ThrowPathReleasesRefcountedLocals) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            try {
+                var c = new Counter(7);
+                println("inside " + sp_rt_mem_live_objects());
+                throw "boom";
+            } catch (Exception e) {
+                println("caught " + e);
+            }
+            println("after " + sp_rt_mem_live_objects());
+            var d = new Counter(9);
+            println("after2 " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_drops");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("after 0"), std::string::npos);
+    EXPECT_NE(output.find("after2 1"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ThrowOfAliasedObjectKeepsItAlive) {
+    // The thrown object is a local the code still uses afterwards:
+    // the throw retains it into the payload, so the unwinding drop
+    // of the local cannot free it out from under the catch or the
+    // code after the try.
+    const std::string source = R"(
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn main() {
+            var o = new Counter(7);
+            try {
+                throw o;
+            } catch (Counter e) {
+                println("caught " + e.n);
+            }
+            println("alive " + o.n);
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_alias");
+    EXPECT_NE(output.find("caught 7"), std::string::npos);
+    EXPECT_NE(output.find("alive 7"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, CaughtNewObjectIsReleasedAfterCatch) {
+    // A directly-thrown `new` transfers its count-1 to the payload;
+    // the catch variable takes that share and releases it when the
+    // catch body ends -- no leak, no double free.
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            try {
+                throw new Counter(5);
+            } catch (Counter e) {
+                println("n " + e.n);
+                println("in catch " + sp_rt_mem_live_objects());
+            }
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_new_release");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("n 5"), std::string::npos);
+    EXPECT_NE(output.find("in catch 1"), std::string::npos);
+    EXPECT_NE(output.find("after 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, UncaughtClassThrowInResultFunctionReleases) {
+    // Uncaught class throw in a Result function becomes Err -- and
+    // the owned object is released by the uncaught handler, not leaked.
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn fail() -> Result<int, string> {
+            throw new Counter(1);
+        }
+        fn main() {
+            var r = fail();
+            println("err " + r.isErr());
+            println("live " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_uncaught_class_err");
+    EXPECT_NE(output.find("err true"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, FinallyPropagationReleasesOuterLocal) {
+    // A throw inside an inner try with only a finally propagates
+    // through the finally to the outer catch: the outer try's
+    // refcounted local must be released on that path too.
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            try {
+                var c = new Counter(7);
+                println("inside " + sp_rt_mem_live_objects());
+                try {
+                    throw "deep";
+                } finally {
+                    println("inner fin");
+                }
+            } catch (Exception e) {
+                println("outer caught " + e);
+            }
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_finally_propagate_drops");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("inner fin"), std::string::npos);
+    EXPECT_NE(output.find("outer caught deep"), std::string::npos);
+    EXPECT_NE(output.find("after 0"), std::string::npos);
 }
 
 // --- map literals ----------------------------------------------------------

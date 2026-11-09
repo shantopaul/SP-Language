@@ -172,6 +172,150 @@ IRValuePtr IRBuilder::getOrCreateThrowPendingSlot() {
     return m_throwPendingSlot;
 }
 
+// --- Phase 5 slice B: typed + composite throw slots ----------------------
+// (See IRBuilder.h for the design: type tag, bit-packed raw value,
+// owning-reference flag, per-type struct slots.)
+
+IRValuePtr IRBuilder::getOrCreateThrowTypeSlot() {
+    if (!m_throwTypeSlot) {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getInt32(),
+                                                   m_currentFunction->nextTempName("throw_type"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_throwTypeSlot = alloca;
+    }
+    return m_throwTypeSlot;
+}
+
+IRValuePtr IRBuilder::getOrCreateThrowRawSlot() {
+    if (!m_throwRawSlot) {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getInt64(),
+                                                   m_currentFunction->nextTempName("throw_raw"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_throwRawSlot = alloca;
+    }
+    return m_throwRawSlot;
+}
+
+IRValuePtr IRBuilder::getOrCreateThrowOwnsSlot() {
+    if (!m_throwOwnsSlot) {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getInt1(),
+                                                   m_currentFunction->nextTempName("throw_owns"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_currentFunction->getEntryBlock()->addInstruction(std::make_shared<StoreInst>(
+            std::make_shared<ConstantInt>(IRType::getInt1(), 0), alloca));
+        m_throwOwnsSlot = alloca;
+    }
+    return m_throwOwnsSlot;
+}
+
+IRValuePtr IRBuilder::getOrCreateThrowStructSlot(const std::string& canonicalType, IRTypePtr structType) {
+    auto it = m_throwStructSlots.find(canonicalType);
+    if (it != m_throwStructSlots.end()) return it->second;
+    auto alloca = std::make_shared<AllocaInst>(structType,
+                                               m_currentFunction->nextTempName("throw_struct"));
+    m_currentFunction->getEntryBlock()->addInstruction(alloca);
+    m_throwStructSlots.emplace(canonicalType, alloca);
+    return alloca;
+}
+
+int32_t IRBuilder::throwTypeTagFor(const std::string& canonicalType) {
+    auto it = m_throwTypeTags.find(canonicalType);
+    if (it != m_throwTypeTags.end()) return it->second;
+    int32_t tag = m_nextThrowTypeTag++;
+    m_throwTypeTags.emplace(canonicalType, tag);
+    return tag;
+}
+
+std::vector<int32_t> IRBuilder::catchClauseTags(const ast::CatchClause& clause) {
+    const std::string& name = clause.getResolvedTypeName();
+    // Catch-all: unresolvable name (incl. the conventional `Exception`
+    // spelling, which has no type in the language) or `Any`.
+    if (name.empty() || name == "any" || name == "Exception") return {};
+    std::vector<int32_t> tags;
+    tags.push_back(throwTypeTagFor(name));
+    // Class/interface clause: also match every user class that is a
+    // subtype of it (a thrown Dog matches `catch (Animal e)`). The
+    // match is on the thrown expression's *static* type: a variable
+    // statically typed as a base class never matches a derived-class
+    // clause, even if it holds a derived instance at runtime.
+    auto clauseType = m_sema.getTypeContext().findUserType(name);
+    if (clauseType && (clauseType->isClass() || clauseType->isInterface())) {
+        for (const auto& [userName, userType] : m_sema.getTypeContext().getUserTypes()) {
+            if (!userType || !userType->isClass() || userName == name) continue;
+            if (userType->isSubtypeOf(*clauseType)) {
+                tags.push_back(throwTypeTagFor(userName));
+            }
+        }
+    }
+    return tags;
+}
+
+const IRBuilder::TryFrame* IRBuilder::findThrowFrame() {
+    for (auto it = m_tryStack.rbegin(); it != m_tryStack.rend(); ++it) {
+        if (it->catchBlock || it->finallyBlock) return &(*it);
+    }
+    return nullptr;
+}
+
+void IRBuilder::emitThrowScopeDrops(size_t fromDepth) {
+    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+    for (int i = static_cast<int>(m_refCountedScopes.size()) - 1; i >= static_cast<int>(fromDepth); --i) {
+        emitScopeDrops(static_cast<size_t>(i));
+    }
+}
+
+IRValuePtr IRBuilder::emitPackThrowScalar(IRValuePtr val, IRTypePtr valType) {
+    if (!val || !valType) return nullptr;
+    if (valType->isFloat()) {
+        // Bit-preserving: float -> i32 bits -> zero-extend to i64.
+        auto bits = std::make_shared<CastInst>(IROpcode::BitCast, val, IRType::getInt32(),
+                                               m_currentFunction->nextTempName("throw_fbits"));
+        if (m_currentBlock) m_currentBlock->addInstruction(bits);
+        auto wide = std::make_shared<CastInst>(IROpcode::ZExt, bits, IRType::getInt64(),
+                                               m_currentFunction->nextTempName("throw_raw"));
+        if (m_currentBlock) m_currentBlock->addInstruction(wide);
+        return wide;
+    }
+    if (valType->isDouble()) {
+        auto bits = std::make_shared<CastInst>(IROpcode::BitCast, val, IRType::getInt64(),
+                                               m_currentFunction->nextTempName("throw_raw"));
+        if (m_currentBlock) m_currentBlock->addInstruction(bits);
+        return bits;
+    }
+    // Integers (incl. bool i1, char i8): extend to i64. Truncation on
+    // unpack restores the exact bits.
+    return emitCastIfNeeded(val, IRType::getInt64());
+}
+
+IRValuePtr IRBuilder::emitUnpackThrowValue(IRValuePtr rawI64, IRTypePtr clauseType) {
+    if (!rawI64 || !clauseType) return rawI64;
+    if (clauseType->isPointer()) {
+        auto ptr = std::make_shared<CastInst>(IROpcode::IntToPtr, rawI64, clauseType,
+                                              m_currentFunction->nextTempName("catch_val"));
+        if (m_currentBlock) m_currentBlock->addInstruction(ptr);
+        return ptr;
+    }
+    if (clauseType->isDouble()) {
+        auto dbl = std::make_shared<CastInst>(IROpcode::BitCast, rawI64, IRType::getDouble(),
+                                              m_currentFunction->nextTempName("catch_val"));
+        if (m_currentBlock) m_currentBlock->addInstruction(dbl);
+        return dbl;
+    }
+    if (clauseType->isFloat()) {
+        auto bits = std::make_shared<CastInst>(IROpcode::Trunc, rawI64, IRType::getInt32(),
+                                               m_currentFunction->nextTempName("catch_bits"));
+        if (m_currentBlock) m_currentBlock->addInstruction(bits);
+        auto flt = std::make_shared<CastInst>(IROpcode::BitCast, bits, IRType::getFloat(),
+                                              m_currentFunction->nextTempName("catch_val"));
+        if (m_currentBlock) m_currentBlock->addInstruction(flt);
+        return flt;
+    }
+    if (clauseType->isInteger()) {
+        return emitCastIfNeeded(rawI64, clauseType);
+    }
+    return rawI64;
+}
+
 IRValuePtr IRBuilder::getOrCreateReturnPendingSlot() {
     if (!m_returnPendingSlot) {
         auto alloca = std::make_shared<AllocaInst>(IRType::getInt1(),
@@ -236,19 +380,45 @@ IRBasicBlock* IRBuilder::getOrCreateUncaughtThrowBlock() {
     auto structRet = std::dynamic_pointer_cast<IRStructType>(retType);
     bool isResult = structRet && structRet->getName() == "struct.Result";
     bool isOption = structRet && structRet->getName() == "struct.Option";
-    if (retType->isStruct() && isResult) {
-        // Uncaught throw in a Result-returning function becomes Err.
-        auto errVal = emitCreateTaggedUnion("Result", 1, payload);
-        auto loadInst = std::make_shared<LoadInst>(retType, errVal, m_currentFunction->nextTempName("uncaught_err"));
-        uncaughtBB->addInstruction(loadInst);
-        uncaughtBB->addInstruction(std::make_shared<ReturnInst>(loadInst));
-    } else if (retType->isStruct() && isOption) {
-        // Uncaught throw in an Option-returning function becomes None
-        // (the thrown value is discarded: Option carries no error).
-        auto noneVal = emitCreateTaggedUnion("Option", 1, nullptr);
-        auto loadInst = std::make_shared<LoadInst>(retType, noneVal, m_currentFunction->nextTempName("uncaught_none"));
-        uncaughtBB->addInstruction(loadInst);
-        uncaughtBB->addInstruction(std::make_shared<ReturnInst>(loadInst));
+    if (retType->isStruct() && (isResult || isOption)) {
+        // Uncaught throw in a Result/Option-returning function becomes
+        // Err / None. The thrown value is discarded -- but if the
+        // payload holds the unique owning reference to a class object
+        // (throw-owns flag), release that share first, or the object
+        // leaks once per uncaught throw.
+        IRValuePtr retVal;
+        if (isResult) {
+            auto errVal = emitCreateTaggedUnion("Result", 1, payload);
+            auto loadInst = std::make_shared<LoadInst>(retType, errVal, m_currentFunction->nextTempName("uncaught_err"));
+            uncaughtBB->addInstruction(loadInst);
+            retVal = loadInst;
+        } else {
+            auto noneVal = emitCreateTaggedUnion("Option", 1, nullptr);
+            auto loadInst = std::make_shared<LoadInst>(retType, noneVal, m_currentFunction->nextTempName("uncaught_none"));
+            uncaughtBB->addInstruction(loadInst);
+            retVal = loadInst;
+        }
+        auto ownsSlot = getOrCreateThrowOwnsSlot();
+        auto ownsLoad = std::make_shared<LoadInst>(IRType::getInt1(), ownsSlot,
+                                                   m_currentFunction->nextTempName("uncaught_owns"));
+        uncaughtBB->addInstruction(ownsLoad);
+        auto releaseBB = createBlock("uncaught_release");
+        auto retBB = createBlock("uncaught_return");
+        uncaughtBB->addInstruction(std::make_shared<CondBranchInst>(
+            ownsLoad, releaseBB->getName(), retBB->getName()));
+        setInsertPoint(releaseBB);
+        auto rawSlot = getOrCreateThrowRawSlot();
+        auto rawLoad = std::make_shared<LoadInst>(IRType::getInt64(), rawSlot,
+                                                  m_currentFunction->nextTempName("uncaught_raw"));
+        releaseBB->addInstruction(rawLoad);
+        auto rawPtr = std::make_shared<CastInst>(IROpcode::IntToPtr, rawLoad, IRType::getPointer(),
+                                                 m_currentFunction->nextTempName("uncaught_obj"));
+        releaseBB->addInstruction(rawPtr);
+        releaseBB->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{rawPtr}));
+        releaseBB->addInstruction(std::make_shared<BranchInst>(retBB->getName()));
+        setInsertPoint(retBB);
+        retBB->addInstruction(std::make_shared<ReturnInst>(retVal));
     } else {
         // Otherwise an uncaught throw is unrecoverable: panic with the
         // thrown message (ADR-002: unrecoverable errors use panic()).
@@ -278,12 +448,28 @@ IRBasicBlock* IRBuilder::findFinallyTarget() {
     return nullptr;
 }
 
-void IRBuilder::emitThrowValue(IRValuePtr strVal) {
+void IRBuilder::emitThrowValue(IRValuePtr strVal, IRValuePtr rawI64, int32_t typeTag, bool owns) {
     auto flagSlot = getOrCreateThrowPendingSlot();
     auto payloadSlot = getOrCreateThrowPayloadSlot();
+    auto typeSlot = getOrCreateThrowTypeSlot();
+    auto rawSlot = getOrCreateThrowRawSlot();
+    auto ownsSlot = getOrCreateThrowOwnsSlot();
     m_currentBlock->addInstruction(std::make_shared<StoreInst>(
         std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
     m_currentBlock->addInstruction(std::make_shared<StoreInst>(strVal, payloadSlot));
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+        std::make_shared<ConstantInt>(IRType::getInt32(), typeTag), typeSlot));
+    if (rawI64) {
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(rawI64, rawSlot));
+    }
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+        std::make_shared<ConstantInt>(IRType::getInt1(), owns ? 1 : 0), ownsSlot));
+    // Unwind: release the refcounted locals of the try being left (and
+    // any scopes nested inside it). The throw site has already retained
+    // the thrown object into the payload when needed, so these drops
+    // cannot free it. Locals of enclosing scopes stay live.
+    const TryFrame* frame = findThrowFrame();
+    emitThrowScopeDrops(frame ? frame->refScopeDepth : 0);
     IRBasicBlock* target = findThrowTarget();
     m_currentBlock->addInstruction(std::make_shared<BranchInst>(target->getName()));
 }
@@ -295,8 +481,26 @@ void IRBuilder::emitFinallyDispatch(IRBasicBlock* mergeBlock) {
     m_currentBlock->addInstruction(loadThrow);
     IRBasicBlock* checkReturnBB = createBlock("finally_check_return");
     IRBasicBlock* propagateBB = findThrowTarget();
+    // Phase 5 slice B: a pending throw propagating through this
+    // finally also leaves the enclosing try -- release that try's
+    // refcounted locals (scopes at or above the propagate target
+    // frame's entry depth). The throw site already released the inner
+    // try's own scopes; the scopes still on the stack here are the
+    // enclosing ones. When there is no enclosing frame (uncaught
+    // throw), drop every scope still on the stack.
+    const TryFrame* targetFrame = findThrowFrame();
+    size_t dropDepth = targetFrame ? targetFrame->refScopeDepth : 0;
+    IRBasicBlock* throwBB = propagateBB;
+    if (dropDepth < m_refCountedScopes.size()) {
+        throwBB = createBlock("finally_propagate_drops");
+    }
     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
-        loadThrow, propagateBB->getName(), checkReturnBB->getName()));
+        loadThrow, throwBB->getName(), checkReturnBB->getName()));
+    if (throwBB != propagateBB) {
+        setInsertPoint(throwBB);
+        emitThrowScopeDrops(dropDepth);
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(propagateBB->getName()));
+    }
 
     setInsertPoint(checkReturnBB);
     auto retFlag = getOrCreateReturnPendingSlot();
@@ -388,6 +592,13 @@ void IRBuilder::ensureTryState() {
     m_returnValueSlot = nullptr;
     m_deferredReturnBlock = nullptr;
     m_uncaughtThrowBlock = nullptr;
+    // Phase 5 slice B: per-function throw slots reset here. The tag
+    // registry (m_throwTypeTags) deliberately does NOT reset: tags
+    // must stay stable across functions for the whole compilation.
+    m_throwTypeSlot = nullptr;
+    m_throwRawSlot = nullptr;
+    m_throwOwnsSlot = nullptr;
+    m_throwStructSlots.clear();
 }
 
 IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
@@ -1743,13 +1954,25 @@ void IRBuilder::visit(const ast::TryCatchStmt& node) {
     // errors; throw/catch is local control flow inside one function).
     //
     // SEMANTICS (see docs/v2/PHASE-32-PRO-4.0.0.md for the full
-    // contract):
-    // - The try body runs. A `throw` inside it stores the stringified
-    //   value in the shared payload slot, sets the pending flag, and
-    //   branches to the FIRST catch block (later catches are dead code:
-    //   there is no `Exception` type in the language, so no runtime
-    //   type filtering is possible). The catch variable is bound to the
-    //   payload string. Statements after the throw do not run.
+    // contract, as amended by Phase 5 slice B in
+    // docs/v2/PHASE-34-SLICE-B.md):
+    // - The try body runs. A `throw` stores the stringified value in
+    //   the shared payload slot, the thrown value's static-type tag in
+    //   the type slot, and the bit-preserving raw value in the raw slot
+    //   (pointers via PtrToInt, scalars bit-packed; by-value structs
+    //   go to a per-type struct slot). It sets the pending flag,
+    //   releases the refcounted locals of the try being left, and
+    //   branches to the catch dispatch. Statements after the throw do
+    //   not run.
+    // - The catch dispatch tries each clause in order: a clause
+    //   matches when the thrown tag is its own tag (or, for a
+    //   class/interface clause, the tag of a subclass of it). A
+    //   catch-all clause (unresolvable name, incl. the conventional
+    //   `Exception` spelling, or `Any`) matches anything. The first
+    //   match binds the catch variable to the value in its declared
+    //   type and runs; no match leaves the pending flag set and
+    //   propagates outward. The catch variable is bound to the payload
+    //   string for catch-all clauses.
     // - The finally block runs on every exit path: normal completion,
     //   after the catch, and before a deferred return / propagated
     //   throw leaves the try.
@@ -1776,6 +1999,7 @@ void IRBuilder::visit(const ast::TryCatchStmt& node) {
     frame.mergeBlock = mergeBB;
     frame.breakDepth = m_breakStack.size();
     frame.continueDepth = m_continueStack.size();
+    frame.refScopeDepth = m_refCountedScopes.size();
     m_tryStack.push_back(frame);
 
     // --- try body ---
@@ -1787,34 +2011,201 @@ void IRBuilder::visit(const ast::TryCatchStmt& node) {
     }
     m_tryStack.pop_back();
 
-    // --- catch body (first catch wins) ---
+    // --- catch dispatch (Phase 5 slice B: typed catches) ---
     if (hasCatch) {
+        // Load the thrown value's type tag once; each clause is tried
+        // in order against it.
         setInsertPoint(catchBB);
-        // The throw is handled now: clear the pending flag, or the
-        // finally dispatch below would propagate it again.
-        auto flagSlot = getOrCreateThrowPendingSlot();
-        m_currentBlock->addInstruction(std::make_shared<StoreInst>(
-            std::make_shared<ConstantInt>(IRType::getInt1(), 0), flagSlot));
-        // Bind the catch variable to the shared payload slot.
-        const auto& clause = node.getCatches().front();
-        pushScope();
-        declareVariable(clause.getName(), getOrCreateThrowPayloadSlot(),
-                        IRType::getPointer(IRType::getInt8()));
-        // Throws inside the catch run the finally, then propagate
-        // (this frame has no catch of its own).
-        TryFrame catchFrame;
-        catchFrame.catchBlock = nullptr;
-        catchFrame.finallyBlock = finallyBB;
-        catchFrame.mergeBlock = mergeBB;
-        catchFrame.breakDepth = m_breakStack.size();
-        catchFrame.continueDepth = m_continueStack.size();
-        m_tryStack.push_back(catchFrame);
-        clause.getBody().accept(*this);
-        m_tryStack.pop_back();
-        popScope();
-        if (!m_currentBlock->hasTerminator()) {
-            m_currentBlock->addInstruction(std::make_shared<BranchInst>(
-                finallyBB ? finallyBB->getName() : mergeBB->getName()));
+        auto tagSlot = getOrCreateThrowTypeSlot();
+        auto tagLoad = std::make_shared<LoadInst>(IRType::getInt32(), tagSlot,
+                                                  m_currentFunction->nextTempName("catch_tag"));
+        m_currentBlock->addInstruction(tagLoad);
+        IRBasicBlock* noMatchBB = createBlock("catch_nomatch");
+        IRBasicBlock* checkBB = catchBB;
+        for (size_t ci = 0; ci < node.getCatches().size(); ++ci) {
+            const auto& clause = node.getCatches()[ci];
+            auto tags = catchClauseTags(clause);
+            IRBasicBlock* clauseBB = createBlock("catch_clause");
+            bool isLast = (ci + 1 == node.getCatches().size());
+            if (tags.empty()) {
+                // Catch-all: unconditional. Later clauses are dead
+                // code (still built, with terminators).
+                setInsertPoint(checkBB);
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(clauseBB->getName()));
+            } else {
+                // tag == t1 || tag == t2 || ...
+                setInsertPoint(checkBB);
+                IRValuePtr matchVal = nullptr;
+                for (int32_t t : tags) {
+                    auto cmp = std::make_shared<CompareInst>(IROpcode::ICmpEq, tagLoad,
+                        std::make_shared<ConstantInt>(IRType::getInt32(), t),
+                        m_currentFunction->nextTempName("catch_match"));
+                    m_currentBlock->addInstruction(cmp);
+                    if (!matchVal) {
+                        matchVal = cmp;
+                    } else {
+                        auto orInst = std::make_shared<BinaryInst>(IROpcode::Or, matchVal, cmp,
+                            m_currentFunction->nextTempName("catch_match_or"));
+                        m_currentBlock->addInstruction(orInst);
+                        matchVal = orInst;
+                    }
+                }
+                IRBasicBlock* nextBB = isLast ? noMatchBB : createBlock("catch_check");
+                m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+                    matchVal, clauseBB->getName(), nextBB->getName()));
+                checkBB = nextBB;
+            }
+
+            // --- clause body ---
+            setInsertPoint(clauseBB);
+            // The throw is handled now: clear the pending flag, or the
+            // finally dispatch below would propagate it again.
+            auto flagSlot = getOrCreateThrowPendingSlot();
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+                std::make_shared<ConstantInt>(IRType::getInt1(), 0), flagSlot));
+            pushScope();
+            // Bind the catch variable to the thrown value in its
+            // declared type.
+            const std::string& canonName = clause.getResolvedTypeName();
+            bool isCatchAll = canonName.empty() || canonName == "any" || canonName == "Exception";
+            IRTypePtr clauseIRType = nullptr;
+            IRValuePtr boundVal = nullptr;
+            bool clauseIsClass = false;
+            bool clauseIsStruct = false;
+            if (isCatchAll) {
+                clauseIRType = IRType::getPointer(IRType::getInt8());
+                auto payloadSlot = getOrCreateThrowPayloadSlot();
+                auto payloadLoad = std::make_shared<LoadInst>(clauseIRType, payloadSlot,
+                    m_currentFunction->nextTempName("catch_str"));
+                m_currentBlock->addInstruction(payloadLoad);
+                boundVal = payloadLoad;
+            } else {
+                auto clauseSemaType = m_sema.getTypeContext().findUserType(canonName);
+                clauseIsClass = clauseSemaType && (clauseSemaType->isClass() || clauseSemaType->isInterface());
+                clauseIsStruct = clauseSemaType && clauseSemaType->isStruct();
+                if (clauseIsStruct) {
+                    // By-value struct: the value lives in the per-type
+                    // struct slot (written by the throw site).
+                    const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(canonName) : nullptr;
+                    bool layoutOk = layout && layout->structType;
+                    if (layoutOk) {
+                        clauseIRType = layout->structType;
+                    } else {
+                        reportUnsupported(node.getLocation(),
+                            "catch of struct '" + canonName + "'",
+                            "no struct layout is available for this type; the catch variable cannot be bound");
+                        clauseIRType = IRType::getPointer(IRType::getInt8());
+                    }
+                    auto slotIt = m_throwStructSlots.find(canonName);
+                    if (layoutOk && slotIt != m_throwStructSlots.end()) {
+                        auto structLoad = std::make_shared<LoadInst>(clauseIRType, slotIt->second,
+                            m_currentFunction->nextTempName("catch_struct"));
+                        m_currentBlock->addInstruction(structLoad);
+                        boundVal = structLoad;
+                    } else {
+                        // No throw of this struct type exists in the
+                        // try body, so this clause can never match
+                        // here; bind a default value so lowering can
+                        // continue (the clause body is dead code for
+                        // this try).
+                        boundVal = makeDefaultValue(clauseIRType);
+                    }
+                } else {
+                    clauseIRType = mapType(canonName);
+                    auto rawSlot = getOrCreateThrowRawSlot();
+                    auto rawLoad = std::make_shared<LoadInst>(IRType::getInt64(), rawSlot,
+                        m_currentFunction->nextTempName("catch_raw"));
+                    m_currentBlock->addInstruction(rawLoad);
+                    boundVal = emitUnpackThrowValue(rawLoad, clauseIRType);
+                }
+            }
+            auto catchAlloca = std::make_shared<AllocaInst>(clauseIRType,
+                m_currentFunction->nextTempName("catch_" + clause.getName()));
+            m_currentFunction->getEntryBlock()->addInstruction(catchAlloca);
+            declareVariable(clause.getName(), catchAlloca, clauseIRType);
+            if (boundVal) {
+                boundVal = emitCastIfNeeded(boundVal, clauseIRType);
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(boundVal, catchAlloca));
+            }
+            // Ownership of a bound class object (Phase 5 slice B):
+            // the payload holds one owning reference when the
+            // throw-owns flag is set (directly-thrown `new`, or a
+            // value retained into the payload at the throw site). The
+            // catch variable takes that share without retaining; a
+            // borrowed value is retained here, so the catch variable
+            // is a new owner either way. The variable is registered
+            // for release when the catch body ends.
+            // A catch-all clause binds the string, not the object: a
+            // discarded owned object is released here instead.
+            IRBasicBlock* bodyBB = createBlock("catch_body");
+            if (clauseIsClass || isCatchAll) {
+                auto ownsSlot = getOrCreateThrowOwnsSlot();
+                auto ownsLoad = std::make_shared<LoadInst>(IRType::getInt1(), ownsSlot,
+                    m_currentFunction->nextTempName("catch_owns"));
+                m_currentBlock->addInstruction(ownsLoad);
+                auto ownedBB = createBlock(clauseIsClass ? "catch_take" : "catch_discard");
+                auto borrowedBB = createBlock(clauseIsClass ? "catch_retain" : "catch_keep");
+                m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+                    ownsLoad, ownedBB->getName(), borrowedBB->getName()));
+                setInsertPoint(ownedBB);
+                if (isCatchAll) {
+                    auto rawSlot = getOrCreateThrowRawSlot();
+                    auto rawLoad = std::make_shared<LoadInst>(IRType::getInt64(), rawSlot,
+                        m_currentFunction->nextTempName("catch_raw"));
+                    ownedBB->addInstruction(rawLoad);
+                    auto rawPtr = std::make_shared<CastInst>(IROpcode::IntToPtr, rawLoad,
+                        IRType::getPointer(), m_currentFunction->nextTempName("catch_obj"));
+                    ownedBB->addInstruction(rawPtr);
+                    ownedBB->addInstruction(std::make_shared<CallInst>(
+                        IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{rawPtr}));
+                }
+                ownedBB->addInstruction(std::make_shared<BranchInst>(bodyBB->getName()));
+                setInsertPoint(borrowedBB);
+                if (clauseIsClass) {
+                    auto rawSlot = getOrCreateThrowRawSlot();
+                    auto rawLoad = std::make_shared<LoadInst>(IRType::getInt64(), rawSlot,
+                        m_currentFunction->nextTempName("catch_raw"));
+                    borrowedBB->addInstruction(rawLoad);
+                    auto rawPtr = std::make_shared<CastInst>(IROpcode::IntToPtr, rawLoad,
+                        IRType::getPointer(), m_currentFunction->nextTempName("catch_obj"));
+                    borrowedBB->addInstruction(rawPtr);
+                    borrowedBB->addInstruction(std::make_shared<CallInst>(
+                        IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{rawPtr}));
+                }
+                borrowedBB->addInstruction(std::make_shared<BranchInst>(bodyBB->getName()));
+            } else {
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(bodyBB->getName()));
+            }
+            if (clauseIsClass) {
+                m_refCountedScopes.back().push_back({clause.getName(), catchAlloca});
+            }
+            // Throws inside the catch run the finally, then propagate
+            // (this frame has no catch of its own).
+            setInsertPoint(bodyBB);
+            TryFrame catchFrame;
+            catchFrame.catchBlock = nullptr;
+            catchFrame.finallyBlock = finallyBB;
+            catchFrame.mergeBlock = mergeBB;
+            catchFrame.breakDepth = m_breakStack.size();
+            catchFrame.continueDepth = m_continueStack.size();
+            catchFrame.refScopeDepth = m_refCountedScopes.size() - 1;
+            m_tryStack.push_back(catchFrame);
+            clause.getBody().accept(*this);
+            m_tryStack.pop_back();
+            popScope();
+            if (!m_currentBlock->hasTerminator()) {
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(
+                    finallyBB ? finallyBB->getName() : mergeBB->getName()));
+            }
+        }
+
+        // --- no clause matched: the throw is still in flight ---
+        setInsertPoint(noMatchBB);
+        if (finallyBB) {
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(finallyBB->getName()));
+        } else {
+            IRBasicBlock* target = findThrowTarget();
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(target->getName()));
         }
     }
 
@@ -1832,22 +2223,41 @@ void IRBuilder::visit(const ast::TryCatchStmt& node) {
 }
 
 void IRBuilder::visit(const ast::ThrowStmt& node) {
-    // Phase 3 slice B: real `throw`. The thrown value is stringified
-    // (strings pass through; int/bool/char/float/double via the existing
-    // conversion helpers) and handed to emitThrowValue, which routes it
-    // to the innermost catch, else the finally, else outward.
-    // Throwing a composite value (object, array, map, Result/Option)
-    // is not supported: there is no runtime representation for it in
-    // the catch binding, so it fails loudly instead of miscompiling.
+    // Phase 5 slice B: typed + composite `throw`. The thrown value is
+    // routed to emitThrowValue, which stores it in the throw slots
+    // (stringified payload, type tag, bit-packed raw value, owning
+    // flag) and branches to the innermost catch dispatch, else the
+    // finally, else outward.
+    //
+    // What can be thrown, by representation:
+    // - Scalars (string, integer, bool, char, float, double): as
+    //   before -- stringified for the message, bit-packed raw for a
+    //   typed catch binding.
+    // - Pointer values (arrays, maps, class objects, fn values):
+    //   the raw pointer round-trips through the raw slot; the
+    //   stringified payload is a "[<type>]" placeholder (a raw array/
+    //   map/object pointer is not a C string and must never reach
+    //   sp_rt_panic as one).
+    // - By-value user structs: copied into a per-type struct slot.
+    // - Result/Option values are NOT throwable: they are the
+    //   return-value error channel (ADR-002 direction), not
+    //   exceptions. Throwing one would discard its variant at the
+    //   uncaught boundary (an uncaught Result throw in a Result
+    //   function would have to become Err of a placeholder string).
+    //   This is a deliberate semantic restriction, not a technical
+    //   limitation -- the slot machinery could carry the struct.
     auto semaType = m_sema.getNodeType(&node.getExpr());
-    if (semaType && !semaType->isString() && !semaType->isInteger() && !semaType->isChar() &&
-        !semaType->isBoolean() && !semaType->isFloat() && !semaType->isDouble() &&
-        !semaType->isUnsignedInteger() && !semaType->isError()) {
-        reportUnsupported(node.getLocation(), "throw of '" + semaType->toString() + "'",
-                          "only string, integer, bool, char and floating-point values can be thrown in this phase");
-        m_lastExprValue = nullptr;
-        m_lastExprType = nullptr;
-        return;
+    if (semaType && semaType->isEnum()) {
+        if (const auto* enumType = dynamic_cast<const sema::EnumType*>(semaType.get())) {
+            if (enumType->isTaggedUnion()) {
+                reportUnsupported(node.getLocation(), "throw of '" + semaType->toString() + "'",
+                    "Result/Option values are not throwable: they are the return-value error channel, "
+                    "so return Err/None (or use `?`) instead of throwing one");
+                m_lastExprValue = nullptr;
+                m_lastExprType = nullptr;
+                return;
+            }
+        }
     }
     node.getExpr().accept(*this);
     IRValuePtr thrownVal = m_lastExprValue;
@@ -1857,11 +2267,65 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
         m_lastExprType = nullptr;
         return;
     }
-    IRValuePtr strVal = thrownVal;
-    if (!thrownType || !thrownType->isPointer()) {
+
+    std::string canonical = semaType ? semaType->toString() : "";
+    int32_t typeTag = canonical.empty() ? 0 : throwTypeTagFor(canonical);
+    IRValuePtr strVal = nullptr;
+    IRValuePtr rawI64 = nullptr;
+    bool owns = false;
+    if (semaType && semaType->isStruct()) {
+        // By-value user struct: copy into the per-type struct slot. A
+        // struct-typed expression yields either the struct value
+        // itself (a struct variable/field) or a pointer to one (a
+        // struct-returning call returns a pointer; cf. VarDecl's
+        // struct load) -- load through the pointer in the latter case.
+        const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(canonical) : nullptr;
+        if (!layout || !layout->structType) {
+            reportUnsupported(node.getLocation(), "throw of '" + canonical + "'",
+                "no struct layout is available for this type; the value cannot be carried by a throw");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        IRValuePtr structVal = thrownVal;
+        if (thrownType && thrownType->isPointer()) {
+            auto load = std::make_shared<LoadInst>(layout->structType, thrownVal,
+                m_currentFunction->nextTempName("throw_struct"));
+            m_currentBlock->addInstruction(load);
+            structVal = load;
+        }
+        auto slot = getOrCreateThrowStructSlot(canonical, layout->structType);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(structVal, slot));
+        strVal = m_module->getOrCreateStringLiteral("[" + canonical + "]");
+    } else if (thrownType && thrownType->isPointer()) {
+        // Pointer value: raw bits through the raw slot.
+        rawI64 = emitCastIfNeeded(thrownVal, IRType::getInt64());
+        if (semaType && semaType->isString()) {
+            strVal = thrownVal;
+        } else {
+            strVal = m_module->getOrCreateStringLiteral("[" + canonical + "]");
+        }
+        if (semaType && semaType->isReferenceType()) {
+            // Class object: the payload must hold an owning
+            // reference, because the unwinding scope drops below
+            // release the try body's locals (which may alias this
+            // object). A directly-thrown `new` transfers its fresh
+            // count-1 to the payload; any other class value is
+            // retained into the payload here.
+            owns = true;
+            if (!dynamic_cast<const ast::NewExpr*>(&node.getExpr())) {
+                auto retainCall = std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{thrownVal});
+                m_currentBlock->addInstruction(retainCall);
+            }
+        }
+    } else {
+        // Scalar: stringify for the message / catch-all binding, and
+        // bit-pack the raw value for a typed catch binding.
         strVal = convertToStringValue(thrownVal, thrownType, &node.getExpr());
+        rawI64 = emitPackThrowScalar(thrownVal, thrownType);
     }
-    emitThrowValue(strVal);
+    emitThrowValue(strVal, rawI64, typeTag, owns);
     m_lastExprValue = nullptr;
     m_lastExprType = nullptr;
 }

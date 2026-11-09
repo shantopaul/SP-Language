@@ -249,6 +249,14 @@ private:
         // try is rejected loudly when the try has a finally.
         size_t breakDepth{0};
         size_t continueDepth{0};
+        // Phase 5 slice B: refcounted-scope depth at try entry. A throw
+        // leaving this try releases the refcounted locals of scopes
+        // [refScopeDepth, top) -- the try body's own scopes and any
+        // scopes nested inside it. Scopes below it (locals declared
+        // before the try) stay live: the catch/finally cannot see the
+        // try body's locals, but code after the try/catch can still
+        // use the outer ones.
+        size_t refScopeDepth{0};
     };
     std::vector<TryFrame> m_tryStack;
 
@@ -263,12 +271,64 @@ private:
     IRValuePtr m_returnValueSlot{nullptr}; // function return type (non-void)
     IRBasicBlock* m_deferredReturnBlock{nullptr};
     IRBasicBlock* m_uncaughtThrowBlock{nullptr};
+    // Phase 5 slice B: typed + composite throws. The payload slot
+    // above still carries the stringified value (the panic message and
+    // the catch-all binding); these carry the rest:
+    // - m_throwTypeSlot: i32 tag of the thrown value's static type
+    //   (canonical Type::toString(), assigned on demand by
+    //   throwTypeTagFor; tag 0 = unknown/error type, matches nothing).
+    // - m_throwRawSlot: i64 bit-preserving raw value (scalars packed
+    //   by emitPackThrowScalar, pointers via PtrToInt). The catch
+    //   unpacks it back into the clause's type.
+    // - m_throwOwnsSlot: i1, set when the payload holds the unique
+    //   owning reference to a class object (a directly-thrown `new`
+    //   transfers its count-1; any other class value is retained into
+    //   the payload at the throw site). The consumer (matching catch
+    //   binding, catch-all discard, or the uncaught handler) releases
+    //   that share; a borrowed value is retained by its new owner
+    //   instead.
+    // - m_throwStructSlots: by-value struct throws (user structs) are
+    //   copied into a per-type alloca, keyed by canonical type name.
+    //   (Result/Option are deliberately NOT throwable: they are the
+    //   return-value error channel, ADR-002 direction.)
+    IRValuePtr m_throwTypeSlot{nullptr};
+    IRValuePtr m_throwRawSlot{nullptr};
+    IRValuePtr m_throwOwnsSlot{nullptr};
+    std::unordered_map<std::string, IRValuePtr> m_throwStructSlots;
+    std::unordered_map<std::string, int32_t> m_throwTypeTags;
+    int32_t m_nextThrowTypeTag{1};
     void ensureTryState();
 
     IRValuePtr getOrCreateThrowPayloadSlot();
     IRValuePtr getOrCreateThrowPendingSlot();
     IRValuePtr getOrCreateReturnPendingSlot();
     IRValuePtr getOrCreateReturnValueSlot();
+    IRValuePtr getOrCreateThrowTypeSlot();
+    IRValuePtr getOrCreateThrowRawSlot();
+    IRValuePtr getOrCreateThrowOwnsSlot();
+    IRValuePtr getOrCreateThrowStructSlot(const std::string& canonicalType, IRTypePtr structType);
+    // Tag for a canonical thrown-type name, assigned on first use and
+    // stable for the whole compilation (one IRBuilder per program).
+    int32_t throwTypeTagFor(const std::string& canonicalType);
+    // Tags a catch clause matches: its own tag plus, for a
+    // class/interface clause, the tags of every user class that is a
+    // subtype of it (a thrown Dog matches `catch (Animal e)`). Empty
+    // means the clause is a catch-all (unresolvable name, incl.
+    // `Exception`, or `Any`).
+    std::vector<int32_t> catchClauseTags(const ast::CatchClause& clause);
+    // Innermost frame with a catch or a finally, or nullptr.
+    const TryFrame* findThrowFrame();
+    // Release refcounted locals in scopes [fromDepth, top): the
+    // unwinding drop for a throw leaving the try at fromDepth.
+    void emitThrowScopeDrops(size_t fromDepth);
+    // Bit-preserving pack of a scalar IR value into i64 (ints: extend,
+    // bool/char: zero-extend, float: bitcast via i32, double: bitcast).
+    IRValuePtr emitPackThrowScalar(IRValuePtr val, IRTypePtr valType);
+    // Unpack the raw i64 slot back into the clause's IR type
+    // (pointer: IntToPtr, integer: Trunc, float: Trunc+BitCast,
+    // double: BitCast). Struct clauses do not use this: their value
+    // comes from the per-type struct slot.
+    IRValuePtr emitUnpackThrowValue(IRValuePtr rawI64, IRTypePtr clauseType);
     IRBasicBlock* getOrCreateDeferredReturnBlock();
     IRBasicBlock* getOrCreateUncaughtThrowBlock();
     // Walk the try stack outward: first frame with a catch, else first
@@ -279,9 +339,13 @@ private:
     // Dispatch at the end of a finally body: pending throw propagates,
     // else pending return completes, else fall through to mergeBlock.
     void emitFinallyDispatch(IRBasicBlock* mergeBlock);
-    // Set the throw flags for an already-stringified value and branch
-    // to its handler (findThrowTarget).
-    void emitThrowValue(IRValuePtr strVal);
+    // Set the throw slots for a thrown value and branch to its handler
+    // (findThrowTarget), dropping the unwound scopes first. strVal is
+    // the stringified value (payload slot); rawI64 the bit-packed raw
+    // value (null for struct throws, whose value lives in the per-type
+    // struct slot); typeTag the thrown type's tag (0 = unknown);
+    // owns whether the payload holds an owning class reference.
+    void emitThrowValue(IRValuePtr strVal, IRValuePtr rawI64, int32_t typeTag, bool owns);
 
     // Phase 2 slice B2: true while lowering the body of an `async fn`
     // (set in visit(FunctionDecl) / compileMethod). visit(AwaitExpr)

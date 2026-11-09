@@ -1689,6 +1689,14 @@ void TypeChecker::visit(const ast::TryCatchStmt& node) {
         TypePtr excType = m_typeCtx.resolveType(catchClause.getType());
         if (!excType) excType = m_typeCtx.getAny();
 
+        // Phase 5 slice B: record the canonical type name on the
+        // clause so IR lowering can match catches by the thrown
+        // value's type. Unresolvable names resolve to Any here, whose
+        // canonical name ("any") is the catch-all marker in IRBuilder
+        // -- this is also how the conventional `catch (Exception e)`
+        // spelling behaves, since there is no Exception type.
+        catchClause.setResolvedTypeName(excType ? excType->toString() : "");
+
         auto excSym = std::make_shared<VariableSymbol>(catchClause.getName(), excType, node.getLocation());
         m_symbolTable.define(excSym);
 

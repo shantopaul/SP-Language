@@ -113,7 +113,8 @@ TEST(TryCatchTest, ThrowInResultFunctionLowersToErr) {
     EXPECT_TRUE(hasInstruction(ir, "uncaught_throw"));
 }
 
-TEST(TryCatchTest, ThrowOfNonScalarFailsLoudly) {
+TEST(TryCatchTest, ThrowOfArrayLowers) {
+    // Phase 5 slice B: array throws round-trip through the raw slot.
     const std::string source = R"(
         fn main() {
             var arr = [1, 2, 3];
@@ -125,7 +126,119 @@ TEST(TryCatchTest, ThrowOfNonScalarFailsLoudly) {
         }
     )";
     auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+    std::string ir = dumpIR(*module);
+    EXPECT_TRUE(hasInstruction(ir, "throw_raw"));
+    EXPECT_TRUE(hasInstruction(ir, "throw_type"));
+}
+
+TEST(TryCatchTest, ThrowOfMapLowers) {
+    // Phase 5 slice B: map throws round-trip through the raw slot.
+    const std::string source = R"(
+        fn main() {
+            var m = {"a": 1};
+            try {
+                throw m;
+            } catch (Exception e) {
+                println(e);
+            }
+        }
+    )";
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+    std::string ir = dumpIR(*module);
+    EXPECT_TRUE(hasInstruction(ir, "throw_raw"));
+}
+
+TEST(TryCatchTest, ThrowOfClassLowers) {
+    // Phase 5 slice B: class-object throws round-trip through the raw
+    // slot, with the owning-reference flag for the payload.
+    const std::string source = R"(
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn main() {
+            try {
+                throw new Counter(5);
+            } catch (Exception e) {
+                println(e);
+            }
+        }
+    )";
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+    std::string ir = dumpIR(*module);
+    EXPECT_TRUE(hasInstruction(ir, "throw_raw"));
+    EXPECT_TRUE(hasInstruction(ir, "throw_owns"));
+}
+
+TEST(TryCatchTest, ThrowOfStructLowers) {
+    // Phase 5 slice B: by-value struct throws copy into a per-type
+    // struct slot.
+    const std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+        fn main() {
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            try {
+                throw p;
+            } catch (Exception e) {
+                println(e);
+            }
+        }
+    )";
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+    std::string ir = dumpIR(*module);
+    EXPECT_TRUE(hasInstruction(ir, "throw_struct"));
+}
+
+TEST(TryCatchTest, ThrowOfResultFailsLoudly) {
+    // Phase 5 slice B: Result/Option values are not throwable by
+    // design -- they are the return-value error channel (ADR-002
+    // direction), so throwing one must fail loudly.
+    const std::string source = R"(
+        fn main() {
+            var r = Result.Err("bad");
+            try {
+                throw r;
+            } catch (Exception e) {
+                println(e);
+            }
+        }
+    )";
+    auto module = compileToIR(source);
     EXPECT_EQ(module, nullptr);
+}
+
+TEST(TryCatchTest, TypedCatchDispatchLowers) {
+    // Phase 5 slice B: a multi-catch lowers to a type-tag dispatch
+    // (one check per clause, first match wins, no-match propagates).
+    const std::string source = R"(
+        fn main() {
+            try {
+                throw 42;
+            } catch (string e) {
+                println("str");
+            } catch (int e) {
+                println("int");
+            } catch (Exception e) {
+                println("any");
+            }
+        }
+    )";
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+    std::string ir = dumpIR(*module);
+    EXPECT_TRUE(hasInstruction(ir, "catch_tag"));
+    EXPECT_TRUE(hasInstruction(ir, "catch_match"));
+    EXPECT_TRUE(hasInstruction(ir, "catch_clause"));
+    EXPECT_TRUE(hasInstruction(ir, "catch_nomatch"));
 }
 
 TEST(TryCatchTest, BreakOutOfTryWithFinallyFailsLoudly) {

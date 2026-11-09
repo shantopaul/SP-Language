@@ -352,10 +352,22 @@ public:
     [[nodiscard]] const BlockStmt& getBody() const noexcept { return *m_body; }
     [[nodiscard]] std::unique_ptr<BlockStmt>& getBodyPtr() noexcept { return m_body; }
 
+    // Phase 5 slice B: the canonical type name sema resolved this
+    // clause to (Type::toString(), e.g. "int", "int[]", "Animal").
+    // TypeChecker::visit(TryCatchStmt) fills it in; IRBuilder uses it
+    // as the tag key for typed-catch matching. Empty (or "any") means
+    // the name did not resolve to a type -- incl. the conventional
+    // `catch (Exception e)` spelling, since there is no Exception type
+    // in the language -- and the clause is a catch-all. Mutable
+    // because sema annotates the node while visiting it const.
+    [[nodiscard]] const std::string& getResolvedTypeName() const noexcept { return m_resolvedTypeName; }
+    void setResolvedTypeName(std::string name) const noexcept { m_resolvedTypeName = std::move(name); }
+
 private:
     std::string m_type;
     std::string m_name;
     std::unique_ptr<BlockStmt> m_body;
+    mutable std::string m_resolvedTypeName;
 };
 
 class TryCatchStmt : public StatementNode {
