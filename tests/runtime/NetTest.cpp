@@ -62,9 +62,16 @@ TEST(NetTest, UdpSocketSendRecv) {
     UdpSocket client;
     ASSERT_TRUE(client.bind("127.0.0.1", 0));
 
+    // Phase 4 slice D: ASSERT (not EXPECT) on the send. If sendto fails
+    // (e.g. this VM's sandbox returns EPERM for UDP sendto), no datagram
+    // will ever arrive and the recv below would block forever; failing fast
+    // here keeps the failure visible instead of a hang. The receive is
+    // additionally bounded to 5 s via setTimeouts so a lost datagram fails
+    // the test instead of hanging the suite.
     int64_t sent = client.sendString("UDP SP Message", "127.0.0.1", port);
-    EXPECT_EQ(sent, 14);
+    ASSERT_EQ(sent, 14);
 
+    ASSERT_TRUE(server.setTimeouts(5000, 5000));
     std::string senderHost;
     int senderPort = 0;
     std::string received = server.recvString(512, senderHost, senderPort);

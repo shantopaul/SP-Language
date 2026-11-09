@@ -338,8 +338,12 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     }
 
     // Built-in time functions (std.time)
-    define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
-    define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    // Phase 4 slice D: now/nowSeconds return epoch milliseconds/seconds as
+    // int64. The runtime returns int64 (sp_rt_time_now_ms ~1.7e12); declaring
+    // them int (32-bit) truncated the value to a negative number, so
+    // `now() > 0` was false and the stdlib-time tests failed.
+    define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt64()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt64()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("sleep", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("sleepSeconds", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
 
@@ -368,8 +372,12 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     if (taskBool) {
         define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getBool()}, taskBool), builtinLoc));
     }
-    define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
-    define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+    // Phase 4 slice D: formatTime takes an int64 epoch-ms (the runtime
+    // sp_rt_time_format_iso takes int64) and parseTime returns int64 epoch-ms
+    // (sp_rt_time_parse_iso returns int64). Declaring them int truncated
+    // 2023-era epoch-ms to a negative value.
+    define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt64()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt64()), builtinLoc));
 
     // Built-in OS functions (std.os)
     define(std::make_shared<FunctionSymbol>("getEnv", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));

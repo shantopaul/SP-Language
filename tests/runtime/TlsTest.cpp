@@ -7,17 +7,16 @@
 // Nothing here trusts a cert it should not: verification is on by default
 // and only the clearly-named insecureSkipVerify opt-in disables it.
 //
-// KNOWN ENVIRONMENT BLOCKER (pre-existing, not caused by this slice):
-// in this environment every test that starts a real HttpServer aborts at
-// teardown with `bit out of range 0 - FD_SETSIZE on fd_set` — HttpServer::
-// stop() closes the listener while the accept thread is inside
-// TcpListener::acceptTimeout's select(), and the fortified FD_ISSET on the
-// now-closed handle aborts (same abort hits the pre-existing HttpTest /
-// WebTest server tests). The TLS behaviour itself was verified end-to-end
-// with a standalone driver (see docs/v2/PHASE-31-PRO-4.0.0.md); these gtest
-// cases are the canonical suite and will pass once that Net.cpp race is
-// fixed. The two listen()-failure tests below do not start a server and
-// pass here today.
+// NOTE (Phase 4 slice D): the "KNOWN ENVIRONMENT BLOCKER" that used to be
+// documented here is GONE. Phase 2 slice C fixed the Net.cpp acceptTimeout
+// race (HttpServer::stop() vs select()), and all 8 tests in this file pass
+// in this environment now (verified 2026-11-09, full suite). The paragraph
+// below is kept as history only.
+//
+// (Old note, stale since Phase 2 slice C: every test that started a real
+// HttpServer aborted at teardown with `bit out of range 0 - FD_SETSIZE on
+// fd_set` — HttpServer::stop() closed the listener while the accept thread
+// was inside TcpListener::acceptTimeout's select().)
 
 #include <gtest/gtest.h>
 #include "sp/runtime/Http.h"

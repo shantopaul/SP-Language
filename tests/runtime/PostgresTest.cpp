@@ -718,6 +718,87 @@ TEST(PostgresB1, PgCAbiPrepareAndExecPrepared) {
     srv.stop();
 }
 
+// Phase 4 slice D: SP string[] -> C-ABI marshalling round-trip (no real
+// Postgres; the FakePgServer stub speaks the wire protocol on loopback).
+//
+// Phases 2-3 declared sp_rt_pg_query_params / sp_rt_pg_exec_prepared in
+// stdlib/db/postgres.sp with a 3-param `string[] params` signature, but
+// the C ABI takes 4 args (conn, sql, const char** params, int64 count).
+// `spc llvm` proved the emitted call passed only 3 args, so the callee
+// read a garbage param_count and the array header pointer where
+// `const char**` was expected. stdlib/db/postgres.sp now marshals with
+// sp_rt_array_data/length -- the same expansion the SP codegen emits
+// (IR dump in docs/v2/PHASE-33-PRO-4.0.0.md). This test builds an SP
+// string array the way SP code does, marshals it exactly like the fixed
+// stdlib, drives the pair through the real C ABI against the stub, and
+// asserts the server received every param, in order.
+TEST(PostgresB1, PgSpArrayMarshallingRoundTrip) {
+    FakePgServer srv;
+    srv.start();
+    srv.waitReady();
+
+    std::string cs = "host=127.0.0.1 port=" + std::to_string(srv.port()) +
+        " user=testuser password=secretpw dbname=testdb sslmode=disable";
+    void* conn = sp_rt_pg_connect(cs.c_str());
+    ASSERT_NE(conn, nullptr);
+
+    // Build an SP string array: header + inline const char* elements.
+    void* arr = sp_rt_array_alloc(2, static_cast<int64_t>(sizeof(const char*)));
+    ASSERT_NE(arr, nullptr);
+    auto* slots = static_cast<const char**>(sp_rt_array_data(arr));
+    ASSERT_NE(slots, nullptr);
+    slots[0] = "42";
+    slots[1] = "hello";
+
+    // The marshalling itself, exactly as the fixed stdlib does it.
+    EXPECT_EQ(sp_rt_array_length(arr), 2);
+    EXPECT_EQ(static_cast<const void*>(sp_rt_array_data(arr)),
+              static_cast<const void*>(slots));
+    EXPECT_STREQ(static_cast<const char**>(sp_rt_array_data(arr))[0], "42");
+    EXPECT_STREQ(static_cast<const char**>(sp_rt_array_data(arr))[1], "hello");
+
+    const char** marshalled = static_cast<const char**>(sp_rt_array_data(arr));
+    int64_t count = sp_rt_array_length(arr);
+
+    // execPrepared via the C ABI with the marshalled pair.
+    EXPECT_TRUE(sp_rt_pg_prepare(conn, "q2", "SELECT $1::text, $2::text"));
+    void* res = sp_rt_pg_exec_prepared(conn, "q2", marshalled, count);
+    ASSERT_NE(res, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(res));
+    ASSERT_EQ(srv.lastBindParams().size(), 2u);
+    EXPECT_EQ(srv.lastBindParams()[0], "42");
+    EXPECT_EQ(srv.lastBindParams()[1], "hello");
+    EXPECT_STREQ(sp_rt_pg_res_get_value(res, 0, 0), "42");
+    sp_rt_pg_res_free(res);
+
+    // queryParams via the C ABI with the same marshalled pair.
+    void* resQ = sp_rt_pg_query_params(conn, "SELECT $1::text, $2::text", marshalled, count);
+    ASSERT_NE(resQ, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(resQ));
+    ASSERT_EQ(srv.lastBindParams().size(), 2u);
+    EXPECT_EQ(srv.lastBindParams()[0], "42");
+    EXPECT_EQ(srv.lastBindParams()[1], "hello");
+    sp_rt_pg_res_free(resQ);
+
+    // Empty array: length 0; the C ABI must accept (data, 0) without
+    // crashing. The driver falls back to the simple query protocol for
+    // zero params (PgConnection::queryParams), so no Bind is sent -- the
+    // stub answers one row "1". (lastBindParams stays stale from the
+    // previous call by design; assert the result, not the stub state.)
+    void* empty = sp_rt_array_alloc(0, static_cast<int64_t>(sizeof(const char*)));
+    ASSERT_NE(empty, nullptr);
+    EXPECT_EQ(sp_rt_array_length(empty), 0);
+    void* resE = sp_rt_pg_query_params(conn, "SELECT 1",
+        static_cast<const char**>(sp_rt_array_data(empty)), sp_rt_array_length(empty));
+    ASSERT_NE(resE, nullptr);
+    EXPECT_TRUE(sp_rt_pg_res_is_ok(resE));
+    EXPECT_STREQ(sp_rt_pg_res_get_value(resE, 0, 0), "1");
+    sp_rt_pg_res_free(resE);
+
+    sp_rt_pg_close(conn);
+    srv.stop();
+}
+
 // ---------------------------------------------------------------------------
 // SCRAM server-signature verification
 // ---------------------------------------------------------------------------

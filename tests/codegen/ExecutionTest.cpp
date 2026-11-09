@@ -1583,20 +1583,22 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
         import std.time;
 
         fn main() {
-            int t1 = now();
-            int tSecs = nowSeconds();
+            // Phase 4 slice D: epoch values are int64 (see SymbolTable.cpp
+            // + stdlib/time/time.sp). `int` truncated ~1.7e12 ms to negative.
+            int64 t1 = now();
+            int64 tSecs = nowSeconds();
             println("now_gt_0: ${t1 > 0}");
             println("secs_gt_0: ${tSecs > 0}");
 
             sleep(15);
-            int t2 = now();
-            int elapsed = t2 - t1;
+            int64 t2 = now();
+            int64 elapsed = t2 - t1;
             println("elapsed_gte_10: ${elapsed >= 10}");
 
             string iso = formatTime(1700000000);
             println("formatted_iso: ${iso}");
 
-            int parsed = parseTime("2023-11-14T22:13:20Z");
+            int64 parsed = parseTime("2023-11-14T22:13:20Z");
             println("parsed_epoch: ${parsed}");
 
             Duration d = Duration.fromSeconds(3);
@@ -1606,7 +1608,7 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
             Duration dMin = Duration.fromMinutes(1);
             println("d_min_millis: ${dMin.toMillis()}");
 
-            int staticNow = Time.now();
+            int64 staticNow = Time.now();
             println("time_static_gt_0: ${staticNow > 0}");
         }
     )sp";
@@ -1754,7 +1756,8 @@ TEST(ExecutionTest, StdlibFullIntegrationNativeExecution) {
             println("fs_exists: ${exists(dummyPath)}");
 
             // 6. std.time
-            int t = now();
+            // Phase 4 slice D: epoch-ms is int64; `int` truncated it negative.
+            int64 t = now();
             println("time_now_gt_0: ${t > 0}");
 
             // 7. std.os

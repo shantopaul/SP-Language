@@ -150,6 +150,90 @@ TEST(ComptimeEvaluatorTest, ComptimeFnRecursionViaProcessProgram) {
     EXPECT_EQ(res.intVal, 120);
 }
 
+// Phase 4 slice D: DOUBLE recursion in comptime. The old parameter
+// binding overwrote the caller's parameter in an enclosing scope, so
+// after `fibonacci(n - 1)` returned, `fibonacci(n - 2)` read a corrupted
+// `n`: fibonacci(5) folded to -15 and fibonacci(10) to -80 instead of 5
+// and 55 (runtime evaluation was correct; single-recursion factorial was
+// immune because it never reads `n` again after a recursive call).
+TEST(ComptimeEvaluatorTest, ComptimeFnDoubleRecursionFibonacci) {
+    std::string source =
+        "comptime fn fibonacci(int n) -> int {\n"
+        "    if (n <= 1) {\n"
+        "        return n;\n"
+        "    }\n"
+        "    return fibonacci(n - 1) + fibonacci(n - 2);\n"
+        "}\n"
+        "fn main() {\n"
+        "}\n";
+
+    diagnostics::DiagnosticEngine diag;
+    lexer::Lexer lexer(source, "<test>", &diag);
+    auto tokens = lexer.tokenizeAll();
+    parser::Parser parser(tokens, "<test>", &diag);
+    auto program = parser.parseProgram();
+    ASSERT_NE(program, nullptr);
+
+    ComptimeEvaluator eval(&diag);
+    eval.processProgram(*program);
+    EXPECT_FALSE(eval.hasError());
+
+    diagnostics::SourceLocation loc;
+    auto evalFib = [&](int n) {
+        auto callee = std::make_unique<ast::IdentifierExpr>("fibonacci", loc);
+        std::vector<ast::ExprPtr> args;
+        args.push_back(std::make_unique<ast::LiteralExpr>(ast::LiteralKind::Integer, std::to_string(n), loc));
+        ast::CallExpr call(std::move(callee), std::move(args), loc);
+        return eval.evaluate(call);
+    };
+
+    auto res5 = evalFib(5);
+    EXPECT_FALSE(eval.hasError());
+    EXPECT_EQ(res5.kind, ComptimeKind::Int);
+    EXPECT_EQ(res5.intVal, 5);
+
+    auto res10 = evalFib(10);
+    EXPECT_FALSE(eval.hasError());
+    EXPECT_EQ(res10.kind, ComptimeKind::Int);
+    EXPECT_EQ(res10.intVal, 55);
+}
+
+// Phase 4 slice D: an inner `let` must shadow, not clobber, an outer
+// variable of the same name (same setVar defect as parameter binding).
+TEST(ComptimeEvaluatorTest, InnerLetShadowsOuterVariable) {
+    std::string source =
+        "comptime fn shadow() -> int {\n"
+        "    int x = 10;\n"
+        "    if (true) {\n"
+        "        int x = 99;\n"
+        "    }\n"
+        "    return x;\n"
+        "}\n"
+        "fn main() {\n"
+        "}\n";
+
+    diagnostics::DiagnosticEngine diag;
+    lexer::Lexer lexer(source, "<test>", &diag);
+    auto tokens = lexer.tokenizeAll();
+    parser::Parser parser(tokens, "<test>", &diag);
+    auto program = parser.parseProgram();
+    ASSERT_NE(program, nullptr);
+
+    ComptimeEvaluator eval(&diag);
+    eval.processProgram(*program);
+    EXPECT_FALSE(eval.hasError());
+
+    diagnostics::SourceLocation loc;
+    auto callee = std::make_unique<ast::IdentifierExpr>("shadow", loc);
+    std::vector<ast::ExprPtr> args;
+    ast::CallExpr call(std::move(callee), std::move(args), loc);
+
+    auto res = eval.evaluate(call);
+    EXPECT_FALSE(eval.hasError());
+    EXPECT_EQ(res.kind, ComptimeKind::Int);
+    EXPECT_EQ(res.intVal, 10);
+}
+
 // Phase 3 slice D: processProgram registers ONLY `comptime fn`
 // functions — a plain runtime function is not callable from comptime,
 // and calling it reports an error instead of silently returning void.

@@ -3,13 +3,33 @@
 #include "sp/ir/IRModule.h"
 #include <filesystem>
 #include <fstream>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
 class ObjectEmitterTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        m_tempDir = fs::temp_directory_path() / "sp_obj_emitter_test";
+        // Phase 4 slice D: unique temp dir per test process + test name.
+        // The old fixed dir /tmp/sp_obj_emitter_test was shared by every
+        // parallel ctest process; one process's SetUp/TearDown remove_all
+        // deleted the directory while another process's clang was opening
+        // its output file inside it:
+        //   error: unable to open output file
+        //   '/tmp/sp_obj_emitter_test/compute.o': 'No such file or directory'
+        // (5 of 6 -j2 runs failed). Same pattern TlsTest already uses.
+#if defined(_WIN32)
+        const unsigned long pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+        const long pid = static_cast<long>(::getpid());
+#endif
+        std::string testName = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+        m_tempDir = fs::temp_directory_path() /
+                    ("sp_obj_emitter_test_" + std::to_string(pid) + "_" + testName);
         fs::create_directories(m_tempDir);
     }
 

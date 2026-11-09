@@ -131,12 +131,16 @@ if (FS.exists("config.txt")) {
 
 ## 6. `std/time` — Clock, Sleep & Timestamps
 
+> Phase 4 slice D (2026-11-09): `Time.nowMillis()` / `Time.sleepMillis()`
+> do not exist (verified with `spc check`). Epoch values are `int64`
+> (a 32-bit `int` truncates ~1.7e12 ms to a negative number).
+
 ```sp
 import std.time;
 
-let startMs: int = Time.nowMillis();
-Time.sleepMillis(100);
-let duration: int = Time.nowMillis() - startMs;
+int64 startMs = Time.now();
+Time.sleep(100);
+int64 duration = Time.now() - startMs;
 println("Elapsed: ${duration} ms");
 ```
 

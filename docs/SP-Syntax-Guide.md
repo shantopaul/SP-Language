@@ -2163,6 +2163,17 @@ fn main() {
 
 ## 27. Error Handling — Try/Catch ✅
 
+> Phase 4 slice D (2026-11-09): the examples below are the real semantics
+> (verified with `spc run`). `try`/`catch`/`finally` and `throw` are real
+> since Phase 3, but they work differently from the old draft: a `catch`
+> binds the thrown **scalar value** (`string`, `int`, `bool`, ...). There
+> is **no `Exception` type**, no `.message` field, and no typed-exception
+> filtering (`catch (ArithmeticException e)` does not filter by type).
+> A `throw` is caught only by a `catch` in the **same function** -- there
+> is no unwinding, so a throw inside a called function panics instead of
+> being caught. Integer division by zero is a hardware fault (`SIGFPE`),
+> not a catchable throw.
+
 ```sp
 fn main() {
     // ═══════════════════════════════════════
@@ -2170,53 +2181,26 @@ fn main() {
     // ═══════════════════════════════════════
 
     try {
-        int result = 100 / 0;
-        println(result);
-    } catch (ArithmeticException e) {
-        println("❌ Math error: ${e.message}");
+        throw "Age cannot be negative";
+    } catch (string e) {
+        println("Validation: ${e}");
     } finally {
-        println("✅ Cleanup complete.");
+        println("Cleanup complete.");
     }
 
     // ═══════════════════════════════════════
-    //  MULTIPLE CATCH BLOCKS
+    //  CATCH BINDS THE THROWN SCALAR VALUE
     // ═══════════════════════════════════════
 
     try {
-        string data = readFile("config.json");
-        Config config = parseConfig(data);
-        connect(config.host);
-    } catch (FileNotFoundException e) {
-        println("📁 File not found: ${e.message}");
-    } catch (ParseException e) {
-        println("📝 Invalid format: ${e.message}");
-    } catch (ConnectionException e) {
-        println("🌐 Connection failed: ${e.message}");
-    } catch (Exception e) {
-        println("💥 Unexpected error: ${e.message}");
+        throw 42;
+    } catch (int e) {
+        println("Caught int: ${e}");
+    } catch (string e) {
+        println("Caught string: ${e}");
     } finally {
         println("Done.");
     }
-
-    // ═══════════════════════════════════════
-    //  THROW EXCEPTIONS
-    // ═══════════════════════════════════════
-
-    try {
-        validateAge(-5);
-    } catch (Exception e) {
-        println("Validation: ${e.message}");
-    }
-}
-
-fn validateAge(int age) {
-    if (age < 0) {
-        throw Exception("Age cannot be negative: ${age}");
-    }
-    if (age > 150) {
-        throw Exception("Age too large: ${age}");
-    }
-    println("Valid age: ${age}");
 }
 ```
 
@@ -2224,53 +2208,39 @@ fn validateAge(int age) {
 
 ## 28. Error Handling — Result Type ✅
 
+> Phase 4 slice D (2026-11-09): the examples below are the real `Result`
+> API (verified with `spc run`). `Result` is a builtin tagged union with
+> the constructors `Result.Ok(value)` / `Result.Err(error)` and the
+> methods `isOk()` / `isErr()` / `unwrap()` / `unwrapErr()` /
+> `unwrapOr(default)`. There is no bare `Error(...)` constructor, and
+> `match` on a `Result` does not work as shown in the old draft -- use
+> `isOk()` / `isErr()` instead.
+
 ```sp
 // ═══════════════════════════════════════════════════
 //  RESULT TYPE — Modern error handling
 // ═══════════════════════════════════════════════════
 
-fn divide(int a, int b) -> Result<int, Error> {
+fn divide(int a, int b) -> Result<int, string> {
     if (b == 0) {
-        return Error("Cannot divide ${a} by zero");
+        return Result.Err("Cannot divide ${a} by zero");
     }
-    return Ok(a / b);
-}
-
-fn parseNumber(string input) -> Result<int, Error> {
-    try {
-        return Ok(int.parse(input));
-    } catch (Exception e) {
-        return Error("Invalid number: '${input}'");
-    }
+    return Result.Ok(a / b);
 }
 
 fn main() {
     // Success case
-    let result1 = divide(100, 5);
-    match result1 {
-        Ok(value) => println("100 / 5 = ${value}"),
-        Error(err) => println("Error: ${err}")
+    var result1 = divide(100, 5);
+    if (result1.isOk()) {
+        println("100 / 5 = ${result1.unwrap()}");
     }
 
     // Error case
-    let result2 = divide(100, 0);
-    match result2 {
-        Ok(value) => println("Result: ${value}"),
-        Error(err) => println("Error: ${err}")
+    var result2 = divide(100, 0);
+    if (result2.isErr()) {
+        println("Error: ${result2.unwrapErr()}");
     }
-
-    // Chain operations
-    let parsed = parseNumber("42");
-    match parsed {
-        Ok(n) => println("Parsed: ${n}"),
-        Error(e) => println("Failed: ${e}")
-    }
-
-    let invalid = parseNumber("hello");
-    match invalid {
-        Ok(n) => println("Parsed: ${n}"),
-        Error(e) => println("Failed: ${e}")
-    }
+    println("or default: ${result2.unwrapOr(999)}");
 }
 ```
 
@@ -2278,8 +2248,7 @@ fn main() {
 ```
 100 / 5 = 20
 Error: Cannot divide 100 by zero
-Parsed: 42
-Failed: Invalid number: 'hello'
+or default: 999
 ```
 
 ---
@@ -2546,42 +2515,39 @@ fn main() {
 
 ---
 
-## 34. Operator Overloading ✅
+## 34. Operator Overloading ❌ Not Implemented
+
+> Phase 4 slice D (2026-11-09): operator overloading is **not
+> implemented**. `operator +` fails to parse (`E1000: Expected field name
+> in struct`, verified with `spc check`). Method overloading (§33) is
+> real; for operators use named methods instead:
 
 ```sp
-struct Vector2 {
+class Vector2 {
     float x;
     float y;
 
-    operator +(Vector2 a, Vector2 b) {
-        return Vector2(a.x + b.x, a.y + b.y);
+    Vector2(float x, float y) {
+        this.x = x;
+        this.y = y;
     }
 
-    operator -(Vector2 a, Vector2 b) {
-        return Vector2(a.x - b.x, a.y - b.y);
+    fn add(Vector2 other) -> Vector2 {
+        return new Vector2(this.x + other.x, this.y + other.y);
     }
 
-    operator *(Vector2 v, float scalar) {
-        return Vector2(v.x * scalar, v.y * scalar);
-    }
-
-    operator ==(Vector2 a, Vector2 b) {
-        return a.x == b.x && a.y == b.y;
+    fn equals(Vector2 other) -> bool {
+        return this.x == other.x && this.y == other.y;
     }
 }
 
 fn main() {
-    Vector2 a = Vector2(3.0, 4.0);
-    Vector2 b = Vector2(1.0, 2.0);
+    Vector2 a = new Vector2(3.0, 4.0);
+    Vector2 b = new Vector2(1.0, 2.0);
 
-    Vector2 sum = a + b;
-    Vector2 diff = a - b;
-    Vector2 scaled = a * 2.0;
-
-    println("a + b = (${sum.x}, ${sum.y})");         // (4.0, 6.0)
-    println("a - b = (${diff.x}, ${diff.y})");       // (2.0, 2.0)
-    println("a * 2 = (${scaled.x}, ${scaled.y})");   // (6.0, 8.0)
-    println("a == b: ${a == b}");                     // false
+    Vector2 sum = a.add(b);
+    println("a + b = (${sum.x}, ${sum.y})");   // (4, 6)
+    println("a == b: ${a.equals(b)}");         // false
 }
 ```
 
@@ -2795,27 +2761,31 @@ fn main() {
 
 ## 39. Async & Await ✅
 
-```sp
-import std.http;
-import std.io;
+> Phase 4 slice D (2026-11-09): `async fn` + `await` are real since
+> Phase 3, but there is **no async I/O**: `await` works only on async
+> functions and on the builtins `sleep_async(ms)` / `delayed_value(ms,
+> value)`. `await http.get(...)` does not exist (`http` is undefined,
+> verified with `spc check`). Calling an async function returns a
+> `Task<T>`; `await` on the call or on a `Task` variable yields its value.
 
-async fn fetchUser(int id) -> User {
-    let response = await http.get("https://api.example.com/users/${id}");
-    return json.parse<User>(response.body);
+```sp
+async fn compute(int x) -> int {
+    await sleep_async(20);
+    return x * 2;
 }
 
-async fn fetchMultipleUsers() {
+async fn fetchMultiple() {
     // Sequential
-    let user1 = await fetchUser(1);
-    let user2 = await fetchUser(2);
+    int r1 = await compute(10);
+    int r2 = await compute(21);
 
-    println("User 1: ${user1.name}");
-    println("User 2: ${user2.name}");
+    println("Result 1: ${r1}");
+    println("Result 2: ${r2}");
 }
 
 async fn main() {
-    println("Fetching data...");
-    await fetchMultipleUsers();
+    println("Computing...");
+    await fetchMultiple();
     println("Done!");
 }
 ```
@@ -5552,24 +5522,27 @@ wasmtime app.wasm
 
 ## 103. SP 2.0 Structured Coroutines (`async` / `await`) 🚀
 
-Lightweight cooperative coroutines running on an asynchronous runtime with zero OS thread context-switch penalty:
+> Phase 4 slice D (2026-11-09): the old example below did not compile:
+> there is no `spawn` keyword (parse error `E1000`) and no
+> `time.sleepMs` (real API: `Time.sleep(ms)` for blocking sleep,
+> `sleep_async(ms)` inside async functions). Async functions return a
+> `Task<T>` when called -- that *is* how a task is created -- and `await`
+> on a `Task` variable yields its value. The `await` itself runs on the
+> event-loop pump; the awaiting frame stays on the stack (no heap-frame
+> state machine yet), so this is cooperative scheduling, not zero-cost.
 
 ```sp
-import std.io;
-import std.sync;
-import std.time;
-
 async fn fetchMetrics(string node) -> string {
-    time.sleepMs(20);
+    await sleep_async(20);
     return "Node ${node} healthy";
 }
 
-fn main() {
-    let task1 = spawn fetchMetrics("primary");
-    let task2 = spawn fetchMetrics("replica");
+async fn main() {
+    Task<string> task1 = fetchMetrics("primary");
+    Task<string> task2 = fetchMetrics("replica");
 
-    let r2 = await task2;
-    let r1 = await task1;
+    string r2 = await task2;
+    string r1 = await task1;
 
     println(r1);
     println(r2);

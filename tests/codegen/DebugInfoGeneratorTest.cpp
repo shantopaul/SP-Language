@@ -2,13 +2,30 @@
 #include "sp/codegen/DebugInfoGenerator.h"
 #include "sp/codegen/ObjectEmitter.h"
 #include <filesystem>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
 class DebugInfoGeneratorTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        m_tempDir = fs::temp_directory_path() / "sp_dbg_info_test";
+        // Phase 4 slice D: unique temp dir per test process + test name.
+        // Same shared-dir defect as ObjectEmitterTest/LinkerDriverTest:
+        // the old fixed dir was shared by every parallel ctest process
+        // and one process's TearDown remove_all could delete files another
+        // process was using. Fixed proactively with the same pattern.
+#if defined(_WIN32)
+        const unsigned long pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+        const long pid = static_cast<long>(::getpid());
+#endif
+        std::string testName = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+        m_tempDir = fs::temp_directory_path() /
+                    ("sp_dbg_info_test_" + std::to_string(pid) + "_" + testName);
         fs::create_directories(m_tempDir);
     }
 

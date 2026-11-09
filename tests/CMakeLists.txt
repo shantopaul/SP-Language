@@ -61,6 +61,7 @@ add_executable(sp_tests
     runtime/PostgresTest.cpp
     runtime/SecurityTest.cpp
     runtime/WebTest.cpp
+    runtime/WssTest.cpp
     runtime/RealtimeTest.cpp
     runtime/ObservabilityTest.cpp
     runtime/OpenApiTest.cpp

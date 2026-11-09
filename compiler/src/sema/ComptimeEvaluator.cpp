@@ -93,6 +93,25 @@ void ComptimeEvaluator::setVar(const std::string& name, ComptimeValue val) {
     }
 }
 
+// Phase 4 slice D: fresh binding in the innermost scope only.
+//
+// The old code used setVar() for parameter binding, which searches ALL
+// enclosing scopes and OVERWRITES the first existing binding. In a
+// recursive call that clobbered the CALLER's parameter: fibonacci(5)
+// called fibonacci(4), which overwrote the outer `n` with 4, so after the
+// first recursive call returned, `fibonacci(n - 2)` read the corrupted
+// `n` -- comptime fibonacci(5) folded to -15 and fibonacci(10) to -80
+// instead of 5 and 55 (runtime evaluation was correct). Single-recursion
+// functions like factorial were immune: they never read `n` again after a
+// recursive call returns. defineVar() gives every call frame its own
+// parameter bindings; `let` declarations get the same treatment so an
+// inner `let x` cannot clobber an outer `x`.
+void ComptimeEvaluator::defineVar(const std::string& name, ComptimeValue val) {
+    if (!m_scopes.empty()) {
+        m_scopes.back()[name] = std::move(val);
+    }
+}
+
 bool ComptimeEvaluator::getVar(const std::string& name, ComptimeValue& outVal) const {
     for (auto it = m_scopes.rbegin(); it != m_scopes.rend(); ++it) {
         auto found = it->find(name);
@@ -549,7 +568,9 @@ ComptimeValue ComptimeEvaluator::evaluateCall(const ast::CallExpr& expr) {
         pushScope();
 
         for (size_t i = 0; i < fn->getParams().size() && i < args.size(); ++i) {
-            setVar(fn->getParams()[i].getName(), args[i]);
+            // Phase 4 slice D: defineVar, not setVar -- each call frame
+            // needs its own parameter bindings (see defineVar).
+            defineVar(fn->getParams()[i].getName(), args[i]);
         }
 
         ComptimeValue res = ComptimeValue::voidVal();
@@ -586,7 +607,10 @@ ComptimeValue ComptimeEvaluator::evaluateStmt(const ast::StatementNode& stmt, bo
             if (varDecl.hasInitializer()) {
                 initVal = evaluate(*varDecl.getInitializer());
             }
-            setVar(varDecl.getName(), std::move(initVal));
+            // Phase 4 slice D: defineVar, not setVar -- a `let` declares a
+            // new variable; an inner `let x` must shadow, not clobber, an
+            // outer `x` (same reason as parameter binding, see defineVar).
+            defineVar(varDecl.getName(), std::move(initVal));
             return ComptimeValue::voidVal();
         }
 

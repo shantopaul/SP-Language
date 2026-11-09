@@ -9,10 +9,28 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
 namespace sp::codegen {
+
+// Phase 4 slice D: process id for unique temp-file names. The old
+// `sp_ir_<steady_clock>_<per-process nonce>` scheme could collide between
+// two processes started at the same time (same clock reading, same nonce
+// sequence starting at 0), and `std::rand()` below is unseeded, so parallel
+// processes produced identical temp names.
+uint64_t currentPid() {
+#if defined(_WIN32)
+    return static_cast<uint64_t>(GetCurrentProcessId());
+#else
+    return static_cast<uint64_t>(::getpid());
+#endif
+}
 
 ObjectEmitter::ObjectEmitter(ObjectEmitterOptions options)
     : m_options(std::move(options)) {
@@ -197,7 +215,10 @@ bool ObjectEmitter::emitObjectFromIR(const std::string& llvmIR, const std::strin
     }
     static std::atomic<uint64_t> s_objNonce{0};
     auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-    std::string tempIRPath = (tempDir / ("sp_ir_" + std::to_string(now) + "_" + std::to_string(++s_objNonce) + ".tmp.ll")).string();
+    // Phase 4 slice D: include the pid; the timestamp + per-process nonce
+    // alone could collide across two processes started at the same time.
+    std::string tempIRPath = (tempDir / ("sp_ir_" + std::to_string(currentPid()) + "_" +
+                                         std::to_string(now) + "_" + std::to_string(++s_objNonce) + ".tmp.ll")).string();
     {
         std::ofstream irFile(tempIRPath, std::ios::out | std::ios::trunc);
         if (!irFile.is_open()) {
@@ -271,7 +292,11 @@ bool ObjectEmitter::emitObjectFromIR(const std::string& llvmIR, const std::strin
 }
 
 bool ObjectEmitter::emitObjectToMemory(const ir::IRModule& module, std::vector<uint8_t>& outBuffer) {
-    fs::path tempObj = fs::temp_directory_path() / ("sp_mem_obj_" + std::to_string(std::rand()) + ".o");
+    // Phase 4 slice D: pid + nonce instead of unseeded std::rand(), which
+    // produced identical names in parallel processes.
+    static std::atomic<uint64_t> s_memNonce{0};
+    fs::path tempObj = fs::temp_directory_path() / ("sp_mem_obj_" + std::to_string(currentPid()) + "_" +
+                                                    std::to_string(++s_memNonce) + ".o");
     bool ok = emitObjectFile(module, tempObj.string());
     if (!ok) return false;
 
@@ -294,7 +319,10 @@ bool ObjectEmitter::emitObjectToMemory(const ir::IRModule& module, std::vector<u
 }
 
 bool ObjectEmitter::emitObjectFromIRToMemory(const std::string& llvmIR, std::vector<uint8_t>& outBuffer) {
-    fs::path tempObj = fs::temp_directory_path() / ("sp_mem_obj_" + std::to_string(std::rand()) + ".o");
+    // Phase 4 slice D: pid + nonce instead of unseeded std::rand() (see above).
+    static std::atomic<uint64_t> s_memNonce{0};
+    fs::path tempObj = fs::temp_directory_path() / ("sp_mem_obj_" + std::to_string(currentPid()) + "_" +
+                                                    std::to_string(++s_memNonce) + ".o");
     bool ok = emitObjectFromIR(llvmIR, tempObj.string());
     if (!ok) return false;
 

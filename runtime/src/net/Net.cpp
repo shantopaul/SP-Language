@@ -408,6 +408,30 @@ bool UdpSocket::setNonBlocking(bool nonBlocking) {
 #endif
 }
 
+// Phase 4 slice D: same SO_RCVTIMEO/SO_SNDTIMEO semantics as
+// TcpSocket::setTimeouts. Without a receive timeout, recvFrom blocked
+// forever on a lost datagram and the test suite hung until ctest killed it.
+bool UdpSocket::setTimeouts(int recvTimeoutMs, int sendTimeoutMs) {
+    if (m_handle == SP_INVALID_SOCKET) return false;
+#if defined(_WIN32)
+    DWORD rTimeout = static_cast<DWORD>(recvTimeoutMs);
+    DWORD sTimeout = static_cast<DWORD>(sendTimeoutMs);
+    setsockopt(m_handle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rTimeout), sizeof(rTimeout));
+    setsockopt(m_handle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sTimeout), sizeof(sTimeout));
+#else
+    struct timeval tvR;
+    tvR.tv_sec = recvTimeoutMs / 1000;
+    tvR.tv_usec = (recvTimeoutMs % 1000) * 1000;
+    setsockopt(m_handle, SOL_SOCKET, SO_RCVTIMEO, &tvR, sizeof(tvR));
+
+    struct timeval tvS;
+    tvS.tv_sec = sendTimeoutMs / 1000;
+    tvS.tv_usec = (sendTimeoutMs % 1000) * 1000;
+    setsockopt(m_handle, SOL_SOCKET, SO_SNDTIMEO, &tvS, sizeof(tvS));
+#endif
+    return true;
+}
+
 bool UdpSocket::bind(const std::string& host, int port) {
     initNetwork();
     close();
