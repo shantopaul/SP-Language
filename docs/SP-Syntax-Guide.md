@@ -2229,16 +2229,18 @@ fn main() {
 
 ## 27. Error Handling — Try/Catch ✅
 
-> Phase 4 slice D (2026-11-09): the examples below are the real semantics
+> Phase 5 slice B (2026-11-09): the examples below are the real semantics
 > (verified with `spc run`). `try`/`catch`/`finally` and `throw` are real
-> since Phase 3, but they work differently from the old draft: a `catch`
-> binds the thrown **scalar value** (`string`, `int`, `bool`, ...). There
-> is **no `Exception` type**, no `.message` field, and no typed-exception
-> filtering (`catch (ArithmeticException e)` does not filter by type).
-> A `throw` is caught only by a `catch` in the **same function** -- there
-> is no unwinding, so a throw inside a called function panics instead of
-> being caught. Integer division by zero is a hardware fault (`SIGFPE`),
-> not a catchable throw.
+> since Phase 3, and since Phase 5 `catch` clauses filter by the thrown
+> value's static type: `catch (int e)` catches only ints, `catch (string e)`
+> only strings — first match wins, no match propagates. There is no
+> `Exception` type — the conventional `catch (Exception e)` spelling is a
+> catch-all, as is `catch (Any e)`. Array/map/class/struct values can be
+> thrown and round-trip; `Result`/`Option` values cannot be thrown (loud
+> E1000 — return `Err(...)` instead). A `throw` is caught only by a `catch`
+> in the **same function** -- there is no unwinding, so a throw inside a
+> called function panics instead of being caught. Integer division by zero
+> is a hardware fault (`SIGFPE`), not a catchable throw.
 
 ```sp
 fn main() {
