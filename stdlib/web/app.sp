@@ -265,10 +265,12 @@ public class App {
         });
     }
 
+    // Phase 4 (parent fix): the old body registered a lambda that captured
+    // `specJson` — capturing lambdas are deliberately unsupported (loud
+    // E1000 since Phase 3), so importing std.web broke every program that
+    // called openApi(). The spec is now served by the runtime's static-JSON
+    // route: same GET endpoint, same body, no lambda at all.
     public fn openApi(string path = "/openapi.json", string specJson = "{}") {
-        this.get(path, (ptr req) => {
-            let ctx = Context.create(req);
-            return ctx.json(specJson);
-        });
+        this.server.routeJson("GET", path, specJson);
     }
 }

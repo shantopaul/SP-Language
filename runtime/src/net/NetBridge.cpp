@@ -830,6 +830,20 @@ void sp_rt_http_server_route_handler(void* srv, const char* method, const char* 
     });
 }
 
+// Phase 4 (parent fix): static-JSON route. The body is copied into the
+// route's handler, so the caller's string may be freed after this returns.
+void sp_rt_http_server_route_json(void* srv, const char* method, const char* path,
+                                 const char* json) {
+    if (!srv || !path) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    std::string m = method ? method : "GET";
+    std::string p = path;
+    std::string body = json ? json : "{}";
+    s->route(m, p, [body](const sp::rt::http::HttpRequest&) {
+        return sp::rt::http::HttpResponse::json(body);
+    });
+}
+
 bool sp_rt_http_server_listen(void* srv, const char* host, int64_t port) {
     if (!srv) return false;
     auto* s = static_cast<sp::rt::http::HttpServer*>(srv);

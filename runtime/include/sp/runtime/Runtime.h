@@ -492,6 +492,12 @@ extern "C" {
                                         const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body));
     void        sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
                                                 void* (*handler_fn)(void* req));
+    // Phase 4 (parent fix): static-JSON route — registers a route that always
+    // answers with the given JSON body (200, application/json). Lets SP code
+    // serve a fixed document (e.g. App::openApi) without a capturing lambda,
+    // which the language deliberately does not support (loud E1000).
+    void        sp_rt_http_server_route_json(void* srv, const char* method, const char* path,
+                                            const char* json);
     bool        sp_rt_http_server_listen(void* srv, const char* host, int64_t port);
     void        sp_rt_http_server_wait(void* srv);
     int64_t     sp_rt_http_server_port(void* srv);

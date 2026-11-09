@@ -38,6 +38,8 @@ extern "C" {
     fn sp_rt_http_server_create_advanced(int workers, int maxBodyBytes, int maxHeaderBytes) -> ptr;
     fn sp_rt_http_server_route(ptr srv, string method, string path, ptr handlerFnPtr);
     fn sp_rt_http_server_route_handler(ptr srv, string method, string path, ptr handlerFnPtr);
+    // Phase 4 (parent fix): static-JSON route — no SP lambda involved.
+    fn sp_rt_http_server_route_json(ptr srv, string method, string path, string json);
     fn sp_rt_http_server_listen(ptr srv, string host, int port) -> bool;
     fn sp_rt_http_server_wait(ptr srv);
     fn sp_rt_http_server_port(ptr srv) -> int;
@@ -263,6 +265,13 @@ public class HttpServer {
 
     public fn routeHandler(string method, string path, ptr handlerFnPtr) {
         sp_rt_http_server_route_handler(this.handle, method, path, handlerFnPtr);
+    }
+
+    // Phase 4 (parent fix): serve a fixed JSON document at a route without
+    // any SP lambda — use this where the body is known up front (e.g. an
+    // OpenAPI spec), because capturing lambdas are not supported.
+    public fn routeJson(string method, string path, string json) {
+        sp_rt_http_server_route_json(this.handle, method, path, json);
     }
 
     public fn getHandler(string path, ptr handlerFnPtr) {
