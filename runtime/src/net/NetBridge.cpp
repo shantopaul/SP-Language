@@ -309,6 +309,175 @@ void sp_rt_async_spawn_void(void* sched, void* task, void* thunk, void* ctx) {
     });
 }
 
+// Phase 5 slice A (state machine): spawn a state-machine async body.
+//
+// `thunk` is the compiler-generated body entry `void (*)(void* task,
+// void* ctx)`: it allocates the heap frame, stores task + args, and calls
+// the resume function. Unlike spawn_i64/str/void, this does NOT complete
+// the task — the body completes it in its finish block. A task cancelled
+// before the posted callback runs never runs its body: the callback
+// checks wasCancelled() first (fixes the old spawn fns' documented gap,
+// where a cancelled task's body still ran).
+namespace {
+using AsyncThunkSM = void (*)(void*, void*);
+using AsyncResumeFn = void (*)(void*);
+} // namespace
+
+void sp_rt_async_spawn_sm(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkSM>(thunk);
+    // The body receives the task HANDLE (AsyncTaskBox*), not the raw
+    // Task*: the finish block passes it to sp_rt_async_task_complete_*,
+    // which expects the handle. `t` is kept alive in the capture.
+    asyncSched(sched)->post([t, fn, ctx, task] {
+        if (t->wasCancelled()) return; // Body never starts.
+        fn(task, ctx);
+    });
+}
+
+void* sp_rt_async_delayed_dbl(void* sched, int64_t ms, double value) {
+    return new AsyncTaskBox{sp::rt::async::delayedValueDblTask(*asyncSched(sched), ms, value)};
+}
+
+double sp_rt_async_task_await_dbl(void* sched, void* task) {
+    if (!task) return 0.0;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return sp::rt::async::awaitTaskDbl(*asyncSched(sched), *box->task);
+}
+
+void* sp_rt_async_task_await_ptr(void* sched, void* task) {
+    if (!task) return nullptr;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return sp::rt::async::awaitTaskPtr(*asyncSched(sched), *box->task);
+}
+
+int64_t sp_rt_async_task_value_i64(void* task) {
+    if (!task) return 0;
+    return static_cast<AsyncTaskBox*>(task)->task->value();
+}
+
+const char* sp_rt_async_task_value_str(void* task) {
+    if (!task) return alloc_str("");
+    return alloc_str(static_cast<AsyncTaskBox*>(task)->task->strValue());
+}
+
+double sp_rt_async_task_value_dbl(void* task) {
+    if (!task) return 0.0;
+    return static_cast<AsyncTaskBox*>(task)->task->dblValue();
+}
+
+void* sp_rt_async_task_value_ptr(void* task) {
+    if (!task) return nullptr;
+    return static_cast<AsyncTaskBox*>(task)->task->ptrValue();
+}
+
+void sp_rt_async_task_complete_i64(void* task, int64_t value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->complete(value);
+}
+
+void sp_rt_async_task_complete_str(void* task, const char* value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completeStr(value);
+}
+
+void sp_rt_async_task_complete_dbl(void* task, double value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completeDbl(value);
+}
+
+void sp_rt_async_task_complete_ptr(void* task, void* value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completePtr(value);
+}
+
+void sp_rt_async_task_complete_ptr_owned(void* task, void* value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completePtrOwned(value);
+}
+
+void sp_rt_async_task_complete_void(void* task) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->complete(0);
+}
+
+// Register a resume for a state-machine await. The continuation ALWAYS
+// posts the resume to the scheduler — never calls it synchronously — so
+// a task that is already complete still resumes on the next pump, never
+// re-entrantly from inside the awaiting code.
+void sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame) {
+    if (!task || !resumeFn) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncResumeFn>(resumeFn);
+    auto* s = asyncSched(sched);
+    t->onComplete([s, fn, frame](sp::rt::async::Task&) {
+        s->post([fn, frame] { fn(frame); });
+    });
+}
+
+namespace {
+// Read `count` task handles out of a task-handle array (the data pointer
+// of an SP array of Task handles, passed from generated code).
+std::vector<sp::rt::async::TaskPtr> readTaskHandles(void* tasks, int64_t count) {
+    std::vector<sp::rt::async::TaskPtr> out;
+    if (count <= 0) return out;
+    void** handles = static_cast<void**>(tasks);
+    out.reserve(static_cast<size_t>(count));
+    for (int64_t i = 0; i < count; ++i) {
+        if (!handles[i]) { out.push_back(nullptr); continue; }
+        out.push_back(static_cast<AsyncTaskBox*>(handles[i])->task);
+    }
+    return out;
+}
+} // namespace
+
+// Phase 5 slice A: the combinator C ABI takes the SP array OBJECT
+// (a Task<T>[] value, a pointer) + its element count, and extracts
+// the element storage pointer itself via sp_rt_array_data. This keeps
+// the SP side free of the overloaded `sp_rt_array_data` extern (an
+// overloaded extern is name-mangled with a `__<paramTypes>` suffix,
+// so the call would target a name the runtime does not define).
+void* sp_rt_async_task_all_i64(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Int)};
+}
+
+void* sp_rt_async_task_all_str(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Str)};
+}
+
+void* sp_rt_async_task_all_dbl(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Dbl)};
+}
+
+void* sp_rt_async_task_all_void(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Void)};
+}
+
+void* sp_rt_async_task_race_i64(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Int)};
+}
+
+void* sp_rt_async_task_race_str(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Str)};
+}
+
+void* sp_rt_async_task_race_dbl(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Dbl)};
+}
+
+void* sp_rt_async_task_race_void(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Void)};
+}
+
 const char* sp_rt_async_task_await_str(void* sched, void* task) {
     if (!task) return alloc_str("");
     auto* box = static_cast<AsyncTaskBox*>(task);

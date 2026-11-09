@@ -2619,3 +2619,222 @@ TEST(ExecutionTest, NetTcpSocketEchoExecution) {
 
 
 
+// Phase 5 slice A (pro-4.0.0): async completion — heap-frame state
+// machine, Task<double>/Task<array>/Task<struct> payloads, combinators
+// (Async.allInt/raceInt), and cooperative cancellation. Each test
+// compiles the SP program to a native binary and runs it end to end
+// (the same shape as the live proofs in ~/workspace/p5-async-proof/).
+
+TEST(ExecutionTest, AsyncLocalsSurviveAcrossAwait) {
+    const std::string source = R"sp(
+        async fn worker() -> int {
+            var a = 10;
+            var b = 20;
+            await sleep_async(30);
+            await sleep_async(30);
+            return a + b;
+        }
+
+        async fn run() {
+            var v = await worker();
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+    std::string output = runSPProgram(source, "exec_async_locals");
+    EXPECT_NE(output.find("30"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncDoublePayload) {
+    const std::string source = R"sp(
+        async fn pi() -> double {
+            await sleep_async(10);
+            return 3.14;
+        }
+
+        async fn run() {
+            var v = await pi();
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_double");
+    EXPECT_NE(output.find("3.14"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncArrayPayload) {
+    const std::string source = R"sp(
+        async fn nums() -> int[] {
+            await sleep_async(10);
+            return [1, 2, 3];
+        }
+
+        async fn run() {
+            var a = await nums();
+            println(a.length);
+            println(a[0]);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_array");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncStructPayload) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        async fn mkpt() -> Point {
+            await sleep_async(10);
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            return p;
+        }
+
+        async fn run() {
+            var p = await mkpt();
+            println(p.x);
+            println(p.y);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_struct");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("4"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncCombinatorsAllAndRace) {
+    const std::string source = R"sp(
+        import std.async;
+
+        async fn slow() -> int {
+            await sleep_async(50);
+            return 1;
+        }
+
+        async fn fast() -> int {
+            await sleep_async(10);
+            return 2;
+        }
+
+        async fn run() {
+            var results = await Async.allInt([slow(), fast()]);
+            println(results.length);
+            println(results[0]);
+            println(results[1]);
+            var winner = await Async.raceInt([slow(), fast()]);
+            println(winner);
+            var d = await Async.delayDouble(10, 2.5);
+            println(d);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_combinators");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+    EXPECT_NE(output.find("2.5"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncCancelBeforeStart) {
+    const std::string source = R"sp(
+        async fn slowWorker() -> int {
+            await sleep_async(100);
+            println("BODY RAN");
+            return 99;
+        }
+
+        async fn run() {
+            var t = slowWorker();
+            var ok = t.cancel();
+            println(ok);
+            println(t.wasCancelled());
+            var v = await t;
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_cancel");
+    // Cancel-before-start: the body never runs, the await returns the
+    // default (0) promptly, and wasCancelled() is true.
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("0"), std::string::npos);
+    EXPECT_EQ(output.find("BODY RAN"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncDeepChainFlatStack) {
+    const std::string source = R"sp(
+        async fn countDown(int n) -> int {
+            if (n <= 0) {
+                return 0;
+            }
+            await sleep_async(1);
+            var r = await countDown(n - 1);
+            return r + 1;
+        }
+
+        async fn run() {
+            var v = await countDown(50);
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_deepchain");
+    EXPECT_NE(output.find("50"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncGenericFnAwait) {
+    // Regression test (Phase 5 slice A): awaiting a generic async fn
+    // from another async fn used to segfault the compiler — the nested
+    // specialization clobbered the enclosing fn's state machine
+    // (m_asyncSM was reset by the specialization's asyncSMEnd). The
+    // fix saves/restores m_asyncSM around nested async compilation.
+    const std::string source = R"sp(
+        async fn identity<T>(item: T) -> T {
+            return item;
+        }
+
+        async fn run() {
+            var v = await identity<int>(999);
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_generic");
+    EXPECT_NE(output.find("999"), std::string::npos);
+}

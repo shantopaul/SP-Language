@@ -46,6 +46,17 @@ std::string VTableBuilder::mangleGenericName(const std::string& name) {
     for (char c : name) {
         if (c == '<' || c == '>' || c == ',' || c == ' ') {
             if (c != '>' && c != ' ') result += '_';
+        } else if (c == '[') {
+            // Phase 5 slice A: array types (e.g. Task<int[]>) must
+            // mangle to a valid LLVM identifier, and must NOT collide
+            // with the element type (Task<int[]> vs Task<int>). `[`
+            // becomes `_arr`, `]` is dropped, so `int[]` -> `int_arr`.
+            result += "_arr";
+        } else if (c == ']') {
+            // dropped (the `_arr` already marks the array)
+        } else if (c == '?') {
+            // Nullable marker (e.g. `string?` -> `string_q`).
+            result += "_q";
         } else {
             result += c;
         }
@@ -457,10 +468,21 @@ void VTableBuilder::buildSpecializedClassLayout(const std::shared_ptr<sema::Clas
         baseTemplateName = baseTemplateName.substr(0, ltPos);
     }
 
+    // Phase 5 slice A: Task<T> is a builtin opaque handle — its
+    // methods (cancel / isReady / wasCancelled) lower directly to the
+    // async runtime C ABI (see IRBuilder), so they have no IR function
+    // bodies and must not occupy vtable slots (the vtable would
+    // reference undefined functions). Task has no subclasses and no
+    // virtual dispatch; the methods are resolved by the IRBuilder's
+    // special-casing, not through the vtable. (An empty vtable emits
+    // `ptr null`, which is valid.)
+    bool isTaskClass = (baseTemplateName == "Task");
+
     // Methods / VTable slots
     uint32_t currentSlot = 0;
     std::vector<ir::IRValuePtr> vtableFnConstants;
     for (const auto& method : clsType->getMethods()) {
+        if (isTaskClass) continue;
         if (method.name == baseTemplateName || method.name == "init" || method.name == className) {
             continue;
         }

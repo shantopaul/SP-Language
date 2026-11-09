@@ -238,6 +238,10 @@ public:
     [[nodiscard]] const std::vector<StmtPtr>& getStatements() const noexcept { return m_stmts; }
     [[nodiscard]] std::vector<StmtPtr>& getStatements() noexcept { return m_stmts; }
 
+    // Phase 5 slice A: mutable access for the async await-hoisting
+    // pre-scan (replacing a hoisted await with its temp identifier).
+    [[nodiscard]] ExprPtr& getValuePtr() noexcept { return m_value; }
+
 private:
     ExprPtr m_value;
     std::vector<StmtPtr> m_stmts;

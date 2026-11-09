@@ -151,6 +151,13 @@ bool IRBuilder::checkStringArgs(const ast::CallExpr& node, const std::vector<siz
 // a time, so a single slot each is enough.
 
 IRValuePtr IRBuilder::getOrCreateThrowPayloadSlot() {
+    // Phase 5 slice A: in the state machine the throw/return protocol
+    // slots live in the heap frame (they must survive across awaits),
+    // not in entry-block allocas.
+    if (inAsyncSM()) {
+        if (!m_throwPayloadSlot) m_throwPayloadSlot = asyncFrameSlotGEP(AsyncSM::kThrowPayloadSlot);
+        return m_throwPayloadSlot;
+    }
     if (!m_throwPayloadSlot) {
         auto alloca = std::make_shared<AllocaInst>(IRType::getPointer(IRType::getInt8()),
                                                    m_currentFunction->nextTempName("throw_payload"));
@@ -161,6 +168,10 @@ IRValuePtr IRBuilder::getOrCreateThrowPayloadSlot() {
 }
 
 IRValuePtr IRBuilder::getOrCreateThrowPendingSlot() {
+    if (inAsyncSM()) {
+        if (!m_throwPendingSlot) m_throwPendingSlot = asyncFrameSlotGEP(AsyncSM::kThrowPendingSlot);
+        return m_throwPendingSlot;
+    }
     if (!m_throwPendingSlot) {
         auto alloca = std::make_shared<AllocaInst>(IRType::getInt1(),
                                                    m_currentFunction->nextTempName("throw_pending"));
@@ -317,6 +328,10 @@ IRValuePtr IRBuilder::emitUnpackThrowValue(IRValuePtr rawI64, IRTypePtr clauseTy
 }
 
 IRValuePtr IRBuilder::getOrCreateReturnPendingSlot() {
+    if (inAsyncSM()) {
+        if (!m_returnPendingSlot) m_returnPendingSlot = asyncFrameSlotGEP(AsyncSM::kReturnPendingSlot);
+        return m_returnPendingSlot;
+    }
     if (!m_returnPendingSlot) {
         auto alloca = std::make_shared<AllocaInst>(IRType::getInt1(),
                                                    m_currentFunction->nextTempName("return_pending"));
@@ -329,6 +344,13 @@ IRValuePtr IRBuilder::getOrCreateReturnPendingSlot() {
 }
 
 IRValuePtr IRBuilder::getOrCreateReturnValueSlot() {
+    if (inAsyncSM()) {
+        // The resume function returns void; the "return value" is the
+        // Task payload in the frame retVal slot (a struct return is
+        // stored there as a heap-box pointer by visit(ReturnStmt)).
+        if (!m_returnValueSlot) m_returnValueSlot = asyncFrameSlotGEP(AsyncSM::kRetValSlot);
+        return m_returnValueSlot;
+    }
     if (m_currentFunction->getReturnType()->isVoid()) return nullptr;
     if (!m_returnValueSlot) {
         auto alloca = std::make_shared<AllocaInst>(m_currentFunction->getReturnType(),
@@ -343,6 +365,14 @@ IRBasicBlock* IRBuilder::getOrCreateDeferredReturnBlock() {
     if (m_deferredReturnBlock) return m_deferredReturnBlock;
     auto retBB = createBlock("deferred_return");
     m_deferredReturnBlock = retBB;
+    // Phase 5 slice A: in the state machine a deferred return does
+    // not emit a ReturnInst — the return value is already in the frame
+    // retVal slot, so the block just branches to the finish block
+    // (which completes the task and frees the frame).
+    if (inAsyncSM()) {
+        retBB->addInstruction(std::make_shared<BranchInst>(m_asyncSM->finishBB->getName()));
+        return retBB;
+    }
     // Emit the block body now. NOTE: this block deliberately emits NO
     // scope drops. It is shared by every deferred return in the
     // function, so it cannot know which scopes are live at a given
@@ -370,6 +400,27 @@ IRBasicBlock* IRBuilder::getOrCreateUncaughtThrowBlock() {
     if (m_uncaughtThrowBlock) return m_uncaughtThrowBlock;
     auto uncaughtBB = createBlock("uncaught_throw");
     m_uncaughtThrowBlock = uncaughtBB;
+    // Phase 5 slice A: in the state machine an uncaught throw panics
+    // (an uncaught throw is unrecoverable, as in sync code) and then
+    // branches to the finish block as a terminator. Result/Option
+    // returns are already rejected for async fns by asyncReturnKind,
+    // so no Err/None conversion is needed here.
+    if (inAsyncSM()) {
+        IRBasicBlock* saved = m_currentBlock;
+        setInsertPoint(uncaughtBB);
+        auto payloadSlot = getOrCreateThrowPayloadSlot();
+        auto payload = std::make_shared<LoadInst>(IRType::getPointer(IRType::getInt8()), payloadSlot,
+                                                  m_currentFunction->nextTempName("uncaught_msg"));
+        uncaughtBB->addInstruction(payload);
+        auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_panic",
+                                               std::vector<IRValuePtr>{payload});
+        uncaughtBB->addInstruction(call);
+        // Unreachable at runtime (panic aborts); keep the block
+        // terminated for the verifier.
+        uncaughtBB->addInstruction(std::make_shared<BranchInst>(m_asyncSM->finishBB->getName()));
+        setInsertPoint(saved);
+        return uncaughtBB;
+    }
     IRBasicBlock* saved = m_currentBlock;
     setInsertPoint(uncaughtBB);
     auto payloadSlot = getOrCreateThrowPayloadSlot();
@@ -1097,12 +1148,23 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         return; // Generic function templates are monomorphized on demand when called
     }
 
-    IRTypePtr returnType = (node.getName() == "main") ? IRType::getInt32() : mapType(node.getReturnType());
-
+    // Phase 5 slice A: an `async fn` body is the state-machine entry
+    // `void <name>(ptr %task, ptr %ctx)` — it allocates a heap frame,
+    // stores task + args, and calls the resume function. The real body
+    // is lowered into the resume function (see asyncSMBegin/End).
+    const bool isAsync = node.isAsync();
+    IRTypePtr returnType;
     std::vector<std::shared_ptr<ParameterValue>> params;
-    for (size_t i = 0; i < node.getParams().size(); ++i) {
-        const auto& p = node.getParams()[i];
-        params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+    if (isAsync) {
+        returnType = IRType::getVoid();
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_task", 0));
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_ctx", 1));
+    } else {
+        returnType = (node.getName() == "main") ? IRType::getInt32() : mapType(node.getReturnType());
+        for (size_t i = 0; i < node.getParams().size(); ++i) {
+            const auto& p = node.getParams()[i];
+            params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+        }
     }
 
     if (!node.hasBody() && !node.isShortForm()) {
@@ -1117,10 +1179,40 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
     // the end of this function; methods and generic specializations do
     // not go through here, so await inside them still fails loudly.
     bool prevAsync = m_inAsyncFunction;
-    m_inAsyncFunction = node.isAsync();
+    m_inAsyncFunction = isAsync;
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
+
+    if (isAsync) {
+        // Resolve the sema types (the pre-scan validates the return /
+        // param types and rewrites the body: slot assignment + await
+        // hoisting). The AST is mutated in place (see asyncPrepareBody).
+        sema::TypePtr retSema = asyncResolveType(node.getReturnType());
+        std::vector<sema::TypePtr> paramSema;
+        for (const auto& p : node.getParams()) paramSema.push_back(asyncResolveType(p.getType()));
+        auto& decl = const_cast<ast::FunctionDecl&>(node);
+        if (asyncPrepareBody(decl, llvmFunctionName(node), retSema, paramSema, nullptr) < 0) {
+            // E1000 already reported; skip body lowering (the build
+            // fails on the recorded errors).
+            popScope();
+            m_inAsyncFunction = prevAsync;
+            m_currentFunction = nullptr;
+            m_currentBlock = nullptr;
+            return;
+        }
+        asyncSMBegin(llvmFunctionName(node), func);
+        for (const auto& stmt : decl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+        asyncSMEnd();
+        popScope();
+        m_inAsyncFunction = prevAsync;
+        m_currentFunction = nullptr;
+        m_currentBlock = nullptr;
+        return;
+    }
 
     // Allocate stack slots for parameters and store incoming values
     for (size_t i = 0; i < params.size(); ++i) {
@@ -1158,16 +1250,6 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         } else {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
-    }
-
-    // Phase 3 slice C: an async fn gets a thunk so calls to it can
-    // spawn the body as a Task (the thunk loads the args from a heap
-    // ctx, calls the body, frees the ctx). The thunk is named after the
-    // compiled (possibly overload-mangled) function name.
-    if (node.isAsync()) {
-        std::vector<IRTypePtr> paramTypes;
-        for (const auto& p : node.getParams()) paramTypes.push_back(mapType(p.getType()));
-        emitAsyncThunk(llvmFunctionName(node), paramTypes, mapType(node.getReturnType()));
     }
 
     popScope();
@@ -1220,9 +1302,18 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
     }
 
     std::string varReg = "%" + node.getName() + "_" + std::to_string(m_varCounter++);
-    auto allocaInst = std::make_shared<AllocaInst>(valType, varReg);
-    m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
-    declareVariable(node.getName(), allocaInst, valType);
+    IRValuePtr varAddr;
+    if (inAsyncSM()) {
+        // Phase 5 slice A: locals live in heap-frame slots so they
+        // survive across await points (the pre-scan assigned this
+        // VarDeclStmt a slot, sized for a struct value when needed).
+        varAddr = asyncNodeSlotGEP(&node, valType, node.getLocation());
+    } else {
+        auto allocaInst = std::make_shared<AllocaInst>(valType, varReg);
+        m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
+        varAddr = allocaInst;
+    }
+    declareVariable(node.getName(), varAddr, valType);
 
     bool isRefCounted = false;
     if (valType && valType->isPointer()) {
@@ -1243,7 +1334,7 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
     }
 
     if (isRefCounted && !m_refCountedScopes.empty()) {
-        m_refCountedScopes.back().push_back({node.getName(), allocaInst});
+        m_refCountedScopes.back().push_back({node.getName(), varAddr});
         if (initVal && !dynamic_cast<const ast::NewExpr*>(node.getInitializer())) {
             auto retainCall = std::make_shared<CallInst>(
                 IRType::getVoid(),
@@ -1261,7 +1352,7 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
             initVal = loadInst;
         }
         initVal = emitCastIfNeeded(initVal, valType);
-        m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, allocaInst));
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, varAddr));
     }
 }
 
@@ -1436,8 +1527,17 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
             endVal = emitCastIfNeeded(endVal, IRType::getInt32());
 
             std::string varReg = "%" + node.getVarName() + "_" + std::to_string(m_varCounter++);
-            auto varAlloca = std::make_shared<AllocaInst>(IRType::getInt32(), varReg);
-            m_currentFunction->getEntryBlock()->addInstruction(varAlloca);
+            // Phase 5 slice A: in the state machine the loop var
+            // lives in a heap-frame slot (an entry-block alloca would
+            // not survive an await in the body).
+            IRValuePtr varAlloca;
+            if (inAsyncSM()) {
+                varAlloca = asyncNodeSlotGEP(&node, IRType::getInt32(), node.getLocation());
+            } else {
+                auto alloca = std::make_shared<AllocaInst>(IRType::getInt32(), varReg);
+                m_currentFunction->getEntryBlock()->addInstruction(alloca);
+                varAlloca = alloca;
+            }
             m_currentBlock->addInstruction(std::make_shared<StoreInst>(startVal, varAlloca));
 
             auto condBB = createBlock("range_cond");
@@ -1508,8 +1608,26 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
 
     // 2. Allocate induction variable idx = 0 on stack
     std::string idxAllocaReg = "%for_idx_" + std::to_string(m_varCounter++);
-    auto idxAlloca = std::make_shared<AllocaInst>(IRType::getInt64(), idxAllocaReg);
-    m_currentFunction->getEntryBlock()->addInstruction(idxAlloca);
+    IRValuePtr idxAlloca;
+    if (inAsyncSM()) {
+        // Phase 5 slice A: the induction variable is loop-carried
+        // state — it lives in a heap-frame slot (an entry-block
+        // alloca would not survive an await in the body).
+        auto it = m_asyncSM->auxSlots.find(std::make_pair(static_cast<const void*>(&node), int64_t{0}));
+        if (it != m_asyncSM->auxSlots.end()) {
+            idxAlloca = asyncFrameSlotGEP(it->second);
+        } else {
+            reportUnsupported(node.getLocation(), "loop variable",
+                "internal error: an async loop induction variable was not assigned a frame slot by the pre-scan");
+            auto alloca = std::make_shared<AllocaInst>(IRType::getInt64(), idxAllocaReg);
+            m_currentFunction->getEntryBlock()->addInstruction(alloca);
+            idxAlloca = alloca;
+        }
+    } else {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getInt64(), idxAllocaReg);
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        idxAlloca = alloca;
+    }
     m_currentBlock->addInstruction(std::make_shared<StoreInst>(
         std::make_shared<ConstantInt>(IRType::getInt64(), 0), idxAlloca));
 
@@ -1531,8 +1649,17 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
     if (!itemIRType) itemIRType = IRType::getInt32();
 
     std::string varReg = "%" + node.getVarName() + "_" + std::to_string(m_varCounter++);
-    auto varAlloca = std::make_shared<AllocaInst>(itemIRType, varReg);
-    m_currentFunction->getEntryBlock()->addInstruction(varAlloca);
+    // Phase 5 slice A: in the state machine the loop var lives in a
+    // heap-frame slot (an entry-block alloca would not survive an
+    // await in the body).
+    IRValuePtr varAlloca;
+    if (inAsyncSM()) {
+        varAlloca = asyncNodeSlotGEP(&node, itemIRType, node.getLocation());
+    } else {
+        auto alloca = std::make_shared<AllocaInst>(itemIRType, varReg);
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        varAlloca = alloca;
+    }
 
     // 4. Create blocks
     auto condBB = createBlock("for_in_cond");
@@ -1802,6 +1929,77 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
 }
 
 void IRBuilder::visit(const ast::ReturnStmt& node) {
+    // Phase 5 slice A: a return from an `async fn` stores the Task
+    // payload in the frame retVal slot and branches to the finish
+    // block (which completes the task and frees the frame). A struct
+    // return is boxed (the retVal slot holds the box pointer); other
+    // payloads are stored directly. A return inside a try with a
+    // finally is deferred the same way as in sync code: stash the
+    // value, set the flag, run the finally, then finish. A string
+    // return is retained here and released in the finish block (after
+    // the task copies it), so it survives the scope drops below.
+    if (inAsyncSM()) {
+        IRBasicBlock* finallyTarget = findFinallyTarget();
+        if (node.hasValue()) {
+            node.getValue()->accept(*this);
+            IRValuePtr retVal = m_lastExprValue;
+            const std::string& kind = m_asyncSM->payloadKind;
+            if (kind == "struct") {
+                if (retVal && retVal->getType()->isPointer()) {
+                    auto loadInst = std::make_shared<LoadInst>(
+                        m_asyncSM->structType, retVal,
+                        m_currentFunction->nextTempName("tu_ret"));
+                    m_currentBlock->addInstruction(loadInst);
+                    retVal = loadInst;
+                }
+                int64_t boxSize = asyncStructSizeBytes(m_asyncSM->structType);
+                auto box = std::make_shared<CallInst>(
+                    IRType::getPointer(), "sp_rt_alloc",
+                    std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), boxSize)},
+                    m_currentFunction->nextTempName("async_ret_box"));
+                m_currentBlock->addInstruction(box);
+                if (retVal) {
+                    m_currentBlock->addInstruction(std::make_shared<StoreInst>(retVal, box));
+                }
+                retVal = box;
+            } else if (kind == "int" || kind == "bool") {
+                if (retVal) retVal = emitCastIfNeeded(retVal, IRType::getInt64());
+            } else if (kind == "string" || kind == "array") {
+                if (retVal) retVal = emitCastIfNeeded(retVal, IRType::getPointer());
+            } else if (kind == "double") {
+                if (retVal) retVal = emitCastIfNeeded(retVal, IRType::getDouble());
+            }
+            if (kind == "string" && retVal) {
+                m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_retain",
+                    std::vector<IRValuePtr>{retVal}));
+            }
+            auto slot = getOrCreateReturnValueSlot();
+            if (slot && retVal) {
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(retVal, slot));
+            }
+            if (finallyTarget) {
+                auto flagSlot = getOrCreateReturnPendingSlot();
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+                    std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(finallyTarget->getName()));
+                return;
+            }
+            emitAllFunctionDrops();
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(m_asyncSM->finishBB->getName()));
+        } else {
+            if (finallyTarget) {
+                auto flagSlot = getOrCreateReturnPendingSlot();
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+                    std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
+                m_currentBlock->addInstruction(std::make_shared<BranchInst>(finallyTarget->getName()));
+                return;
+            }
+            emitAllFunctionDrops();
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(m_asyncSM->finishBB->getName()));
+        }
+        return;
+    }
     // Phase 3 slice B: a return inside a try with a finally must run
     // the finally blocks first. Defer it: stash the value, set the
     // flag, and branch to the innermost finally; that finally's
@@ -2448,18 +2646,26 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
     (void)classDecl;
     // Phase 3 slice A: overloaded methods are mangled by signature.
     std::string mangledName = llvmMethodName(layout.name, methodDecl);
-    IRTypePtr returnType = mapType(methodDecl.getReturnType());
+    // Phase 5 slice A: an `async` method body is the state-machine
+    // entry `void <name>(ptr %task, ptr %ctx)` (`this` arrives through
+    // the ctx, like any other argument).
+    const bool isAsync = methodDecl.isAsync();
+    IRTypePtr returnType = isAsync ? IRType::getVoid() : mapType(methodDecl.getReturnType());
 
     std::vector<std::shared_ptr<ParameterValue>> params;
     size_t paramOffset = 0;
-    if (!methodDecl.isStatic()) {
-        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
-        paramOffset = 1;
-    }
-
-    for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
-        const auto& p = methodDecl.getParams()[i];
-        params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i + paramOffset));
+    if (isAsync) {
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_task", 0));
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_ctx", 1));
+    } else {
+        if (!methodDecl.isStatic()) {
+            params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
+            paramOffset = 1;
+        }
+        for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
+            const auto& p = methodDecl.getParams()[i];
+            params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i + paramOffset));
+        }
     }
 
     auto func = m_module->createFunction(mangledName, returnType, params);
@@ -2467,11 +2673,49 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
     // Phase 3 slice C: await inside an async method lowers like in a
     // free async fn. Restored at the end of this function.
     bool prevAsync = m_inAsyncFunction;
-    m_inAsyncFunction = methodDecl.isAsync();
+    m_inAsyncFunction = isAsync;
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
     m_currentClass = &layout;
+
+    if (isAsync) {
+        // Phase 5 slice A: a nested async method (compiled lazily
+        // while another async fn's body is being lowered, e.g. an
+        // async method called from an async fn) must not clobber the
+        // enclosing fn's state machine: asyncPrepareBody replaces
+        // m_asyncSM and asyncSMEnd resets it. Save + restore around
+        // this method's whole async lowering.
+        auto savedAsyncSM = std::move(m_asyncSM);
+        sema::TypePtr retSema = asyncResolveType(methodDecl.getReturnType());
+        std::vector<sema::TypePtr> paramSema;
+        for (const auto& p : methodDecl.getParams()) paramSema.push_back(asyncResolveType(p.getType()));
+        sema::TypePtr thisType = nullptr;
+        if (!methodDecl.isStatic()) thisType = m_sema.getTypeContext().findUserType(layout.name);
+        auto& decl = const_cast<ast::FunctionDecl&>(methodDecl);
+        if (asyncPrepareBody(decl, mangledName, retSema, paramSema, thisType) < 0) {
+            popScope();
+            m_inAsyncFunction = prevAsync;
+            m_currentClass = nullptr;
+            m_currentFunction = nullptr;
+            m_currentBlock = nullptr;
+            m_asyncSM = std::move(savedAsyncSM);
+            return;
+        }
+        asyncSMBegin(mangledName, func);
+        for (const auto& stmt : decl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+        asyncSMEnd();
+        m_asyncSM = std::move(savedAsyncSM);
+        popScope();
+        m_inAsyncFunction = prevAsync;
+        m_currentClass = nullptr;
+        m_currentFunction = nullptr;
+        m_currentBlock = nullptr;
+        return;
+    }
 
     if (!methodDecl.isStatic()) {
         auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
@@ -2507,16 +2751,6 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
         } else {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
-    }
-
-    // Phase 3 slice C: an async method gets a thunk so calls to it can
-    // spawn the body as a Task. The thunk's first ctx slot is `this`
-    // for non-static methods.
-    if (methodDecl.isAsync()) {
-        std::vector<IRTypePtr> paramTypes;
-        if (!methodDecl.isStatic()) paramTypes.push_back(IRType::getPointer());
-        for (const auto& p : methodDecl.getParams()) paramTypes.push_back(mapType(p.getType()));
-        emitAsyncThunk(mangledName, paramTypes, returnType);
     }
 
     popScope();
@@ -2607,19 +2841,26 @@ void IRBuilder::compileSpecializedMethod(
 
     std::string mangledName = layout.name + "_" + methodDecl.getName();
     std::string subRet = sema::TypeContext::substituteType(methodDecl.getReturnType(), typeParams, typeArgs);
-    IRTypePtr returnType = mapType(subRet);
+    // Phase 5 slice A: an `async` (specialized) method body is the
+    // state-machine entry `void <name>(ptr %task, ptr %ctx)`.
+    const bool isAsync = methodDecl.isAsync();
+    IRTypePtr returnType = isAsync ? IRType::getVoid() : mapType(subRet);
 
     std::vector<std::shared_ptr<ParameterValue>> params;
     size_t paramOffset = 0;
-    if (!methodDecl.isStatic()) {
-        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
-        paramOffset = 1;
-    }
-
-    for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
-        const auto& p = methodDecl.getParams()[i];
-        std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
-        params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i + paramOffset));
+    if (isAsync) {
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_task", 0));
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_ctx", 1));
+    } else {
+        if (!methodDecl.isStatic()) {
+            params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0));
+            paramOffset = 1;
+        }
+        for (size_t i = 0; i < methodDecl.getParams().size(); ++i) {
+            const auto& p = methodDecl.getParams()[i];
+            std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+            params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i + paramOffset));
+        }
     }
 
     auto func = m_module->createFunction(mangledName, returnType, params);
@@ -2627,11 +2868,49 @@ void IRBuilder::compileSpecializedMethod(
     // Phase 3 slice C: await inside an async (specialized) method
     // lowers like in a free async fn. Restored at the end.
     bool prevAsync = m_inAsyncFunction;
-    m_inAsyncFunction = methodDecl.isAsync();
+    m_inAsyncFunction = isAsync;
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
     m_currentClass = &layout;
+
+    if (isAsync) {
+        sema::TypePtr retSema = asyncResolveType(subRet);
+        std::vector<sema::TypePtr> paramSema;
+        for (const auto& p : methodDecl.getParams()) {
+            std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+            paramSema.push_back(asyncResolveType(subType));
+        }
+        sema::TypePtr thisType = nullptr;
+        if (!methodDecl.isStatic()) thisType = m_sema.getTypeContext().findUserType(layout.name);
+        auto& decl = const_cast<ast::FunctionDecl&>(methodDecl);
+        // Phase 5 slice A: save/restore the enclosing async fn's state
+        // machine (see compileMethod) — a generic async method
+        // compiled lazily must not clobber it.
+        auto savedAsyncSM = std::move(m_asyncSM);
+        if (asyncPrepareBody(decl, mangledName, retSema, paramSema, thisType) < 0) {
+            popScope();
+            m_inAsyncFunction = prevAsync;
+            m_currentClass = nullptr;
+            m_currentFunction = nullptr;
+            m_currentBlock = nullptr;
+            m_asyncSM = std::move(savedAsyncSM);
+            return;
+        }
+        asyncSMBegin(mangledName, func);
+        for (const auto& stmt : decl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+        asyncSMEnd();
+        m_asyncSM = std::move(savedAsyncSM);
+        popScope();
+        m_inAsyncFunction = prevAsync;
+        m_currentClass = nullptr;
+        m_currentFunction = nullptr;
+        m_currentBlock = nullptr;
+        return;
+    }
 
     if (!methodDecl.isStatic()) {
         auto allocaThis = std::make_shared<AllocaInst>(IRType::getPointer(), "%p_this");
@@ -2669,15 +2948,6 @@ void IRBuilder::compileSpecializedMethod(
         }
     }
 
-    // Phase 3 slice C: thunk for an async (specialized) method. The
-    // thunk's params are the substituted (specialized) types, matching
-    // the body's compiled params exactly.
-    if (methodDecl.isAsync()) {
-        std::vector<IRTypePtr> paramTypes;
-        for (const auto& pv : params) paramTypes.push_back(pv->getType());
-        emitAsyncThunk(mangledName, paramTypes, returnType);
-    }
-
     popScope();
     m_inAsyncFunction = prevAsync;
     m_currentClass = nullptr;
@@ -2700,13 +2970,21 @@ void IRBuilder::compileSpecializedFunction(
 
     const auto& typeParams = fnDecl.getTypeParams();
     std::string subRet = sema::TypeContext::substituteType(fnDecl.getReturnType(), typeParams, typeArgs);
-    IRTypePtr returnType = mapType(subRet);
+    // Phase 5 slice A: an `async` generic specialization body is the
+    // state-machine entry `void <name>(ptr %task, ptr %ctx)`.
+    const bool isAsync = fnDecl.isAsync();
+    IRTypePtr returnType = isAsync ? IRType::getVoid() : mapType(subRet);
 
     std::vector<std::shared_ptr<ParameterValue>> params;
-    for (size_t i = 0; i < fnDecl.getParams().size(); ++i) {
-        const auto& p = fnDecl.getParams()[i];
-        std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
-        params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i));
+    if (isAsync) {
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_task", 0));
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_ctx", 1));
+    } else {
+        for (size_t i = 0; i < fnDecl.getParams().size(); ++i) {
+            const auto& p = fnDecl.getParams()[i];
+            std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+            params.push_back(std::make_shared<ParameterValue>(mapType(subType), "%" + p.getName(), i));
+        }
     }
 
     auto func = m_module->createFunction(mangledName, returnType, params);
@@ -2721,10 +2999,48 @@ void IRBuilder::compileSpecializedFunction(
     // Phase 3 slice C: await inside an async generic specialization
     // lowers like in a plain async fn. Restored at the end.
     bool prevAsync = m_inAsyncFunction;
-    m_inAsyncFunction = fnDecl.isAsync();
+    m_inAsyncFunction = isAsync;
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
+
+    if (isAsync) {
+        sema::TypePtr retSema = asyncResolveType(subRet);
+        std::vector<sema::TypePtr> paramSema;
+        for (const auto& p : fnDecl.getParams()) {
+            std::string subType = sema::TypeContext::substituteType(p.getType(), typeParams, typeArgs);
+            paramSema.push_back(asyncResolveType(subType));
+        }
+        auto& decl = const_cast<ast::FunctionDecl&>(fnDecl);
+        // Phase 5 slice A: save/restore the enclosing async fn's state
+        // machine (see compileMethod) — a generic async fn compiled
+        // lazily must not clobber it.
+        auto savedAsyncSM = std::move(m_asyncSM);
+        if (asyncPrepareBody(decl, mangledName, retSema, paramSema, nullptr) < 0) {
+            popScope();
+            m_inAsyncFunction = prevAsync;
+            m_scopes = std::move(prevScopes);
+            m_refCountedScopes = std::move(prevRefScopes);
+            m_currentFunction = prevFunc;
+            m_currentBlock = prevBlock;
+            m_asyncSM = std::move(savedAsyncSM);
+            return;
+        }
+        asyncSMBegin(mangledName, func);
+        for (const auto& stmt : decl.getBody()->getStatements()) {
+            stmt->accept(*this);
+            if (m_currentBlock->hasTerminator()) break;
+        }
+        asyncSMEnd();
+        m_asyncSM = std::move(savedAsyncSM);
+        popScope();
+        m_inAsyncFunction = prevAsync;
+        m_scopes = std::move(prevScopes);
+        m_refCountedScopes = std::move(prevRefScopes);
+        m_currentFunction = prevFunc;
+        m_currentBlock = prevBlock;
+        return;
+    }
 
     for (size_t i = 0; i < fnDecl.getParams().size(); ++i) {
         const auto& p = fnDecl.getParams()[i];
@@ -2753,14 +3069,6 @@ void IRBuilder::compileSpecializedFunction(
         } else {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
-    }
-
-    // Phase 3 slice C: thunk for an async generic specialization
-    // (named after the monomorphized name, matching the call site).
-    if (fnDecl.isAsync()) {
-        std::vector<IRTypePtr> paramTypes;
-        for (const auto& pv : params) paramTypes.push_back(pv->getType());
-        emitAsyncThunk(mangledName, paramTypes, returnType);
     }
 
     popScope();
@@ -3607,21 +3915,20 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                             if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                                 reportUnsupported(node.getLocation(), "call to async method",
                                                   "the return type of this 'async' method cannot be carried by a Task "
-                                                  "(only void, int, bool and string payloads are supported)");
+                                                  "(only void, int, bool, string, double, array and struct payloads are supported)");
                                 m_lastExprValue = nullptr;
                                 m_lastExprType = nullptr;
                                 return;
                             }
-                            std::vector<IRTypePtr> paramTypes;
-                            if (targetFunc) {
-                                for (const auto& p : targetFunc->getParams()) paramTypes.push_back(p->getType());
-                            } else {
-                                paramTypes.push_back(IRType::getPointer());
-                                for (const auto& pt : target->getFunctionType()->getParamTypes()) {
-                                    paramTypes.push_back(mapType(pt.get()));
-                                }
-                            }
-                            IRValuePtr task = emitAsyncSpawn(mangledName, kind, loweredArgs, paramTypes);
+                            // Phase 5 slice A: param types come from
+                            // sema (the body's IR params are now
+                            // (task, ctx)), and the body itself is
+                            // the thunk — no separate thunk function.
+                            auto baseType = m_sema.getTypeContext().findUserType(m_currentClass->baseClass);
+                            std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+                                target->getFunctionType()->getParamTypes(), baseType);
+                            IRValuePtr task = emitAsyncSpawnSM(
+                                std::make_shared<FunctionAddress>(mangledName), loweredArgs, paramTypes);
                             if (!task) {
                                 reportUnsupported(node.getLocation(), "call to async method",
                                                   "an argument of this 'async' method cannot be passed through a Task "
@@ -4607,6 +4914,24 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (en && en->isTaggedUnion()) {
                 isTaggedUnionObj = true;
                 tuBaseName = en->getName();
+            }
+        }
+
+        // Phase 5 slice A: Task instance methods (cancel / isReady /
+        // wasCancelled) lower directly to the async runtime C ABI —
+        // the Task class has no IR methods of its own. The task
+        // handle is the object value (a pointer).
+        if (objTypeName == "Task" || objTypeName.rfind("Task<", 0) == 0) {
+            if (methodName == "cancel" || methodName == "isReady" || methodName == "wasCancelled") {
+                std::string rtFn = methodName == "cancel" ? "sp_rt_async_task_cancel"
+                                 : methodName == "isReady" ? "sp_rt_async_task_is_ready"
+                                 : "sp_rt_async_task_was_cancelled";
+                auto callInst = std::make_shared<CallInst>(IRType::getInt1(), rtFn,
+                    std::vector<IRValuePtr>{objVal}, m_currentFunction->nextTempName("task_flag"));
+                m_currentBlock->addInstruction(callInst);
+                m_lastExprValue = callInst;
+                m_lastExprType = IRType::getInt1();
+                return;
             }
         }
 
@@ -6127,42 +6452,30 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
-            // Phase 3 slice C: an async method called through a virtual
-            // dispatch is spawned through the INDIRECT thunk: the
-            // function pointer loaded from the vtable goes in ctx slot
-            // 0, the thunk loads it and calls it. (The concrete body
-            // is only known at runtime, so no direct thunk can exist.)
+            // Phase 5 slice A: an async method called through a
+            // virtual dispatch is spawned by passing the vtable-loaded
+            // body address directly as the thunk to
+            // sp_rt_async_spawn_sm (Design 2 — no indirect thunk, no
+            // vtable change; the body itself is the thunk and
+            // allocates its own frame, so the concrete override's
+            // frame size is never needed at the call site).
             if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
                 std::string kind;
                 if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool and string payloads are supported)");
+                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
                     m_lastExprValue = nullptr;
                     m_lastExprType = nullptr;
                     return;
                 }
-                std::string thunkBase = slotInfo.mangledName.empty()
-                    ? (className.empty() ? methodName : className + "_" + methodName)
-                    : slotInfo.mangledName;
-                std::vector<IRTypePtr> paramTypes;
-                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
-                    if (auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType)) {
-                        paramTypes = fnType->getParamTypes();
-                    }
-                }
-                if (paramTypes.empty()) {
-                    if (auto* tf = m_module->getFunction(thunkBase)) {
-                        for (const auto& p : tf->getParams()) paramTypes.push_back(p->getType());
-                    } else {
-                        paramTypes.push_back(IRType::getPointer());
-                        for (const auto& pt : target->getFunctionType()->getParamTypes()) {
-                            paramTypes.push_back(mapType(pt.get()));
-                        }
-                    }
-                }
-                emitAsyncThunk(thunkBase, paramTypes, returnType, /*indirect=*/true);
-                IRValuePtr task = emitAsyncSpawn(thunkBase, kind, loweredArgs, paramTypes, loadFnPtr);
+                // Param types come from sema (the vtable slot's
+                // function type is the body's (task, ctx) signature
+                // now, not the declared signature).
+                auto thisType = m_sema.getTypeContext().findUserType(className);
+                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+                    target->getFunctionType()->getParamTypes(), thisType);
+                IRValuePtr task = emitAsyncSpawnSM(loadFnPtr, loweredArgs, paramTypes);
                 if (!task) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "an argument of this 'async' method cannot be passed through a Task "
@@ -6222,35 +6535,34 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
-            // Phase 3 slice C: calling an `async` method returns a Task
-            // instead of running the body — spawn it (thunk + heap ctx)
-            // and hand the task to the caller.
+            // Phase 5 slice A: calling an `async` method returns a
+            // Task instead of running the body — spawn it (body as
+            // the thunk + heap ctx) and hand the task to the caller.
             if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
                 std::string kind;
                 if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool and string payloads are supported)");
+                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
                     m_lastExprValue = nullptr;
                     m_lastExprType = nullptr;
                     return;
                 }
-                std::vector<IRTypePtr> paramTypes;
-                if (targetFunc) {
-                    for (const auto& p : targetFunc->getParams()) paramTypes.push_back(p->getType());
-                } else {
-                    // Not compiled yet (forward reference): derive from
-                    // sema; `this` is present iff loweredArgs has one
-                    // more value than the declared params.
-                    size_t semaParamCount = target->getFunctionType()->getParamTypes().size();
-                    if (loweredArgs.size() == semaParamCount + 1) {
-                        paramTypes.push_back(IRType::getPointer());
-                    }
-                    for (const auto& pt : target->getFunctionType()->getParamTypes()) {
-                        paramTypes.push_back(mapType(pt.get()));
-                    }
+                // Param types come from sema (the body's IR params
+                // are now (task, ctx)); `this` is present iff
+                // loweredArgs has one more value than the declared
+                // params (a compiled instance method).
+                size_t semaParamCount = target->getFunctionType()->getParamTypes().size();
+                bool hasThis = (loweredArgs.size() == semaParamCount + 1);
+                sema::TypePtr thisType = nullptr;
+                if (hasThis) {
+                    thisType = m_sema.getNodeType(&mem->getObject());
+                    if (!thisType) thisType = m_sema.getTypeContext().findUserType(className);
                 }
-                IRValuePtr task = emitAsyncSpawn(mangledName, kind, loweredArgs, paramTypes);
+                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+                    target->getFunctionType()->getParamTypes(), thisType);
+                IRValuePtr task = emitAsyncSpawnSM(
+                    std::make_shared<FunctionAddress>(mangledName), loweredArgs, paramTypes);
                 if (!task) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "an argument of this 'async' method cannot be passed through a Task "
@@ -7110,38 +7422,27 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
-            // Phase 3 slice C: an async method called unqualified from
-            // inside its class also dispatches virtually — spawn it
-            // through the indirect thunk, like the member-call path.
+            // Phase 5 slice A: an async method called unqualified
+            // from inside its class also dispatches virtually — spawn
+            // it by passing the vtable-loaded body address directly
+            // as the thunk to sp_rt_async_spawn_sm (Design 2).
             if (auto enclosingTarget = m_sema.getCallTarget(&node); enclosingTarget && enclosingTarget->isAsync()) {
                 std::string kind;
                 if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool and string payloads are supported)");
+                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
                     m_lastExprValue = nullptr;
                     m_lastExprType = nullptr;
                     return;
                 }
-                std::string thunkBase = slotInfo.mangledName.empty() ? calleeName : slotInfo.mangledName;
-                std::vector<IRTypePtr> paramTypes;
-                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
-                    if (auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType)) {
-                        paramTypes = fnType->getParamTypes();
-                    }
-                }
-                if (paramTypes.empty()) {
-                    if (auto* tf = m_module->getFunction(thunkBase)) {
-                        for (const auto& p : tf->getParams()) paramTypes.push_back(p->getType());
-                    } else {
-                        paramTypes.push_back(IRType::getPointer());
-                        for (const auto& pt : enclosingTarget->getFunctionType()->getParamTypes()) {
-                            paramTypes.push_back(mapType(pt.get()));
-                        }
-                    }
-                }
-                emitAsyncThunk(thunkBase, paramTypes, returnType, /*indirect=*/true);
-                IRValuePtr task = emitAsyncSpawn(thunkBase, kind, loweredArgs, paramTypes, loadFnPtr);
+                // Param types come from sema; `this` is the current
+                // class (loweredArgs starts with thisVal).
+                sema::TypePtr thisType = nullptr;
+                if (m_currentClass) thisType = m_sema.getTypeContext().findUserType(m_currentClass->name);
+                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+                    enclosingTarget->getFunctionType()->getParamTypes(), thisType);
+                IRValuePtr task = emitAsyncSpawnSM(loadFnPtr, loweredArgs, paramTypes);
                 if (!task) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "an argument of this 'async' method cannot be passed through a Task "
@@ -7244,11 +7545,21 @@ void IRBuilder::visit(const ast::CallExpr& node) {
     if (m_astFunctions.count(calleeName)) {
         const auto* fnDecl = m_astFunctions.at(calleeName);
         const auto& params = fnDecl->getParams();
+        // Phase 5 slice A: for an async fn the body's IR params are
+        // (task, ctx), so a default value's cast type comes from the
+        // declared param type (sema), not from the body's params.
+        auto calleeTarget = m_sema.getCallTarget(&node);
+        bool calleeIsAsync = calleeTarget && calleeTarget->isAsync();
         for (size_t i = loweredArgs.size(); i < params.size(); ++i) {
             if (params[i].hasDefaultValue()) {
                 params[i].getDefaultValue()->accept(*this);
                 IRValuePtr defVal = m_lastExprValue;
-                if (targetFunc && i < targetFunc->getParams().size()) {
+                if (calleeIsAsync) {
+                    const auto& semaParams = calleeTarget->getFunctionType()->getParamTypes();
+                    if (i < semaParams.size() && semaParams[i]) {
+                        defVal = emitCastIfNeeded(defVal, mapType(semaParams[i].get()));
+                    }
+                } else if (targetFunc && i < targetFunc->getParams().size()) {
                     defVal = emitCastIfNeeded(defVal, targetFunc->getParams()[i]->getType());
                 }
                 loweredArgs.push_back(defVal);
@@ -7263,30 +7574,26 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         returnType = mapType(m_astFunctions.at(calleeName)->getReturnType());
     }
 
-    // Phase 3 slice C: calling an `async fn` returns a Task instead of
-    // running the body — spawn it (thunk + heap ctx) and hand the task
-    // to the caller. The callee name is already the monomorphized name
-    // for generic calls (see above).
+    // Phase 5 slice A: calling an `async fn` returns a Task instead
+    // of running the body — spawn it (the body itself is the thunk
+    // + a heap ctx) and hand the task to the caller. The callee name
+    // is already the monomorphized name for generic calls (see above).
     if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
         std::string kind;
         if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
             reportUnsupported(node.getLocation(), "call to async function",
                               "the return type of this 'async fn' cannot be carried by a Task "
-                              "(only void, int, bool and string payloads are supported)");
+                              "(only void, int, bool, string, double, array and struct payloads are supported)");
             m_lastExprValue = nullptr;
             m_lastExprType = nullptr;
             return;
         }
-        std::vector<IRTypePtr> paramTypes;
-        if (targetFunc) {
-            for (const auto& p : targetFunc->getParams()) paramTypes.push_back(p->getType());
-        } else {
-            // Not compiled yet (forward reference): derive from sema.
-            for (const auto& pt : target->getFunctionType()->getParamTypes()) {
-                paramTypes.push_back(mapType(pt.get()));
-            }
-        }
-        IRValuePtr task = emitAsyncSpawn(calleeName, kind, loweredArgs, paramTypes);
+        // Param types come from sema (the body's IR params are now
+        // (task, ctx)); a free fn has no `this`.
+        std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+            target->getFunctionType()->getParamTypes(), nullptr);
+        IRValuePtr task = emitAsyncSpawnSM(
+            std::make_shared<FunctionAddress>(calleeName), loweredArgs, paramTypes);
         if (!task) {
             reportUnsupported(node.getLocation(), "call to async function",
                               "an argument of this 'async fn' cannot be passed through a Task "
@@ -7862,6 +8169,16 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
         declareVariable(p.name, allocaInst, paramVal->getType());
     }
 
+    // Phase 5 slice A: a lambda is a separate function, not part of
+    // the enclosing async fn's state machine — clear the SM state and
+    // the async flag while lowering the body, so an `await` inside a
+    // lambda fails loudly with the E1000 backstop (lambdas cannot be
+    // async; sema's lambda visitor does not reset m_inAsyncContext).
+    // The lambda's own locals use ordinary entry-block allocas.
+    auto savedAsyncSM = std::move(m_asyncSM);
+    bool savedInAsyncFunction = m_inAsyncFunction;
+    m_inAsyncFunction = false;
+
     // Lower body
     if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
         exprBody->accept(*this);
@@ -7887,6 +8204,8 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
         }
     }
 
+    m_asyncSM = std::move(savedAsyncSM);
+    m_inAsyncFunction = savedInAsyncFunction;
     popScope();
     m_scopes = std::move(prevScopes);
     m_refCountedScopes = std::move(prevRefCountedScopes);
@@ -8291,24 +8610,28 @@ void IRBuilder::visit(const ast::TryExpr& node) {
     m_lastExprType = targetType;
 }
 
-// --- Phase 3 slice C: async spawn / await helpers ---------------------------
+// --- Phase 5 slice A: async spawn / await helpers (state machine) --------
 // See the header for the contract. The spawn model: calling an async fn
 // returns a Task immediately; the body runs as a posted callback on the
-// scheduler, driven by a compiler-generated thunk that loads its
-// arguments from a heap ctx (8-byte slots, byte-offset GEPs over i8).
-// The awaiting frame stays on the stack while pumping (B2 design) —
-// this is NOT a heap-frame state machine.
+// scheduler. The body itself is the entry point — `void <name>(ptr
+// %task, ptr %ctx)` — it allocates a heap frame, stores task + args,
+// and calls the resume function `void __sp_async_resume_<name>(ptr
+// %frame)`, which holds the dispatcher + one segment per await point.
+// Awaiting suspends: the segment stores its state, registers the resume
+// as the awaited task's continuation (posted, never synchronous), and
+// returns; the dispatcher re-enters at the recorded state. This
+// REPLACES the Phase 3 thunk model (no __sp_async_thunk_* functions,
+// no vtable change, no frame-size-at-call-site problem — see the
+// Phase 34 slice A doc for the Design 2 rationale).
 
-std::string IRBuilder::asyncThunkName(const std::string& compiledName) const {
-    return "__sp_async_thunk_" + compiledName;
+std::string IRBuilder::asyncResumeName(const std::string& compiledName) const {
+    return "__sp_async_resume_" + compiledName;
 }
 
-std::string IRBuilder::asyncThunkIndirectName(const std::string& compiledName) const {
-    return "__sp_async_thunk_indirect_" + compiledName;
-}
-
-bool IRBuilder::taskPayloadKind(const sema::TypePtr& taskType, std::string& outKind) const {
-    if (!taskType) return false;
+// Inner type string of Task<T>/Future<T> (e.g. "int" for Task<int>),
+// or "" when the type is not a Task/Future or is nested.
+static std::string taskInnerType(const sema::TypePtr& taskType) {
+    if (!taskType) return "";
     std::string name = taskType->toString();
     std::string inner;
     if (name.rfind("Task<", 0) == 0 && name.size() > 6 && name.back() == '>') {
@@ -8316,16 +8639,35 @@ bool IRBuilder::taskPayloadKind(const sema::TypePtr& taskType, std::string& outK
     } else if (name.rfind("Future<", 0) == 0 && name.size() > 8 && name.back() == '>') {
         inner = name.substr(7, name.size() - 8);
     } else {
-        return false;
+        return "";
     }
     // Nested Task<...> / parameterized payloads are not carried.
-    if (inner.find('<') != std::string::npos) return false;
+    if (inner.find('<') != std::string::npos) return "";
+    return inner;
+}
+
+bool IRBuilder::taskPayloadKind(const sema::TypePtr& taskType, std::string& outKind) const {
+    std::string inner = taskInnerType(taskType);
+    if (inner.empty()) return false;
     if (inner == "void") { outKind = "void"; return true; }
     if (inner == "int" || inner == "int8" || inner == "int16" || inner == "int32" || inner == "int64") {
         outKind = "int"; return true;
     }
     if (inner == "bool") { outKind = "bool"; return true; }
     if (inner == "string") { outKind = "string"; return true; }
+    // Phase 5 slice A: double / array / struct payloads.
+    if (inner == "double" || inner == "float" || inner == "float32" || inner == "float64") {
+        outKind = "double"; return true;
+    }
+    if (inner.size() > 2 && inner.substr(inner.size() - 2) == "[]") {
+        outKind = "array"; return true;
+    }
+    // A user struct type (value type). Classes are reference types
+    // with ARC ownership, which cannot cross the task boundary, so a
+    // class payload is NOT carried (fails loudly at the declaration).
+    if (auto userType = m_sema.getTypeContext().findUserType(inner)) {
+        if (userType->isStruct()) { outKind = "struct"; return true; }
+    }
     return false;
 }
 
@@ -8338,6 +8680,19 @@ bool IRBuilder::asyncReturnKind(const sema::TypePtr& returnType, std::string& ou
     }
     if (name == "bool") { outKind = "bool"; return true; }
     if (name == "string") { outKind = "string"; return true; }
+    // Phase 5 slice A: double / array / struct payloads.
+    if (name == "double" || name == "float" || name == "float32" || name == "float64") {
+        outKind = "double"; return true;
+    }
+    if (name.size() > 2 && name.substr(name.size() - 2) == "[]") {
+        outKind = "array"; return true;
+    }
+    // A user struct type (value type). Classes are reference types
+    // with ARC ownership, which cannot cross the task boundary, so a
+    // class return is NOT carried (fails loudly at the declaration).
+    if (auto userType = m_sema.getTypeContext().findUserType(name)) {
+        if (userType->isStruct()) { outKind = "struct"; return true; }
+    }
     return false;
 }
 
@@ -8350,26 +8705,24 @@ IRValuePtr IRBuilder::emitAsyncScheduler() {
     return schedCall;
 }
 
-IRValuePtr IRBuilder::emitAsyncSpawn(const std::string& compiledName, const std::string& payloadKind,
-                                     const std::vector<IRValuePtr>& argValues,
-                                     const std::vector<IRTypePtr>& argTypes,
-                                     IRValuePtr fnPtr) {
+IRValuePtr IRBuilder::emitAsyncSpawnSM(IRValuePtr thunk,
+                                        const std::vector<IRValuePtr>& argValues,
+                                        const std::vector<IRTypePtr>& argTypes) {
     // Validate first: no IR is emitted when an argument cannot be carried.
+    if (!thunk || !thunk->getType()->isPointer()) return nullptr;
     if (argValues.size() != argTypes.size()) return nullptr;
-    if (fnPtr && !fnPtr->getType()->isPointer()) return nullptr;
     std::vector<IRTypePtr> storageTypes;
     for (size_t i = 0; i < argTypes.size(); ++i) {
         if (!argValues[i] || !argTypes[i]) return nullptr;
         if (argTypes[i]->isInteger()) storageTypes.push_back(IRType::getInt64());
         else if (argTypes[i]->isPointer()) storageTypes.push_back(IRType::getPointer());
-        else if (argTypes[i]->isFloat()) storageTypes.push_back(IRType::getDouble());
-        else return nullptr;
+        // Phase 5 slice A: isFloatingPoint() covers BOTH float and
+        // double — isFloat() is 32-bit only, so a `double` argument
+        // was wrongly rejected here (and silently skipped in the body
+        // prologue, see asyncSMEnd). Both widen to double storage.
+        else if (argTypes[i]->isFloatingPoint()) storageTypes.push_back(IRType::getDouble());
+        else return nullptr; // struct (by value) cannot be carried in an 8-byte ctx slot
     }
-    std::string spawnFn;
-    if (payloadKind == "void") spawnFn = "sp_rt_async_spawn_void";
-    else if (payloadKind == "int" || payloadKind == "bool") spawnFn = "sp_rt_async_spawn_i64";
-    else if (payloadKind == "string") spawnFn = "sp_rt_async_spawn_str";
-    else return nullptr;
 
     auto sched = emitAsyncScheduler();
     auto taskCall = std::make_shared<CallInst>(
@@ -8378,10 +8731,11 @@ IRValuePtr IRBuilder::emitAsyncSpawn(const std::string& compiledName, const std:
         m_currentFunction->nextTempName("async_task"));
     m_currentBlock->addInstruction(taskCall);
 
-    // Ctx layout: [fnPtr?, arg0, arg1, ...] in 8-byte slots. The
-    // indirect thunk reads the function pointer from slot 0.
-    const size_t slotOffset = fnPtr ? 1 : 0;
-    int64_t ctxSize = static_cast<int64_t>(argValues.size() + slotOffset) * 8;
+    // Ctx layout: [arg0, arg1, ...] in 8-byte slots. The body entry
+    // (void (ptr task, ptr ctx)) loads the args from here into the
+    // heap frame and frees the ctx; the task is NOT completed here —
+    // the body completes it in its finish block.
+    int64_t ctxSize = static_cast<int64_t>(argValues.size()) * 8;
     if (ctxSize < 8) ctxSize = 8;
     auto allocCall = std::make_shared<CallInst>(
         IRType::getPointer(), "sp_rt_alloc",
@@ -8397,21 +8751,51 @@ IRValuePtr IRBuilder::emitAsyncSpawn(const std::string& compiledName, const std:
         m_currentBlock->addInstruction(gep);
         m_currentBlock->addInstruction(std::make_shared<StoreInst>(value, gep));
     };
-    if (fnPtr) storeSlot(0, fnPtr);
     for (size_t i = 0; i < argValues.size(); ++i) {
         IRValuePtr stored = emitCastIfNeeded(argValues[i], storageTypes[i]);
-        storeSlot(i + slotOffset, stored);
+        storeSlot(i, stored);
     }
 
-    std::string thunkName = fnPtr ? asyncThunkIndirectName(compiledName) : asyncThunkName(compiledName);
-    auto thunkAddr = std::make_shared<FunctionAddress>(thunkName);
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
-        IRType::getVoid(), spawnFn,
-        std::vector<IRValuePtr>{sched, taskCall, thunkAddr, allocCall}));
+        IRType::getVoid(), "sp_rt_async_spawn_sm",
+        std::vector<IRValuePtr>{sched, taskCall, thunk, allocCall}));
     return taskCall;
 }
 
-IRValuePtr IRBuilder::emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std::string& payloadKind) {
+IRValuePtr IRBuilder::emitStructValueFromBox(IRValuePtr box, IRTypePtr structTy) {
+    // A cancelled task's box is null; loading a struct through null
+    // would segfault, so branch: null -> zero value, else load the box.
+    // The temp alloca lives in the entry block (dominates every block);
+    // the value is stored in either branch and loaded after the merge.
+    auto* entryBB = m_currentFunction->getEntryBlock();
+    auto tmp = std::make_shared<AllocaInst>(structTy, m_currentFunction->nextTempName("await_struct_tmp"));
+    entryBB->addInstruction(tmp);
+    auto isNull = std::make_shared<CompareInst>(
+        IROpcode::ICmpEq, box, std::make_shared<ConstantNull>(IRType::getPointer()),
+        m_currentFunction->nextTempName("await_box_null"));
+    m_currentBlock->addInstruction(isNull);
+    IRBasicBlock* defBB = createBlock("await_struct_default");
+    IRBasicBlock* loadBB = createBlock("await_struct_load");
+    IRBasicBlock* mergeBB = createBlock("await_struct_merge");
+    m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+        isNull, defBB->getName(), loadBB->getName()));
+    setInsertPoint(defBB);
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+        std::make_shared<ConstantNull>(structTy), tmp));
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+    setInsertPoint(loadBB);
+    auto loaded = std::make_shared<LoadInst>(structTy, box, m_currentFunction->nextTempName("await_struct_val"));
+    m_currentBlock->addInstruction(loaded);
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(loaded, tmp));
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+    setInsertPoint(mergeBB);
+    auto result = std::make_shared<LoadInst>(structTy, tmp, m_currentFunction->nextTempName("await_struct"));
+    m_currentBlock->addInstruction(result);
+    return result;
+}
+
+IRValuePtr IRBuilder::emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std::string& payloadKind,
+                                    IRTypePtr structTy) {
     if (payloadKind == "void") {
         m_currentBlock->addInstruction(std::make_shared<CallInst>(
             IRType::getVoid(), "sp_rt_async_task_await_void",
@@ -8435,98 +8819,35 @@ IRValuePtr IRBuilder::emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std
         m_currentBlock->addInstruction(awaitCall);
         return awaitCall;
     }
+    // Phase 5 slice A: double / array / struct payloads (pump path).
+    if (payloadKind == "double") {
+        auto awaitCall = std::make_shared<CallInst>(
+            IRType::getDouble(), "sp_rt_async_task_await_dbl",
+            std::vector<IRValuePtr>{sched, task},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(awaitCall);
+        return awaitCall;
+    }
+    if (payloadKind == "array") {
+        // The pump await for a pointer payload returns the array
+        // pointer directly (arrays are plain malloc, never owned by
+        // the task, so the pointer outlives the task by design).
+        auto awaitCall = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_async_task_await_ptr",
+            std::vector<IRValuePtr>{sched, task},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(awaitCall);
+        return awaitCall;
+    }
+    if (payloadKind == "struct" && structTy) {
+        auto awaitCall = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_async_task_await_ptr",
+            std::vector<IRValuePtr>{sched, task},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(awaitCall);
+        return emitStructValueFromBox(awaitCall, structTy);
+    }
     return nullptr;
-}
-
-void IRBuilder::emitAsyncThunk(const std::string& compiledName,
-                               const std::vector<IRTypePtr>& paramTypes,
-                               IRTypePtr returnType,
-                               bool indirect) {
-    std::string thunkName = indirect ? asyncThunkIndirectName(compiledName) : asyncThunkName(compiledName);
-    if (m_module->getFunction(thunkName)) return;
-
-    // The body's actual IR return type wins over the declared one
-    // (e.g. `main` is forced to i32 in IR even when declared void).
-    IRTypePtr bodyRet = returnType;
-    if (!indirect) {
-        if (auto* bodyFunc = m_module->getFunction(compiledName)) {
-            bodyRet = bodyFunc->getReturnType();
-        }
-    }
-    IRTypePtr thunkRet;
-    if (!bodyRet || bodyRet->isVoid()) thunkRet = IRType::getVoid();
-    else if (bodyRet->isInteger()) thunkRet = IRType::getInt64();
-    else if (bodyRet->isPointer()) thunkRet = IRType::getPointer();
-    else if (bodyRet->isFloat()) thunkRet = IRType::getDouble();
-    else thunkRet = bodyRet;
-
-    std::vector<std::shared_ptr<ParameterValue>> thunkParams;
-    thunkParams.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%ctx", 0));
-    auto thunkFunc = m_module->createFunction(thunkName, thunkRet, thunkParams);
-
-    auto* prevFunc = m_currentFunction;
-    auto* prevBlock = m_currentBlock;
-    m_currentFunction = thunkFunc;
-    auto entryBB = thunkFunc->createBasicBlock("entry");
-    setInsertPoint(entryBB);
-
-    // Indirect thunks read the function pointer from ctx slot 0
-    // (loaded from the vtable at the call site); args start at slot 1.
-    const size_t slotOffset = indirect ? 1 : 0;
-    std::shared_ptr<LoadInst> fnPtr = nullptr;
-    if (indirect) {
-        auto gep0 = std::make_shared<GetElementPtrInst>(
-            IRType::getInt8(), thunkParams[0],
-            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), 0)},
-            m_currentFunction->nextTempName("fn_slot"));
-        m_currentBlock->addInstruction(gep0);
-        fnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gep0, m_currentFunction->nextTempName("fn_ptr"));
-        m_currentBlock->addInstruction(fnPtr);
-    }
-
-    std::vector<IRValuePtr> callArgs;
-    for (size_t i = 0; i < paramTypes.size(); ++i) {
-        if (!paramTypes[i]) continue;
-        IRTypePtr storageType;
-        if (paramTypes[i]->isInteger()) storageType = IRType::getInt64();
-        else if (paramTypes[i]->isPointer()) storageType = IRType::getPointer();
-        else if (paramTypes[i]->isFloat()) storageType = IRType::getDouble();
-        else storageType = paramTypes[i];
-        auto gep = std::make_shared<GetElementPtrInst>(
-            IRType::getInt8(), thunkParams[0],
-            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>((i + slotOffset) * 8))},
-            m_currentFunction->nextTempName("arg_slot"));
-        m_currentBlock->addInstruction(gep);
-        auto load = std::make_shared<LoadInst>(storageType, gep, m_currentFunction->nextTempName("arg"));
-        m_currentBlock->addInstruction(load);
-        callArgs.push_back(emitCastIfNeeded(load, paramTypes[i]));
-    }
-
-    std::string callReg = thunkRet->isVoid() ? "" : m_currentFunction->nextTempName("thunk_res");
-    std::shared_ptr<CallInst> bodyCall;
-    if (indirect) {
-        bodyCall = std::make_shared<CallInst>(bodyRet ? bodyRet : IRType::getVoid(), fnPtr, callArgs, callReg);
-    } else {
-        bodyCall = std::make_shared<CallInst>(bodyRet ? bodyRet : IRType::getVoid(), compiledName, callArgs, callReg);
-    }
-    m_currentBlock->addInstruction(bodyCall);
-
-    // The ctx is heap-owned by the thunk: free it once the body has
-    // loaded its arguments (the body's return value is independent of
-    // the ctx, so freeing here is safe).
-    m_currentBlock->addInstruction(std::make_shared<CallInst>(
-        IRType::getVoid(), "sp_rt_free",
-        std::vector<IRValuePtr>{thunkParams[0]}));
-
-    if (thunkRet->isVoid()) {
-        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
-    } else {
-        IRValuePtr retVal = emitCastIfNeeded(bodyCall, thunkRet);
-        m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
-    }
-
-    m_currentFunction = prevFunc;
-    m_currentBlock = prevBlock;
 }
 
 void IRBuilder::emitMainExitPump() {
@@ -8534,6 +8855,898 @@ void IRBuilder::emitMainExitPump() {
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
         IRType::getVoid(), "sp_rt_async_scheduler_run_tasks_until_idle",
         std::vector<IRValuePtr>{sched}));
+}
+
+// --- Phase 5 slice A: heap-frame state machine ----------------------------
+// See IRBuilder.h (AsyncSM) and docs/v2/PHASE-34-SLICE-A.md. The body
+// entry `void <name>(ptr %task, ptr %ctx)` allocates a heap frame,
+// stores task + args, and calls the resume function
+// `void __sp_async_resume_<name>(ptr %frame)`, which holds the
+// dispatcher + one segment per await point. Locals live in frame
+// slots (8 bytes each), so they survive across await points; the
+// stack unwinds at every suspend (true suspension / flat stack).
+
+std::vector<IRTypePtr> IRBuilder::asyncSpawnParamTypes(
+    const std::vector<sema::TypePtr>& semaParamTypes,
+    const sema::TypePtr& thisType) const {
+    std::vector<IRTypePtr> out;
+    if (thisType) out.push_back(IRType::getPointer()); // `this`
+    for (const auto& t : semaParamTypes) {
+        if (!t) { out.push_back(nullptr); continue; }
+        out.push_back(mapType(t.get()));
+    }
+    return out;
+}
+
+int64_t IRBuilder::asyncStructSizeBytes(const IRTypePtr& structTy) {
+    if (!structTy || !structTy->isStruct()) return 0;
+    auto structType = std::dynamic_pointer_cast<IRStructType>(structTy);
+    if (!structType) return 0;
+    // x86-64 layout over the element types. Each field is aligned to
+    // its own ABI alignment (capped at 8); the struct size is rounded
+    // up to the struct's alignment. This is an upper bound on LLVM's
+    // layout for the same struct type (nested structs use alignment 8
+    // here, which can only over-allocate) — the size is used only for
+    // the heap box allocation, where over-allocating is safe.
+    int64_t offset = 0;
+    int64_t structAlign = 1;
+    for (const auto& el : structType->getElementTypes()) {
+        int64_t fieldSize = 8;
+        int64_t fieldAlign = 8;
+        if (el->isInt1() || el->isInt8()) { fieldSize = 1; fieldAlign = 1; }
+        else if (el->isInt16()) { fieldSize = 2; fieldAlign = 2; }
+        else if (el->isInt32() || el->isFloat()) { fieldSize = 4; fieldAlign = 4; }
+        else if (el->isInt64() || el->isDouble() || el->isPointer()) { fieldSize = 8; fieldAlign = 8; }
+        else if (el->isStruct()) { fieldSize = asyncStructSizeBytes(el); fieldAlign = 8; }
+        if (fieldAlign > structAlign) structAlign = fieldAlign;
+        offset = (offset + fieldAlign - 1) & ~(fieldAlign - 1);
+        offset += fieldSize;
+    }
+    offset = (offset + structAlign - 1) & ~(structAlign - 1);
+    return offset;
+}
+
+IRValuePtr IRBuilder::asyncFrameSlotGEP(int64_t slot) {
+    auto it = m_asyncSM->slotGEPs.find(slot);
+    if (it != m_asyncSM->slotGEPs.end()) return it->second;
+    // GEPs are created in the dispatcher (entry) block so they
+    // dominate every segment; addInstruction inserts before the
+    // terminator when one exists, so GEPs land before the dispatcher
+    // chain (which is built at the end).
+    auto gep = std::make_shared<GetElementPtrInst>(
+        IRType::getInt8(), m_asyncSM->frameParam,
+        std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+            IRType::getInt64(), asyncFrameOffset(slot))},
+        m_currentFunction->nextTempName("frame_slot"));
+    m_asyncSM->dispatcherBB->addInstruction(gep);
+    m_asyncSM->slotGEPs[slot] = gep;
+    return gep;
+}
+
+IRValuePtr IRBuilder::asyncFrameLoad(int64_t slot, IRTypePtr ty, const std::string& name) {
+    auto gep = asyncFrameSlotGEP(slot);
+    auto load = std::make_shared<LoadInst>(ty, gep, m_currentFunction->nextTempName(name));
+    m_currentBlock->addInstruction(load);
+    return load;
+}
+
+void IRBuilder::asyncFrameStore(int64_t slot, IRValuePtr val) {
+    auto gep = asyncFrameSlotGEP(slot);
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(val, gep));
+}
+
+int64_t IRBuilder::asyncAssignLocalSlot(const void* node, int64_t slotCount) {
+    auto it = m_asyncSM->nodeSlots.find(node);
+    if (it != m_asyncSM->nodeSlots.end()) return it->second;
+    if (slotCount < 1) slotCount = 1;
+    int64_t slot = m_asyncSM->nextSlot;
+    m_asyncSM->nextSlot += slotCount;
+    m_asyncSM->nodeSlots[node] = slot;
+    return slot;
+}
+
+int64_t IRBuilder::asyncAuxSlot(const void* node, int64_t tag, int64_t slotCount) {
+    auto key = std::make_pair(node, tag);
+    auto it = m_asyncSM->auxSlots.find(key);
+    if (it != m_asyncSM->auxSlots.end()) return it->second;
+    if (slotCount < 1) slotCount = 1;
+    int64_t slot = m_asyncSM->nextSlot;
+    m_asyncSM->nextSlot += slotCount;
+    m_asyncSM->auxSlots[key] = slot;
+    return slot;
+}
+
+IRValuePtr IRBuilder::asyncNodeSlotGEP(const void* node, IRTypePtr fallbackType,
+                                       const diagnostics::SourceLocation& loc) {
+    auto it = m_asyncSM->nodeSlots.find(node);
+    if (it != m_asyncSM->nodeSlots.end()) return asyncFrameSlotGEP(it->second);
+    reportUnsupported(loc, "loop variable",
+        "internal error: an async loop variable was not assigned a frame slot by the pre-scan");
+    auto alloca = std::make_shared<AllocaInst>(fallbackType, m_currentFunction->nextTempName("async_fallback"));
+    m_currentFunction->getEntryBlock()->addInstruction(alloca);
+    return alloca;
+}
+
+sema::TypePtr IRBuilder::asyncResolveType(const std::string& typeStr) {
+    auto& typeCtx = const_cast<sema::TypeContext&>(m_sema.getTypeContext());
+    // NOTE: this must call TypeContext::resolveType (the sema method),
+    // not asyncResolveType itself — a bulk rename once turned this
+    // into infinite recursion.
+    return typeCtx.resolveType(typeStr);
+}
+
+IRTypePtr IRBuilder::asyncStructTypeForTask(const sema::TypePtr& taskType) {
+    std::string inner = taskInnerType(taskType);
+    if (inner.empty()) return nullptr;
+    auto innerSema = asyncResolveType(inner);
+    if (!innerSema) return nullptr;
+    return asyncStructTypeFor(innerSema);
+}
+
+IRTypePtr IRBuilder::asyncAwaitedIRType(const std::string& kind, IRTypePtr structTy) {
+    if (kind == "void") return IRType::getVoid();
+    if (kind == "string") return IRType::getPointer();
+    if (kind == "bool") return IRType::getInt1();
+    if (kind == "double") return IRType::getDouble();
+    if (kind == "array") return IRType::getPointer();
+    if (kind == "struct") return structTy;
+    return IRType::getInt64();
+}
+
+IRTypePtr IRBuilder::asyncStructTypeFor(const sema::TypePtr& semaType) {
+    if (!semaType) return nullptr;
+    if (semaType->isStruct()) {
+        if (m_vtableBuilder) {
+            if (const auto* layout = m_vtableBuilder->getClassLayout(semaType->toString())) {
+                if (layout->structType) return layout->structType;
+            }
+        }
+        return nullptr;
+    }
+    if (semaType->isEnum()) {
+        // Tagged-union enums (Result/Option) lower to a struct value.
+        IRTypePtr mapped = mapType(semaType->toString());
+        if (mapped && mapped->isStruct()) return mapped;
+    }
+    return nullptr;
+}
+
+int64_t IRBuilder::asyncSlotCountForType(const sema::TypePtr& semaType) {
+    if (auto st = asyncStructTypeFor(semaType)) {
+        int64_t bytes = asyncStructSizeBytes(st);
+        return (bytes + 7) / 8;
+    }
+    return 1;
+}
+
+int64_t IRBuilder::asyncVarDeclSlotCount(const ast::VarDeclStmt& node) {
+    // Declared type wins (mirrors visit(VarDeclStmt)'s valType).
+    const std::string& typeName = node.getType();
+    if (!typeName.empty() && typeName != "var" && typeName != "let" && typeName != "const") {
+        auto ty = asyncResolveType(typeName);
+        return asyncSlotCountForType(ty);
+    }
+    // Inferred: from the initializer's sema type.
+    if (node.hasInitializer()) {
+        auto initTy = m_sema.getNodeType(node.getInitializer());
+        return asyncSlotCountForType(initTy);
+    }
+    return 1;
+}
+
+int64_t IRBuilder::asyncForInSlotCount(const ast::ForInStmt& node) {
+    // Declared loop-var type wins.
+    const std::string& typeName = node.getType();
+    if (!typeName.empty() && typeName != "var" && typeName != "let" && typeName != "const") {
+        auto ty = asyncResolveType(typeName);
+        return asyncSlotCountForType(ty);
+    }
+    // Inferred: the iterable's element type (arrays; `a..b` ranges
+    // are int and take 1 slot).
+    auto iterTy = m_sema.getNodeType(&node.getIterable());
+    if (iterTy && iterTy->isArray()) {
+        auto arrTy = std::dynamic_pointer_cast<sema::ArrayType>(iterTy);
+        if (arrTy) return asyncSlotCountForType(arrTy->getElementType());
+    }
+    if (iterTy) {
+        // List<T>: the element type is inside the type string.
+        std::string name = iterTy->toString();
+        if (name.rfind("List<", 0) == 0 && name.size() > 6 && name.back() == '>') {
+            std::string inner = name.substr(5, name.size() - 6);
+            auto elemTy = asyncResolveType(inner);
+            return asyncSlotCountForType(elemTy);
+        }
+    }
+    return 1;
+}
+
+// --- Await pre-scan: collect / first / hoist -------------------------------
+// Children of an expression in evaluation order (const). Lambdas are
+// NOT descended into (a lambda body is a separate function); parse
+// error-recovery null children are skipped via the hasX() guards.
+static void asyncChildExprsConst(const ast::ExpressionNode& e,
+                                 std::vector<const ast::ExpressionNode*>& out) {
+    if (auto* b = dynamic_cast<const ast::BinaryExpr*>(&e)) {
+        out.push_back(&b->getLeft());
+        if (b->hasRight()) out.push_back(&b->getRight());
+    } else if (auto* u = dynamic_cast<const ast::UnaryExpr*>(&e)) {
+        if (u->hasOperand()) out.push_back(&u->getOperand());
+    } else if (auto* c = dynamic_cast<const ast::CallExpr*>(&e)) {
+        out.push_back(&c->getCallee());
+        for (const auto& a : c->getArgs()) if (a) out.push_back(a.get());
+    } else if (auto* m = dynamic_cast<const ast::MemberExpr*>(&e)) {
+        out.push_back(&m->getObject());
+    } else if (auto* ix = dynamic_cast<const ast::IndexExpr*>(&e)) {
+        out.push_back(&ix->getObject());
+        if (ix->hasIndex()) out.push_back(&ix->getIndex());
+    } else if (auto* arr = dynamic_cast<const ast::ArrayExpr*>(&e)) {
+        for (const auto& el : arr->getElements()) if (el) out.push_back(el.get());
+    } else if (auto* mp = dynamic_cast<const ast::MapExpr*>(&e)) {
+        for (const auto& [k, v] : mp->getEntries()) {
+            if (k) out.push_back(k.get());
+            if (v) out.push_back(v.get());
+        }
+    } else if (auto* t = dynamic_cast<const ast::TernaryExpr*>(&e)) {
+        out.push_back(&t->getCondition());
+        if (t->hasThenExpr()) out.push_back(&t->getThenExpr());
+        if (t->hasElseExpr()) out.push_back(&t->getElseExpr());
+    } else if (auto* a = dynamic_cast<const ast::AssignExpr*>(&e)) {
+        out.push_back(&a->getTarget());
+        if (a->hasValue()) out.push_back(&a->getValue());
+    } else if (auto* n = dynamic_cast<const ast::NewExpr*>(&e)) {
+        for (const auto& arg : n->getArgs()) if (arg) out.push_back(arg.get());
+    } else if (auto* tr = dynamic_cast<const ast::TryExpr*>(&e)) {
+        out.push_back(&tr->getExpr());
+    } else if (auto* aw = dynamic_cast<const ast::AwaitExpr*>(&e)) {
+        out.push_back(&aw->getExpr());
+    } else if (auto* ct = dynamic_cast<const ast::ComptimeExpr*>(&e)) {
+        if (ct->hasExpr() && ct->getExpr()) out.push_back(ct->getExpr());
+    }
+    // LambdaExpr: not descended into. Literal/Identifier: no children.
+}
+
+// Mutable child slots of an expression in evaluation order (for the
+// hoisting rewrite). Same traversal as asyncChildExprsConst.
+static void asyncChildExprSlots(ast::ExpressionNode& e,
+                                std::vector<ast::ExprPtr*>& out) {
+    if (auto* b = dynamic_cast<ast::BinaryExpr*>(&e)) {
+        out.push_back(&b->getLeftPtr());
+        if (b->hasRight()) out.push_back(&b->getRightPtr());
+    } else if (auto* u = dynamic_cast<ast::UnaryExpr*>(&e)) {
+        if (u->hasOperand()) out.push_back(&u->getOperandPtr());
+    } else if (auto* c = dynamic_cast<ast::CallExpr*>(&e)) {
+        out.push_back(&c->getCalleePtr());
+        for (auto& a : c->getArgs()) out.push_back(&a);
+    } else if (auto* m = dynamic_cast<ast::MemberExpr*>(&e)) {
+        out.push_back(&m->getObjectPtr());
+    } else if (auto* ix = dynamic_cast<ast::IndexExpr*>(&e)) {
+        out.push_back(&ix->getObjectPtr());
+        if (ix->hasIndex()) out.push_back(&ix->getIndexPtr());
+    } else if (auto* arr = dynamic_cast<ast::ArrayExpr*>(&e)) {
+        for (auto& el : arr->getElements()) out.push_back(&el);
+    } else if (auto* mp = dynamic_cast<ast::MapExpr*>(&e)) {
+        for (auto& [k, v] : mp->getEntries()) {
+            out.push_back(&k);
+            out.push_back(&v);
+        }
+    } else if (auto* t = dynamic_cast<ast::TernaryExpr*>(&e)) {
+        out.push_back(&t->getConditionPtr());
+        if (t->hasThenExpr()) out.push_back(&t->getThenExprPtr());
+        if (t->hasElseExpr()) out.push_back(&t->getElseExprPtr());
+    } else if (auto* a = dynamic_cast<ast::AssignExpr*>(&e)) {
+        out.push_back(&a->getTargetPtr());
+        if (a->hasValue()) out.push_back(&a->getValuePtr());
+    } else if (auto* n = dynamic_cast<ast::NewExpr*>(&e)) {
+        for (auto& arg : n->getArgs()) out.push_back(&arg);
+    } else if (auto* tr = dynamic_cast<ast::TryExpr*>(&e)) {
+        out.push_back(&tr->getExprPtr());
+    } else if (auto* aw = dynamic_cast<ast::AwaitExpr*>(&e)) {
+        out.push_back(&aw->getExprPtr());
+    } else if (auto* ct = dynamic_cast<ast::ComptimeExpr*>(&e)) {
+        if (ct->hasExpr()) out.push_back(&ct->getExprPtr());
+    }
+    // LambdaExpr: not descended into. Literal/Identifier: no children.
+}
+
+void IRBuilder::asyncCollectAwaits(const ast::ExpressionNode& e,
+                                   std::vector<const ast::AwaitExpr*>& out) {
+    if (auto* aw = dynamic_cast<const ast::AwaitExpr*>(&e)) {
+        // Inner awaits (in the operand) evaluate first.
+        asyncCollectAwaits(aw->getExpr(), out);
+        out.push_back(aw);
+        return;
+    }
+    std::vector<const ast::ExpressionNode*> children;
+    asyncChildExprsConst(e, children);
+    for (const auto* child : children) asyncCollectAwaits(*child, out);
+}
+
+const ast::AwaitExpr* IRBuilder::asyncFirstAwait(const ast::ExpressionNode& e) {
+    if (auto* aw = dynamic_cast<const ast::AwaitExpr*>(&e)) return aw;
+    std::vector<const ast::ExpressionNode*> children;
+    asyncChildExprsConst(e, children);
+    if (children.empty()) return nullptr;
+    // Walk down the first child at each level: the await reached this
+    // way is the first thing evaluated, so nothing is live across it.
+    return asyncFirstAwait(*children[0]);
+}
+
+bool IRBuilder::asyncHoistAwaits(ast::ExprPtr& slot, const ast::AwaitExpr* keep,
+                                 std::vector<ast::StmtPtr>& out) {
+    if (!slot) return true;
+    if (auto* aw = dynamic_cast<ast::AwaitExpr*>(slot.get())) {
+        // Hoist inner awaits first (they evaluate before this one).
+        if (!asyncHoistAwaits(aw->getExprPtr(), keep, out)) return false;
+        if (aw == keep) return true; // The first-evaluated await stays.
+        std::string name = "__sp_await_" + std::to_string(m_asyncSM->nextHoistId++);
+        auto loc = aw->getLocation();
+        ast::ExprPtr moved = std::move(slot);
+        slot = std::make_unique<ast::IdentifierExpr>(name, loc);
+        auto letStmt = std::make_unique<ast::VarDeclStmt>(
+            "", name, std::move(moved), false, true, loc);
+        // The hoisted let's slot count follows the awaited value's
+        // type (a struct value needs more than one slot).
+        auto awaitTy = m_sema.getNodeType(letStmt->getInitializer());
+        asyncAssignLocalSlot(letStmt.get(), asyncSlotCountForType(awaitTy));
+        out.push_back(std::move(letStmt));
+        return true;
+    }
+    std::vector<ast::ExprPtr*> children;
+    asyncChildExprSlots(*slot, children);
+    for (auto* child : children) {
+        if (*child && !asyncHoistAwaits(*child, keep, out)) return false;
+    }
+    return true;
+}
+
+int64_t IRBuilder::asyncScanStmtList(std::vector<ast::StmtPtr>& stmts) {
+    int64_t total = 0;
+    std::vector<ast::StmtPtr> out;
+    out.reserve(stmts.size());
+    for (auto& stmt : stmts) {
+        if (!stmt) continue;
+        if (auto* vd = dynamic_cast<ast::VarDeclStmt*>(stmt.get())) {
+            asyncAssignLocalSlot(vd, asyncVarDeclSlotCount(*vd));
+        }
+        int64_t n = asyncScanNested(*stmt);
+        if (n < 0) return -1;
+        total += n;
+        std::vector<ast::StmtPtr> hoisted;
+        n = asyncScanStmtExprs(*stmt, &hoisted);
+        if (n < 0) return -1;
+        total += n;
+        for (auto& h : hoisted) out.push_back(std::move(h));
+        out.push_back(std::move(stmt));
+    }
+    stmts = std::move(out);
+    return total;
+}
+
+int64_t IRBuilder::asyncScanBlock(ast::BlockStmt& block) {
+    return asyncScanStmtList(block.getStatements());
+}
+
+int64_t IRBuilder::asyncScanNested(ast::StatementNode& stmt) {
+    int64_t total = 0;
+    // A branch body: a block scans in place; a single statement is
+    // scanned with hoisting disallowed (there is no block to insert
+    // the hoisted lets into — the user must write `{ ... }`).
+    auto scanBranch = [&](ast::StmtPtr& branch) -> int64_t {
+        if (!branch) return 0;
+        if (auto* block = dynamic_cast<ast::BlockStmt*>(branch.get())) {
+            return asyncScanBlock(*block);
+        }
+        int64_t n = asyncScanNested(*branch);
+        if (n < 0) return -1;
+        n = asyncScanStmtExprs(*branch, nullptr);
+        if (n < 0) return -1;
+        return n;
+    };
+    if (auto* block = dynamic_cast<ast::BlockStmt*>(&stmt)) {
+        return asyncScanBlock(*block);
+    } else if (auto* is = dynamic_cast<ast::IfStmt*>(&stmt)) {
+        int64_t n = scanBranch(is->getThenBranchPtr());
+        if (n < 0) return -1;
+        total += n;
+        if (is->hasElseBranch()) {
+            n = scanBranch(is->getElseBranchPtr());
+            if (n < 0) return -1;
+            total += n;
+        }
+    } else if (auto* ws = dynamic_cast<ast::WhileStmt*>(&stmt)) {
+        int64_t n = scanBranch(ws->getBodyPtr());
+        if (n < 0) return -1;
+        total += n;
+    } else if (auto* dws = dynamic_cast<ast::DoWhileStmt*>(&stmt)) {
+        int64_t n = scanBranch(dws->getBodyPtr());
+        if (n < 0) return -1;
+        total += n;
+    } else if (auto* fs = dynamic_cast<ast::ForStmt*>(&stmt)) {
+        if (fs->hasInit()) {
+            if (const auto* initVd = dynamic_cast<const ast::VarDeclStmt*>(fs->getInit())) {
+                asyncAssignLocalSlot(initVd, asyncVarDeclSlotCount(*initVd));
+            }
+        }
+        int64_t n = scanBranch(fs->getBodyPtr());
+        if (n < 0) return -1;
+        total += n;
+    } else if (auto* fis = dynamic_cast<ast::ForInStmt*>(&stmt)) {
+        asyncAssignLocalSlot(fis, asyncForInSlotCount(*fis)); // loop var slot, keyed by the ForInStmt node
+        // A collection loop also carries an induction variable (idx)
+        // across iterations; a range loop reuses the loop var itself
+        // as the counter. The idx must live in the frame (an
+        // entry-block alloca would not survive an await in the body).
+        bool isRange = false;
+        if (fis->hasIterable()) {
+            if (const auto* bin = dynamic_cast<const ast::BinaryExpr*>(&fis->getIterable())) {
+                isRange = (bin->getOp() == lexer::TokenType::DotDot);
+            }
+        }
+        if (!isRange) asyncAuxSlot(fis, 0, 1);
+        int64_t n = scanBranch(fis->getBodyPtr());
+        if (n < 0) return -1;
+        total += n;
+    } else if (auto* ss = dynamic_cast<ast::SwitchStmt*>(&stmt)) {
+        for (auto& c : ss->getCases()) {
+            int64_t n = asyncScanStmtList(c.getStatements());
+            if (n < 0) return -1;
+            total += n;
+        }
+        int64_t n = asyncScanStmtList(ss->getDefaultStatements());
+        if (n < 0) return -1;
+        total += n;
+    } else if (auto* ms = dynamic_cast<ast::MatchStmt*>(&stmt)) {
+        for (auto& arm : ms->getArms()) {
+            if (!arm.hasBody()) continue;
+            auto& body = arm.getBodyPtr();
+            if (auto* block = dynamic_cast<ast::BlockStmt*>(body.get())) {
+                int64_t n = asyncScanBlock(*block);
+                if (n < 0) return -1;
+                total += n;
+            } else if (auto* exprBody = dynamic_cast<ast::ExpressionNode*>(body.get())) {
+                // Expression arm body: a single first-evaluated await
+                // is fine; more (or a non-first await) cannot be
+                // hoisted out of the arm, so fail loudly.
+                std::vector<const ast::AwaitExpr*> awaits;
+                asyncCollectAwaits(*exprBody, awaits);
+                total += static_cast<int64_t>(awaits.size());
+                if (!awaits.empty()) {
+                    const ast::AwaitExpr* keep = asyncFirstAwait(*exprBody);
+                    if (!(awaits.size() == 1 && keep == awaits[0])) {
+                        reportUnsupported(ms->getLocation(), "await",
+                            "a match arm body expression with more than one 'await' (or an "
+                            "'await' that is not the first thing evaluated) must be a block "
+                            "'{ ... }' so the extra awaits can be hoisted");
+                        return -1;
+                    }
+                }
+            } else if (auto* stmtBody = dynamic_cast<ast::StatementNode*>(body.get())) {
+                int64_t n = asyncScanNested(*stmtBody);
+                if (n < 0) return -1;
+                total += n;
+                n = asyncScanStmtExprs(*stmtBody, nullptr);
+                if (n < 0) return -1;
+                total += n;
+            }
+        }
+    } else if (auto* tcs = dynamic_cast<ast::TryCatchStmt*>(&stmt)) {
+        int64_t n = asyncScanBlock(*tcs->getTryBlockPtr());
+        if (n < 0) return -1;
+        total += n;
+        for (auto& catchClause : tcs->getCatches()) {
+            n = asyncScanBlock(*catchClause.getBodyPtr());
+            if (n < 0) return -1;
+            total += n;
+        }
+        if (tcs->hasFinally()) {
+            n = asyncScanBlock(*tcs->getFinallyBlockPtr());
+            if (n < 0) return -1;
+            total += n;
+        }
+    }
+    return total;
+}
+
+int64_t IRBuilder::asyncScanStmtExprs(ast::StatementNode& stmt, std::vector<ast::StmtPtr>* insert) {
+    std::vector<ast::ExprPtr*> slots;
+    if (auto* es = dynamic_cast<ast::ExprStmt*>(&stmt)) {
+        if (es->hasExpr()) slots.push_back(&es->getExprPtr());
+    } else if (auto* vd = dynamic_cast<ast::VarDeclStmt*>(&stmt)) {
+        if (vd->hasInitializer()) slots.push_back(&vd->getInitializerPtr());
+    } else if (auto* rs = dynamic_cast<ast::ReturnStmt*>(&stmt)) {
+        if (rs->hasValue()) slots.push_back(&rs->getValuePtr());
+    } else if (auto* is = dynamic_cast<ast::IfStmt*>(&stmt)) {
+        if (is->hasCondition()) slots.push_back(&is->getConditionPtr());
+    } else if (auto* ws = dynamic_cast<ast::WhileStmt*>(&stmt)) {
+        if (ws->hasCondition()) slots.push_back(&ws->getConditionPtr());
+    } else if (auto* dws = dynamic_cast<ast::DoWhileStmt*>(&stmt)) {
+        if (dws->hasCondition()) slots.push_back(&dws->getConditionPtr());
+    } else if (auto* fs = dynamic_cast<ast::ForStmt*>(&stmt)) {
+        if (fs->hasInit()) {
+            if (auto* initVd = dynamic_cast<ast::VarDeclStmt*>(fs->getInitPtr().get())) {
+                if (initVd->hasInitializer()) slots.push_back(&initVd->getInitializerPtr());
+            } else if (auto* initEs = dynamic_cast<ast::ExprStmt*>(fs->getInitPtr().get())) {
+                if (initEs->hasExpr()) slots.push_back(&initEs->getExprPtr());
+            }
+        }
+        if (fs->hasCondition()) slots.push_back(&fs->getConditionPtr());
+        if (fs->hasIncrement()) slots.push_back(&fs->getIncrementPtr());
+    } else if (auto* fis = dynamic_cast<ast::ForInStmt*>(&stmt)) {
+        if (fis->hasIterable()) slots.push_back(&fis->getIterablePtr());
+    } else if (auto* ss = dynamic_cast<ast::SwitchStmt*>(&stmt)) {
+        if (ss->hasSubject()) slots.push_back(&ss->getSubjectPtr());
+        for (auto& c : ss->getCases()) {
+            if (c.hasValue()) slots.push_back(&c.getValuePtr());
+        }
+    } else if (auto* ms = dynamic_cast<ast::MatchStmt*>(&stmt)) {
+        if (ms->hasSubject()) slots.push_back(&ms->getSubjectPtr());
+        for (auto& arm : ms->getArms()) {
+            if (!arm.isWildcard()) slots.push_back(&arm.getPatternPtr());
+        }
+    } else if (auto* ts = dynamic_cast<ast::ThrowStmt*>(&stmt)) {
+        if (ts->hasExpr()) slots.push_back(&ts->getExprPtr());
+    }
+    // (BlockStmt / Break / Continue / TryCatchStmt have no own exprs.)
+    int64_t total = 0;
+    for (auto* slot : slots) {
+        if (!slot || !*slot) continue;
+        std::vector<const ast::AwaitExpr*> awaits;
+        asyncCollectAwaits(**slot, awaits);
+        total += static_cast<int64_t>(awaits.size());
+        if (awaits.empty()) continue;
+        const ast::AwaitExpr* keep = asyncFirstAwait(**slot);
+        if (awaits.size() == 1 && keep == awaits[0]) continue;
+        if (!insert) {
+            reportUnsupported(stmt.getLocation(), "await",
+                "a statement with more than one 'await' (or an 'await' that is not "
+                "the first thing evaluated) must be inside a block '{ ... }' so the "
+                "extra awaits can be hoisted into separate statements");
+            return -1;
+        }
+        std::vector<ast::StmtPtr> hoisted;
+        if (!asyncHoistAwaits(*slot, keep, hoisted)) {
+            reportUnsupported(stmt.getLocation(), "await",
+                "an 'await' in this position cannot be hoisted; split the statement");
+            return -1;
+        }
+        for (auto& h : hoisted) insert->push_back(std::move(h));
+    }
+    return total;
+}
+
+int64_t IRBuilder::asyncPrepareBody(ast::FunctionDecl& decl, const std::string& compiledName,
+                                    const sema::TypePtr& returnType,
+                                    const std::vector<sema::TypePtr>& semaParamTypes,
+                                    const sema::TypePtr& thisType) {
+    (void)compiledName;
+    // Short-form bodies become block form first (a ReturnStmt), so the
+    // rest of the pipeline only ever sees a body block.
+    if (decl.isShortForm()) {
+        ast::ExprPtr shortBody = std::move(decl.getShortBodyPtr());
+        auto block = std::make_unique<ast::BlockStmt>(
+            std::vector<ast::StmtPtr>{}, decl.getLocation());
+        block->getStatements().push_back(std::make_unique<ast::ReturnStmt>(
+            std::move(shortBody), decl.getLocation()));
+        decl.getBodyPtr() = std::move(block);
+    }
+    if (!decl.hasBody()) return -1; // declaration only — no body to lower
+    m_asyncSM = std::make_unique<AsyncSM>();
+    // Validate the declared return type: it must be carriable by a Task.
+    std::string kind;
+    if (!asyncReturnKind(returnType, kind)) {
+        reportUnsupported(decl.getLocation(), "async fn",
+            "the return type of this 'async fn' cannot be carried by a Task "
+            "(only void, int, bool, string, double, array and struct payloads are supported)");
+        m_asyncSM.reset();
+        return -1;
+    }
+    m_asyncSM->payloadKind = kind;
+    if (kind == "struct") {
+        std::string structName = returnType->toString();
+        const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(structName) : nullptr;
+        if (!layout || !layout->structType) {
+            reportUnsupported(decl.getLocation(), "async fn",
+                "the struct return type of this 'async fn' has no lowered struct type");
+            m_asyncSM.reset();
+            return -1;
+        }
+        m_asyncSM->structType = layout->structType;
+    }
+    // Validate + record the params (`this` first for methods). A
+    // struct parameter cannot be carried in an 8-byte ctx slot.
+    if (thisType) {
+        m_asyncSM->paramNames.push_back("this");
+        m_asyncSM->paramIRTypes.push_back(IRType::getPointer());
+    }
+    for (size_t i = 0; i < semaParamTypes.size(); ++i) {
+        const auto& t = semaParamTypes[i];
+        if (t && t->isStruct()) {
+            reportUnsupported(decl.getLocation(), "async fn",
+                "a parameter of struct type cannot be carried to an 'async fn' "
+                "(pass a pointer or a class instead)");
+            m_asyncSM.reset();
+            return -1;
+        }
+        m_asyncSM->paramNames.push_back(decl.getParams()[i].getName());
+        m_asyncSM->paramIRTypes.push_back(mapType(t.get()));
+    }
+    for (size_t i = 0; i < m_asyncSM->paramNames.size(); ++i) {
+        m_asyncSM->paramSlots[static_cast<int>(i)] = AsyncSM::kFirstParamSlot + static_cast<int64_t>(i);
+    }
+    m_asyncSM->nextSlot = AsyncSM::kFirstParamSlot + static_cast<int64_t>(m_asyncSM->paramNames.size());
+    // Scan the body: assign local slots + hoist extra awaits.
+    int64_t count = asyncScanBlock(*decl.getBodyPtr());
+    if (count < 0) {
+        m_asyncSM.reset();
+        return -1;
+    }
+    m_asyncSM->frameSize = m_asyncSM->nextSlot * 8;
+    return count;
+}
+
+void IRBuilder::asyncSMBegin(const std::string& compiledName, IRFunction* bodyFn) {
+    auto& sm = *m_asyncSM;
+    sm.bodyFn = bodyFn;
+    // The resume function: void __sp_async_resume_<name>(ptr %frame).
+    std::vector<std::shared_ptr<ParameterValue>> resumeParams;
+    resumeParams.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%frame", 0));
+    auto resumeFn = m_module->createFunction(asyncResumeName(compiledName), IRType::getVoid(), resumeParams);
+    sm.resumeFn = resumeFn;
+    sm.frameParam = resumeParams[0];
+    sm.dispatcherBB = resumeFn->createBasicBlock("entry");
+    sm.segment0BB = resumeFn->createBasicBlock("segment0");
+    sm.finishBB = resumeFn->createBasicBlock("finish");
+    // Lower the body statements into the resume function, starting in
+    // segment 0. Params are declared as frame slots (the body prologue,
+    // emitted by asyncSMEnd, fills them from the ctx).
+    m_currentFunction = resumeFn;
+    setInsertPoint(sm.segment0BB);
+    for (size_t i = 0; i < sm.paramNames.size(); ++i) {
+        int64_t slot = sm.paramSlots[static_cast<int>(i)];
+        auto gep = asyncFrameSlotGEP(slot);
+        declareVariable(sm.paramNames[i], gep, sm.paramIRTypes[i]);
+    }
+}
+
+void IRBuilder::asyncSMEnd() {
+    auto& sm = *m_asyncSM;
+    // A body that falls off the end without a return branches to the
+    // finish block (sema requires a return on all paths for non-void
+    // fns, but be safe rather than leave the segment unterminated).
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(sm.finishBB->getName()));
+    }
+    // Dispatcher chain (entry block): state 0 -> segment 0, state
+    // N -> continuations[N-1], anything else -> finish. The state
+    // value is loaded once in the entry block (it dominates the check
+    // blocks); each check is `icmp eq %state, N`.
+    setInsertPoint(sm.dispatcherBB);
+    auto state = asyncFrameLoad(AsyncSM::kStateSlot, IRType::getInt64(), "async_state");
+    IRBasicBlock* checkBB = sm.dispatcherBB;
+    for (size_t i = 0; i <= sm.continuations.size(); ++i) {
+        IRBasicBlock* target = (i == 0) ? sm.segment0BB : sm.continuations[i - 1];
+        bool isLast = (i == sm.continuations.size());
+        IRBasicBlock* elseBB = isLast
+            ? sm.finishBB
+            : m_currentFunction->createBasicBlock("async_check_" + std::to_string(i + 1));
+        auto cmp = std::make_shared<CompareInst>(
+            IROpcode::ICmpEq, state,
+            std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(i)),
+            m_currentFunction->nextTempName("async_state_eq"));
+        checkBB->addInstruction(cmp);
+        checkBB->addInstruction(std::make_shared<CondBranchInst>(
+            cmp, target->getName(), elseBB->getName()));
+        checkBB = elseBB;
+        if (isLast) break;
+    }
+    // Finish block: complete the task with the return value (a no-op
+    // when the task was already cancelled), free the frame, return.
+    setInsertPoint(sm.finishBB);
+    auto task = asyncFrameLoad(AsyncSM::kTaskSlot, IRType::getPointer(), "async_task");
+    const std::string& kind = sm.payloadKind;
+    if (kind == "void") {
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_complete_void",
+            std::vector<IRValuePtr>{task}));
+    } else if (kind == "int" || kind == "bool") {
+        auto v = asyncFrameLoad(AsyncSM::kRetValSlot, IRType::getInt64(), "async_ret");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_complete_i64",
+            std::vector<IRValuePtr>{task, v}));
+    } else if (kind == "string") {
+        auto v = asyncFrameLoad(AsyncSM::kRetValSlot, IRType::getPointer(), "async_ret");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_complete_str",
+            std::vector<IRValuePtr>{task, v}));
+        // Balance the retain in visit(ReturnStmt): the task copied the
+        // string, so the returned reference can be released now.
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_release",
+            std::vector<IRValuePtr>{v}));
+    } else if (kind == "double") {
+        auto v = asyncFrameLoad(AsyncSM::kRetValSlot, IRType::getDouble(), "async_ret");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_complete_dbl",
+            std::vector<IRValuePtr>{task, v}));
+    } else if (kind == "array") {
+        auto v = asyncFrameLoad(AsyncSM::kRetValSlot, IRType::getPointer(), "async_ret");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_complete_ptr",
+            std::vector<IRValuePtr>{task, v}));
+    } else if (kind == "struct") {
+        auto v = asyncFrameLoad(AsyncSM::kRetValSlot, IRType::getPointer(), "async_ret");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_complete_ptr_owned",
+            std::vector<IRValuePtr>{task, v}));
+    }
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_free",
+        std::vector<IRValuePtr>{sm.frameParam}));
+    m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    // Body prologue (in the body function's entry block): allocate
+    // the frame, store the task + the ctx args into their slots, call
+    // the resume function, free the ctx, return.
+    IRFunction* bodyFn = sm.bodyFn;
+    IRBasicBlock* bodyEntry = bodyFn->getEntryBlock();
+    const auto& bodyParams = bodyFn->getParams();
+    IRValuePtr taskParam = bodyParams[0];
+    IRValuePtr ctxParam = bodyParams[1];
+    m_currentFunction = bodyFn;
+    setInsertPoint(bodyEntry);
+    auto frameAlloc = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_alloc",
+        std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), sm.frameSize)},
+        m_currentFunction->nextTempName("async_frame"));
+    m_currentBlock->addInstruction(frameAlloc);
+    auto bodySlotGEP = [&](int64_t slot) {
+        auto gep = std::make_shared<GetElementPtrInst>(
+            IRType::getInt8(), frameAlloc,
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+                IRType::getInt64(), asyncFrameOffset(slot))},
+            m_currentFunction->nextTempName("frame_slot"));
+        m_currentBlock->addInstruction(gep);
+        return gep;
+    };
+    // frame[1] = task.
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(taskParam, bodySlotGEP(AsyncSM::kTaskSlot)));
+    // frame[paramSlot[i]] = ctx[i] (cast from the ctx storage type to
+    // the declared param type: i64 -> i32/i1, double -> double, ...).
+    for (size_t i = 0; i < sm.paramNames.size(); ++i) {
+        IRTypePtr paramTy = sm.paramIRTypes[i];
+        IRTypePtr storageTy;
+        if (paramTy->isInteger()) storageTy = IRType::getInt64();
+        else if (paramTy->isPointer()) storageTy = IRType::getPointer();
+        // isFloatingPoint() covers BOTH float and double (see
+        // emitAsyncSpawnSM) — isFloat() alone would silently skip a
+        // `double` param, leaving its frame slot uninitialized.
+        else if (paramTy->isFloatingPoint()) storageTy = IRType::getDouble();
+        else continue; // cannot happen: asyncPrepareBody rejected struct params
+        auto gep = std::make_shared<GetElementPtrInst>(
+            IRType::getInt8(), ctxParam,
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+                IRType::getInt64(), static_cast<int64_t>(i * 8))},
+            m_currentFunction->nextTempName("ctx_slot"));
+        m_currentBlock->addInstruction(gep);
+        auto loaded = std::make_shared<LoadInst>(storageTy, gep, m_currentFunction->nextTempName("ctx_arg"));
+        m_currentBlock->addInstruction(loaded);
+        IRValuePtr argVal = emitCastIfNeeded(loaded, paramTy);
+        int64_t slot = sm.paramSlots[static_cast<int>(i)];
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(argVal, bodySlotGEP(slot)));
+    }
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), sm.resumeFn->getName(),
+        std::vector<IRValuePtr>{frameAlloc}));
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_free",
+        std::vector<IRValuePtr>{ctxParam}));
+    m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    m_asyncSM.reset();
+}
+
+IRValuePtr IRBuilder::asyncSuspendAndLoad(IRValuePtr task, const std::string& kind, IRTypePtr structTy, bool destroyTask) {
+    auto& sm = *m_asyncSM;
+    // One continuation per await: contBB is the dispatcher target (it
+    // does the cancellation check), bodyBB is where lowering
+    // continues. State N (1-based) resumes at continuations[N-1].
+    int64_t state = static_cast<int64_t>(sm.continuations.size()) + 1;
+    IRBasicBlock* contBB = m_currentFunction->createBasicBlock(
+        "async_cont_" + std::to_string(state));
+    IRBasicBlock* bodyBB = m_currentFunction->createBasicBlock(
+        "async_resume_" + std::to_string(state));
+    sm.continuations.push_back(contBB);
+    // In the current segment: store the next state + the awaited task,
+    // register the resume (posted to the scheduler, never called
+    // synchronously), and return — the stack unwinds.
+    asyncFrameStore(AsyncSM::kStateSlot, std::make_shared<ConstantInt>(IRType::getInt64(), state));
+    asyncFrameStore(AsyncSM::kAwaitTaskSlot, task);
+    auto sched = emitAsyncScheduler();
+    auto resumeAddr = std::make_shared<FunctionAddress>(sm.resumeFn->getName());
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_async_task_on_complete_resume",
+        std::vector<IRValuePtr>{sched, task, resumeAddr, sm.frameParam}));
+    m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    // Continuation: a body cancelled while suspended stops here — it
+    // branches to the finish block (which completes the task, a no-op,
+    // and frees the frame) instead of running the rest of the body.
+    setInsertPoint(contBB);
+    auto ownTask = asyncFrameLoad(AsyncSM::kTaskSlot, IRType::getPointer(), "async_task");
+    auto wasCancelled = std::make_shared<CallInst>(
+        IRType::getInt1(), "sp_rt_async_task_was_cancelled",
+        std::vector<IRValuePtr>{ownTask},
+        m_currentFunction->nextTempName("async_cancelled"));
+    m_currentBlock->addInstruction(wasCancelled);
+    m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+        wasCancelled, sm.finishBB->getName(), bodyBB->getName()));
+    // Resume body: load the awaited value with the non-blocking
+    // getters (the awaited task is already complete — its
+    // continuation fired to resume us; a cancelled awaited task
+    // yields the default value and the body continues).
+    setInsertPoint(bodyBB);
+    auto awaitTask = asyncFrameLoad(AsyncSM::kAwaitTaskSlot, IRType::getPointer(), "async_await_task");
+    IRValuePtr value = nullptr;
+    if (kind == "void") {
+        value = nullptr;
+    } else if (kind == "int" || kind == "bool") {
+        auto v = std::make_shared<CallInst>(
+            IRType::getInt64(), "sp_rt_async_task_value_i64",
+            std::vector<IRValuePtr>{awaitTask},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(v);
+        value = (kind == "bool") ? emitCastIfNeeded(v, IRType::getInt1()) : v;
+    } else if (kind == "string") {
+        value = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_async_task_value_str",
+            std::vector<IRValuePtr>{awaitTask},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(value));
+    } else if (kind == "double") {
+        value = std::make_shared<CallInst>(
+            IRType::getDouble(), "sp_rt_async_task_value_dbl",
+            std::vector<IRValuePtr>{awaitTask},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(value));
+    } else if (kind == "array") {
+        value = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_async_task_value_ptr",
+            std::vector<IRValuePtr>{awaitTask},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(value));
+    } else if (kind == "struct" && structTy) {
+        auto box = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_async_task_value_ptr",
+            std::vector<IRValuePtr>{awaitTask},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(box);
+        value = emitStructValueFromBox(box, structTy);
+    } else {
+        reportUnsupported(diagnostics::SourceLocation{}, "await expression",
+            "internal error: unsupported async payload kind '" + kind + "'");
+        return nullptr;
+    }
+
+    // A temporary task (created by this await itself) is destroyed
+    // now that its value has been copied out. The task handle is
+    // re-loaded from the frame — the SSA value from the previous
+    // segment does not dominate the continuation. For an array the
+    // pointer outlives the task by design, for a string the getter
+    // returns a fresh copy, and for a struct the value was loaded by
+    // value, so destroying the task here is safe. (The destroy lands
+    // in the merge block for a struct await — emitStructValueFromBox
+    // moved the insert point there — which is where lowering must
+    // continue, so the insert point is NOT reset to bodyBB below.)
+    if (destroyTask) {
+        auto t = asyncFrameLoad(AsyncSM::kAwaitTaskSlot, IRType::getPointer(), "await_task");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_destroy",
+            std::vector<IRValuePtr>{t}));
+    }
+
+    // The insert point is already where lowering must continue:
+    // bodyBB for scalar kinds, the merge block for a struct await.
+    // (Resetting it to bodyBB here would abandon the merge block
+    // without a terminator and add instructions after bodyBB's
+    // CondBranch.)
+    return value;
 }
 
 void IRBuilder::visit(const ast::AwaitExpr& node) {
@@ -8552,46 +9765,39 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
     //     Task, or a call to a non-async fn returning Task<T>): pumps
     //     until the task completes. The task is NOT destroyed — its
     //     owner keeps it, so awaiting it twice returns the same value.
-    //   Payloads are void / int / bool / string (the Task payload the
-    //   runtime can carry). All forms may appear anywhere in the async
-    //   fn body (statement, initializer, inside if/while, ...) because
-    //   the lowering is pump-based, not a state machine (see below).
+    //   Payloads are void / int / bool / string / double / array /
+    //   struct (the Task payload the runtime can carry). All forms
+    //   may appear anywhere in the async fn body (statement,
+    //   initializer, inside if/while, ...) because the lowering is
+    //   pump-based, not a state machine (see below).
     //
-    // LOWERING (pump-based await, NOT a heap state machine):
-    //   %sched = call ptr @sp_rt_async_default_scheduler()
-    //   %task  = call ptr @sp_rt_async_sleep_ms(ptr %sched, i64 %ms)
-    //   call void @sp_rt_async_task_await_void(ptr %sched, ptr %task)
-    //   call void @sp_rt_async_task_destroy(ptr %task)
-    //   (value form: %v = call i64 @sp_rt_async_task_await_i64(...);
-    //    string form: %v = call ptr @sp_rt_async_task_await_str(...);
-    //    bool form: i64 await + trunc to i1)
-    // For `await worker(...)` the %task comes from the spawn lowering
-    // (sp_rt_async_create_task + sp_rt_async_spawn_* with the thunk
-    // for `worker`); for `await <Task>` the task value is evaluated
-    // normally. The runtime call that creates the task returns
-    // immediately — the timer / posted body is registered on the
-    // scheduler and runs on the loop. The await call then PUMPS that
-    // scheduler until this task completes, so the awaiting function
-    // makes no progress while other timers/tasks fire in the meantime.
-    // That is real suspension of the async fn's progress with a live
-    // loop — not a blocking sleep: no sp_rt_time_sleep_ms /
-    // sp_rt_thread_sleep_ms is emitted anywhere on this path. Honest
-    // limits of this design: the awaiting frame stays on the stack
-    // while pumping (a heap-frame state machine is future work, so an
-    // async fn cannot return a Task that outlives its own frame —
-    // `let t = worker();` without await only runs when something
-    // pumps, and a task whose body never returns never completes).
+    // LOWERING (Phase 5 slice A): inside an async fn the await
+    // SUSPENDS through the heap-frame state machine (see
+    // asyncSuspendAndLoad): the current segment stores the next
+    // state + the awaited task, registers the resume as the awaited
+    // task's continuation, and returns — the stack unwinds. The
+    // continuation resumes in a fresh invocation of the resume fn.
+    // Outside an async fn (which cannot happen — see the backstop)
+    // the pump path is kept as a fallback: emitAwaitTask pumps the
+    // default scheduler until the task completes. That is real
+    // suspension of the async fn's progress with a live loop — not
+    // a blocking sleep: no sp_rt_time_sleep_ms /
+    // sp_rt_thread_sleep_ms is emitted anywhere on this path.
+    // Honest limits of this design: a task whose body never returns
+    // never completes, and a body cancelled while suspended on a
+    // task that never completes is never resumed (its frame is never
+    // freed — a bounded leak, documented in the Phase 34 slice A doc).
     //
     // NOT SUPPORTED (still error[E1000], never silently miscompiled):
     //   - await on anything else: literals, other calls (sync fns,
     //     `await now()`), operators, ...
     //   - await outside an `async fn` (sema normally rejects this
     //     first with E1802; this is the IRBuilder backstop).
-    //   - async fns with other payload types (double, arrays, ...),
+    //   - async fns with other payload types (classes, ...),
     //     and async fns with unsupported argument types.
     //   Async methods ARE supported, including through a virtual
-    //   dispatch: the indirect thunk carries the vtable function
-    //   pointer in ctx slot 0 (see visit(CallExpr)).
+    //   dispatch: the vtable-loaded body address is passed directly
+    //   as the thunk to sp_rt_async_spawn_sm (see visit(CallExpr)).
     if (!m_inAsyncFunction) {
         reportUnsupported(node.getLocation(), "await",
                           "await is only supported inside an 'async fn' in this phase");
@@ -8626,10 +9832,16 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
                 std::vector<IRValuePtr>{sched, ms},
                 m_currentFunction->nextTempName("async_task"));
             m_currentBlock->addInstruction(taskCall);
-            emitAwaitTask(sched, taskCall, "void");
-            m_currentBlock->addInstruction(std::make_shared<CallInst>(
-                IRType::getVoid(), "sp_rt_async_task_destroy",
-                std::vector<IRValuePtr>{taskCall}));
+            if (inAsyncSM()) {
+                // Phase 5 slice A: suspend through the state machine.
+                // The temporary task is destroyed after the resume.
+                asyncSuspendAndLoad(taskCall, "void", nullptr, true);
+            } else {
+                emitAwaitTask(sched, taskCall, "void");
+                m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_async_task_destroy",
+                    std::vector<IRValuePtr>{taskCall}));
+            }
             m_lastExprValue = nullptr;
             m_lastExprType = IRType::getVoid();
             return;
@@ -8641,33 +9853,50 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
             std::string tn = valSemaType->toString();
             if (tn == "string") valKind = "string";
             else if (tn == "bool") valKind = "bool";
+            else if (tn == "double" || tn == "float" || tn == "float32" || tn == "float64") valKind = "double";
             else if (tn == "int" || tn == "int8" || tn == "int16" || tn == "int32" || tn == "int64") valKind = "int";
         }
         if (valKind.empty()) {
             reportUnsupported(node.getLocation(), "await",
-                              "'delayed_value' only carries int, bool and string payloads in this phase");
+                              "'delayed_value' only carries int, bool, string and double payloads in this phase");
             node.getExpr().accept(*this);
             m_lastExprValue = nullptr;
             m_lastExprType = nullptr;
             return;
         }
         call->getArgs()[1]->accept(*this);
-        IRValuePtr value = (valKind == "string")
-            ? m_lastExprValue
-            : emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        IRValuePtr value;
+        std::string delayedFn;
+        if (valKind == "string") {
+            value = m_lastExprValue;
+            delayedFn = "sp_rt_async_delayed_str";
+        } else if (valKind == "double") {
+            value = emitCastIfNeeded(m_lastExprValue, IRType::getDouble());
+            delayedFn = "sp_rt_async_delayed_dbl";
+        } else {
+            value = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+            delayedFn = "sp_rt_async_delayed_i64";
+        }
         auto taskCall = std::make_shared<CallInst>(
-            IRType::getPointer(),
-            valKind == "string" ? "sp_rt_async_delayed_str" : "sp_rt_async_delayed_i64",
+            IRType::getPointer(), delayedFn,
             std::vector<IRValuePtr>{sched, ms, value},
             m_currentFunction->nextTempName("async_task"));
         m_currentBlock->addInstruction(taskCall);
-        IRValuePtr awaited = emitAwaitTask(sched, taskCall, valKind);
-        m_currentBlock->addInstruction(std::make_shared<CallInst>(
-            IRType::getVoid(), "sp_rt_async_task_destroy",
-            std::vector<IRValuePtr>{taskCall}));
+        IRValuePtr awaited;
+        if (inAsyncSM()) {
+            // Phase 5 slice A: suspend through the state machine.
+            // The temporary task is destroyed after the resume.
+            awaited = asyncSuspendAndLoad(taskCall, valKind, nullptr, true);
+        } else {
+            awaited = emitAwaitTask(sched, taskCall, valKind);
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_async_task_destroy",
+                std::vector<IRValuePtr>{taskCall}));
+        }
         m_lastExprValue = awaited;
         m_lastExprType = valKind == "string" ? IRType::getPointer()
                        : valKind == "bool" ? IRType::getInt1()
+                       : valKind == "double" ? IRType::getDouble()
                        : IRType::getInt64();
         return;
     }
@@ -8680,24 +9909,40 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
             if (!taskPayloadKind(m_sema.getNodeType(call), kind)) {
                 reportUnsupported(node.getLocation(), "await",
                                   "the return type of this 'async fn' cannot be carried by a Task "
-                                  "(only void, int, bool and string payloads are supported)");
+                                  "(only void, int, bool, string, double, array and struct payloads are supported)");
                 node.getExpr().accept(*this);
                 m_lastExprValue = nullptr;
                 m_lastExprType = nullptr;
                 return;
             }
+            IRTypePtr structTy = nullptr;
+            if (kind == "struct") {
+                structTy = asyncStructTypeForTask(m_sema.getNodeType(call));
+                if (!structTy) {
+                    reportUnsupported(node.getLocation(), "await",
+                        "internal error: the struct return type of this 'async fn' has no IR struct type");
+                    node.getExpr().accept(*this);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+            }
             call->accept(*this);
             IRValuePtr task = m_lastExprValue;
-            auto sched = emitAsyncScheduler();
-            IRValuePtr awaited = emitAwaitTask(sched, task, kind);
-            m_currentBlock->addInstruction(std::make_shared<CallInst>(
-                IRType::getVoid(), "sp_rt_async_task_destroy",
-                std::vector<IRValuePtr>{task}));
+            IRValuePtr awaited;
+            if (inAsyncSM()) {
+                // Phase 5 slice A: suspend through the state machine.
+                // The temporary task is destroyed after the resume.
+                awaited = asyncSuspendAndLoad(task, kind, structTy, true);
+            } else {
+                auto sched = emitAsyncScheduler();
+                awaited = emitAwaitTask(sched, task, kind, structTy);
+                m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_async_task_destroy",
+                    std::vector<IRValuePtr>{task}));
+            }
             m_lastExprValue = awaited;
-            m_lastExprType = kind == "void" ? IRType::getVoid()
-                           : kind == "string" ? IRType::getPointer()
-                           : kind == "bool" ? IRType::getInt1()
-                           : IRType::getInt64();
+            m_lastExprType = asyncAwaitedIRType(kind, structTy);
             return;
         }
     }
@@ -8707,15 +9952,30 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
     {
         std::string kind;
         if (taskPayloadKind(m_sema.getNodeType(&node.getExpr()), kind)) {
+            IRTypePtr structTy = nullptr;
+            if (kind == "struct") {
+                structTy = asyncStructTypeForTask(m_sema.getNodeType(&node.getExpr()));
+                if (!structTy) {
+                    reportUnsupported(node.getLocation(), "await",
+                        "internal error: the struct type carried by this Task has no IR struct type");
+                    node.getExpr().accept(*this);
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+            }
             node.getExpr().accept(*this);
             IRValuePtr task = m_lastExprValue;
-            auto sched = emitAsyncScheduler();
-            IRValuePtr awaited = emitAwaitTask(sched, task, kind);
+            IRValuePtr awaited;
+            if (inAsyncSM()) {
+                // Phase 5 slice A: suspend through the state machine.
+                awaited = asyncSuspendAndLoad(task, kind, structTy);
+            } else {
+                auto sched = emitAsyncScheduler();
+                awaited = emitAwaitTask(sched, task, kind, structTy);
+            }
             m_lastExprValue = awaited;
-            m_lastExprType = kind == "void" ? IRType::getVoid()
-                           : kind == "string" ? IRType::getPointer()
-                           : kind == "bool" ? IRType::getInt1()
-                           : IRType::getInt64();
+            m_lastExprType = asyncAwaitedIRType(kind, structTy);
             return;
         }
     }

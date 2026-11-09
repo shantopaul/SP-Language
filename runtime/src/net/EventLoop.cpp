@@ -1,6 +1,8 @@
 #include "sp/runtime/EventLoop.h"
 #include "sp/runtime/Async.h"
+#include "sp/runtime/Runtime.h"
 #include <algorithm>
+#include <cstring>
 #include <thread>
 #include <utility>
 
@@ -104,9 +106,31 @@ namespace {
 std::chrono::steady_clock::time_point nowTp() {
     return std::chrono::steady_clock::now();
 }
+// Owned copy of a string via the SP allocator (never freed; matches how
+// SP strings are owned by their holders).
+const char* copyStrOwned(const std::string& s) {
+    char* p = static_cast<char*>(::sp_rt_alloc(s.size() + 1));
+    std::memcpy(p, s.data(), s.size());
+    p[s.size()] = '\0';
+    return p;
+}
 } // namespace
 
 // --- Task -------------------------------------------------------------------
+
+Task::~Task() {
+    // Free an owned pointer payload (completePtrOwned box). The Task is
+    // held in a shared_ptr, so this runs when the last reference drops.
+    // Non-owned payloads (arrays via completePtr) are never freed here.
+    void* owned = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        if (m_ownsPtr) owned = m_ptrValue;
+        m_ptrValue = nullptr;
+        m_ownsPtr = false;
+    }
+    if (owned) ::sp_rt_free(owned);
+}
 
 bool Task::isReady() const {
     std::lock_guard<std::mutex> lock(m_mtx);
@@ -126,6 +150,16 @@ int64_t Task::value() const {
 std::string Task::strValue() const {
     std::lock_guard<std::mutex> lock(m_mtx);
     return m_strValue;
+}
+
+double Task::dblValue() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_dblValue;
+}
+
+void* Task::ptrValue() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_ptrValue;
 }
 
 void Task::wait() const {
@@ -179,6 +213,53 @@ void Task::completeStr(const char* v) {
         m_done = true;
         m_value = 0;
         m_strValue = v ? v : "";
+        cbs = std::move(m_continuations);
+        m_continuations.clear();
+    }
+    m_cv.notify_all();
+    for (auto& cb : cbs) cb(*this);
+}
+
+void Task::completeDbl(double v) {
+    std::vector<std::function<void(Task&)>> cbs;
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        if (m_done) return;
+        m_done = true;
+        m_value = 0;
+        m_dblValue = v;
+        cbs = std::move(m_continuations);
+        m_continuations.clear();
+    }
+    m_cv.notify_all();
+    for (auto& cb : cbs) cb(*this);
+}
+
+void Task::completePtr(void* p) {
+    std::vector<std::function<void(Task&)>> cbs;
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        if (m_done) return;
+        m_done = true;
+        m_value = 0;
+        m_ptrValue = p;
+        m_ownsPtr = false;
+        cbs = std::move(m_continuations);
+        m_continuations.clear();
+    }
+    m_cv.notify_all();
+    for (auto& cb : cbs) cb(*this);
+}
+
+void Task::completePtrOwned(void* p) {
+    std::vector<std::function<void(Task&)>> cbs;
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        if (m_done) return;
+        m_done = true;
+        m_value = 0;
+        m_ptrValue = p;
+        m_ownsPtr = (p != nullptr);
         cbs = std::move(m_continuations);
         m_continuations.clear();
     }
@@ -467,6 +548,19 @@ TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value
     return task;
 }
 
+TaskPtr delayedValueDblTask(Scheduler& sched, int64_t delayMs, double value) {
+    auto task = std::make_shared<Task>();
+    std::weak_ptr<Task> weak = task;
+    uint64_t id = sched.scheduleAfter(delayMs, [weak, value] {
+        if (auto t = weak.lock()) t->completeDbl(value);
+    });
+    {
+        std::lock_guard<std::mutex> lock(task->m_mtx);
+        task->m_timerId = id;
+    }
+    return task;
+}
+
 int64_t awaitTask(Scheduler& sched, Task& task) {
     // Pump the loop until this task completes. Other timers/tasks fire
     // while this await is outstanding — that is the whole point: the
@@ -487,6 +581,163 @@ bool awaitTaskVoid(Scheduler& sched, Task& task) {
 std::string awaitTaskStr(Scheduler& sched, Task& task) {
     sched.runUntil([&task] { return task.isReady(); });
     return task.strValue();
+}
+
+double awaitTaskDbl(Scheduler& sched, Task& task) {
+    sched.runUntil([&task] { return task.isReady(); });
+    return task.dblValue();
+}
+
+void* awaitTaskPtr(Scheduler& sched, Task& task) {
+    sched.runUntil([&task] { return task.isReady(); });
+    return task.ptrValue();
+}
+
+// --- Combinators ------------------------------------------------------------
+// Shared state for all/race. Guarded by its own mutex: continuations may
+// fire on the pump thread or on a thread completing a task.
+namespace {
+struct CombinatorState {
+    std::mutex mtx;
+    TaskPtr result;
+    TaskPayload kind{TaskPayload::Void};
+    // all(): results collected in input order; remaining inputs.
+    void* resultsArray{nullptr};
+    size_t remaining{0};
+    bool anyCancelled{false};
+    // race(): first finisher wins; later finishers are ignored.
+    bool settled{false};
+};
+
+void completeAllResult(const std::shared_ptr<CombinatorState>& st) {
+    // Caller holds st->mtx. Completes (or cancels) the result task.
+    if (st->anyCancelled) {
+        st->result->cancel();
+        return;
+    }
+    switch (st->kind) {
+        case TaskPayload::Int:
+        case TaskPayload::Str:
+        case TaskPayload::Dbl:
+            st->result->completePtr(st->resultsArray);
+            break;
+        case TaskPayload::Void:
+            st->result->complete(0);
+            break;
+    }
+}
+
+void storeAllValue(const std::shared_ptr<CombinatorState>& st, size_t index, Task& input) {
+    // Caller holds st->mtx. Stores one input's value into the results
+    // array (string values are copied: the input task may be destroyed
+    // while the array lives on).
+    switch (st->kind) {
+        case TaskPayload::Int:
+            ::sp_rt_array_set_i64(st->resultsArray, static_cast<int64_t>(index), input.value());
+            break;
+        case TaskPayload::Str: {
+            void* slot = ::sp_rt_array_get_ptr(st->resultsArray, static_cast<int64_t>(index), 8);
+            *static_cast<const char**>(slot) = copyStrOwned(input.strValue());
+            break;
+        }
+        case TaskPayload::Dbl:
+            ::sp_rt_array_set_f64(st->resultsArray, static_cast<int64_t>(index), input.dblValue());
+            break;
+        case TaskPayload::Void:
+            break;
+    }
+}
+
+void completeRaceResult(const std::shared_ptr<CombinatorState>& st, Task& winner) {
+    // Caller holds st->mtx and st->settled is already true.
+    if (winner.wasCancelled()) {
+        st->result->cancel();
+        return;
+    }
+    switch (st->kind) {
+        case TaskPayload::Int:
+            st->result->complete(winner.value());
+            break;
+        case TaskPayload::Str:
+            st->result->completeStr(winner.strValue().c_str());
+            break;
+        case TaskPayload::Dbl:
+            st->result->completeDbl(winner.dblValue());
+            break;
+        case TaskPayload::Void:
+            st->result->complete(0);
+            break;
+    }
+}
+} // namespace
+
+TaskPtr allTasks(Scheduler& sched, const std::vector<TaskPtr>& tasks, TaskPayload kind) {
+    (void)sched; // all() is driven by the inputs' own completions.
+    auto result = std::make_shared<Task>();
+    auto st = std::make_shared<CombinatorState>();
+    st->result = result;
+    st->kind = kind;
+    st->remaining = tasks.size();
+    if (kind == TaskPayload::Int) {
+        st->resultsArray = ::sp_rt_array_alloc(static_cast<int64_t>(tasks.size()), 8);
+    } else if (kind == TaskPayload::Str) {
+        st->resultsArray = ::sp_rt_array_alloc(static_cast<int64_t>(tasks.size()), 8);
+    } else if (kind == TaskPayload::Dbl) {
+        st->resultsArray = ::sp_rt_array_alloc(static_cast<int64_t>(tasks.size()), 8);
+    }
+    if (tasks.empty()) {
+        completeAllResult(st);
+        return result;
+    }
+    for (size_t i = 0; i < tasks.size(); ++i) {
+        TaskPtr input = tasks[i];
+        if (!input) {
+            // A null handle counts as a cancelled input.
+            std::lock_guard<std::mutex> lock(st->mtx);
+            st->anyCancelled = true;
+            if (--st->remaining == 0) completeAllResult(st);
+            continue;
+        }
+        input->onComplete([st, i](Task& t) {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            if (t.wasCancelled()) st->anyCancelled = true;
+            else storeAllValue(st, i, t);
+            if (--st->remaining == 0) completeAllResult(st);
+        });
+    }
+    return result;
+}
+
+TaskPtr raceTasks(Scheduler& sched, const std::vector<TaskPtr>& tasks, TaskPayload kind) {
+    (void)sched; // race() is driven by the inputs' own completions.
+    auto result = std::make_shared<Task>();
+    auto st = std::make_shared<CombinatorState>();
+    st->result = result;
+    st->kind = kind;
+    if (tasks.empty()) {
+        // No winner can ever arrive: complete cancelled so an await
+        // returns promptly with the default value instead of hanging.
+        result->cancel();
+        return result;
+    }
+    for (const auto& input : tasks) {
+        if (!input) {
+            // A null handle counts as a cancelled finisher.
+            std::lock_guard<std::mutex> lock(st->mtx);
+            if (!st->settled) {
+                st->settled = true;
+                st->result->cancel();
+            }
+            continue;
+        }
+        input->onComplete([st](Task& t) {
+            std::lock_guard<std::mutex> lock(st->mtx);
+            if (st->settled) return;
+            st->settled = true;
+            completeRaceResult(st, t);
+        });
+    }
+    return result;
 }
 
 } // namespace sp::rt::async

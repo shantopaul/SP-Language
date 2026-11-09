@@ -572,10 +572,12 @@ TEST(IRBuilderTest, StringIndexOfWithStringArgStillCompiles) {
     ASSERT_NE(module, nullptr);
 }
 
-// Phase 2 slice B2 (pro-4.0.0): `await sleep_async(ms)` inside an async
-// fn now lowers instead of failing. The emitted IR must call the
-// non-blocking async runtime (create task, pump-await it, destroy it)
-// and must NOT call the blocking sleep.
+// Phase 2 slice B2 (pro-4.0.0) + Phase 5 slice A: `await sleep_async(ms)`
+// inside an async fn lowers through the heap-frame state machine (see
+// asyncSuspendAndLoad): the await registers the resume fn as the
+// task's continuation and suspends (no pump-await call), and the
+// temporary task is destroyed after the resume. It must NOT call the
+// blocking sleep.
 TEST(IRBuilderTest, AwaitSleepAsyncLowersToAsyncRuntime) {
     const std::string source = R"(
         async fn worker() {
@@ -597,8 +599,11 @@ TEST(IRBuilderTest, AwaitSleepAsyncLowersToAsyncRuntime) {
 
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_default_scheduler()"), std::string::npos);
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_sleep_ms(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call void @sp_rt_async_task_await_void(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @__sp_async_resume_worker(ptr"), std::string::npos);
     EXPECT_NE(irStr.find("call void @sp_rt_async_task_destroy(ptr"), std::string::npos);
+    // The pump path is gone in the state machine: no await_* call.
+    EXPECT_EQ(irStr.find("call void @sp_rt_async_task_await_void(ptr"), std::string::npos);
     // The module still *declares* the blocking sleeps (they are part of
     // the runtime declarations), but the await path must not *call* them.
     EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
@@ -628,8 +633,13 @@ TEST(IRBuilderTest, AwaitDelayedValueLowersAndYieldsInt) {
     std::string irStr = printer.print(*module);
 
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("ret i32"), std::string::npos); // SP `int` is i32
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    // The body is the state-machine entry `void (ptr, ptr)`; the
+    // finish block completes the task with the int payload.
+    EXPECT_NE(irStr.find("define void @worker(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_i64(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
     EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
 }
 
@@ -719,13 +729,16 @@ TEST(IRBuilderTest, AwaitOnUserAsyncFnCallLowers) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    // The call spawns (create_task + spawn_i64 with the thunk), the
-    // await pumps and destroys the temporary task.
+    // The call spawns (create_task + spawn_sm with the body address
+    // as the thunk); the await suspends through the state machine
+    // (on_complete_resume + value getter) and destroys the temporary
+    // task after the resume.
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_create_task()"), std::string::npos);
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("@__sp_async_thunk_inner"), std::string::npos);
-    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_inner(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("ptr @inner, ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @inner(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
     EXPECT_NE(irStr.find("call void @sp_rt_async_task_destroy(ptr"), std::string::npos);
     EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
 }
@@ -753,9 +766,11 @@ TEST(IRBuilderTest, CallToAsyncFnReturnsTaskWithoutAwait) {
     std::string irStr = printer.print(*module);
 
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_create_task()"), std::string::npos);
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_inner(ptr"), std::string::npos);
-    EXPECT_EQ(irStr.find("call i64 @sp_rt_async_task_await_i64"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @inner(ptr"), std::string::npos);
+    // No await here, so no suspend and no value getter.
+    EXPECT_EQ(irStr.find("call void @sp_rt_async_task_on_complete_resume"), std::string::npos);
+    EXPECT_EQ(irStr.find("call i64 @sp_rt_async_task_value_i64"), std::string::npos);
     // main drains fire-and-forget tasks before exiting.
     EXPECT_NE(irStr.find("call void @sp_rt_async_scheduler_run_tasks_until_idle(ptr"), std::string::npos);
 }
@@ -788,13 +803,15 @@ TEST(IRBuilderTest, AwaitOnTaskVariableLowersWithoutDestroy) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
     EXPECT_EQ(irStr.find("call void @sp_rt_async_task_destroy"), std::string::npos);
 }
 
-// Phase 3 slice C: string payloads — spawn_str / await_str, and the
-// thunk returns the string pointer.
+// Phase 3 slice C + Phase 5 slice A: string payloads — spawn_sm with
+// the body address, suspend via on_complete_resume, value_str getter,
+// and the finish block completes with the string pointer.
 TEST(IRBuilderTest, AwaitOnUserAsyncFnWithStringPayloadLowers) {
     const std::string source = R"(
         async fn greeter() -> string {
@@ -819,9 +836,11 @@ TEST(IRBuilderTest, AwaitOnUserAsyncFnWithStringPayloadLowers) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_str(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_await_str(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("define ptr @__sp_async_thunk_greeter(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @greeter(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_str(ptr"), std::string::npos);
 }
 
 // Phase 3 slice C: bool payloads ride the i64 task with a trunc to i1.
@@ -849,8 +868,9 @@ TEST(IRBuilderTest, AwaitOnUserAsyncFnWithBoolPayloadLowers) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
     EXPECT_NE(irStr.find("trunc i64"), std::string::npos);
 }
 
@@ -876,7 +896,8 @@ TEST(IRBuilderTest, AwaitDelayedValueStringLowers) {
     std::string irStr = printer.print(*module);
 
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_str(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_await_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_str(ptr"), std::string::npos);
 }
 
 TEST(IRBuilderTest, AwaitDelayedValueBoolLowers) {
@@ -900,12 +921,15 @@ TEST(IRBuilderTest, AwaitDelayedValueBoolLowers) {
     std::string irStr = printer.print(*module);
 
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
     EXPECT_NE(irStr.find("trunc i64"), std::string::npos);
 }
 
-// Phase 3 slice C: an async method called through a virtual dispatch
-// spawns through the INDIRECT thunk (vtable fn pointer in ctx slot 0).
+// Phase 3 slice C + Phase 5 slice A: an async method called through a
+// virtual dispatch spawns with the vtable-loaded body address passed
+// directly as the thunk to sp_rt_async_spawn_sm (no indirect thunk —
+// the body itself is the entry `void (ptr, ptr)`).
 TEST(IRBuilderTest, AsyncMethodCallThroughVirtualDispatchLowers) {
     const std::string source = R"(
         class Greeter {
@@ -933,10 +957,11 @@ TEST(IRBuilderTest, AsyncMethodCallThroughVirtualDispatchLowers) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("@__sp_async_thunk_indirect_Greeter_greet"), std::string::npos);
-    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_indirect_Greeter_greet(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    // No indirect thunk exists any more (Design 2 in the slice doc).
+    EXPECT_EQ(irStr.find("__sp_async_thunk_indirect"), std::string::npos);
 }
 
 // Phase 3 slice C: an async method can await inside its own body.
@@ -965,9 +990,11 @@ TEST(IRBuilderTest, AwaitInsideAsyncMethodLowers) {
     std::string irStr = printer.print(*module);
 
     EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
-    // The method body itself is compiled (not just the thunk).
-    EXPECT_NE(irStr.find("define i32 @Worker_run("), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    // The method body itself is compiled as the state-machine entry
+    // `void (ptr, ptr)` (not the old `i32 @Worker_run(...)`).
+    EXPECT_NE(irStr.find("define void @Worker_run(ptr"), std::string::npos);
 }
 
 // Phase 3 slice C: generic async fns monomorphize + spawn + await.
@@ -995,14 +1022,17 @@ TEST(IRBuilderTest, GenericAsyncFnCallLowers) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("@__sp_async_thunk_identity_int"), std::string::npos);
-    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_identity_int(ptr"), std::string::npos);
-    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("ptr @identity_int, ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @identity_int(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
 }
 
-// Phase 3 slice C: still fails loudly — Task<double> cannot be carried.
-TEST(IRBuilderTest, AwaitOnAsyncFnWithDoublePayloadStillFailsIRGeneration) {
+// Phase 5 slice A: Task<double> now lowers — the double payload is
+// carried through the state machine (spawn_sm, on_complete_resume,
+// value_dbl getter, complete_dbl in the finish block).
+TEST(IRBuilderTest, AwaitOnAsyncFnWithDoublePayloadLowers) {
     const std::string source = R"(
         async fn dbl() -> double {
             return 1.5;
@@ -1017,7 +1047,130 @@ TEST(IRBuilderTest, AwaitOnAsyncFnWithDoublePayloadStillFailsIRGeneration) {
         }
     )";
 
-    EXPECT_EQ(compileToIR(source), nullptr);
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @dbl(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call double @sp_rt_async_task_value_dbl(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_dbl(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: Task<int[]> lowers — the array pointer is carried
+// through the state machine (value_ptr getter, complete_ptr in the
+// finish block; the array is NOT owned by the task).
+TEST(IRBuilderTest, AwaitOnAsyncFnWithArrayPayloadLowers) {
+    const std::string source = R"(
+        async fn nums() -> int[] {
+            return [1, 2, 3];
+        }
+
+        async fn worker() -> int {
+            var a = await nums();
+            return a[0];
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @nums(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_ptr(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_ptr(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: Task<Point> (user struct) lowers — the struct value
+// is boxed into a heap allocation (complete_ptr_owned in the finish
+// block; the task owns the box and frees it on destroy).
+TEST(IRBuilderTest, AwaitOnAsyncFnWithStructPayloadLowers) {
+    const std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        async fn mkpt() -> Point {
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            return p;
+        }
+
+        async fn worker() -> int {
+            var p = await mkpt();
+            return p.x;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @mkpt(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_ptr(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_ptr_owned(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: locals live in the heap frame, so they survive
+// across an await — the body lowers to a resume function with a
+// dispatcher (state 0 -> segment 0) and a continuation, and the frame
+// is heap-allocated (sp_rt_alloc) and freed in the finish block.
+TEST(IRBuilderTest, AsyncFnLocalsSurviveAcrossAwait) {
+    const std::string source = R"(
+        async fn worker() -> int {
+            var a = 10;
+            var b = 20;
+            await sleep_async(30);
+            return a + b;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define void @__sp_async_resume_worker(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_alloc(i64"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    // The dispatcher branches on the frame state (state 0 -> segment 0).
+    EXPECT_NE(irStr.find("async_state"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_free(ptr"), std::string::npos);
 }
 
 // Phase 3 slice D (pro-4.0.0): comptime is now REALLY evaluated at

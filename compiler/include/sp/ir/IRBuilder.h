@@ -8,6 +8,7 @@
 #include "sp/ir/IRModule.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/sema/ComptimeEvaluator.h"
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -120,49 +121,59 @@ private:
     void reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
                            const std::string& detail);
 
-    // Phase 3 slice C (pro-4.0.0): async spawn / await helpers.
-    // Calling an `async fn` returns a Task instead of running the body:
-    // the body runs as a posted callback on the scheduler, driven by a
-    // compiler-generated thunk that loads its arguments from a heap ctx.
-    // Awaiting pumps the scheduler (B2 design) — the awaiting frame
-    // stays on the stack; this is NOT a heap-frame state machine.
-    // Payload kinds are "void" | "int" | "bool" | "string" (the Task
-    // payload the runtime can carry); anything else fails loudly.
-    std::string asyncThunkName(const std::string& compiledName) const;
-    // Name of the indirect thunk: the function pointer is loaded from
-    // the vtable at the call site and carried in ctx slot 0 (used for
-    // async methods called through a virtual dispatch).
-    std::string asyncThunkIndirectName(const std::string& compiledName) const;
+    // Phase 3 slice C (pro-4.0.0): async spawn / await helpers, as
+    // reworked by Phase 5 slice A (state machine). Calling an `async
+    // fn` returns a Task instead of running the body: the body runs as
+    // a posted callback on the scheduler. The body itself is the entry
+    // point — `void <name>(ptr %task, ptr %ctx)` — it allocates a heap
+    // frame, stores task + args, and calls the resume function
+    // `void __sp_async_resume_<name>(ptr %frame)`, which holds the
+    // dispatcher + one segment block per await point. Awaiting suspends:
+    // the current segment stores its state and registers the next
+    // segment as the awaited task's continuation (posted to the
+    // scheduler, never called synchronously); the stack unwinds, and
+    // the resume re-enters at the recorded state. Payload kinds are
+    // "void" | "int" | "bool" | "string" | "double" | "array" |
+    // "struct" (the Task payload the runtime can carry); anything else
+    // (e.g. a class return) fails loudly at the declaration.
+    // Name of the resume function for an async body.
+    std::string asyncResumeName(const std::string& compiledName) const;
     // Unwrap Task<T>/Future<T> to its payload kind; false when the type
     // is not a Task/Future or the payload cannot be carried.
     bool taskPayloadKind(const sema::TypePtr& taskType, std::string& outKind) const;
     // Payload kind of an async fn's declared return type (sema type).
     bool asyncReturnKind(const sema::TypePtr& returnType, std::string& outKind) const;
     IRValuePtr emitAsyncScheduler();
-    // Spawn `compiledName` as a task: allocate a heap ctx, store the
-    // lowered args in 8-byte slots, post the thunk. Returns the task
+    // Spawn `thunk` (a body-entry function value: a FunctionAddress for
+    // a direct call, or a vtable-loaded pointer for a virtual call) as
+    // a task: allocate a heap ctx, store the lowered args in 8-byte
+    // slots, post the body via sp_rt_async_spawn_sm. Returns the task
     // handle (ptr), or nullptr when an argument type cannot be carried.
-    // When `fnPtr` is given (virtual dispatch), ctx slot 0 holds the
-    // function pointer and the args shift by one slot, and the indirect
-    // thunk is used instead of the direct one.
-    IRValuePtr emitAsyncSpawn(const std::string& compiledName, const std::string& payloadKind,
-                              const std::vector<IRValuePtr>& argValues,
-                              const std::vector<IRTypePtr>& argTypes,
-                              IRValuePtr fnPtr = nullptr);
+    // Unlike the Phase 3 spawn, this does NOT complete the task — the
+    // body completes it in its finish block.
+    IRValuePtr emitAsyncSpawnSM(IRValuePtr thunk,
+                                const std::vector<IRValuePtr>& argValues,
+                                const std::vector<IRTypePtr>& argTypes);
     // Await `task` (a Task handle) on `sched` and return its payload
-    // value (nullptr for void). Does NOT destroy the task.
-    IRValuePtr emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std::string& payloadKind);
-    // Generate `__sp_async_thunk_<compiledName>(ptr %ctx)`: loads the
-    // params from the ctx, calls the body, frees the ctx, returns the
-    // result (cast to i64 for int/bool, as-is for string/void/double).
-    // With `indirect`, the thunk is `__sp_async_thunk_indirect_<name>`
-    // and loads the function pointer from ctx slot 0 (virtual
-    // dispatch) instead of calling a fixed name. No-op when the thunk
-    // already exists.
-    void emitAsyncThunk(const std::string& compiledName,
-                        const std::vector<IRTypePtr>& paramTypes,
-                        IRTypePtr returnType,
-                        bool indirect = false);
+    // value (nullptr for void). Does NOT destroy the task. The pump
+    // path, kept as the fallback when no state machine is active (all
+    // async fns use the state machine; see asyncSMBegin). `structTy`
+    // is the IR struct type for a "struct" payload.
+    IRValuePtr emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std::string& payloadKind,
+                             IRTypePtr structTy = nullptr);
+    // Load a struct payload value out of a task's heap box (`box` may
+    // be null when the task was cancelled — then the zero value is
+    // returned instead of loading through null). Uses an entry-block
+    // temp alloca + two branches + a merge load (no Phi nodes exist).
+    IRValuePtr emitStructValueFromBox(IRValuePtr box, IRTypePtr structTy);
+    // Param types for an async call, derived from sema (the declared
+    // param types of the target + `this` for methods). The body's IR
+    // function params are (task, ctx) after the Phase 5 rework, so call
+    // sites must never derive param types from the body's signature.
+    // `thisType` is the sema type of `this` for method calls.
+    std::vector<IRTypePtr> asyncSpawnParamTypes(
+        const std::vector<sema::TypePtr>& semaParamTypes,
+        const sema::TypePtr& thisType = nullptr) const;
     // Drain timers/queued tasks at the end of main (ignores sockets):
     // fire-and-forget async tasks finish before the process exits.
     void emitMainExitPump();
@@ -353,6 +364,177 @@ private:
     // elsewhere (E1802) first, but IRBuilder must not silently accept it
     // if sema is ever bypassed.
     bool m_inAsyncFunction{false};
+
+    // Phase 5 slice A (pro-4.0.0): heap-frame state machine for async
+    // functions. While lowering an async body, m_asyncSM holds the
+    // frame layout (one 8-byte slot per reserved cell / param / local,
+    // keyed by AST node or reserved index), the resume function, and
+    // the per-await continuation blocks. Locals are addressed through
+    // frame-slot GEPs instead of entry-block allocas, so they survive
+    // across await points: each await stores the next state, registers
+    // the resume as the awaited task's continuation, and returns; the
+    // dispatcher (entry block of the resume function) re-enters at the
+    // recorded state. Null outside an async body being lowered.
+    struct AsyncSM {
+        // Frame layout (8-byte slots, byte offsets):
+        //   [0] state (i64) [1] task (ptr) [2] awaitTask (ptr)
+        //   [3] retVal (payload type) [4] returnPending (i1)
+        //   [5] throwPending (i1) [6] throwPayload (ptr)
+        //   [7..] params (`this` first for methods), then locals.
+        static constexpr int64_t kStateSlot = 0;
+        static constexpr int64_t kTaskSlot = 1;
+        static constexpr int64_t kAwaitTaskSlot = 2;
+        static constexpr int64_t kRetValSlot = 3;
+        static constexpr int64_t kReturnPendingSlot = 4;
+        static constexpr int64_t kThrowPendingSlot = 5;
+        static constexpr int64_t kThrowPayloadSlot = 6;
+        static constexpr int64_t kFirstParamSlot = 7;
+        IRFunction* bodyFn{nullptr};    // void (ptr task, ptr ctx)
+        IRFunction* resumeFn{nullptr};  // void (ptr frame)
+        IRBasicBlock* dispatcherBB{nullptr}; // entry block of resumeFn
+        IRBasicBlock* segment0BB{nullptr};   // first segment (state 0)
+        IRBasicBlock* finishBB{nullptr};     // completes the task, frees frame
+        IRValuePtr frameParam{nullptr};      // resumeFn's %frame parameter
+        int64_t frameSize{0};               // bytes; frameSize/8 slots
+        int64_t nextSlot{kFirstParamSlot};
+        // Param names (including "this" as [0] for methods) and their
+        // IR types (for the body prologue's ctx loads), parallel.
+        std::vector<std::string> paramNames;
+        std::vector<IRTypePtr> paramIRTypes;
+        // Slots keyed by AST node: params by their FunctionDecl param
+        // index, locals by VarDeclStmt / ForStmt / ForInStmt node.
+        std::unordered_map<const void*, int64_t> nodeSlots;
+        // Param slots by index (0-based over the sema param list,
+        // `this` first for methods).
+        std::unordered_map<int, int64_t> paramSlots;
+        // Continuation blocks, one per await (state = index + 1).
+        std::vector<IRBasicBlock*> continuations;
+        // Counter for hoisted await temps (__sp_await_N).
+        int64_t nextHoistId{0};
+        // Auxiliary frame slots for compiler-generated loop state
+        // (the for-in induction variable), keyed by (AST node, tag).
+        // The loop var itself uses nodeSlots (keyed by the ForInStmt
+        // node); the induction variable uses auxSlots with tag 0.
+        std::map<std::pair<const void*, int64_t>, int64_t> auxSlots;
+        // The return payload kind ("void"|"int"|"bool"|"string"|
+        // "double"|"array"|"struct") and, for struct returns, the IR
+        // struct type (for the heap box size/alignment).
+        std::string payloadKind;
+        IRTypePtr structType{nullptr};
+        // Frame-slot GEPs are appended to the entry block during
+        // lowering (they land before the dispatcher terminator); this
+        // caches them by slot so each slot gets exactly one GEP.
+        std::unordered_map<int64_t, IRValuePtr> slotGEPs;
+    };
+    std::unique_ptr<AsyncSM> m_asyncSM;
+    // True while lowering an async body with the state machine (i.e.
+    // m_asyncSM is set AND the current function is its resume fn).
+    bool inAsyncSM() const { return m_asyncSM && m_currentFunction == m_asyncSM->resumeFn; }
+    // Byte offset of a frame slot.
+    static int64_t asyncFrameOffset(int64_t slot) { return slot * 8; }
+    // GEP for a frame slot, cached per slot (appended to the entry
+    // block; lands before the dispatcher terminator).
+    IRValuePtr asyncFrameSlotGEP(int64_t slot);
+    // Load/store helpers for frame slots.
+    IRValuePtr asyncFrameLoad(int64_t slot, IRTypePtr ty, const std::string& name);
+    void asyncFrameStore(int64_t slot, IRValuePtr val);
+    // Pre-scan an async body: assign frame slots to every local
+    // (VarDeclStmt / ForStmt / ForInStmt) in the body, hoist extra
+    // awaits out of statements that contain more than one, and return
+    // the number of await expressions found (or -1 after reporting
+    // E1000). Also validates that the declared return / param types
+    // can be carried (E1000 otherwise). Creates m_asyncSM. Short-form
+    // bodies are converted to block form first (a ReturnStmt).
+    int64_t asyncPrepareBody(ast::FunctionDecl& decl, const std::string& compiledName,
+                             const sema::TypePtr& returnType,
+                             const std::vector<sema::TypePtr>& semaParamTypes,
+                             const sema::TypePtr& thisType);
+    // Pre-scan helpers (called by asyncPrepareBody). The scan walks an
+    // async body BEFORE lowering: it assigns a frame slot to every
+    // local (VarDeclStmt / ForStmt init / ForInStmt var, keyed by AST
+    // node address) and rewrites statements that contain more than
+    // one await (or one await that is not first-evaluated — see the
+    // hoisting rule in the Phase 34 slice A doc) by hoisting the extra
+    // awaits into `let __sp_await_N = await ...;` statements before
+    // the enclosing statement. Awaits inside a lambda body are never
+    // descended into (a lambda is a separate function).
+    // A struct value occupies more than one 8-byte frame slot, so the
+    // pre-scan must know each local's size. These helpers compute how
+    // many slots a local needs (1 for everything except a struct
+    // value, which needs ceil(size/8)).
+    int64_t asyncAssignLocalSlot(const void* node, int64_t slotCount = 1);
+    // Auxiliary slot for compiler-generated loop state (the for-in
+    // induction variable), keyed by (AST node, tag).
+    int64_t asyncAuxSlot(const void* node, int64_t tag, int64_t slotCount = 1);
+    // Resolve a type string through sema. `m_sema` is held by a
+    // const reference (sema is complete by codegen time), but
+    // TypeContext::resolveType is non-const (it populates a cache);
+    // the const_cast is confined to this helper.
+    sema::TypePtr asyncResolveType(const std::string& typeStr);
+    // The IR struct type for a `Task<StructName>`'s inner struct
+    // (nullptr when the inner type is not a struct).
+    IRTypePtr asyncStructTypeForTask(const sema::TypePtr& taskType);
+    // The IR type of an awaited value, by payload kind.
+    IRTypePtr asyncAwaitedIRType(const std::string& kind, IRTypePtr structTy);
+    // Frame-slot GEP for a pre-scanned AST node (a local / loop var).
+    // Reports E1000 and returns an entry-block alloca when the node
+    // was never scanned (which cannot happen for nodes in the body —
+    // the pre-scan covers the whole body before lowering).
+    IRValuePtr asyncNodeSlotGEP(const void* node, IRTypePtr fallbackType,
+                                const diagnostics::SourceLocation& loc);
+    // IR struct type for a sema struct / tagged-union enum type
+    // (nullptr when the type is not a struct value).
+    IRTypePtr asyncStructTypeFor(const sema::TypePtr& semaType);
+    int64_t asyncSlotCountForType(const sema::TypePtr& semaType);
+    int64_t asyncVarDeclSlotCount(const ast::VarDeclStmt& node);
+    int64_t asyncForInSlotCount(const ast::ForInStmt& node);
+    void asyncCollectAwaits(const ast::ExpressionNode& e,
+                            std::vector<const ast::AwaitExpr*>& out);
+    const ast::AwaitExpr* asyncFirstAwait(const ast::ExpressionNode& e);
+    bool asyncHoistAwaits(ast::ExprPtr& slot, const ast::AwaitExpr* keep,
+                          std::vector<ast::StmtPtr>& out);
+    int64_t asyncScanBlock(ast::BlockStmt& block);
+    // Process a statement list (a block's statements, or a switch
+    // case's): recurse into nested statements, assign local slots,
+    // hoist extra awaits (inserting the hoisted lets before their
+    // statement). Returns the await count, or -1 after E1000.
+    int64_t asyncScanStmtList(std::vector<ast::StmtPtr>& stmts);
+    // Recurse into a statement's nested statements/blocks (assigning
+    // slots, scanning their blocks). Returns the await count found.
+    int64_t asyncScanNested(ast::StatementNode& stmt);
+    // Hoist awaits in a statement's OWN expressions (not nested
+    // statements). `insert` receives the hoisted `let` statements to
+    // place before this statement (nullptr = hoisting is not allowed
+    // here — an await in such a position is E1000). Returns the await
+    // count found, or -1 after reporting E1000.
+    int64_t asyncScanStmtExprs(ast::StatementNode& stmt,
+                               std::vector<ast::StmtPtr>* insert);
+    // Begin/end the state machine for one async body (asyncPrepareBody
+    // must have run first and created m_asyncSM): asyncSMBegin creates
+    // the resume function + dispatcher + segment 0 + finish block,
+    // declares the params as frame slots, and moves lowering into the
+    // resume function; asyncSMEnd emits the dispatcher chain, the
+    // finish block, and the body entry prologue, then clears the state.
+    void asyncSMBegin(const std::string& compiledName, IRFunction* bodyFn);
+    void asyncSMEnd();
+    // Size in bytes of an IR struct type (x86-64 layout over its
+    // element types), for heap-boxing a struct payload.
+    static int64_t asyncStructSizeBytes(const IRTypePtr& structTy);
+    // Suspend at an await: store the next state + the awaited task,
+    // register the resume as the awaited task's continuation (posted,
+    // never synchronous), and return from the current segment. On
+    // resume, the continuation first checks our own task's
+    // cancellation (branches to the finish block when cancelled —
+    // the body stops at its next await point), then loads the awaited
+    // value with the non-blocking getters (the awaited task is already
+    // complete). Returns the value (nullptr for void). `structTy` is
+    // the IR struct type for a "struct" payload. When `destroyTask`
+    // is true, the (temporary) task is destroyed after its value has
+    // been copied out — for an array the pointer outlives the task by
+    // design, for a string the getter returns a fresh copy, and for a
+    // struct the value was loaded by value.
+    IRValuePtr asyncSuspendAndLoad(IRValuePtr task, const std::string& kind,
+                                   IRTypePtr structTy = nullptr, bool destroyTask = false);
 
     // Evaluated expression result from the latest visited expression
     IRValuePtr m_lastExprValue{nullptr};

@@ -372,6 +372,12 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     if (taskBool) {
         define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getBool()}, taskBool), builtinLoc));
     }
+    // Phase 5 slice A: delayed_value overload for double payloads
+    // (Task<double> via sp_rt_async_delayed_dbl).
+    auto taskDouble = typeCtx.resolveType("Task<double>");
+    if (taskDouble) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getDouble()}, taskDouble), builtinLoc));
+    }
     // Phase 4 slice D: formatTime takes an int64 epoch-ms (the runtime
     // sp_rt_time_format_iso takes int64) and parseTime returns int64 epoch-ms
     // (sp_rt_time_parse_iso returns int64). Declaring them int truncated

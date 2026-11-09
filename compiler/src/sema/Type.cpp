@@ -520,10 +520,17 @@ TypeContext::TypeContext() {
     // Async (Phase 2 slice B2): Task<T> is the awaitable type. It is an
     // opaque handle at runtime (a pointer to the runtime Task); the type
     // parameter exists so sema can unwrap `await e` (e: Task<T>) to T
-    // (see TypeChecker::visit(AwaitExpr)). No methods: tasks are created
-    // only by the sleep_async / delayed_value builtins.
+    // (see TypeChecker::visit(AwaitExpr)). Tasks are created by the
+    // sleep_async / delayed_value builtins and by calling an `async fn`.
+    // Phase 5 slice A adds the cancellation API: cancel() marks the task
+    // done+cancelled (a body that has not started yet never runs; a body
+    // suspended at an await stops at its next resume), isReady() reports
+    // completion, wasCancelled() reports cancellation.
     auto taskCls = createClassType("Task");
     taskCls->setTypeParams({"T"});
+    taskCls->addMethod({"cancel", getFunctionType({}, m_boolType), "public", false, false, false});
+    taskCls->addMethod({"isReady", getFunctionType({}, m_boolType), "public", false, false, false});
+    taskCls->addMethod({"wasCancelled", getFunctionType({}, m_boolType), "public", false, false, false});
     durationCls->addMethod({"fromMillis", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"fromMillis", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"fromSeconds", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});

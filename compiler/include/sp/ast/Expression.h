@@ -171,6 +171,11 @@ public:
     [[nodiscard]] const ExpressionNode& getObject() const noexcept { return *m_object; }
     [[nodiscard]] const ExpressionNode& getIndex() const noexcept { return *m_index; }
 
+    // Phase 5 slice A: mutable access for the async await-hoisting
+    // pre-scan (replacing a hoisted await with its temp identifier).
+    [[nodiscard]] ExprPtr& getObjectPtr() noexcept { return m_object; }
+    [[nodiscard]] ExprPtr& getIndexPtr() noexcept { return m_index; }
+
     void accept(ASTVisitor& visitor) const override;
 
 private:
@@ -253,6 +258,12 @@ public:
     [[nodiscard]] const ExpressionNode& getThenExpr() const noexcept { return *m_thenExpr; }
     [[nodiscard]] const ExpressionNode& getElseExpr() const noexcept { return *m_elseExpr; }
 
+    // Phase 5 slice A: mutable access for the async await-hoisting
+    // pre-scan (replacing a hoisted await with its temp identifier).
+    [[nodiscard]] ExprPtr& getConditionPtr() noexcept { return m_condition; }
+    [[nodiscard]] ExprPtr& getThenExprPtr() noexcept { return m_thenExpr; }
+    [[nodiscard]] ExprPtr& getElseExprPtr() noexcept { return m_elseExpr; }
+
     void accept(ASTVisitor& visitor) const override;
 
 private:
@@ -276,6 +287,11 @@ public:
     [[nodiscard]] lexer::TokenType getOp() const noexcept { return m_op; }
     [[nodiscard]] const ExpressionNode& getValue() const noexcept { return *m_value; }
 
+    // Phase 5 slice A: mutable access for the async await-hoisting
+    // pre-scan (replacing a hoisted await with its temp identifier).
+    [[nodiscard]] ExprPtr& getTargetPtr() noexcept { return m_target; }
+    [[nodiscard]] ExprPtr& getValuePtr() noexcept { return m_value; }
+
     void accept(ASTVisitor& visitor) const override;
 
 private:
@@ -294,6 +310,10 @@ public:
     [[nodiscard]] const std::vector<std::string>& getTypeArgs() const noexcept { return m_typeArgs; }
     [[nodiscard]] bool isGeneric() const noexcept { return !m_typeArgs.empty(); }
     [[nodiscard]] const std::vector<ExprPtr>& getArgs() const noexcept { return m_args; }
+
+    // Phase 5 slice A: mutable access for the async await-hoisting
+    // pre-scan (replacing a hoisted await with its temp identifier).
+    [[nodiscard]] std::vector<ExprPtr>& getArgs() noexcept { return m_args; }
 
     void accept(ASTVisitor& visitor) const override;
 
@@ -314,6 +334,10 @@ public:
     [[nodiscard]] bool hasExpr() const noexcept { return m_expr != nullptr; }
     [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
     [[nodiscard]] const ExprPtr& getExprPtr() const noexcept { return m_expr; }
+
+    // Phase 5 slice A: mutable access for the async await-hoisting
+    // pre-scan (replacing a hoisted await with its temp identifier).
+    [[nodiscard]] ExprPtr& getExprPtr() noexcept { return m_expr; }
 
     void accept(ASTVisitor& visitor) const override;
 

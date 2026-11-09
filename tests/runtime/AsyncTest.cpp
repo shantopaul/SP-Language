@@ -393,3 +393,356 @@ TEST(AsyncTest, CAbiDelayedStrAndAwaitStr) {
     EXPECT_TRUE(sp_rt_async_task_is_ready(handle));
     sp_rt_async_task_destroy(handle);
 }
+
+// --- Phase 5 slice A (pro-4.0.0): state-machine spawn, double/ptr
+// payloads, combinators, cancellation -------------------------------
+// The compiler lowers an `async fn` call to sp_rt_async_spawn_sm
+// with a thunk of signature void (void* taskHandle, void* ctx): the
+// body itself completes the task (the finish block does this), and
+// spawn_sm never completes it. A body cancelled before it starts
+// never runs.
+
+namespace {
+// spawn_sm thunks: (task handle, ctx). They complete the task
+// themselves, like a compiled async fn body (finish block).
+void thunkSMReturns42(void* task, void* /*ctx*/) {
+    sp_rt_async_task_complete_i64(task, 42);
+}
+void thunkSMCountsRuns(void* task, void* ctx) {
+    if (ctx) static_cast<std::atomic<int>*>(ctx)->fetch_add(1);
+    sp_rt_async_task_complete_void(task);
+}
+void thunkSMReturnsPi(void* task, void* /*ctx*/) {
+    sp_rt_async_task_complete_dbl(task, 3.14);
+}
+// Resume fn for the on_complete_resume test: the frame is an atomic
+// counter here.
+void resumeCountsRuns(void* frame) {
+    if (frame) static_cast<std::atomic<int>*>(frame)->fetch_add(1);
+}
+} // namespace
+
+// spawn_sm posts the body; the body completes the task itself.
+TEST(AsyncTest, SpawnSMCompletesWithValue) {
+    Scheduler sched;
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    sp_rt_async_spawn_sm(&sched, task, reinterpret_cast<void*>(thunkSMReturns42), nullptr);
+    EXPECT_FALSE(sp_rt_async_task_is_ready(task));
+    int64_t value = sp_rt_async_task_await_i64(&sched, task);
+    EXPECT_EQ(value, 42);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(task));
+    sp_rt_async_task_destroy(task);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// spawn_sm can complete with a double payload.
+TEST(AsyncTest, SpawnSMCompletesWithDouble) {
+    Scheduler sched;
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    sp_rt_async_spawn_sm(&sched, task, reinterpret_cast<void*>(thunkSMReturnsPi), nullptr);
+    EXPECT_DOUBLE_EQ(sp_rt_async_task_await_dbl(&sched, task), 3.14);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(task));
+    sp_rt_async_task_destroy(task);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// A task cancelled before its body starts never runs its body.
+TEST(AsyncTest, SpawnSMCancelledBeforeStartNeverRuns) {
+    Scheduler sched;
+    std::atomic<int> runs{0};
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    ASSERT_TRUE(sp_rt_async_task_cancel(task));
+    EXPECT_TRUE(sp_rt_async_task_was_cancelled(task));
+    sp_rt_async_spawn_sm(&sched, task, reinterpret_cast<void*>(thunkSMCountsRuns), &runs);
+    sched.runUntilIdle();
+    EXPECT_EQ(runs.load(), 0); // body never started
+    EXPECT_TRUE(sp_rt_async_task_is_ready(task));
+    sp_rt_async_task_destroy(task);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// A delayed double task completes with its value.
+TEST(AsyncTest, DelayedDblTaskCompletesWithValue) {
+    Scheduler sched;
+    auto task = delayedValueDblTask(sched, 30, 3.14);
+    ASSERT_NE(task, nullptr);
+    EXPECT_FALSE(task->isReady());
+    auto start = Clock::now();
+    double value = awaitTaskDbl(sched, *task);
+    EXPECT_DOUBLE_EQ(value, 3.14);
+    EXPECT_TRUE(task->isReady());
+    EXPECT_GE(elapsedMs(start), 20);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// C ABI: delayed double task + double await.
+TEST(AsyncTest, CAbiDelayedDblAndAwaitDbl) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* handle = sp_rt_async_delayed_dbl(sched, 30, 2.5);
+    ASSERT_NE(handle, nullptr);
+    EXPECT_FALSE(sp_rt_async_task_is_ready(handle));
+    double value = sp_rt_async_task_await_dbl(sched, handle);
+    EXPECT_DOUBLE_EQ(value, 2.5);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(handle));
+    sp_rt_async_task_destroy(handle);
+}
+
+// Non-blocking value getters return defaults for a cancelled task
+// (the await path relies on this: a cancelled awaited task yields
+// the default value and the body continues).
+TEST(AsyncTest, TaskValueGettersReturnDefaultsWhenCancelled) {
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    ASSERT_TRUE(sp_rt_async_task_cancel(task));
+    EXPECT_EQ(sp_rt_async_task_value_i64(task), 0);
+    EXPECT_DOUBLE_EQ(sp_rt_async_task_value_dbl(task), 0.0);
+    EXPECT_EQ(sp_rt_async_task_value_ptr(task), nullptr);
+    const char* s = sp_rt_async_task_value_str(task);
+    ASSERT_NE(s, nullptr);
+    EXPECT_STREQ(s, "");
+    std::free(const_cast<char*>(s));
+    sp_rt_async_task_destroy(task);
+}
+
+// on_complete_resume ALWAYS posts the resume to the scheduler —
+// never calls it synchronously — so a task that is already complete
+// still resumes on the next pump, never re-entrantly.
+TEST(AsyncTest, OnCompleteResumePostsToScheduler) {
+    Scheduler sched;
+    std::atomic<int> runs{0};
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    sp_rt_async_task_complete_i64(task, 1); // already complete
+    sp_rt_async_task_on_complete_resume(&sched, task,
+        reinterpret_cast<void*>(resumeCountsRuns), &runs);
+    EXPECT_EQ(runs.load(), 0); // not synchronous
+    sched.runUntilIdle();
+    EXPECT_EQ(runs.load(), 1); // ran on the pump
+    sp_rt_async_task_destroy(task);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+namespace {
+// Build an SP array of task handles. The combinator C ABI takes the
+// SP array object (not the raw handle pointer) and extracts the
+// element storage pointer itself via sp_rt_array_data.
+void* makeTaskHandleArray(const std::vector<void*>& handles) {
+    void* arr = sp_rt_array_alloc(static_cast<int64_t>(handles.size()), 8);
+    for (size_t i = 0; i < handles.size(); ++i) {
+        void* slot = sp_rt_array_get_ptr(arr, static_cast<int64_t>(i), 8);
+        *static_cast<void**>(slot) = handles[i];
+    }
+    return arr;
+}
+} // namespace
+
+// all (int): collects results in input order (C ABI). The combined
+// task's payload is the results array (completePtr — plain malloc, not
+// owned by the task), so the caller frees it.
+TEST(AsyncTest, CAbiAllIntCollectsResultsInOrder) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* t1 = sp_rt_async_delayed_i64(sched, 30, 1);
+    void* t2 = sp_rt_async_delayed_i64(sched, 10, 2);
+    void* t3 = sp_rt_async_delayed_i64(sched, 20, 3);
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    ASSERT_NE(t3, nullptr);
+    void* arr = makeTaskHandleArray({t1, t2, t3});
+    void* combined = sp_rt_async_task_all_i64(arr, 3);
+    ASSERT_NE(combined, nullptr);
+    void* results = sp_rt_async_task_await_ptr(sched, combined);
+    ASSERT_NE(results, nullptr);
+    EXPECT_EQ(sp_rt_array_length(results), 3);
+    EXPECT_EQ(sp_rt_array_get_i64(results, 0), 1);
+    EXPECT_EQ(sp_rt_array_get_i64(results, 1), 2);
+    EXPECT_EQ(sp_rt_array_get_i64(results, 2), 3);
+    EXPECT_FALSE(sp_rt_async_task_was_cancelled(combined));
+    sp_rt_async_task_destroy(t1);
+    sp_rt_async_task_destroy(t2);
+    sp_rt_async_task_destroy(t3);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+    std::free(results);
+}
+
+// all (int): an empty input completes immediately with an empty array.
+TEST(AsyncTest, CAbiAllIntEmptyCompletesImmediately) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* combined = sp_rt_async_task_all_i64(nullptr, 0);
+    ASSERT_NE(combined, nullptr);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(combined));
+    EXPECT_FALSE(sp_rt_async_task_was_cancelled(combined));
+    void* results = sp_rt_async_task_await_ptr(sched, combined);
+    ASSERT_NE(results, nullptr);
+    EXPECT_EQ(sp_rt_array_length(results), 0);
+    sp_rt_async_task_destroy(combined);
+    std::free(results);
+}
+
+// all (int): cancelled when any input was cancelled.
+TEST(AsyncTest, CAbiAllIntCancelledWhenAnyCancelled) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* t1 = sp_rt_async_delayed_i64(sched, 10, 1);
+    void* t2 = sp_rt_async_delayed_i64(sched, 200, 2);
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    ASSERT_TRUE(sp_rt_async_task_cancel(t2)); // cancel the slow one first
+    void* arr = makeTaskHandleArray({t1, t2});
+    void* combined = sp_rt_async_task_all_i64(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    int64_t value = sp_rt_async_task_await_i64(sched, combined);
+    EXPECT_EQ(value, 0); // cancelled -> default
+    EXPECT_TRUE(sp_rt_async_task_was_cancelled(combined));
+    // Drain t1 (it still completes normally).
+    EXPECT_EQ(sp_rt_async_task_await_i64(sched, t1), 1);
+    sp_rt_async_task_destroy(t1);
+    sp_rt_async_task_destroy(t2);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+}
+
+// race (int): the first finisher wins (C ABI). Losers keep running
+// (they are not cancelled) and must be drained.
+TEST(AsyncTest, CAbiRaceIntFirstFinisherWins) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* fast = sp_rt_async_delayed_i64(sched, 10, 7);
+    void* slow = sp_rt_async_delayed_i64(sched, 100, 99);
+    ASSERT_NE(fast, nullptr);
+    ASSERT_NE(slow, nullptr);
+    void* arr = makeTaskHandleArray({fast, slow});
+    void* combined = sp_rt_async_task_race_i64(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    int64_t value = sp_rt_async_task_await_i64(sched, combined);
+    EXPECT_EQ(value, 7); // fast wins
+    EXPECT_FALSE(sp_rt_async_task_was_cancelled(combined));
+    EXPECT_EQ(sp_rt_async_task_await_i64(sched, slow), 99); // loser still ran
+    EXPECT_TRUE(sp_rt_async_task_is_ready(slow));
+    sp_rt_async_task_destroy(fast);
+    sp_rt_async_task_destroy(slow);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+}
+
+// race (int): an empty input completes cancelled (no winner can arrive).
+TEST(AsyncTest, CAbiRaceIntEmptyCompletesCancelled) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* combined = sp_rt_async_task_race_i64(nullptr, 0);
+    ASSERT_NE(combined, nullptr);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(combined));
+    EXPECT_TRUE(sp_rt_async_task_was_cancelled(combined));
+    EXPECT_EQ(sp_rt_async_task_await_i64(sched, combined), 0);
+    sp_rt_async_task_destroy(combined);
+}
+
+// race (int): cancelled when the first finisher was cancelled.
+TEST(AsyncTest, CAbiRaceIntCancelledWhenFirstFinisherCancelled) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* fast = sp_rt_async_delayed_i64(sched, 10, 7);
+    void* slow = sp_rt_async_delayed_i64(sched, 100, 99);
+    ASSERT_NE(fast, nullptr);
+    ASSERT_NE(slow, nullptr);
+    ASSERT_TRUE(sp_rt_async_task_cancel(fast)); // cancel the fast one first
+    void* arr = makeTaskHandleArray({fast, slow});
+    void* combined = sp_rt_async_task_race_i64(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    EXPECT_EQ(sp_rt_async_task_await_i64(sched, combined), 0);
+    EXPECT_TRUE(sp_rt_async_task_was_cancelled(combined));
+    EXPECT_EQ(sp_rt_async_task_await_i64(sched, slow), 99); // loser still ran
+    sp_rt_async_task_destroy(fast);
+    sp_rt_async_task_destroy(slow);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+}
+
+// all (double): collects results in input order.
+TEST(AsyncTest, CAbiAllDblCollectsResults) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* t1 = sp_rt_async_delayed_dbl(sched, 20, 1.5);
+    void* t2 = sp_rt_async_delayed_dbl(sched, 10, 2.5);
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    void* arr = makeTaskHandleArray({t1, t2});
+    void* combined = sp_rt_async_task_all_dbl(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    void* results = sp_rt_async_task_await_ptr(sched, combined);
+    ASSERT_NE(results, nullptr);
+    EXPECT_EQ(sp_rt_array_length(results), 2);
+    EXPECT_DOUBLE_EQ(sp_rt_array_get_f64(results, 0), 1.5);
+    EXPECT_DOUBLE_EQ(sp_rt_array_get_f64(results, 1), 2.5);
+    sp_rt_async_task_destroy(t1);
+    sp_rt_async_task_destroy(t2);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+    std::free(results);
+}
+
+// all (string): collects results in input order. Each string slot is
+// a malloc'd copy (the input task may be destroyed while the array
+// lives on), so the caller frees every slot, then the array.
+TEST(AsyncTest, CAbiAllStrCollectsResults) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* t1 = sp_rt_async_delayed_str(sched, 20, "one");
+    void* t2 = sp_rt_async_delayed_str(sched, 10, "two");
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    void* arr = makeTaskHandleArray({t1, t2});
+    void* combined = sp_rt_async_task_all_str(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    void* results = sp_rt_async_task_await_ptr(sched, combined);
+    ASSERT_NE(results, nullptr);
+    EXPECT_EQ(sp_rt_array_length(results), 2);
+    const char* s0 = *static_cast<const char**>(sp_rt_array_get_ptr(results, 0, 8));
+    const char* s1 = *static_cast<const char**>(sp_rt_array_get_ptr(results, 1, 8));
+    ASSERT_NE(s0, nullptr);
+    ASSERT_NE(s1, nullptr);
+    EXPECT_STREQ(s0, "one");
+    EXPECT_STREQ(s1, "two");
+    sp_rt_async_task_destroy(t1);
+    sp_rt_async_task_destroy(t2);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+    std::free(const_cast<char*>(s0));
+    std::free(const_cast<char*>(s1));
+    std::free(results);
+}
+
+// all (void): completes when every input completes.
+TEST(AsyncTest, CAbiAllVoidCompletesWhenAllComplete) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* t1 = sp_rt_async_delayed_i64(sched, 10, 1);
+    void* t2 = sp_rt_async_delayed_i64(sched, 20, 2);
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    void* arr = makeTaskHandleArray({t1, t2});
+    void* combined = sp_rt_async_task_all_void(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    sp_rt_async_task_await_void(sched, combined);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(combined));
+    EXPECT_FALSE(sp_rt_async_task_was_cancelled(combined));
+    sp_rt_async_task_destroy(t1);
+    sp_rt_async_task_destroy(t2);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+}
+
+// race (double): the first finisher wins.
+TEST(AsyncTest, CAbiRaceDblFirstFinisherWins) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* fast = sp_rt_async_delayed_dbl(sched, 10, 1.5);
+    void* slow = sp_rt_async_delayed_dbl(sched, 100, 9.5);
+    ASSERT_NE(fast, nullptr);
+    ASSERT_NE(slow, nullptr);
+    void* arr = makeTaskHandleArray({fast, slow});
+    void* combined = sp_rt_async_task_race_dbl(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    EXPECT_DOUBLE_EQ(sp_rt_async_task_await_dbl(sched, combined), 1.5);
+    EXPECT_FALSE(sp_rt_async_task_was_cancelled(combined));
+    EXPECT_DOUBLE_EQ(sp_rt_async_task_await_dbl(sched, slow), 9.5);
+    sp_rt_async_task_destroy(fast);
+    sp_rt_async_task_destroy(slow);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+}

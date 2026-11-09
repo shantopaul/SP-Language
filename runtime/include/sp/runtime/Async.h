@@ -42,15 +42,20 @@ TaskPtr sleepTask(Scheduler& sched, int64_t delayMs);
 TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
 
 // ---------------------------------------------------------------------------
-// Task: a type-erased future. The payload is an int64 (0 for void tasks)
-// plus an optional string payload (used by Task<string>); richer payloads
-// are future work. A Task is complete when done() is true; it may also be
-// cancelled, in which case awaiting it returns promptly with value 0 and
-// wasCancelled() true.
+// Task: a type-erased future. The payload is an int64 (0 for void tasks),
+// an optional string payload (Task<string>), a double payload
+// (Task<double>), or a pointer payload (Task<T[]> carries an SP array;
+// Task<struct> carries a heap-boxed struct the Task owns). A Task is
+// complete when done() is true; it may also be cancelled, in which case
+// awaiting it returns promptly with the default value (0 / "" / 0.0 /
+// null) and wasCancelled() true.
 // ---------------------------------------------------------------------------
 class Task {
 public:
     Task() = default;
+    // Frees an owned pointer payload (completePtrOwned box); non-owned
+    // payloads (arrays via completePtr) are never freed here.
+    ~Task();
     Task(const Task&) = delete;
     Task& operator=(const Task&) = delete;
 
@@ -61,6 +66,13 @@ public:
     // String payload of a completed task (empty when cancelled, for void
     // tasks, or when the task was completed with an int64 value).
     std::string strValue() const;
+    // Double payload of a completed task (0.0 when cancelled or when the
+    // task has no double payload).
+    double dblValue() const;
+    // Pointer payload of a completed task (null when cancelled or when
+    // the task has no pointer payload). The pointer stays valid while
+    // the Task lives; for owned payloads it is freed with the Task.
+    void* ptrValue() const;
 
     // Block the calling thread until the task completes. Only for tests
     // and for code that is NOT running on the loop thread; generated SP
@@ -77,6 +89,15 @@ public:
     void complete(int64_t v);
     // Complete the task with a string payload. No-op if already done.
     void completeStr(const char* v);
+    // Complete the task with a double payload. No-op if already done.
+    void completeDbl(double v);
+    // Complete the task with a pointer payload (e.g. an SP array). The
+    // Task does NOT own the pointer. No-op if already done.
+    void completePtr(void* p);
+    // Complete the task with a pointer payload the Task OWNS (e.g. a
+    // heap-boxed struct return value): the box is freed when the Task
+    // is destroyed. No-op if already done.
+    void completePtrOwned(void* p);
     // Cancel the task. Returns false if it was already complete.
     // The scheduler-side timer (if any) is cancelled separately by the
     // code that created the timer; see sleepTask()/delayedValueTask().
@@ -87,12 +108,16 @@ private:
     friend TaskPtr sleepTask(Scheduler& sched, int64_t delayMs);
     friend TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
     friend TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value);
+    friend TaskPtr delayedValueDblTask(Scheduler& sched, int64_t delayMs, double value);
     mutable std::mutex m_mtx;
     mutable std::condition_variable m_cv;
     bool m_done{false};
     bool m_cancelled{false};
     int64_t m_value{0};
     std::string m_strValue;
+    double m_dblValue{0.0};
+    void* m_ptrValue{nullptr};
+    bool m_ownsPtr{false};
     std::vector<std::function<void(Task&)>> m_continuations;
     // Timer id backing this task, if scheduled through a Scheduler.
     uint64_t m_timerId{0};
@@ -193,6 +218,8 @@ TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
 // The value is copied into the Task; the caller's pointer need not
 // outlive the call.
 TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value);
+// Create a task that completes with a double `value` after delayMs.
+TaskPtr delayedValueDblTask(Scheduler& sched, int64_t delayMs, double value);
 
 // Pump `sched` until `task` completes or is cancelled, then return its
 // value (0 when cancelled). This is the await primitive the compiler
@@ -204,5 +231,26 @@ bool awaitTaskVoid(Scheduler& sched, Task& task);
 // As awaitTask(), returning the task's string payload (empty when
 // cancelled or when the task has no string payload).
 std::string awaitTaskStr(Scheduler& sched, Task& task);
+// As awaitTask(), returning the task's double payload (0.0 when
+// cancelled or when the task has no double payload).
+double awaitTaskDbl(Scheduler& sched, Task& task);
+// As awaitTask(), returning the task's pointer payload (null when
+// cancelled or when the task has no pointer payload).
+void* awaitTaskPtr(Scheduler& sched, Task& task);
+
+// ---------------------------------------------------------------------------
+// Combinators (Phase 5 slice A). Payload kind of the collected / winning
+// value. `all` waits for every input and completes with the collected
+// values (an SP array for Int/Str/Dbl, void for Void); it completes
+// CANCELLED when any input was cancelled (or when a null handle is
+// passed). `race` completes with the FIRST finisher's value and completes
+// CANCELLED when the first finisher was cancelled; losing inputs keep
+// running (they are NOT cancelled). An empty input completes immediately
+// (all: empty array / void; race: cancelled — no winner can arrive).
+// The returned Task is owned by the caller.
+// ---------------------------------------------------------------------------
+enum class TaskPayload { Int, Str, Dbl, Void };
+TaskPtr allTasks(Scheduler& sched, const std::vector<TaskPtr>& tasks, TaskPayload kind);
+TaskPtr raceTasks(Scheduler& sched, const std::vector<TaskPtr>& tasks, TaskPayload kind);
 
 } // namespace sp::rt::async

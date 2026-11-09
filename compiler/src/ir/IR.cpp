@@ -858,6 +858,83 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getPointer(), "ctx", 3)}, true);
     createFunction("sp_rt_async_scheduler_run_tasks_until_idle", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0)}, true);
+    // Phase 5 slice A (state machine): SM spawn, double payload, value
+    // getters, task completers, resume registration, combinators.
+    createFunction("sp_rt_async_spawn_sm", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "thunk", 2),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "ctx", 3)}, true);
+    createFunction("sp_rt_async_delayed_dbl", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 1),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "value", 2)}, true);
+    createFunction("sp_rt_async_task_await_dbl", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1)}, true);
+    createFunction("sp_rt_async_task_await_ptr", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1)}, true);
+    createFunction("sp_rt_async_task_value_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_value_str", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_value_dbl", IRType::getDouble(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_value_ptr", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_complete_i64", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "value", 1)}, true);
+    createFunction("sp_rt_async_task_complete_str", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "value", 1)}, true);
+    createFunction("sp_rt_async_task_complete_dbl", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0),
+                    std::make_shared<ParameterValue>(IRType::getDouble(), "value", 1)}, true);
+    createFunction("sp_rt_async_task_complete_ptr", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "value", 1)}, true);
+    createFunction("sp_rt_async_task_complete_ptr_owned", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "value", 1)}, true);
+    createFunction("sp_rt_async_task_complete_void", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_on_complete_resume", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "resumeFn", 2),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "frame", 3)}, true);
+    createFunction("sp_rt_async_task_all_i64", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_all_str", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_all_dbl", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_all_void", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_race_i64", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_race_str", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_race_dbl", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_race_void", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);
+    createFunction("sp_rt_async_task_is_ready", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_cancel", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
+    createFunction("sp_rt_async_task_was_cancelled", IRType::getInt1(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
     createFunction("sp_rt_time_format_iso", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "epoch_ms", 0)}, true);
     createFunction("sp_rt_time_parse_iso", IRType::getInt64(),

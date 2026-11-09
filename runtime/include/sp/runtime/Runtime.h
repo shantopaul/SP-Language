@@ -411,6 +411,54 @@ extern "C" {
     void        sp_rt_async_spawn_i64(void* sched, void* task, void* thunk, void* ctx);
     void        sp_rt_async_spawn_str(void* sched, void* task, void* thunk, void* ctx);
     void        sp_rt_async_spawn_void(void* sched, void* task, void* thunk, void* ctx);
+    // Phase 5 slice A (state machine): spawn a state-machine async body.
+    // `thunk` is the compiler-generated body entry `void (*)(void* task,
+    // void* ctx)`; it allocates the heap frame, stores task + args, and
+    // calls the resume function. Unlike the spawn_* fns above, this one
+    // does NOT complete the task — the body completes it in its finish
+    // block. A task cancelled before the posted callback runs never runs
+    // its body at all (fixes the old spawn fns' documented gap).
+    void        sp_rt_async_spawn_sm(void* sched, void* task, void* thunk, void* ctx);
+    // Double payload (Task<double>): delayed value + pump-based await.
+    void*       sp_rt_async_delayed_dbl(void* sched, int64_t ms, double value);
+    double      sp_rt_async_task_await_dbl(void* sched, void* task);
+    // Pointer payload (Task<T[]> / Task<struct>): pump-based await.
+    void*       sp_rt_async_task_await_ptr(void* sched, void* task);
+    // Non-blocking value reads (for state-machine continuations: the
+    // awaited task is already complete). Return the default value
+    // (0 / "" / 0.0 / null) when the task was cancelled or has no such
+    // payload. The str reader returns a fresh owned copy.
+    int64_t     sp_rt_async_task_value_i64(void* task);
+    const char* sp_rt_async_task_value_str(void* task);
+    double      sp_rt_async_task_value_dbl(void* task);
+    void*       sp_rt_async_task_value_ptr(void* task);
+    // Complete a task from generated code (the async body finish block).
+    // No-op when the task is already complete/cancelled.
+    void        sp_rt_async_task_complete_i64(void* task, int64_t value);
+    void        sp_rt_async_task_complete_str(void* task, const char* value);
+    void        sp_rt_async_task_complete_dbl(void* task, double value);
+    void        sp_rt_async_task_complete_ptr(void* task, void* value);
+    void        sp_rt_async_task_complete_ptr_owned(void* task, void* value);
+    void        sp_rt_async_task_complete_void(void* task);
+    // Register a resume for a state-machine await: when `task` completes
+    // or is cancelled, `resumeFn(frame)` is POSTED to the scheduler
+    // (never called synchronously, so no re-entrant resume). `resumeFn`
+    // is the compiler-generated `void (*)(void* frame)` resume function.
+    void        sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame);
+    // Combinators: `tasks` is the SP array object (a Task<T>[] value)
+    // holding `count` task handles; the element storage pointer is
+    // extracted inside via sp_rt_array_data. Returns a new task handle
+    // owned by the caller. all_* waits for every input (result: SP
+    // array / void); race_* completes with the first finisher. See
+    // Async.h for semantics.
+    void*       sp_rt_async_task_all_i64(void* tasks, int64_t count);
+    void*       sp_rt_async_task_all_str(void* tasks, int64_t count);
+    void*       sp_rt_async_task_all_dbl(void* tasks, int64_t count);
+    void*       sp_rt_async_task_all_void(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_i64(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_str(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_dbl(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_void(void* tasks, int64_t count);
     // Drain timers/queued tasks only (registered sockets do NOT keep the
     // drain going): the end-of-main pump for fire-and-forget tasks.
     void        sp_rt_async_scheduler_run_tasks_until_idle(void* sched);
