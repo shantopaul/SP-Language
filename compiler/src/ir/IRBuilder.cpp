@@ -658,6 +658,107 @@ void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr 
         IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{retVal}));
 }
 
+// Phase 7 slice C: call-result temporary release. Design (full
+// version in docs/v2/PHASE-36-SLICE-C.md §0):
+// - A +1 call/new result that no adopter takes is recorded in the
+//   innermost temp scope and released with sp_rt_release when the
+//   scope pops (statement/condition end).
+// - Releasing is safe because no <Class>_destructor is ever
+//   generated: dropping a temporary never releases its fields, so a
+//   value borrowed FROM a temporary (a field load) stays alive; and
+//   every adopter removes its value from the pending list before the
+//   pop, so no owned share is ever released twice.
+// - Recording is suppressed in async functions (await splits blocks:
+//   a temp defined before a suspend point does not dominate the
+//   resume block) and inside short-circuit branches (&& / || / ??
+//   RHS, ternary arms: same dominance reason). Those temporaries
+//   leak as before; a leak is reportable, a use-after-free is a
+//   regression, so when in doubt this pass does nothing.
+void IRBuilder::pushTempScope() {
+    if (m_inAsyncFunction) return;
+    if (!m_tempScopes.empty() && m_tempScopeFunction != m_currentFunction) {
+        // Defensive: a stale stack must never leak across functions
+        // (instrumentation is balanced, so this should not happen).
+        m_tempScopes.clear();
+    }
+    if (m_tempScopes.empty()) m_tempScopeFunction = m_currentFunction;
+    m_tempScopes.emplace_back();
+}
+
+void IRBuilder::popTempScope() {
+    if (m_inAsyncFunction) return;
+    if (m_tempScopes.empty()) return;
+    if (m_tempScopeFunction != m_currentFunction) {
+        m_tempScopes.clear();
+        m_tempScopeFunction = nullptr;
+        return;
+    }
+    std::vector<IRValuePtr> pending = std::move(m_tempScopes.back());
+    m_tempScopes.pop_back();
+    if (m_tempScopes.empty()) m_tempScopeFunction = nullptr;
+    if (pending.empty()) return;
+    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+    for (auto it = pending.rbegin(); it != pending.rend(); ++it) {
+        if (!*it) continue;
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{*it}));
+    }
+}
+
+void IRBuilder::recordTempCallResult(const ast::CallExpr& node) {
+    if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
+    if (m_tempScopeFunction != m_currentFunction) return;
+    if (!isFreshPlusOneExpr(node)) return;
+    auto semaType = m_sema.getNodeType(&node);
+    if (!semaType || !semaType->isReferenceType()) return;
+    IRValuePtr v = m_lastExprValue;
+    if (!v || !v->getType() || !v->getType()->isPointer()) return;
+    auto& scope = m_tempScopes.back();
+    for (const auto& e : scope) {
+        if (e == v) return;  // one share is never recorded twice
+    }
+    scope.push_back(v);
+}
+
+void IRBuilder::recordTempNewResult(const ast::NewExpr& node) {
+    if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
+    if (m_tempScopeFunction != m_currentFunction) return;
+    auto semaType = m_sema.getNodeType(&node);
+    if (!semaType || !semaType->isReferenceType()) return;
+    IRValuePtr v = m_lastExprValue;
+    if (!v || !v->getType() || !v->getType()->isPointer()) return;
+    auto& scope = m_tempScopes.back();
+    for (const auto& e : scope) {
+        if (e == v) return;
+    }
+    scope.push_back(v);
+}
+
+void IRBuilder::adoptTempValue(IRValuePtr v) {
+    if (!v || m_tempScopes.empty()) return;
+    for (auto it = m_tempScopes.rbegin(); it != m_tempScopes.rend(); ++it) {
+        auto& scope = *it;
+        for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
+            if (*sit == v) {
+                scope.erase(sit);
+                return;
+            }
+        }
+    }
+}
+
+IRBuilder::TempCallRecorder::~TempCallRecorder() {
+    if (b) b->recordTempCallResult(*node);
+}
+
+void IRBuilder::emitContainerElementRetain(const ast::ExpressionNode* expr, IRValuePtr v) {
+    if (!expr || !v) return;
+    auto semaType = m_sema.getNodeType(expr);
+    if (!semaType || !semaType->isReferenceType()) return;
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{v}));
+}
+
 void IRBuilder::popScope() {
     if (!m_refCountedScopes.empty()) {
         emitScopeDrops(m_refCountedScopes.size() - 1);
@@ -1340,7 +1441,11 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
             if (m_currentBlock->hasTerminator()) break;
         }
     } else if (node.isShortForm()) {
+        // Phase 7 slice C: the short-form body's temporaries are
+        // released before the return (the returned value is adopted).
+        pushTempScope();
         node.getShortBody()->accept(*this);
+        IRValuePtr rawRetVal = m_lastExprValue;
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
         // Phase 6 slice C: the +1 return convention — a short-form
@@ -1349,7 +1454,10 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         // The normal return path below already retained; the
         // short-form path never did, so without this a short-form
         // getter would hand the caller a borrowed pointer.
+        // Phase 7 slice C: adopt the returned value (raw).
+        adoptTempValue(rawRetVal);
         emitRefReturnRetain(*node.getShortBody(), retVal);
+        popTempScope();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -1385,7 +1493,11 @@ void IRBuilder::visit(const ast::BlockStmt& node) {
 }
 
 void IRBuilder::visit(const ast::ExprStmt& node) {
+    // Phase 7 slice C: an expression statement's temporaries live
+    // only until the statement completes.
+    pushTempScope();
     node.getExpr().accept(*this);
+    popTempScope();
 }
 
 void IRBuilder::visit(const ast::VarDeclStmt& node) {
@@ -1407,6 +1519,10 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
 
     IRValuePtr initVal = nullptr;
     if (node.hasInitializer()) {
+        // Phase 7 slice C: the initializer's temporaries are
+        // released when the declaration completes (the stored value
+        // itself is adopted at the retain decision below).
+        pushTempScope();
         node.getInitializer()->accept(*this);
         initVal = m_lastExprValue;
         if (!valType && m_lastExprType) {
@@ -1455,6 +1571,9 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
         // Phase 6 slice C: the +1 return convention — a fresh +1
         // initializer (new, or a factory call result) is adopted
         // without an extra retain; borrowed values are retained.
+        // Phase 7 slice C: adopt the stored value so the scope pop
+        // below does not release it (no-op unless it is +1).
+        adoptTempValue(initVal);
         if (initVal && !isFreshPlusOneExpr(*node.getInitializer())) {
             auto retainCall = std::make_shared<CallInst>(
                 IRType::getVoid(),
@@ -1474,9 +1593,15 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
         initVal = emitCastIfNeeded(initVal, valType);
         m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, varAddr));
     }
+    // Only the initializer pushed a scope (see above); popping
+    // unconditionally would release an enclosing scope's temporaries.
+    if (node.hasInitializer()) popTempScope();
 }
 
 void IRBuilder::visit(const ast::IfStmt& node) {
+    // Phase 7 slice C: the condition's temporaries are released in
+    // the pre-branch block, which dominates both branches.
+    pushTempScope();
     node.getCondition().accept(*this);
     IRValuePtr condVal = m_lastExprValue;
     if (condVal && !condVal->getType()->isInt1()) {
@@ -1485,6 +1610,7 @@ void IRBuilder::visit(const ast::IfStmt& node) {
                                                 m_currentFunction->nextTempName("bool"));
         m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(condVal));
     }
+    popTempScope();
 
     auto thenBB = createBlock("then");
     auto elseBB = node.hasElseBranch() ? createBlock("else") : nullptr;
@@ -1521,6 +1647,9 @@ void IRBuilder::visit(const ast::WhileStmt& node) {
 
     // Condition
     setInsertPoint(condBB);
+    // Phase 7 slice C: the condition's temporaries are released in
+    // condBB, which dominates both the body and the end block.
+    pushTempScope();
     node.getCondition().accept(*this);
     IRValuePtr condVal = m_lastExprValue;
     if (condVal && !condVal->getType()->isInt1()) {
@@ -1529,6 +1658,7 @@ void IRBuilder::visit(const ast::WhileStmt& node) {
                                                 m_currentFunction->nextTempName("bool"));
         m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(condVal));
     }
+    popTempScope();
     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(condVal, bodyBB->getName(), endBB->getName()));
 
     // Body
@@ -1567,6 +1697,9 @@ void IRBuilder::visit(const ast::DoWhileStmt& node) {
     m_continueStack.pop_back();
 
     setInsertPoint(condBB);
+    // Phase 7 slice C: same rule as the while condition — releases
+    // land in condBB, which dominates both successors.
+    pushTempScope();
     node.getCondition().accept(*this);
     IRValuePtr condVal = m_lastExprValue;
     if (condVal && !condVal->getType()->isInt1()) {
@@ -1575,6 +1708,7 @@ void IRBuilder::visit(const ast::DoWhileStmt& node) {
                                                 m_currentFunction->nextTempName("bool"));
         m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(condVal));
     }
+    popTempScope();
     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(condVal, bodyBB->getName(), endBB->getName()));
 
     setInsertPoint(endBB);
@@ -1597,6 +1731,9 @@ void IRBuilder::visit(const ast::ForStmt& node) {
     // Condition
     setInsertPoint(condBB);
     if (node.hasCondition()) {
+        // Phase 7 slice C: the condition's temporaries are released
+        // in condBB, which dominates the body and the end block.
+        pushTempScope();
         node.getCondition()->accept(*this);
         IRValuePtr condVal = m_lastExprValue;
         if (condVal && !condVal->getType()->isInt1()) {
@@ -1605,6 +1742,7 @@ void IRBuilder::visit(const ast::ForStmt& node) {
                                                     m_currentFunction->nextTempName("bool"));
             m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(condVal));
         }
+        popTempScope();
         m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(condVal, bodyBB->getName(), endBB->getName()));
     } else {
         m_currentBlock->addInstruction(std::make_shared<BranchInst>(bodyBB->getName()));
@@ -1626,7 +1764,11 @@ void IRBuilder::visit(const ast::ForStmt& node) {
     // Step
     setInsertPoint(stepBB);
     if (node.hasIncrement()) {
+        // Phase 7 slice C: the step's temporaries are released in
+        // stepBB, which dominates the next condition evaluation.
+        pushTempScope();
         node.getIncrement()->accept(*this);
+        popTempScope();
     }
     m_currentBlock->addInstruction(std::make_shared<BranchInst>(condBB->getName()));
 
@@ -1635,6 +1777,11 @@ void IRBuilder::visit(const ast::ForStmt& node) {
 }
 
 void IRBuilder::visit(const ast::ForInStmt& node) {
+    // Phase 7 slice C: the iterable's temporaries are released once
+    // the iterable value has been adopted (it stays live for the
+    // whole loop); the range bounds are released before the loop
+    // starts (their scalar values are already extracted).
+    pushTempScope();
     if (const auto* bin = dynamic_cast<const ast::BinaryExpr*>(&node.getIterable())) {
         if (bin->getOp() == lexer::TokenType::DotDot) {
             bin->getLeft().accept(*this);
@@ -1704,6 +1851,7 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
             stepBB->addInstruction(std::make_shared<StoreInst>(nextVal, varAlloca));
             stepBB->addInstruction(std::make_shared<BranchInst>(condBB->getName()));
 
+            popTempScope();
             setInsertPoint(endBB);
             return;
         }
@@ -1711,6 +1859,10 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
 
     node.getIterable().accept(*this);
     IRValuePtr collVal = m_lastExprValue;
+    // The iterable value itself is adopted (live for the whole loop);
+    // any other temporaries from its evaluation are released now.
+    adoptTempValue(collVal);
+    popTempScope();
     if (!collVal) return;
 
     auto semaIterType = m_sema.getNodeType(&node.getIterable());
@@ -1937,9 +2089,15 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
 void IRBuilder::visit(const ast::SwitchStmt& node) {
     if (!m_currentFunction || !m_currentBlock) return;
 
+    // Phase 7 slice C: the subject's temporaries are released once
+    // the subject value has been adopted (it is compared in every
+    // test block, so it stays live for the whole statement).
+    pushTempScope();
     node.getSubject().accept(*this);
     IRValuePtr subjVal = m_lastExprValue;
     IRTypePtr subjType = m_lastExprType;
+    adoptTempValue(subjVal);
+    popTempScope();
     if (!subjVal) return;
 
     auto endBB = createBlock("switch_end");
@@ -2032,9 +2190,13 @@ void IRBuilder::visit(const ast::SwitchStmt& node) {
 void IRBuilder::visit(const ast::MatchStmt& node) {
     if (!m_currentFunction || !m_currentBlock) return;
 
+    // Phase 7 slice C: same rule as the switch subject.
+    pushTempScope();
     node.getSubject().accept(*this);
     IRValuePtr subjVal = m_lastExprValue;
     IRTypePtr subjType = m_lastExprType;
+    adoptTempValue(subjVal);
+    popTempScope();
     if (!subjVal) return;
 
     auto endBB = createBlock("match_end");
@@ -2184,6 +2346,11 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
         }
         return;
     }
+    // Phase 7 slice C: the return value's temporaries are released
+    // before the return itself (the returned value is adopted at the
+    // retain decision below). Pushed after the async branch: async
+    // functions never record temporaries (see recordTempCallResult).
+    pushTempScope();
     // Phase 3 slice B: a return inside a try with a finally must run
     // the finally blocks first. Defer it: stash the value, set the
     // flag, and branch to the innermost finally; that finally's
@@ -2193,6 +2360,7 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
     if (finallyTarget) {
         if (node.hasValue()) {
             node.getValue()->accept(*this);
+            IRValuePtr rawRetVal = m_lastExprValue;
             IRValuePtr retVal = m_lastExprValue;
             if (m_currentFunction->getReturnType()->isStruct() && retVal && retVal->getType()->isPointer()) {
                 auto loadInst = std::make_shared<LoadInst>(m_currentFunction->getReturnType(), retVal, m_currentFunction->nextTempName("tu_ret"));
@@ -2205,6 +2373,10 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
             // borrowed reference return value so it survives the
             // deferred return block (which releases the function's
             // locals); a fresh +1 value passes through untouched.
+            // Phase 7 slice C: adopt the returned value (raw, before
+            // the struct load / cast) so the scope pop below does
+            // not release it.
+            adoptTempValue(rawRetVal);
             emitRefReturnRetain(*node.getValue(), retVal);
 
             auto slot = getOrCreateReturnValueSlot();
@@ -2227,11 +2399,13 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
             m_currentBlock->addInstruction(std::make_shared<StoreInst>(
                 std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
         }
+        popTempScope();
         m_currentBlock->addInstruction(std::make_shared<BranchInst>(finallyTarget->getName()));
         return;
     }
     if (node.hasValue()) {
         node.getValue()->accept(*this);
+        IRValuePtr rawRetVal = m_lastExprValue;
         IRValuePtr retVal = m_lastExprValue;
         if (m_currentFunction->getReturnType()->isStruct() && retVal && retVal->getType()->isPointer()) {
             auto loadInst = std::make_shared<LoadInst>(m_currentFunction->getReturnType(), retVal, m_currentFunction->nextTempName("tu_ret"));
@@ -2241,16 +2415,20 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
         retVal = emitCastIfNeeded(retVal, m_currentFunction->getReturnType());
 
         // Phase 6 slice C: the +1 return convention (see above).
+        // Phase 7 slice C: adopt the returned value (raw).
+        adoptTempValue(rawRetVal);
         emitRefReturnRetain(*node.getValue(), retVal);
 
         // Phase 3 slice C: an explicit `return` from main drains
         // fire-and-forget async tasks first. (A return deferred by a
         // try/finally skips this drain — known limitation, see the
         // Phase 32 doc.)
+        popTempScope();
         if (m_currentFunction->getName() == "main") emitMainExitPump();
         emitAllFunctionDrops();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     } else {
+        popTempScope();
         if (m_currentFunction->getName() == "main") emitMainExitPump();
         emitAllFunctionDrops();
         if (m_currentFunction->getName() == "main") {
@@ -2613,10 +2791,16 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
             }
         }
     }
+    // Phase 7 slice C: the thrown value's temporaries are released
+    // after the throw value is emitted (the thrown value itself is
+    // adopted in the ref-type branch below). Pushed after the enum
+    // early-return above, before the expression is lowered.
+    pushTempScope();
     node.getExpr().accept(*this);
     IRValuePtr thrownVal = m_lastExprValue;
     IRTypePtr thrownType = m_lastExprType;
     if (!thrownVal) {
+        popTempScope();
         m_lastExprValue = nullptr;
         m_lastExprType = nullptr;
         return;
@@ -2637,6 +2821,7 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
         if (!layout || !layout->structType) {
             reportUnsupported(node.getLocation(), "throw of '" + canonical + "'",
                 "no struct layout is available for this type; the value cannot be carried by a throw");
+            popTempScope();
             m_lastExprValue = nullptr;
             m_lastExprType = nullptr;
             return;
@@ -2671,6 +2856,10 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
             // call thrown directly (`throw makeFoo()`) transfers its
             // fresh +1 share to the payload; borrowed values are
             // retained (a directly-thrown `new` already transferred).
+            // Phase 7 slice C: adopt the thrown value (raw, before
+            // the i64 cast above) so the scope pop below does not
+            // release it.
+            adoptTempValue(thrownVal);
             if (!isFreshPlusOneExpr(node.getExpr())) {
                 auto retainCall = std::make_shared<CallInst>(
                     IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{thrownVal});
@@ -2684,6 +2873,7 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
         rawI64 = emitPackThrowScalar(thrownVal, thrownType);
     }
     emitThrowValue(strVal, rawI64, typeTag, owns);
+    popTempScope();
     m_lastExprValue = nullptr;
     m_lastExprType = nullptr;
 }
@@ -2715,6 +2905,11 @@ void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const 
     setInsertPoint(entryBB);
     pushScope();
     m_currentClass = &layout;
+    // Phase 7 slice C: same rule as instance field initializers — a
+    // `new` static initializer transfers its +1 to the field (adopt
+    // it), a factory-call initializer is retained above and its +1 is
+    // released at the pop below.
+    pushTempScope();
 
     for (const auto* field : inits) {
         auto sit = layout.staticFields.find(field->getName());
@@ -2745,6 +2940,10 @@ void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const 
                 IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
             m_currentBlock->addInstruction(retainCall);
         }
+        // Phase 7 slice C: see emitFieldInitializers.
+        if (dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
+            adoptTempValue(initVal);
+        }
         if (info.irType && info.irType->isStruct() && initVal->getType()->isPointer()) {
             auto loadInst = std::make_shared<LoadInst>(info.irType, initVal, m_currentFunction->nextTempName("st_init"));
             m_currentBlock->addInstruction(loadInst);
@@ -2754,6 +2953,7 @@ void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const 
         auto gvar = std::make_shared<GlobalVariable>(info.irType, info.globalName);
         m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, gvar));
     }
+    popTempScope();
 
     if (!m_currentBlock->hasTerminator()) {
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
@@ -2815,6 +3015,9 @@ void IRBuilder::appendDefaultArgs(const ast::CallExpr& node, std::vector<IRValue
 void IRBuilder::emitFieldInitializers(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout, IRValuePtr thisVal,
                                       const std::vector<std::string>* skipTypeParams) {
     if (!m_currentFunction || !m_currentBlock || !thisVal) return;
+    // Phase 7 slice C: one temp scope around all field initializers
+    // in this constructor; a field's own value is adopted below.
+    pushTempScope();
     for (const auto& member : classDecl.getMembers()) {
         if (!member || member->getKind() != ast::ASTNodeKind::VarDeclStmt) continue;
         const auto& field = static_cast<const ast::VarDeclStmt&>(*member);
@@ -2859,6 +3062,16 @@ void IRBuilder::emitFieldInitializers(const ast::ClassDecl& classDecl, const cod
                 IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
             m_currentBlock->addInstruction(retainCall);
         }
+        // Phase 7 slice C: the field code retains UNLESS the
+        // initializer is `new` — so a `new` initializer transfers its
+        // fresh +1 to the field (adopt it: the scope pop must not
+        // release it), while a factory-call initializer is retained
+        // above (the field takes its own share) and its +1 stays
+        // pending, so the pop below releases it. That is the
+        // `box strong 2` → `1` fix (see the slice doc §2.5).
+        if (dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
+            adoptTempValue(initVal);
+        }
 
         if (fieldIRType && fieldIRType->isStruct() && initVal->getType()->isPointer()) {
             auto loadInst = std::make_shared<LoadInst>(fieldIRType, initVal, m_currentFunction->nextTempName("fld_init"));
@@ -2878,6 +3091,7 @@ void IRBuilder::emitFieldInitializers(const ast::ClassDecl& classDecl, const cod
         m_currentBlock->addInstruction(gep);
         m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, gep));
     }
+    popTempScope();
 }
 
 void IRBuilder::compileDefaultConstructor(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout) {
@@ -3090,12 +3304,19 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
             if (m_currentBlock->hasTerminator()) break;
         }
     } else if (methodDecl.isShortForm()) {
+        // Phase 7 slice C: the short-form body's temporaries are
+        // released before the return (the returned value is adopted).
+        pushTempScope();
         methodDecl.getShortBody()->accept(*this);
+        IRValuePtr rawRetVal = m_lastExprValue;
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
         // Phase 6 slice C: the +1 return convention (see the free-fn
         // short-form path).
+        // Phase 7 slice C: adopt the returned value (raw).
+        adoptTempValue(rawRetVal);
         emitRefReturnRetain(*methodDecl.getShortBody(), retVal);
+        popTempScope();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -3297,12 +3518,19 @@ void IRBuilder::compileSpecializedMethod(
             if (m_currentBlock->hasTerminator()) break;
         }
     } else if (methodDecl.isShortForm()) {
+        // Phase 7 slice C: the short-form body's temporaries are
+        // released before the return (the returned value is adopted).
+        pushTempScope();
         methodDecl.getShortBody()->accept(*this);
+        IRValuePtr rawRetVal = m_lastExprValue;
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
         // Phase 6 slice C: the +1 return convention (see the free-fn
         // short-form path).
+        // Phase 7 slice C: adopt the returned value (raw).
+        adoptTempValue(rawRetVal);
         emitRefReturnRetain(*methodDecl.getShortBody(), retVal);
+        popTempScope();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -3423,12 +3651,19 @@ void IRBuilder::compileSpecializedFunction(
             if (m_currentBlock->hasTerminator()) break;
         }
     } else if (fnDecl.isShortForm()) {
+        // Phase 7 slice C: the short-form body's temporaries are
+        // released before the return (the returned value is adopted).
+        pushTempScope();
         fnDecl.getShortBody()->accept(*this);
+        IRValuePtr rawRetVal = m_lastExprValue;
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
         // Phase 6 slice C: the +1 return convention (see the free-fn
         // short-form path).
+        // Phase 7 slice C: adopt the returned value (raw).
+        adoptTempValue(rawRetVal);
         emitRefReturnRetain(*fnDecl.getShortBody(), retVal);
+        popTempScope();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -3697,6 +3932,12 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
 
         node.getValue().accept(*this);
         IRValuePtr rhsVal = m_lastExprValue;
+        // Phase 7 slice C: an indexed assignment stores the value as
+        // raw i64 bits into the array/map/list — retain a
+        // reference-typed value into the container (see
+        // emitContainerElementRetain), so the scope pop can safely
+        // release a +1 temporary afterwards.
+        emitContainerElementRetain(&node.getValue(), rhsVal);
 
         if (!objVal || !idxVal || !rhsVal) {
             return;
@@ -3896,6 +4137,15 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
 
     if (isRefAssignment) {
         // Phase 6 slice C: the +1 return convention (see VarDecl).
+        // Phase 7 slice C: adopt the assigned value — the field /
+        // variable takes its share (a +1 value passes through
+        // without an extra retain), so the scope pop must not
+        // release it. rhsVal here is still the raw value for ref
+        // assignments (the struct load above only fires for by-value
+        // structs, and a pointer-to-pointer cast is a no-op).
+        if (node.getOp() == lexer::TokenType::Equal) {
+            adoptTempValue(rhsVal);
+        }
         if (!isFreshPlusOneExpr(node.getValue())) {
             auto retainCall = std::make_shared<CallInst>(
                 IRType::getVoid(),
@@ -3976,7 +4226,13 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         }
 
         setInsertPoint(rhsBB);
+        // Phase 7 slice C: the RHS runs in a branch block that does
+        // not dominate the merge block, so its temporaries must not
+        // be recorded (their release point would be unreachable from
+        // the skipped path). They leak as before.
+        ++m_tempBranchDepth;
         node.getRight().accept(*this);
+        --m_tempBranchDepth;
         IRValuePtr rhs = m_lastExprValue;
         if (rhs) {
             rhs = emitCastIfNeeded(rhs, IRType::getInt1());
@@ -4068,7 +4324,11 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(isNull, rhsBB->getName(), mergeBB->getName()));
 
         setInsertPoint(rhsBB);
+        // Phase 7 slice C: same branch-depth rule as the && / || RHS
+        // (see above) — the RHS block does not dominate the merge.
+        ++m_tempBranchDepth;
         node.getRight().accept(*this);
+        --m_tempBranchDepth;
         IRValuePtr rhs = m_lastExprValue;
         if (rhs) {
             rhs = emitCastIfNeeded(rhs, resType);
@@ -4373,6 +4633,10 @@ void IRBuilder::visit(const ast::UnaryExpr& node) {
 }
 
 void IRBuilder::visit(const ast::CallExpr& node) {
+    // Phase 7 slice C: record the call's result as a pending
+    // temporary when it is a +1 producer (destructor runs on every
+    // exit path, including all 241 early returns below).
+    TempCallRecorder tempCallRecorder(this, &node);
     // 1. Check if callee is MemberExpr: obj.method(...) or super.method(...)
     if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&node.getCallee())) {
         std::string methodName = mem->getMember();
@@ -6029,6 +6293,12 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (clsName == "Channel" || clsName.rfind("Channel", 0) == 0) {
                 if (methodName == "send" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
+                    // Phase 7 slice C: a channel stores the sent
+                    // value as raw i64 bits — retain a reference-typed
+                    // value into the channel (see
+                    // emitContainerElementRetain); the receiver may
+                    // outlive the sender's scope.
+                    emitContainerElementRetain(node.getArgs()[0].get(), m_lastExprValue);
                     auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
                     std::string reg = m_currentFunction->nextTempName("chan_send");
                     auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_channel_send_i64", std::vector<IRValuePtr>{objVal, val}, reg);
@@ -6488,6 +6758,10 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             } else if (methodName == "push" || methodName == "add" || methodName == "enqueue") {
                 if (isPQ && node.getArgs().size() >= 2) {
                     node.getArgs()[0]->accept(*this);
+                    // Phase 7 slice C: the queue stores the item as
+                    // raw i64 bits — retain a reference-typed item
+                    // into the queue (see emitContainerElementRetain).
+                    emitContainerElementRetain(node.getArgs()[0].get(), m_lastExprValue);
                     auto itemVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
                     node.getArgs()[1]->accept(*this);
                     auto prioVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
@@ -6503,6 +6777,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
+                    // Phase 7 slice C: List/Set/Stack/Queue store the
+                    // element as raw bits — retain a reference-typed
+                    // element into the container (see
+                    // emitContainerElementRetain).
+                    emitContainerElementRetain(node.getArgs()[0].get(), m_lastExprValue);
                     if (isSet) {
                         if (m_lastExprType && m_lastExprType->isPointer()) {
                             auto callInst = std::make_shared<CallInst>(
@@ -6742,7 +7021,13 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 if (node.getArgs().size() >= 2) {
                     node.getArgs()[0]->accept(*this);
                     auto idxVal = m_lastExprValue;
+                    // Phase 7 slice C: a map/list/array stores the
+                    // value as raw i64 bits — retain a reference-typed
+                    // value (and key) into the container (see
+                    // emitContainerElementRetain).
+                    emitContainerElementRetain(node.getArgs()[0].get(), idxVal);
                     node.getArgs()[1]->accept(*this);
+                    emitContainerElementRetain(node.getArgs()[1].get(), m_lastExprValue);
                     auto valVal = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
                     if (semaObjType->isMap() || semaObjType->toString().rfind("Map", 0) == 0) {
                         if (idxVal->getType()->isPointer()) {
@@ -8289,7 +8574,10 @@ void IRBuilder::visit(const ast::TernaryExpr& node) {
 
     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(condVal, thenBB->getName(), elseBB->getName()));
 
-    // Then
+    // Then — Phase 7 slice C: both arms run in branch blocks that do
+    // not dominate the merge block, so their temporaries must not be
+    // recorded (same branch-depth rule as the && / || / ?? RHS).
+    ++m_tempBranchDepth;
     setInsertPoint(thenBB);
     node.getThenExpr().accept(*this);
     IRValuePtr thenVal = m_lastExprValue;
@@ -8299,6 +8587,7 @@ void IRBuilder::visit(const ast::TernaryExpr& node) {
     // Else
     setInsertPoint(elseBB);
     node.getElseExpr().accept(*this);
+    --m_tempBranchDepth;
     IRValuePtr elseVal = m_lastExprValue;
     m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
 
@@ -8744,6 +9033,14 @@ void IRBuilder::visit(const ast::ArrayExpr& node) {
     for (size_t i = 0; i < count; ++i) {
         node.getElements()[i]->accept(*this);
         IRValuePtr elemVal = m_lastExprValue;
+        // Phase 7 slice C: an array literal stores its elements as
+        // raw i64 bits — retain a reference-typed element into the
+        // array (see emitContainerElementRetain). Without this the
+        // scope pop would release a +1 element the array's raw
+        // pointer still depends on (verified: `let xs =
+        // [makeFoo()]; xs[0].n` reads fine on the baseline only
+        // because the +1 leaks).
+        emitContainerElementRetain(node.getElements()[i].get(), elemVal);
         auto idxVal = std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(i));
 
         if (m_lastExprType && m_lastExprType->isFloatingPoint()) {
@@ -9284,6 +9581,9 @@ void IRBuilder::visit(const ast::NewExpr& node) {
 
     m_lastExprValue = allocCall;
     m_lastExprType = IRType::getPointer();
+    // Phase 7 slice C: record the fresh object as a pending temporary
+    // (released at the scope pop unless an adopter takes it).
+    recordTempNewResult(node);
 }
 
 void IRBuilder::visit(const ast::TryExpr& node) {

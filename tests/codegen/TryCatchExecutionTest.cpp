@@ -758,13 +758,346 @@ TEST(TryCatchExecutionTest, BorrowedReturnSurvivesAndFactoryAssignFreesOld) {
     EXPECT_NE(output.find("borrowed short 7"), std::string::npos);
     EXPECT_NE(output.find("factory 5"), std::string::npos);
     EXPECT_NE(output.find("reassigned 5"), std::string::npos);
-    // live: h + h.box + b + the `makeBox().n` temporary in the
-    // println (a call-result temporary is never released — see the
-    // follow-up note in the slice doc; the two `getBox().n`
-    // temporaries also leak a share each, but their object survives
-    // via the field anyway, so the object count does not show them;
-    // the first makeBox was freed on reassign).
-    EXPECT_NE(output.find("live 4"), std::string::npos);
+    // live: h + h.box + b. Phase 7 slice C drops the `makeBox().n`
+    // temporary in the println (it used to leak a share, making this
+    // 4). The two `getBox().n` temporaries are borrowed returns —
+    // never recorded, never released — so their object survives via
+    // the field anyway, and the object count does not show them; the
+    // first makeBox was freed on reassign.
+    EXPECT_NE(output.find("live 3"), std::string::npos);
+}
+
+// Phase 7 slice C: call-result temporaries are released at the end
+// of the statement that consumes them. A stored result stays live
+// until its scope ends, and a returned factory result stays live for
+// the caller.
+TEST(TryCatchExecutionTest, CallResultTemporariesAreReleased) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn takeFoo(f: Foo) -> int { return f.n; }
+        fn getFoo() -> Foo { return makeFoo(); }
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 5; return b; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            println("take " + takeFoo(makeFoo()));
+            println("after arg " + sp_rt_mem_live_objects());
+            println("member " + makeBox().n);
+            println("after member " + sp_rt_mem_live_objects());
+            {
+                var x = makeFoo();
+                println("inside " + sp_rt_mem_live_objects());
+                println("n " + x.n);
+            }
+            println("after block " + sp_rt_mem_live_objects());
+            {
+                var y = getFoo();
+                println("ret inside " + sp_rt_mem_live_objects());
+                println("ret n " + y.n);
+            }
+            println("ret after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_released");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("take 42"), std::string::npos);
+    EXPECT_NE(output.find("after arg 0"), std::string::npos);
+    EXPECT_NE(output.find("member 5"), std::string::npos);
+    EXPECT_NE(output.find("after member 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("n 42"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+    EXPECT_NE(output.find("ret inside 1"), std::string::npos);
+    EXPECT_NE(output.find("ret n 42"), std::string::npos);
+    EXPECT_NE(output.find("ret after block 0"), std::string::npos);
+}
+
+// Phase 7 slice C: the critical regression proof — a borrowed getter
+// result (a field, short-form or long-form) used after the call must
+// keep working. Borrowed values are never recorded as temporaries,
+// so they are never released by this pass.
+TEST(TryCatchExecutionTest, BorrowedGetterTempDoesNotFreeEarly) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Box { public int n; }
+        class Holder {
+            public Box box;
+            fn init() { box = new Box(); box.n = 7; }
+            fn getBox() -> Box { return box; }
+            fn getBoxShort() -> Box => box;
+        }
+        fn main() {
+            let h = new Holder();
+            h.init();
+            println("base " + sp_rt_mem_live_objects());
+            println("borrowed " + h.getBox().n);
+            println("borrowed short " + h.getBoxShort().n);
+            println("direct " + h.getBox().n);
+            println("direct short " + h.getBoxShort().n);
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_borrowed");
+    EXPECT_NE(output.find("base 2"), std::string::npos);
+    EXPECT_NE(output.find("borrowed 7"), std::string::npos);
+    EXPECT_NE(output.find("borrowed short 7"), std::string::npos);
+    EXPECT_NE(output.find("direct 7"), std::string::npos);
+    EXPECT_NE(output.find("direct short 7"), std::string::npos);
+    EXPECT_NE(output.find("after 2"), std::string::npos);
+}
+
+// Phase 7 slice C: a chain of temporaries drops the outer objects
+// but the inner objects stay alive — there are no destructors, so a
+// field's share is never released when its parent dies. The inner
+// objects therefore keep one (leaked) share each.
+TEST(TryCatchExecutionTest, TempChainDropsOuterKeepsFieldShare) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Inner { public int n; }
+        class Outer { public Inner child; }
+        fn makeInner() -> Inner { let i = new Inner(); i.n = 9; return i; }
+        fn makeOuter() -> Outer { let o = new Outer(); o.child = makeInner(); return o; }
+        fn takeInner(i: Inner) -> int { return i.n; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            println("chain " + makeOuter().child.n);
+            println("after chain " + sp_rt_mem_live_objects());
+            println("arg " + takeInner(makeOuter().child));
+            println("after arg " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_chain");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("chain 9"), std::string::npos);
+    EXPECT_NE(output.find("after chain 1"), std::string::npos);
+    EXPECT_NE(output.find("arg 9"), std::string::npos);
+    EXPECT_NE(output.find("after arg 2"), std::string::npos);
+}
+
+// Phase 7 slice C: a self-referential temporary (a field pointing at
+// its own object) must not crash when the temporary is dropped — the
+// release frees the allocation, the cycle's field share leaks, and
+// the object stays readable through the taken value.
+TEST(TryCatchExecutionTest, SelfReferentialTempDoesNotCrash) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Node { public Node self; public int n; }
+        fn makeNode() -> Node { let nd = new Node(); nd.n = 3; nd.self = nd; return nd; }
+        fn takeNode(nd: Node) -> int { return nd.n; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var x = makeNode().self;
+                println("self n " + x.n);
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+            println("take " + takeNode(makeNode().self));
+            println("after take " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_self");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("self n 3"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("after block 1"), std::string::npos);
+    EXPECT_NE(output.find("take 3"), std::string::npos);
+    EXPECT_NE(output.find("after take 2"), std::string::npos);
+}
+
+// Phase 7 slice C: a factory call used as a field initializer used
+// to give the field TWO shares (the +1 plus the retain in
+// emitFieldInitializers). The initializer's +1 is now released at
+// the constructor's temp-scope pop, so the field holds exactly one.
+TEST(TryCatchExecutionTest, FieldInitFactoryDoesNotDoubleCount) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 5; return b; }
+        class Holder { public Box box = makeBox(); }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let h = new Holder();
+            println("after new " + sp_rt_mem_live_objects());
+            println("box strong " + sp_rt_strong_count(h.box));
+            println("n " + h.box.n);
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_fieldinit");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after new 2"), std::string::npos);
+    EXPECT_NE(output.find("box strong 1"), std::string::npos);
+    EXPECT_NE(output.find("n 5"), std::string::npos);
+}
+
+// Phase 7 slice C: containers store elements as raw i64 bits, so a
+// reference-typed element is retained into the container —
+// including when the element arrives through a function that pushes
+// its borrowed parameter (the caller's temp is released at the
+// caller's pop, so the container is the only owner). Counts match
+// the baseline exactly; the reads prove no use-after-free.
+TEST(TryCatchExecutionTest, ContainerStoresRetainTempElements) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn store(xs: List<Foo>, f: Foo) { xs.push(f); }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let xs = new List<Foo>();
+            xs.push(makeFoo());
+            println("after push live " + sp_rt_mem_live_objects());
+            println("push n " + xs[0].n);
+            store(xs, makeFoo());
+            println("after store live " + sp_rt_mem_live_objects());
+            println("store n " + xs[1].n);
+            let ys = [makeFoo()];
+            println("after array live " + sp_rt_mem_live_objects());
+            println("array n " + ys[0].n);
+            let m = new Map<string, Foo>();
+            m.set("a", makeFoo());
+            println("after mapset live " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_container");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after push live 1"), std::string::npos);
+    EXPECT_NE(output.find("push n 42"), std::string::npos);
+    EXPECT_NE(output.find("after store live 2"), std::string::npos);
+    EXPECT_NE(output.find("store n 42"), std::string::npos);
+    EXPECT_NE(output.find("after array live 3"), std::string::npos);
+    EXPECT_NE(output.find("array n 42"), std::string::npos);
+    EXPECT_NE(output.find("after mapset live 4"), std::string::npos);
+}
+
+// Phase 7 slice C: a channel stores the sent value as raw i64 bits
+// too — the same retain keeps a sent temporary alive past the
+// sender's scope pop.
+TEST(TryCatchExecutionTest, ChannelSendRetainsTempElement) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let ch = new Channel<Foo>(4);
+            ch.send(makeFoo());
+            println("after send live " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_channel");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after send live 1"), std::string::npos);
+}
+
+// Phase 7 slice C: temporaries produced inside short-circuit
+// branches (&& / || RHS, ternary arms) are deliberately NOT
+// recorded — their defining block does not dominate the merge block,
+// so no valid release point exists. They leak as before; this test
+// pins that behaviour so a future fix is a deliberate change.
+TEST(TryCatchExecutionTest, ShortCircuitTempsStillLeakByDesign) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 5; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            if (true && makeFoo().n == 5) { println("hit"); }
+            println("after and " + sp_rt_mem_live_objects());
+            if (false || makeFoo().n == 5) { println("or true"); }
+            println("after or " + sp_rt_mem_live_objects());
+            let t = true ? makeFoo().n : 0;
+            println("tern " + t);
+            println("after tern " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_shortcircuit");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("hit"), std::string::npos);
+    EXPECT_NE(output.find("after and 1"), std::string::npos);
+    EXPECT_NE(output.find("or true"), std::string::npos);
+    EXPECT_NE(output.find("after or 2"), std::string::npos);
+    EXPECT_NE(output.find("tern 5"), std::string::npos);
+    EXPECT_NE(output.find("after tern 3"), std::string::npos);
+}
+
+// Phase 7 slice C: a temporary consumed by an earlier statement in
+// a try block is dropped before a later same-function throw — the
+// throw path itself does not leak it.
+TEST(TryCatchExecutionTest, ThrowAfterTempDoesNotLeak) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn takeFoo(f: Foo) -> int { return f.n; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            try {
+                println("take " + takeFoo(makeFoo()));
+                throw "bang";
+            } catch (string e) {
+                println("caught " + e);
+            }
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_throwpath");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("take 42"), std::string::npos);
+    EXPECT_NE(output.find("caught bang"), std::string::npos);
+    EXPECT_NE(output.find("after 0"), std::string::npos);
+}
+
+// Phase 7 slice C: temporaries inside an async fn are deliberately
+// NOT recorded — await splits blocks, so a temp defined before a
+// suspend point does not dominate the resume block. They leak as
+// before; this test pins that behaviour.
+TEST(TryCatchExecutionTest, AsyncTempStillLeaksByDesign) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        import std.async;
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn takeFoo(f: Foo) -> int { return f.n; }
+        async fn useTemp() -> int {
+            let n = takeFoo(makeFoo());
+            return n;
+        }
+        async fn run() {
+            let v = await useTemp();
+            println("v " + v);
+            println("after await " + sp_rt_mem_live_objects());
+        }
+        fn main() {
+            run();
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_async");
+    EXPECT_NE(output.find("v 42"), std::string::npos);
+    EXPECT_NE(output.find("after await 1"), std::string::npos);
 }
 
 TEST(TryCatchExecutionTest, FinallyPropagationReleasesOuterLocal) {

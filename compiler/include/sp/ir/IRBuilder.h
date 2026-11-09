@@ -278,6 +278,46 @@ private:
     bool isFreshPlusOneExpr(const ast::ExpressionNode& expr);
     void emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal);
 
+    // Phase 7 slice C: call-result temporary release (see IRBuilder.cpp
+    // §0 for the ownership rule). m_tempScopes is one pending-temporary
+    // list per statement/condition currently being lowered. A +1
+    // call/new result that no adopter (variable init, assignment,
+    // return, throw payload, field init) takes is released with
+    // sp_rt_release when the scope pops. m_tempScopeFunction tags the
+    // stack's owner so a stale stack can never leak across functions.
+    // m_tempBranchDepth is > 0 while lowering the RHS of && / || / ??
+    // or a ternary arm: temporaries produced there are not recorded,
+    // because their defining block does not dominate the merge block.
+    std::vector<std::vector<IRValuePtr>> m_tempScopes;
+    IRFunction* m_tempScopeFunction{nullptr};
+    int m_tempBranchDepth{0};
+    void pushTempScope();
+    void popTempScope();
+    void recordTempCallResult(const ast::CallExpr& node);
+    void recordTempNewResult(const ast::NewExpr& node);
+    void adoptTempValue(IRValuePtr v);
+    // Phase 7 slice C: containers (List/Set/Stack/Queue/
+    // PriorityQueue, Map, arrays, channels) store their elements as
+    // raw i64 bits with no share. A reference-typed element must be
+    // retained into the container, or the element's owner (a
+    // variable's scope drop, or a temporary's scope pop) would free
+    // the object while the container still holds its raw pointer —
+    // including through a function that pushes its borrowed parameter
+    // (the caller's temp is released at the caller's pop, so the
+    // container is the only owner). sp_rt_retain is magic-checked, so
+    // the isReferenceType check keeps it off scalars and strings.
+    void emitContainerElementRetain(const ast::ExpressionNode* expr, IRValuePtr v);
+    // TempCallRecorder: RAII guard for visit(CallExpr). Its destructor
+    // runs on EVERY exit path of the ~4000-line visitor (241 early
+    // returns make a single-exit hook impossible) and records the
+    // call's result as a pending temporary when it is a +1 producer.
+    struct TempCallRecorder {
+        IRBuilder* b;
+        const ast::CallExpr* node;
+        TempCallRecorder(IRBuilder* b_, const ast::CallExpr* n) : b(b_), node(n) {}
+        ~TempCallRecorder();
+    };
+
     // Loop control flow targets for break / continue
     std::vector<std::string> m_breakStack;
     std::vector<std::string> m_continueStack;
