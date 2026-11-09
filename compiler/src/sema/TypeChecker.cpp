@@ -1722,6 +1722,25 @@ bool TypeChecker::hasGuaranteedReturn(const ast::StatementNode& stmt) {
             if (!ifStmt.hasElseBranch()) return false;
             return hasGuaranteedReturn(ifStmt.getThenBranch()) && hasGuaranteedReturn(*ifStmt.getElseBranch());
         }
+        case ast::ASTNodeKind::TryCatchStmt: {
+            // Parent fix (Phase 3): a try/catch guarantees a return iff the
+            // try body does AND every catch body does. The try body may
+            // throw before reaching its return, in which case a catch
+            // runs; if there are no catches, a throw propagates out of
+            // the function, which this analysis already counts as a
+            // guaranteed exit (ThrowStmt returns true above). A finally
+            // block runs on every path and does not change the guarantee
+            // (a return/throw inside finally is its own exit, covered by
+            // the try/catch analysis only if it is reached on all paths
+            // — conservatively ignored here, matching this analysis's
+            // existing approximation level).
+            const auto& tryStmt = static_cast<const ast::TryCatchStmt&>(stmt);
+            if (!hasGuaranteedReturn(tryStmt.getTryBlock())) return false;
+            for (const auto& catchClause : tryStmt.getCatches()) {
+                if (!hasGuaranteedReturn(catchClause.getBody())) return false;
+            }
+            return true;
+        }
         default:
             return false;
     }

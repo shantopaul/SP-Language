@@ -240,17 +240,21 @@ TEST(IRBuilderTest, ShortCircuitOrSkipsRHS) {
 // loudly (nullptr from build()) instead of being silently dropped. These
 // programs all pass lexing/parsing/semantic analysis; the rejection comes
 // from IRBuilder.
-TEST(IRBuilderTest, ThrowStatementFailsIRGeneration) {
+// Parent fix (Phase 3): throw/try-catch/map literals now HAVE real
+// lowering (slice B), so the three tests below assert they COMPILE
+// instead of failing. The `AwaitExpressionFailsIRGeneration` test is
+// unchanged — `await 1` still fails loudly.
+TEST(IRBuilderTest, ThrowStatementLowersIRGeneration) {
     const std::string source = R"(
         fn main() {
             throw "boom";
         }
     )";
 
-    EXPECT_EQ(compileToIR(source), nullptr);
+    EXPECT_NE(compileToIR(source), nullptr);
 }
 
-TEST(IRBuilderTest, TryCatchStatementFailsIRGeneration) {
+TEST(IRBuilderTest, TryCatchStatementLowersIRGeneration) {
     const std::string source = R"(
         fn main() {
             try {
@@ -261,17 +265,17 @@ TEST(IRBuilderTest, TryCatchStatementFailsIRGeneration) {
         }
     )";
 
-    EXPECT_EQ(compileToIR(source), nullptr);
+    EXPECT_NE(compileToIR(source), nullptr);
 }
 
-TEST(IRBuilderTest, MapLiteralFailsIRGeneration) {
+TEST(IRBuilderTest, MapLiteralLowersIRGeneration) {
     const std::string source = R"(
         fn main() {
             var m = {"a": 1};
         }
     )";
 
-    EXPECT_EQ(compileToIR(source), nullptr);
+    EXPECT_NE(compileToIR(source), nullptr);
 }
 
 TEST(IRBuilderTest, AwaitExpressionFailsIRGeneration) {
@@ -1226,7 +1230,9 @@ TEST(IRBuilderTest, ComptimeWithMethodCallFailsIRGeneration) {
 
 // Phase 1 (pro-4.0.0): two free functions with the same name but different
 // signatures used to collapse onto the first definition silently.
-TEST(IRBuilderTest, OverloadedFunctionSignatureClashFailsIRGeneration) {
+// Parent fix (Phase 3): slice A implemented overload name mangling, so
+// same-name overloads now COMPILE instead of failing.
+TEST(IRBuilderTest, OverloadedFunctionSignatureClashLowersIRGeneration) {
     const std::string source = R"(
         fn add(a: int) -> int {
             return a;
@@ -1240,7 +1246,7 @@ TEST(IRBuilderTest, OverloadedFunctionSignatureClashFailsIRGeneration) {
         }
     )";
 
-    EXPECT_EQ(compileToIR(source), nullptr);
+    EXPECT_NE(compileToIR(source), nullptr);
 }
 
 // Phase 1 (pro-4.0.0): the verifier rejects a block with no terminator.
