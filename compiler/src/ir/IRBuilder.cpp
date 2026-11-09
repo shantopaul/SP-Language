@@ -617,6 +617,47 @@ void IRBuilder::emitAllFunctionDrops() {
     }
 }
 
+// Phase 6 slice C: the +1 return convention.
+//
+// Ownership of a ref-typed (class/interface) value is a single +1
+// share. A function/method returns such a value as +1: a value that
+// is already +1 passes through untouched, and a borrowed value (a
+// local, field, or parameter) is retained on the way out. The caller
+// adopts the +1 share without retaining again — so a variable init,
+// an assignment, a return, and a throw payload must NOT retain a
+// value that is already +1. Before this, both sides retained: the
+// callee on return AND the receiver on receipt, so every factory
+// call (`var x = makeFoo()`, `throw makeFoo()`, ...) leaked one share
+// per call.
+//
+// isFreshPlusOneExpr is deliberately conservative: a call counts as
+// +1 only when sema resolved it to a user function/method that
+// follows the convention. Calls that do not resolve (runtime
+// builtins, extern fns, fn-pointer calls — their ownership
+// convention is unknown) and async calls (a Task's lifetime is owned
+// by the spawn/await machinery, not by this convention) keep the old
+// behaviour: the receiver retains. That may leak one share for such
+// a call; it can never free a value the callee still owns.
+bool IRBuilder::isFreshPlusOneExpr(const ast::ExpressionNode& expr) {
+    if (dynamic_cast<const ast::NewExpr*>(&expr)) return true;
+    if (const auto* call = dynamic_cast<const ast::CallExpr*>(&expr)) {
+        auto target = m_sema.getCallTarget(call);
+        return target != nullptr && !target->isAsync();
+    }
+    return false;
+}
+
+void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal) {
+    if (!retVal || !retVal->getType()->isPointer()) return;
+    if (isFreshPlusOneExpr(expr)) return;
+    auto semaType = m_sema.getNodeType(&expr);
+    bool isRefRet = (semaType && semaType->isReferenceType()) ||
+                    dynamic_cast<const ast::NewExpr*>(&expr) != nullptr;
+    if (!isRefRet) return;
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{retVal}));
+}
+
 void IRBuilder::popScope() {
     if (!m_refCountedScopes.empty()) {
         emitScopeDrops(m_refCountedScopes.size() - 1);
@@ -1302,6 +1343,13 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         node.getShortBody()->accept(*this);
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
+        // Phase 6 slice C: the +1 return convention — a short-form
+        // body returning a borrowed ref must retain it so the caller
+        // receives a +1 share (fresh values pass through untouched).
+        // The normal return path below already retained; the
+        // short-form path never did, so without this a short-form
+        // getter would hand the caller a borrowed pointer.
+        emitRefReturnRetain(*node.getShortBody(), retVal);
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -1404,7 +1452,10 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
 
     if (isRefCounted && !m_refCountedScopes.empty()) {
         m_refCountedScopes.back().push_back({node.getName(), varAddr});
-        if (initVal && !dynamic_cast<const ast::NewExpr*>(node.getInitializer())) {
+        // Phase 6 slice C: the +1 return convention — a fresh +1
+        // initializer (new, or a factory call result) is adopted
+        // without an extra retain; borrowed values are retained.
+        if (initVal && !isFreshPlusOneExpr(*node.getInitializer())) {
             auto retainCall = std::make_shared<CallInst>(
                 IRType::getVoid(),
                 "sp_rt_retain",
@@ -2151,23 +2202,11 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
             }
             retVal = emitCastIfNeeded(retVal, m_currentFunction->getReturnType());
 
-            // Retain a reference return value first: the deferred
-            // return block releases the function's locals, and the
-            // returned object must survive that.
-            bool isRefRet = false;
-            if (retVal && retVal->getType()->isPointer()) {
-                auto semaType = m_sema.getNodeType(node.getValue());
-                if (semaType && semaType->isReferenceType()) {
-                    isRefRet = true;
-                } else if (dynamic_cast<const ast::NewExpr*>(node.getValue())) {
-                    isRefRet = true;
-                }
-            }
-            if (isRefRet) {
-                auto retainCall = std::make_shared<CallInst>(
-                    IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{retVal});
-                m_currentBlock->addInstruction(retainCall);
-            }
+            // Phase 6 slice C: the +1 return convention — retain a
+            // borrowed reference return value so it survives the
+            // deferred return block (which releases the function's
+            // locals); a fresh +1 value passes through untouched.
+            emitRefReturnRetain(*node.getValue(), retVal);
 
             auto slot = getOrCreateReturnValueSlot();
             if (slot && retVal) {
@@ -2202,24 +2241,8 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
         }
         retVal = emitCastIfNeeded(retVal, m_currentFunction->getReturnType());
 
-        bool isRefRet = false;
-        if (retVal && retVal->getType()->isPointer()) {
-            auto semaType = m_sema.getNodeType(node.getValue());
-            if (semaType && semaType->isReferenceType()) {
-                isRefRet = true;
-            } else if (dynamic_cast<const ast::NewExpr*>(node.getValue())) {
-                isRefRet = true;
-            }
-        }
-
-        if (isRefRet) {
-            auto retainCall = std::make_shared<CallInst>(
-                IRType::getVoid(),
-                "sp_rt_retain",
-                std::vector<IRValuePtr>{retVal}
-            );
-            m_currentBlock->addInstruction(retainCall);
-        }
+        // Phase 6 slice C: the +1 return convention (see above).
+        emitRefReturnRetain(*node.getValue(), retVal);
 
         // Phase 3 slice C: an explicit `return` from main drains
         // fire-and-forget async tasks first. (A return deferred by a
@@ -2645,7 +2668,11 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
             // count-1 to the payload; any other class value is
             // retained into the payload here.
             owns = true;
-            if (!dynamic_cast<const ast::NewExpr*>(&node.getExpr())) {
+            // Phase 6 slice C: the +1 return convention — a factory
+            // call thrown directly (`throw makeFoo()`) transfers its
+            // fresh +1 share to the payload; borrowed values are
+            // retained (a directly-thrown `new` already transferred).
+            if (!isFreshPlusOneExpr(node.getExpr())) {
                 auto retainCall = std::make_shared<CallInst>(
                     IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{thrownVal});
                 m_currentBlock->addInstruction(retainCall);
@@ -3067,6 +3094,9 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
         methodDecl.getShortBody()->accept(*this);
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
+        // Phase 6 slice C: the +1 return convention (see the free-fn
+        // short-form path).
+        emitRefReturnRetain(*methodDecl.getShortBody(), retVal);
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -3271,6 +3301,9 @@ void IRBuilder::compileSpecializedMethod(
         methodDecl.getShortBody()->accept(*this);
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
+        // Phase 6 slice C: the +1 return convention (see the free-fn
+        // short-form path).
+        emitRefReturnRetain(*methodDecl.getShortBody(), retVal);
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -3394,6 +3427,9 @@ void IRBuilder::compileSpecializedFunction(
         fnDecl.getShortBody()->accept(*this);
         IRValuePtr retVal = m_lastExprValue;
         retVal = emitCastIfNeeded(retVal, returnType);
+        // Phase 6 slice C: the +1 return convention (see the free-fn
+        // short-form path).
+        emitRefReturnRetain(*fnDecl.getShortBody(), retVal);
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     }
 
@@ -3860,7 +3896,8 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
     }
 
     if (isRefAssignment) {
-        if (!dynamic_cast<const ast::NewExpr*>(&node.getValue())) {
+        // Phase 6 slice C: the +1 return convention (see VarDecl).
+        if (!isFreshPlusOneExpr(node.getValue())) {
             auto retainCall = std::make_shared<CallInst>(
                 IRType::getVoid(),
                 "sp_rt_retain",
@@ -9953,18 +9990,24 @@ int64_t IRBuilder::asyncScanBlock(ast::BlockStmt& block) {
 int64_t IRBuilder::asyncScanNested(ast::StatementNode& stmt) {
     int64_t total = 0;
     // A branch body: a block scans in place; a single statement is
-    // scanned with hoisting disallowed (there is no block to insert
-    // the hoisted lets into — the user must write `{ ... }`).
+    // wrapped in a synthesized block first, so an `await` inside it
+    // can be hoisted into the block like any other statement (Phase 6
+    // slice C). Before this, any await needing hoisting (not
+    // first-evaluated, or more than one) failed loudly with E1000
+    // ("must be inside a block") — the user had to write `{ ... }`.
+    // The pre-scan already mutates the AST (hoisting), so wrapping is
+    // consistent, and lowering already accepts a block branch, so no
+    // lowering change is needed.
     auto scanBranch = [&](ast::StmtPtr& branch) -> int64_t {
         if (!branch) return 0;
         if (auto* block = dynamic_cast<ast::BlockStmt*>(branch.get())) {
             return asyncScanBlock(*block);
         }
-        int64_t n = asyncScanNested(*branch);
-        if (n < 0) return -1;
-        n = asyncScanStmtExprs(*branch, nullptr);
-        if (n < 0) return -1;
-        return n;
+        auto loc = branch->getLocation();
+        std::vector<ast::StmtPtr> stmts;
+        stmts.push_back(std::move(branch));
+        branch = std::make_unique<ast::BlockStmt>(std::move(stmts), loc);
+        return asyncScanBlock(*static_cast<ast::BlockStmt*>(branch.get()));
     };
     if (auto* block = dynamic_cast<ast::BlockStmt*>(&stmt)) {
         return asyncScanBlock(*block);
@@ -10385,22 +10428,53 @@ IRValuePtr IRBuilder::asyncSuspendAndLoad(IRValuePtr task, const std::string& ki
     asyncFrameStore(AsyncSM::kAwaitTaskSlot, task);
     auto sched = emitAsyncScheduler();
     auto resumeAddr = std::make_shared<FunctionAddress>(sm.resumeFn->getName());
+    // Phase 6 slice C: the own task is the 5th argument — the resume
+    // is registered on it too, so a cancel while suspended resumes the
+    // body into its continuation (which frees the frame) instead of
+    // leaking the frame. The own task lives in frame slot 1.
+    auto ownTask = asyncFrameLoad(AsyncSM::kTaskSlot, IRType::getPointer(), "async_own_task");
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
         IRType::getVoid(), "sp_rt_async_task_on_complete_resume",
-        std::vector<IRValuePtr>{sched, task, resumeAddr, sm.frameParam}));
+        std::vector<IRValuePtr>{sched, task, resumeAddr, sm.frameParam, ownTask}));
     m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
     // Continuation: a body cancelled while suspended stops here — it
-    // branches to the finish block (which completes the task, a no-op,
-    // and frees the frame) instead of running the rest of the body.
+    // branches to the cancel block (which releases the refcounted
+    // locals live at the suspend point and cancels + destroys a
+    // temporary awaited task) and then to the finish block (which
+    // completes the task, a no-op, and frees the frame) instead of
+    // running the rest of the body.
+    IRBasicBlock* cancelBB = m_currentFunction->createBasicBlock(
+        "async_cancel_" + std::to_string(state));
     setInsertPoint(contBB);
-    auto ownTask = asyncFrameLoad(AsyncSM::kTaskSlot, IRType::getPointer(), "async_task");
+    auto ownTask2 = asyncFrameLoad(AsyncSM::kTaskSlot, IRType::getPointer(), "async_task");
     auto wasCancelled = std::make_shared<CallInst>(
         IRType::getInt1(), "sp_rt_async_task_was_cancelled",
-        std::vector<IRValuePtr>{ownTask},
+        std::vector<IRValuePtr>{ownTask2},
         m_currentFunction->nextTempName("async_cancelled"));
     m_currentBlock->addInstruction(wasCancelled);
     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
-        wasCancelled, sm.finishBB->getName(), bodyBB->getName()));
+        wasCancelled, cancelBB->getName(), bodyBB->getName()));
+    // Cancel block: drop the refcounted locals live at the suspend
+    // point — the body is abandoned, so they die here (the normal
+    // return path's drops never run for them). The drops are emitted
+    // from m_refCountedScopes as it stands at suspend time, which is
+    // exactly the live set; the allocas are frame-slot GEPs created in
+    // the dispatcher block, so they dominate this block. Then cancel
+    // + destroy a temporary awaited task (cancelling it also cancels
+    // its timer, so no stale timer is left behind), and finish.
+    setInsertPoint(cancelBB);
+    emitAllFunctionDrops();
+    if (destroyTask) {
+        auto t = asyncFrameLoad(AsyncSM::kAwaitTaskSlot, IRType::getPointer(), "await_task");
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getInt1(), "sp_rt_async_task_cancel",
+            std::vector<IRValuePtr>{t},
+            m_currentFunction->nextTempName("await_cancelled")));
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_destroy",
+            std::vector<IRValuePtr>{t}));
+    }
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(sm.finishBB->getName()));
     // Resume body: load the awaited value with the non-blocking
     // getters (the awaited task is already complete — its
     // continuation fired to resume us; a cancelled awaited task

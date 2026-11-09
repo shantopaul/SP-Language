@@ -22,8 +22,11 @@
 // Supported subset (anything else is a loud InterpError, never a silent
 // wrong value): let/const/var declarations, assignment (+= etc.),
 // if/else, while, do-while, for, for-in over arrays and int ranges,
-// return/break/continue, try/catch/finally + throw (scalar payloads,
-// stringified), ternary, arrays, maps, indexing, string concat and the
+// return/break/continue, try/catch/finally + throw (typed catches: first
+// match wins by the thrown value's runtime type, `catch (Exception e)` /
+// `catch (Any e)` are catch-alls — same rule as the compiler since
+// Phase 5 slice B; see the note on float/double + int/int64 aliasing in
+// Interpreter.cpp), ternary, arrays, maps, indexing, string concat and the
 // `.length` property, string methods (upper/lower/trim/reverse/repeat/
 // contains/startsWith/endsWith/isEmpty/indexOf/replace/substring/charAt/
 // split), array methods (push/add/pop/removeLast/get/set/contains/
@@ -98,7 +101,11 @@ struct InterpReturn {
 struct InterpBreak {};
 struct InterpContinue {};
 struct InterpThrow {
-    std::string message;
+    std::string message; // stringified payload (for uncaught errors)
+    // Phase 6 slice C: the thrown value itself, so catch clauses can
+    // match by type (like the compiler's Phase 5-B typed catches) and
+    // a typed clause binds the value, not its string form.
+    InterpValue value;
 };
 struct InterpPause {};
 struct InterpError {

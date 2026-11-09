@@ -5184,10 +5184,13 @@ fn main() {
     println("Serving routes: GET /, GET /api/health");
     app.listen(8080);
 
-    // listen() returns immediately: keep the process alive.
-    while (true) {
-        Time.sleep(1000);
-    }
+    // listen() is non-blocking by design: it binds, starts the worker
+    // threads, and returns. Block the main thread with wait(), which
+    // serves requests until stop() is called (e.g. from another
+    // thread or a signal handler). Do NOT use a manual
+    // `while (true) { Time.sleep(1000); }` loop — wait() is the
+    // intended way to keep the server up (Phase 6 slice C).
+    app.wait();
 }
 ```
 
@@ -5886,10 +5889,9 @@ fn main() {
     println("Health check:    GET http://localhost:8080/health");
     app.listen(8080);
 
-    // listen() returns immediately: keep the process alive.
-    while (true) {
-        Time.sleep(1000);
-    }
+    // listen() is non-blocking by design — block with wait() (see
+    // §85). It serves until stop() is called.
+    app.wait();
 }
 ```
 

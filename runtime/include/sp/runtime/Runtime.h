@@ -454,7 +454,11 @@ extern "C" {
     // or is cancelled, `resumeFn(frame)` is POSTED to the scheduler
     // (never called synchronously, so no re-entrant resume). `resumeFn`
     // is the compiler-generated `void (*)(void* frame)` resume function.
-    void        sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame);
+    // Phase 6 slice C: `ownTask` is the awaiting task — the resume is
+    // registered on it too, so a cancel while suspended resumes the
+    // body into its continuation (which frees the frame) instead of
+    // leaking it. Either may be null (only `resumeFn` is required).
+    void        sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame, void* ownTask);
     // Combinators: `tasks` is the SP array object (a Task<T>[] value)
     // holding `count` task handles; the element storage pointer is
     // extracted inside via sp_rt_array_data. Returns a new task handle

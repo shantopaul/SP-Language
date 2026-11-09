@@ -544,8 +544,9 @@ TEST(DapServerTest, TryCatchCatchesThrow) {
     std::stringstream out;
     DapServer server(in, out);
 
-    // The first catch wins regardless of its type name (the payload is
-    // stringified; same rule as the compiler's lowering, Phase 3 slice B).
+    // Phase 6 slice C: `catch (Exception e)` is a catch-all (the
+    // conventional spelling; there is no Exception type), so it catches
+    // the string throw — same rule as the compiler since Phase 5 slice B.
     server.getSession().loadProgram(
         "trycatch.sp",
         "fn main() {\n"
@@ -565,6 +566,95 @@ TEST(DapServerTest, TryCatchCatchesThrow) {
     std::vector<std::string> output = stdoutOutputEvents(out.str());
     ASSERT_EQ(output.size(), 1u);
     EXPECT_EQ(output[0], "7");
+}
+
+// Phase 6 slice C: typed catches in the debugger. A non-matching clause
+// is skipped and the first matching clause wins — the same rule as the
+// compiler since Phase 5 slice B. Before this fix the first catch
+// always won (the payload was stringified, so there was no type to
+// filter on).
+TEST(DapServerTest, TypedCatchSkipsNonMatchingClause) {
+    std::stringstream in;
+    std::stringstream out;
+    DapServer server(in, out);
+
+    server.getSession().loadProgram(
+        "typedcatch.sp",
+        "fn main() {\n"
+        "    let r = 0;\n"
+        "    try {\n"
+        "        throw 42;\n"
+        "    } catch (string e) {\n"
+        "        r = 1;\n"
+        "    } catch (int e) {\n"
+        "        r = e + 1;\n"
+        "    }\n"
+        "    println(r);\n"
+        "}\n");
+    sendReq(server, 1, "launch",
+            "{\"program\":\"typedcatch.sp\",\"stopOnEntry\":false}");
+    sendReq(server, 2, "configurationDone");
+    EXPECT_TRUE(server.getSession().isTerminated());
+    EXPECT_TRUE(server.getSession().getLastError().empty());
+    std::vector<std::string> output = stdoutOutputEvents(out.str());
+    ASSERT_EQ(output.size(), 1u);
+    // The string clause was skipped; the int clause bound e as an int
+    // (43, not the string "42" + 1).
+    EXPECT_EQ(output[0], "43");
+}
+
+TEST(DapServerTest, TypedCatchStringSkipsIntClause) {
+    std::stringstream in;
+    std::stringstream out;
+    DapServer server(in, out);
+
+    server.getSession().loadProgram(
+        "typedcatch2.sp",
+        "fn main() {\n"
+        "    let r = 0;\n"
+        "    try {\n"
+        "        throw \"oops\";\n"
+        "    } catch (int e) {\n"
+        "        r = 1;\n"
+        "    } catch (string e) {\n"
+        "        r = 2;\n"
+        "    }\n"
+        "    println(r);\n"
+        "}\n");
+    sendReq(server, 1, "launch",
+            "{\"program\":\"typedcatch2.sp\",\"stopOnEntry\":false}");
+    sendReq(server, 2, "configurationDone");
+    EXPECT_TRUE(server.getSession().isTerminated());
+    EXPECT_TRUE(server.getSession().getLastError().empty());
+    std::vector<std::string> output = stdoutOutputEvents(out.str());
+    ASSERT_EQ(output.size(), 1u);
+    EXPECT_EQ(output[0], "2");
+}
+
+TEST(DapServerTest, TypedCatchNoMatchPropagatesAsUncaught) {
+    std::stringstream in;
+    std::stringstream out;
+    DapServer server(in, out);
+
+    server.getSession().loadProgram(
+        "typedcatch3.sp",
+        "fn main() {\n"
+        "    try {\n"
+        "        throw 42;\n"
+        "    } catch (string e) {\n"
+        "        println(\"wrong\");\n"
+        "    }\n"
+        "    println(\"after\");\n"
+        "}\n");
+    sendReq(server, 1, "launch",
+            "{\"program\":\"typedcatch3.sp\",\"stopOnEntry\":false}");
+    sendReq(server, 2, "configurationDone");
+    EXPECT_TRUE(server.getSession().isTerminated());
+    std::string error = server.getSession().getLastError();
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("Uncaught throw"), std::string::npos);
+    std::vector<std::string> output = stdoutOutputEvents(out.str());
+    EXPECT_TRUE(output.empty());
 }
 
 TEST(DapServerTest, SecondLaunchInSameSession) {

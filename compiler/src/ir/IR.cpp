@@ -904,7 +904,10 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
                     std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1),
                     std::make_shared<ParameterValue>(IRType::getPointer(), "resumeFn", 2),
-                    std::make_shared<ParameterValue>(IRType::getPointer(), "frame", 3)}, true);
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "frame", 3),
+                    // Phase 6 slice C: the awaiting (own) task — the
+                    // resume is registered on it too (see NetBridge.cpp).
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "ownTask", 4)}, true);
     createFunction("sp_rt_async_task_all_i64", IRType::getPointer(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "tasks", 0),
                     std::make_shared<ParameterValue>(IRType::getInt64(), "count", 1)}, true);

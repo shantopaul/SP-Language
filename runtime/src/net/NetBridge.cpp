@@ -10,6 +10,7 @@
 #include "sp/runtime/Runtime.h"
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 #include <string>
 #include <vector>
 #include <memory>
@@ -425,14 +426,33 @@ void sp_rt_async_task_complete_void(void* task) {
 // posts the resume to the scheduler — never calls it synchronously — so
 // a task that is already complete still resumes on the next pump, never
 // re-entrantly from inside the awaiting code.
-void sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame) {
-    if (!task || !resumeFn) return;
-    auto t = static_cast<AsyncTaskBox*>(task)->task;
+//
+// Phase 6 slice C: the resume is registered on BOTH the awaited task
+// and the awaiting (own) task, sharing one atomic guard so exactly one
+// of them posts the resume. Before this, only the awaited task could
+// resume the body — if the own task was cancelled while suspended, the
+// awaited task might never complete, the continuation never fired, and
+// the heap frame leaked (one frame per such task). Now a cancel of the
+// own task resumes the body into its continuation, which sees
+// wasCancelled() and branches to the finish block (freeing the frame).
+// Either task may be null; only resumeFn is required.
+void sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame, void* ownTask) {
+    if (!resumeFn) return;
     auto fn = reinterpret_cast<AsyncResumeFn>(resumeFn);
     auto* s = asyncSched(sched);
-    t->onComplete([s, fn, frame](sp::rt::async::Task&) {
+    auto fired = std::make_shared<std::atomic<bool>>(false);
+    auto postOnce = [s, fn, frame, fired]() {
+        if (fired->exchange(true)) return;
         s->post([fn, frame] { fn(frame); });
-    });
+    };
+    if (task) {
+        static_cast<AsyncTaskBox*>(task)->task->onComplete(
+            [postOnce](sp::rt::async::Task&) { postOnce(); });
+    }
+    if (ownTask) {
+        static_cast<AsyncTaskBox*>(ownTask)->task->onComplete(
+            [postOnce](sp::rt::async::Task&) { postOnce(); });
+    }
 }
 
 namespace {

@@ -2648,6 +2648,42 @@ TEST(ExecutionTest, AsyncLocalsSurviveAcrossAwait) {
     EXPECT_NE(output.find("30"), std::string::npos);
 }
 
+// Phase 6 slice C (fix 6): an `await` directly in a single-statement
+// if/while/else branch body (no `{ ... }`) works — even when the await
+// is nested inside a larger expression (an assignment RHS) and needs
+// hoisting. Before this, only a bare `await` as the whole statement
+// worked; a nested await failed loudly with E1000 ("must be inside
+// a block"). The pre-scan wraps the branch in a synthesized block.
+TEST(ExecutionTest, AwaitInSingleStatementBranchBody) {
+    const std::string source = R"sp(
+        async fn getVal() -> int {
+            await sleep_async(10);
+            return 42;
+        }
+
+        async fn run() {
+            var x = 0;
+            var c = true;
+            if (c) x = await getVal();
+            println("if " + x);
+            var n = 84;
+            while (n > 0) n = await getVal() - 42;
+            println("while " + n);
+            var y = 0;
+            if (false) y = 1; else y = await getVal();
+            println("else " + y);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+    std::string output = runSPProgram(source, "exec_await_single_branch");
+    EXPECT_NE(output.find("if 42"), std::string::npos);
+    EXPECT_NE(output.find("while 0"), std::string::npos);
+    EXPECT_NE(output.find("else 42"), std::string::npos);
+}
+
 TEST(ExecutionTest, AsyncDoublePayload) {
     const std::string source = R"sp(
         async fn pi() -> double {
@@ -2787,6 +2823,46 @@ TEST(ExecutionTest, AsyncCancelBeforeStart) {
     EXPECT_NE(output.find("true"), std::string::npos);
     EXPECT_NE(output.find("0"), std::string::npos);
     EXPECT_EQ(output.find("BODY RAN"), std::string::npos);
+}
+
+// Phase 6 slice C (fix 4b): a task cancelled WHILE SUSPENDED (on a
+// 2000 ms sleep) resumes into its continuation, which sees
+// wasCancelled(), drops the refcounted locals live at the suspend
+// point, and frees the heap frame. Before this, the continuation was
+// registered only on the awaited task, so it never fired and the
+// frame (plus the Counter local in it) leaked — one per such task.
+TEST(ExecutionTest, AsyncCancelWhileSuspendedReleasesFrame) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        async fn worker() -> int {
+            var c = new Counter(1);
+            await sleep_async(2000);
+            return 99;
+        }
+
+        async fn run() {
+            var t = worker();
+            await sleep_async(50);
+            var ok = t.cancel();
+            println(ok);
+            await sleep_async(50);
+            println("live " + sp_rt_mem_live_objects());
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_cancel_suspended");
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
 }
 
 TEST(ExecutionTest, AsyncDeepChainFlatStack) {

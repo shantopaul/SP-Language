@@ -684,6 +684,89 @@ TEST(TryCatchExecutionTest, UncaughtClassThrowInResultFunctionReleases) {
     EXPECT_NE(output.find("live 0"), std::string::npos);
 }
 
+// --- +1 return convention (Phase 6 slice C, fix 5) ----------------------
+// A factory call returns a fresh +1 share: the receiver adopts it
+// without retaining again. Before this, the callee retained on return
+// AND the receiver retained on receipt, so `var x = makeFoo()` and
+// `throw makeFoo()` each leaked one share per call.
+TEST(TryCatchExecutionTest, FactoryCallThrowDoesNotLeak) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        fn makeCounter() -> Counter { return new Counter(5); }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            try {
+                throw makeCounter();
+            } catch (Counter e) {
+                println("n " + e.n);
+            }
+            println("after throw " + sp_rt_mem_live_objects());
+            {
+                var x = makeCounter();
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_throw_factory");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("n 5"), std::string::npos);
+    EXPECT_NE(output.find("after throw 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, BorrowedReturnSurvivesAndFactoryAssignFreesOld) {
+    // The other side of the +1 convention: a function returning a
+    // borrowed value (a field) must retain it on the way out, so the
+    // caller receives a +1 share — no premature free. And re-assigning
+    // a variable from a factory call releases the old value.
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Box {
+            public int n;
+        }
+        class Holder {
+            public Box box;
+            fn init() { box = new Box(); box.n = 7; }
+            fn getBox() -> Box { return box; }
+            fn getBoxShort() -> Box => box;
+        }
+        fn makeBox() -> Box { let b = new Box(); b.n = 5; return b; }
+        fn main() {
+            let h = new Holder();
+            h.init();
+            println("borrowed " + h.getBox().n);
+            println("borrowed short " + h.getBoxShort().n);
+            println("factory " + makeBox().n);
+            var b = makeBox();
+            b = makeBox();
+            println("reassigned " + b.n);
+            println("live " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_return_convention");
+    EXPECT_NE(output.find("borrowed 7"), std::string::npos);
+    EXPECT_NE(output.find("borrowed short 7"), std::string::npos);
+    EXPECT_NE(output.find("factory 5"), std::string::npos);
+    EXPECT_NE(output.find("reassigned 5"), std::string::npos);
+    // live: h + h.box + b + the `makeBox().n` temporary in the
+    // println (a call-result temporary is never released — see the
+    // follow-up note in the slice doc; the two `getBox().n`
+    // temporaries also leak a share each, but their object survives
+    // via the field anyway, so the object count does not show them;
+    // the first makeBox was freed on reassign).
+    EXPECT_NE(output.find("live 4"), std::string::npos);
+}
+
 TEST(TryCatchExecutionTest, FinallyPropagationReleasesOuterLocal) {
     // A throw inside an inner try with only a finally propagates
     // through the finally to the outer catch: the outer try's

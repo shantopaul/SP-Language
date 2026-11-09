@@ -395,6 +395,15 @@ private:
     int m_port{0};
 
     std::unique_ptr<std::thread> m_acceptThread;
+    // Phase 6 slice C: guards the accept-thread join. wait() and
+    // stop() may both join it (wait() blocks in it while another
+    // thread calls stop()) — joining the same std::thread twice is
+    // undefined behaviour and hung in practice, so exactly one of
+    // them joins and the other sees a non-joinable thread. The mutex
+    // is held across the join: that cannot deadlock, because stop()
+    // clears m_running (which is what lets the accept thread exit)
+    // BEFORE taking this mutex.
+    std::mutex m_acceptJoinMtx;
     std::vector<std::thread> m_workerThreads;
     std::deque<std::unique_ptr<net::TcpSocket>> m_connectionQueue;
     std::mutex m_queueMtx;

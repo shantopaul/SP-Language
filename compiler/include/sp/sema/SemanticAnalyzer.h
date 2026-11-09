@@ -19,6 +19,13 @@ public:
         m_symbolTable.initBuiltins(m_typeCtx);
     }
 
+    // Runs name resolution + type checking on the program. Returns
+    // true iff the program is clean: false when sema adds errors AND
+    // when the diagnostics already held errors on entry (e.g. parse
+    // errors) — Phase 6 slice C. The passes still run in the latter
+    // case (their side effects are used by the LSP/SymbolIndex, which
+    // ignore the return value); only the boolean changed. Callers must
+    // not proceed to codegen when this returns false.
     bool analyze(const ast::Program& program);
 
     [[nodiscard]] TypeContext& getTypeContext() noexcept { return m_typeCtx; }

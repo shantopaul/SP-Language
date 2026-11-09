@@ -112,200 +112,220 @@ TEST(BrokenProgramTest, IfMissingCondition) {
     auto r = sweep("fn main() { if; println(\"hi\"); }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, WhileMissingCondition) {
     auto r = sweep("fn main() { while; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, DoWhileMissingCondition) {
     auto r = sweep("fn main() { do { println(1); } while; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, ForMissingConditionOperand) {
     auto r = sweep("fn main() { for (int i = 0; i < ; i++) { println(i); } }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, BinaryMissingRightOperand) {
     auto r = sweep("fn main() { let x = 1 + ; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, UnaryMissingOperand) {
     auto r = sweep("fn main() { let x = -; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, CallMissingArg) {
     auto r = sweep("fn main() { foo(,); }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, IndexMissingIndex) {
     auto r = sweep("fn main() { let a = [1, 2, 3]; let x = a[]; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, AwaitMissingOperand) {
     auto r = sweep("async fn f() { let x = await; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, TernaryMissingElse) {
     auto r = sweep("fn main() { let x = true ? 1 : ; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, AssignMissingValue) {
     auto r = sweep("fn main() { let x = 1; x = ; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, ArrayMissingElement) {
     auto r = sweep("fn main() { let x = [1, , 3]; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, MapMissingValue) {
     auto r = sweep("fn main() { let m = {\"a\": 1, \"b\": }; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, NewMissingArg) {
     auto r = sweep("class Foo { } fn main() { let x = new Foo(,); }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, LambdaMissingBody) {
     auto r = sweep("fn main() { let f = (int x) => ; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, ThrowMissingExpr) {
     auto r = sweep("fn main() { throw; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, EmptyExprStatement) {
     auto r = sweep("fn main() { ; }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, SwitchMissingCaseValue) {
     auto r = sweep("fn main() { let x = 1; switch (x) { case : println(1); } }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, MatchMissingArmBody) {
     auto r = sweep("fn main() { let x = 1; match x { 1 => , } }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, UnbalancedBraces) {
     auto r = sweep("fn main() { if (true) { println(1); }");
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 // --- Phantom declarations: recovery must not emit nameless nodes ------
@@ -322,10 +342,11 @@ TEST(BrokenProgramTest, FnTestProducesNoPhantomDecls) {
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
     EXPECT_EQ(r.decls.size(), 0u) << "decls: " << joinKinds(r.decls);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, FnMissingNameProducesNoDecl) {
@@ -333,10 +354,11 @@ TEST(BrokenProgramTest, FnMissingNameProducesNoDecl) {
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
     EXPECT_EQ(r.decls.size(), 0u) << "decls: " << joinKinds(r.decls);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, ClassMissingNameProducesNoDecl) {
@@ -344,10 +366,11 @@ TEST(BrokenProgramTest, ClassMissingNameProducesNoDecl) {
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
     EXPECT_EQ(r.decls.size(), 0u) << "decls: " << joinKinds(r.decls);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, VarMissingNameProducesNoDecl) {
@@ -355,10 +378,11 @@ TEST(BrokenProgramTest, VarMissingNameProducesNoDecl) {
     ASSERT_TRUE(r.programBuilt);
     EXPECT_TRUE(r.hasErrors);
     EXPECT_EQ(r.decls.size(), 0u) << "decls: " << joinKinds(r.decls);
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, StrayCloseBraceKeepsOnlyRealDecl) {
@@ -367,10 +391,11 @@ TEST(BrokenProgramTest, StrayCloseBraceKeepsOnlyRealDecl) {
     EXPECT_TRUE(r.hasErrors);
     ASSERT_EQ(r.decls.size(), 1u) << "decls: " << joinKinds(r.decls);
     EXPECT_EQ(r.decls[0], "fn:main");
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 TEST(BrokenProgramTest, BrokenFnDoesNotSwallowNextDecl) {
@@ -379,10 +404,11 @@ TEST(BrokenProgramTest, BrokenFnDoesNotSwallowNextDecl) {
     EXPECT_TRUE(r.hasErrors);
     ASSERT_EQ(r.decls.size(), 1u) << "decls: " << joinKinds(r.decls);
     EXPECT_EQ(r.decls[0], "fn:main");
-    // analyze() returned (no segfault). Its boolean is NOT asserted:
-    // SemanticAnalyzer::analyze() reports whether sema added NEW errors,
-    // so it is true when the parse errors are the only errors. Callers
-    // must also check hasErrors(), as spc does. (void)r.analyzeOk;
+    // analyze() returned (no segfault) and now also reports false:
+    // Phase 6 slice C pins the contract — analyze() returns false when
+    // the diagnostics already hold errors (e.g. parse errors), not just
+    // when sema adds new ones.
+    EXPECT_FALSE(r.analyzeOk);
 }
 
 // --- Valid-program controls: guards must change nothing here ----------

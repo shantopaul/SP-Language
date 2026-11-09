@@ -265,6 +265,19 @@ private:
     void emitScopeDrops(size_t scopeIndex);
     void emitAllFunctionDrops();
 
+    // Phase 6 slice C: the +1 return convention (see IRBuilder.cpp).
+    // isFreshPlusOneExpr: true when the expression already carries a
+    // fresh +1 share (a directly-written `new`, or a call to a
+    // sema-resolved, non-async user function/method — every SP
+    // function returns ref-typed values as +1). Callers that adopt
+    // such a value (variable init, assignment, return, throw payload)
+    // must NOT retain it again.
+    // emitRefReturnRetain: emits sp_rt_retain for a ref-typed return
+    // value unless it is already +1 (borrowed values are retained on
+    // the way out so the caller receives a +1 share).
+    bool isFreshPlusOneExpr(const ast::ExpressionNode& expr);
+    void emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal);
+
     // Loop control flow targets for break / continue
     std::vector<std::string> m_breakStack;
     std::vector<std::string> m_continueStack;

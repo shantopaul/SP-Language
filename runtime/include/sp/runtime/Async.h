@@ -99,8 +99,10 @@ public:
     // is destroyed. No-op if already done.
     void completePtrOwned(void* p);
     // Cancel the task. Returns false if it was already complete.
-    // The scheduler-side timer (if any) is cancelled separately by the
-    // code that created the timer; see sleepTask()/delayedValueTask().
+    // A timer-backed task (sleepTask / delayedValueTask / ...) also
+    // cancels its scheduler-side timer (Phase 6 slice C), so no stale
+    // timer is left behind. The task must not be cancelled after its
+    // scheduler is destroyed.
     bool cancel();
 
 private:
@@ -200,6 +202,11 @@ private:
     std::priority_queue<Timer> m_timers;
     std::deque<std::function<void()>> m_ready;
     std::unordered_set<uint64_t> m_cancelledTimers;
+    // Phase 6 slice C: guards m_cancelledTimers. cancel() may run off
+    // the loop thread (Task::cancel() invokes the timer-cancel hook
+    // from whichever thread cancels the task), while fireDueTimers() /
+    // msUntilNextTimer() read the set on the loop thread.
+    mutable std::mutex m_cancelMtx;
     std::unordered_map<sp_socket_handle_t, std::function<void(int64_t)>> m_socketCallbacks;
     uint64_t m_nextTimerId{1};
 };

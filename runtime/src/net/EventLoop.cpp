@@ -310,6 +310,9 @@ bool Scheduler::cancel(uint64_t timerId) {
     if (timerId == 0) return false;
     // Lazily cancelled: the timer stays in the heap until due, then is
     // skipped. This keeps cancel() O(1) and avoids heap surgery.
+    // Phase 6 slice C: the set is guarded — cancel() may run off the
+    // loop thread (from Task::cancel()).
+    std::lock_guard<std::mutex> lock(m_cancelMtx);
     auto [it, inserted] = m_cancelledTimers.insert(timerId);
     return inserted;
 }
@@ -332,7 +335,12 @@ void Scheduler::fireDueTimers() {
     while (!m_timers.empty() && m_timers.top().due <= now) {
         Timer t = m_timers.top();
         m_timers.pop();
-        if (m_cancelledTimers.erase(t.id) > 0) continue; // was cancelled
+        bool wasCancelled = false;
+        {
+            std::lock_guard<std::mutex> lock(m_cancelMtx);
+            wasCancelled = m_cancelledTimers.erase(t.id) > 0;
+        }
+        if (wasCancelled) continue; // was cancelled
         m_ready.push_back(std::move(t.cb));
     }
 }
@@ -346,7 +354,12 @@ int64_t Scheduler::msUntilNextTimer() const {
     // timer is due and the caller would conclude no work was done.
     auto copy = m_timers;
     while (!copy.empty()) {
-        if (m_cancelledTimers.count(copy.top().id) > 0) {
+        bool wasCancelled = false;
+        {
+            std::lock_guard<std::mutex> lock(m_cancelMtx);
+            wasCancelled = m_cancelledTimers.count(copy.top().id) > 0;
+        }
+        if (wasCancelled) {
             copy.pop();
             continue;
         }
@@ -517,6 +530,19 @@ TaskPtr sleepTask(Scheduler& sched, int64_t delayMs) {
         std::lock_guard<std::mutex> lock(task->m_mtx);
         task->m_timerId = id;
     }
+    // Phase 6 slice C: cancelling the task also cancels its timer, so a
+    // cancelled task leaves no stale timer behind. Before this, the
+    // timer stayed pending until its deadline and then completed the
+    // already-cancelled task (a no-op) — but the scheduler still had
+    // work until then, so a later runUntilTasksIdle waited it out (in
+    // Phase 5-A one test took 4719 ms on a stale 5000 ms timer). The
+    // hook only cancels when the task was cancelled: a normally
+    // completed task's timer already fired, so there is nothing to
+    // cancel. The task must not be cancelled after its scheduler is
+    // destroyed (the hook captures the scheduler by reference).
+    task->onComplete([&sched, id](Task& t) {
+        if (t.wasCancelled()) sched.cancel(id);
+    });
     return task;
 }
 
@@ -530,6 +556,11 @@ TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value) {
         std::lock_guard<std::mutex> lock(task->m_mtx);
         task->m_timerId = id;
     }
+    // Phase 6 slice C: see sleepTask — cancelling the task cancels its
+    // timer, so no stale timer is left behind.
+    task->onComplete([&sched, id](Task& t) {
+        if (t.wasCancelled()) sched.cancel(id);
+    });
     return task;
 }
 
@@ -545,6 +576,11 @@ TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value
         std::lock_guard<std::mutex> lock(task->m_mtx);
         task->m_timerId = id;
     }
+    // Phase 6 slice C: see sleepTask — cancelling the task cancels its
+    // timer, so no stale timer is left behind.
+    task->onComplete([&sched, id](Task& t) {
+        if (t.wasCancelled()) sched.cancel(id);
+    });
     return task;
 }
 
@@ -558,6 +594,11 @@ TaskPtr delayedValueDblTask(Scheduler& sched, int64_t delayMs, double value) {
         std::lock_guard<std::mutex> lock(task->m_mtx);
         task->m_timerId = id;
     }
+    // Phase 6 slice C: see sleepTask — cancelling the task cancels its
+    // timer, so no stale timer is left behind.
+    task->onComplete([&sched, id](Task& t) {
+        if (t.wasCancelled()) sched.cancel(id);
+    });
     return task;
 }
 
@@ -604,6 +645,9 @@ struct CombinatorState {
     // all(): results collected in input order; remaining inputs.
     void* resultsArray{nullptr};
     size_t remaining{0};
+    // all(): input count, for freeing the results array on the cancel
+    // path (Phase 6 slice C).
+    size_t inputCount{0};
     bool anyCancelled{false};
     // race(): first finisher wins; later finishers are ignored.
     bool settled{false};
@@ -612,6 +656,27 @@ struct CombinatorState {
 void completeAllResult(const std::shared_ptr<CombinatorState>& st) {
     // Caller holds st->mtx. Completes (or cancels) the result task.
     if (st->anyCancelled) {
+        // Phase 6 slice C: the results array belongs to the combinator
+        // until it is handed to the result task via completePtr — on
+        // the cancel path it is never handed over, so free it here
+        // (plus any string slots already copied in), or every
+        // cancelled all() leaks one array. The array is calloc-zeroed
+        // by sp_rt_array_alloc, so unfilled slots are null. Note
+        // sp_rt_free does NOT decrement g_allocated_bytes (only ARC
+        // release paths do), so sp_rt_mem_allocated_bytes() cannot
+        // observe this free — it is verified by inspection + the
+        // behaviour test below.
+        if (st->resultsArray) {
+            if (st->kind == TaskPayload::Str) {
+                for (size_t i = 0; i < st->inputCount; ++i) {
+                    void* slot = ::sp_rt_array_get_ptr(st->resultsArray, static_cast<int64_t>(i), 8);
+                    const char* s = *static_cast<const char**>(slot);
+                    if (s) ::sp_rt_free(const_cast<char*>(s));
+                }
+            }
+            ::sp_rt_free(st->resultsArray);
+            st->resultsArray = nullptr;
+        }
         st->result->cancel();
         return;
     }
@@ -678,6 +743,7 @@ TaskPtr allTasks(Scheduler& sched, const std::vector<TaskPtr>& tasks, TaskPayloa
     st->result = result;
     st->kind = kind;
     st->remaining = tasks.size();
+    st->inputCount = tasks.size();
     if (kind == TaskPayload::Int) {
         st->resultsArray = ::sp_rt_array_alloc(static_cast<int64_t>(tasks.size()), 8);
     } else if (kind == TaskPayload::Str) {

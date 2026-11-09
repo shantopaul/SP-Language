@@ -1195,6 +1195,9 @@ bool HttpServer::listen(const std::string& host, int port, const HttpServerConfi
 }
 
 void HttpServer::wait() {
+    // Phase 6 slice C: the join is guarded (see m_acceptJoinMtx) so
+    // wait() and a concurrent stop() cannot join the same thread.
+    std::lock_guard<std::mutex> lock(m_acceptJoinMtx);
     if (m_acceptThread && m_acceptThread->joinable()) {
         m_acceptThread->join();
     }
@@ -1207,11 +1210,15 @@ void HttpServer::stop() {
         // Wake all worker threads
         m_queueCv.notify_all();
 
-        // Wait for accept thread
-        if (m_acceptThread && m_acceptThread->joinable()) {
-            m_acceptThread->join();
+        // Wait for accept thread (guarded: wait() may be joining it
+        // concurrently from another thread — see m_acceptJoinMtx).
+        {
+            std::lock_guard<std::mutex> lock(m_acceptJoinMtx);
+            if (m_acceptThread && m_acceptThread->joinable()) {
+                m_acceptThread->join();
+            }
+            m_acceptThread.reset();
         }
-        m_acceptThread.reset();
 
         // Wait for workers to finish in-flight connections
         for (auto& t : m_workerThreads) {

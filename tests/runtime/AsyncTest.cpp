@@ -151,6 +151,57 @@ TEST(AsyncTest, CancelledTaskAwaitReturnsPromptly) {
     EXPECT_LT(elapsedMs(start), 1000);
 }
 
+// Phase 6 slice C (pro-4.0.0): cancelling a timer-backed task also
+// cancels its timer, so no stale timer is left behind. Before the fix
+// the 5000 ms timer stayed pending after the cancel: the scheduler
+// still had work until its deadline (a later runUntilTasksIdle on the
+// same scheduler waited it out — in Phase 5-A one test took 4719 ms
+// on a stale timer left by CAbiCancelReturnsPromptly).
+TEST(AsyncTest, CancelledTaskCancelsItsTimer) {
+    Scheduler sched;
+    auto task = delayedValueTask(sched, 5000, 99);
+    ASSERT_NE(task, nullptr);
+    EXPECT_TRUE(task->cancel());
+    EXPECT_TRUE(task->wasCancelled());
+    // The timer is gone the moment the task is cancelled, not when it
+    // would have fired.
+    EXPECT_FALSE(sched.hasPending());
+
+    auto start = Clock::now();
+    sched.runUntilIdle();
+    EXPECT_LT(elapsedMs(start), 1000);
+}
+
+// Same for the other timer-backed factories (sleep + string + double).
+TEST(AsyncTest, CancelledSleepAndValueTasksCancelTheirTimers) {
+    Scheduler sched;
+    auto sleep = sleepTask(sched, 5000);
+    auto str = delayedValueStrTask(sched, 5000, "x");
+    auto dbl = delayedValueDblTask(sched, 5000, 1.5);
+    ASSERT_NE(sleep, nullptr);
+    ASSERT_NE(str, nullptr);
+    ASSERT_NE(dbl, nullptr);
+    EXPECT_TRUE(sleep->cancel());
+    EXPECT_TRUE(str->cancel());
+    EXPECT_TRUE(dbl->cancel());
+    EXPECT_FALSE(sched.hasPending());
+    auto start = Clock::now();
+    sched.runUntilIdle();
+    EXPECT_LT(elapsedMs(start), 1000);
+}
+
+// A normally-completed timer task leaves no pending timer either (the
+// timer fired; the cancel hook is a no-op for it).
+TEST(AsyncTest, CompletedTimerTaskLeavesNoPendingTimer) {
+    Scheduler sched;
+    auto task = delayedValueTask(sched, 10, 7);
+    ASSERT_NE(task, nullptr);
+    sched.runUntilIdle();
+    EXPECT_TRUE(task->isReady());
+    EXPECT_FALSE(task->wasCancelled());
+    EXPECT_FALSE(sched.hasPending());
+}
+
 // runFor() stops at its deadline: a long timer has not fired yet and is
 // still pending afterwards. The timer (2000 ms) is far beyond the runFor
 // bound (30 ms) on purpose: on a heavily loaded machine a 30 ms sleep
@@ -516,12 +567,64 @@ TEST(AsyncTest, OnCompleteResumePostsToScheduler) {
     void* task = sp_rt_async_create_task();
     ASSERT_NE(task, nullptr);
     sp_rt_async_task_complete_i64(task, 1); // already complete
+    // Phase 6 slice C: the 5th argument is the awaiting (own) task;
+    // nullptr here — the awaited task alone resumes, exactly once.
     sp_rt_async_task_on_complete_resume(&sched, task,
-        reinterpret_cast<void*>(resumeCountsRuns), &runs);
+        reinterpret_cast<void*>(resumeCountsRuns), &runs, nullptr);
     EXPECT_EQ(runs.load(), 0); // not synchronous
     sched.runUntilIdle();
     EXPECT_EQ(runs.load(), 1); // ran on the pump
     sp_rt_async_task_destroy(task);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// Phase 6 slice C (fix 4b): the resume is registered on the awaiting
+// (own) task too, so cancelling the own task while suspended resumes
+// the body — exactly once, even if the awaited task later completes
+// as well. The guard is shared: whichever fires first posts the
+// resume, the other is a no-op.
+TEST(AsyncTest, OnCompleteResumeFiresOnceOnOwnTaskCancel) {
+    Scheduler sched;
+    std::atomic<int> runs{0};
+    void* awaited = sp_rt_async_create_task();
+    void* own = sp_rt_async_create_task();
+    ASSERT_NE(awaited, nullptr);
+    ASSERT_NE(own, nullptr);
+    sp_rt_async_task_on_complete_resume(&sched, awaited,
+        reinterpret_cast<void*>(resumeCountsRuns), &runs, own);
+    EXPECT_EQ(runs.load(), 0);
+    // Cancel the own task while the awaited task is still pending:
+    // the resume posts (the body would see wasCancelled and finish).
+    ASSERT_TRUE(sp_rt_async_task_cancel(own));
+    sched.runUntilIdle();
+    EXPECT_EQ(runs.load(), 1);
+    // The awaited task completing later must NOT resume a second time.
+    sp_rt_async_task_complete_i64(awaited, 1);
+    sched.runUntilIdle();
+    EXPECT_EQ(runs.load(), 1);
+    sp_rt_async_task_destroy(awaited);
+    sp_rt_async_task_destroy(own);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+TEST(AsyncTest, OnCompleteResumeFiresOnceOnAwaitedComplete) {
+    Scheduler sched;
+    std::atomic<int> runs{0};
+    void* awaited = sp_rt_async_create_task();
+    void* own = sp_rt_async_create_task();
+    ASSERT_NE(awaited, nullptr);
+    ASSERT_NE(own, nullptr);
+    sp_rt_async_task_on_complete_resume(&sched, awaited,
+        reinterpret_cast<void*>(resumeCountsRuns), &runs, own);
+    sp_rt_async_task_complete_i64(awaited, 1);
+    sched.runUntilIdle();
+    EXPECT_EQ(runs.load(), 1);
+    // Cancelling the own task afterwards must NOT resume a second time.
+    sp_rt_async_task_cancel(own);
+    sched.runUntilIdle();
+    EXPECT_EQ(runs.load(), 1);
+    sp_rt_async_task_destroy(awaited);
+    sp_rt_async_task_destroy(own);
     EXPECT_FALSE(sched.hasPending());
 }
 
@@ -598,6 +701,36 @@ TEST(AsyncTest, CAbiAllIntCancelledWhenAnyCancelled) {
     EXPECT_TRUE(sp_rt_async_task_was_cancelled(combined));
     // Drain t1 (it still completes normally).
     EXPECT_EQ(sp_rt_async_task_await_i64(sched, t1), 1);
+    sp_rt_async_task_destroy(t1);
+    sp_rt_async_task_destroy(t2);
+    sp_rt_async_task_destroy(combined);
+    std::free(arr);
+}
+
+// Phase 6 slice C (fix 4c): a cancelled all() frees its results array
+// (and any string slots already copied in) instead of leaking it. The
+// combined task still completes cancelled with the default value
+// (null array). t1 completes first so its string slot is filled when
+// the cancel branch runs — that is the slot the fix frees.
+TEST(AsyncTest, CAbiAllStrCancelledFreesResults) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* t1 = sp_rt_async_delayed_str(sched, 10, "one");
+    void* t2 = sp_rt_async_delayed_str(sched, 200, "two");
+    ASSERT_NE(t1, nullptr);
+    ASSERT_NE(t2, nullptr);
+    ASSERT_TRUE(sp_rt_async_task_cancel(t2));
+    void* arr = makeTaskHandleArray({t1, t2});
+    void* combined = sp_rt_async_task_all_str(arr, 2);
+    ASSERT_NE(combined, nullptr);
+    void* results = sp_rt_async_task_await_ptr(sched, combined);
+    EXPECT_EQ(results, nullptr); // cancelled -> no array handed over
+    EXPECT_TRUE(sp_rt_async_task_was_cancelled(combined));
+    // Drain t1 (it still completes normally; its copied slot was freed
+    // with the array, not handed to the result).
+    const char* v1 = sp_rt_async_task_await_str(sched, t1);
+    ASSERT_NE(v1, nullptr);
+    EXPECT_STREQ(v1, "one");
+    std::free(const_cast<char*>(v1));
     sp_rt_async_task_destroy(t1);
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(combined);

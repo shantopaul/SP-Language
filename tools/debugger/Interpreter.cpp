@@ -740,6 +740,39 @@ void Interpreter::execBlock(const ast::BlockStmt& block, InterpFrame& frame, int
     }
 }
 
+namespace {
+// Phase 6 slice C: typed-catch matching for the debugger, mirroring the
+// compiler's Phase 5-B rule. A clause matches when the thrown value's
+// runtime type is the clause's sema-resolved type
+// (CatchClause::getResolvedTypeName(); unresolvable names — incl. the
+// conventional `catch (Exception e)` spelling — resolve to "any").
+// A catch-all (empty or "any" resolved name) matches anything.
+// First match wins; the caller propagates when nothing matches.
+//
+// Documented divergences from the compiler (the interpreter has no
+// static types, only the runtime Kind):
+// - float/double alias: both are InterpValue::Float here, so a thrown
+//   double matches `catch (float e)` and vice versa (the compiler
+//   tags them distinctly).
+// - int/int64 alias: both are InterpValue::Int here.
+// - An empty array/map throw has no element type to consult
+//   (typeName() is "array"/"map"), so it never matches a typed
+//   element clause — only a catch-all.
+// - Classes are not supported by the interpreter at all, so there is
+//   no subclass matching (the compiler matches a subclass tag against
+//   a class/interface clause).
+bool typedCatchMatches(const ast::CatchClause& clause, const InterpValue& thrown) {
+    const std::string& resolved = clause.getResolvedTypeName();
+    if (resolved.empty() || resolved == "any") return true;
+    if (resolved == thrown.typeName()) return true;
+    if (thrown.kind == InterpValue::Kind::Float &&
+        (resolved == "float" || resolved == "double")) return true;
+    if (thrown.kind == InterpValue::Kind::Int &&
+        (resolved == "int" || resolved == "int64")) return true;
+    return false;
+}
+} // namespace
+
 void Interpreter::execStmt(const ast::StatementNode& stmt, InterpFrame& frame, int depth) {
     if (++m_steps > kMaxSteps) {
         fail("Step limit exceeded (possible infinite loop)", stmt.getLocation().line);
@@ -886,7 +919,7 @@ void Interpreter::execStmt(const ast::StatementNode& stmt, InterpFrame& frame, i
         case Kind::ThrowStmt: {
             const auto& t = static_cast<const ast::ThrowStmt&>(stmt);
             InterpValue payload = evalExpr(t.getExpr(), frame, depth);
-            throw InterpThrow{payload.toRawString()};
+            throw InterpThrow{payload.toRawString(), payload};
         }
         case Kind::TryCatchStmt: {
             const auto& t = static_cast<const ast::TryCatchStmt&>(stmt);
@@ -898,15 +931,27 @@ void Interpreter::execStmt(const ast::StatementNode& stmt, InterpFrame& frame, i
             } catch (const InterpThrow& thrown) {
                 bool matched = false;
                 for (const auto& c : t.getCatches()) {
-                    // Any catch clause matches: the payload is always
-                    // stringified, so there is no runtime type to filter
-                    // on — the first catch wins (same as the compiler's
-                    // try/catch lowering, Phase 3 slice B). The type
-                    // name is a binding annotation only.
+                    // Phase 6 slice C: typed catches — a clause matches
+                    // only when the thrown value's type is its resolved
+                    // type (or it is a catch-all). A non-matching clause
+                    // is skipped; no match propagates. This mirrors the
+                    // compiler since Phase 5 slice B; before this the
+                    // first catch always won.
+                    if (!typedCatchMatches(c, thrown.value)) continue;
                     matched = true;
                     ScopeGuard catchScope(frame);
                     if (!c.getName().empty()) {
-                        frame.scopes.back()[c.getName()] = InterpValue::fromString(thrown.message);
+                        // A catch-all binds the stringified payload
+                        // (same as the compiler); a typed clause binds
+                        // the thrown value itself, so `catch (int e)`
+                        // gives e as an int, not the string "42".
+                        const std::string& resolved = c.getResolvedTypeName();
+                        if (resolved.empty() || resolved == "any") {
+                            frame.scopes.back()[c.getName()] =
+                                InterpValue::fromString(thrown.message);
+                        } else {
+                            frame.scopes.back()[c.getName()] = thrown.value;
+                        }
                     }
                     try {
                         execBlock(c.getBody(), frame, depth);
