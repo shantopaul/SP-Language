@@ -149,6 +149,10 @@ extern "C" {
     void sp_rt_set_remove_str(void* set, const char* val);
     void sp_rt_set_clear(void* set);
     bool sp_rt_set_is_empty(void* set);
+    // Phase 6 slice B: indexed access (for-in) + printable form.
+    int64_t sp_rt_set_get_i64(void* set, int64_t index);
+    const char* sp_rt_set_get_str(void* set, int64_t index);
+    const char* sp_rt_set_to_string(void* set);
 
     bool sp_rt_array_is_empty(void* arr);
 
@@ -247,6 +251,9 @@ extern "C" {
     const char* sp_rt_os_platform();
     const char* sp_rt_os_arch();
     void*       sp_rt_os_args();
+    // Phase 6 slice B: the generated `main` calls this first so
+    // sp_rt_os_args() can return the real argv (argv[1..]).
+    void        sp_rt_set_args(int argc, char** argv);
     void        sp_rt_os_exit(int64_t code);
 
     // Process functions (std.process)

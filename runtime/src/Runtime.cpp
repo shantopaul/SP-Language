@@ -166,29 +166,84 @@ void sp_rt_eflush() {
 }
 
 int64_t sp_rt_str_to_int(const char* s) {
-    if (!s) return 0;
+    // Phase 6 slice B: strict parsing — the old code returned 0 for any
+    // invalid input (and silently parsed "0x.." as hex / "0.." as octal
+    // via base 0, and ignored trailing junk like "42abc"). A plain `int`
+    // cannot express failure, so invalid input is a loud panic naming
+    // the input instead of a silent wrong value. Leading/trailing
+    // whitespace is trimmed (readLine() already strips the newline).
+    if (!s) sp_rt_panic("int.parse: null input");
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    if (*s == '\0') sp_rt_panic("int.parse: empty input");
     try {
-        return std::stoll(s, nullptr, 0);
+        size_t pos = 0;
+        int64_t v = std::stoll(s, &pos, 10);
+        while (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') ++pos;
+        if (s[pos] != '\0') {
+            std::string msg = "int.parse: invalid integer '";
+            msg += s;
+            msg += "'";
+            sp_rt_panic(msg.c_str());
+        }
+        return v;
+    } catch (const std::out_of_range&) {
+        std::string msg = "int.parse: integer out of range '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     } catch (...) {
-        return 0;
+        std::string msg = "int.parse: invalid integer '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     }
 }
 
 double sp_rt_str_to_double(const char* s) {
-    if (!s) return 0.0;
+    // Phase 6 slice B: strict like sp_rt_str_to_int (was: silent 0.0).
+    if (!s) sp_rt_panic("double.parse: null input");
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    if (*s == '\0') sp_rt_panic("double.parse: empty input");
     try {
-        return std::stod(s);
+        size_t pos = 0;
+        double v = std::stod(s, &pos);
+        while (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') ++pos;
+        if (s[pos] != '\0') {
+            std::string msg = "double.parse: invalid number '";
+            msg += s;
+            msg += "'";
+            sp_rt_panic(msg.c_str());
+        }
+        return v;
     } catch (...) {
-        return 0.0;
+        std::string msg = "double.parse: invalid number '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     }
 }
 
 float sp_rt_str_to_float(const char* s) {
-    if (!s) return 0.0f;
+    // Phase 6 slice B: strict like sp_rt_str_to_int (was: silent 0.0f).
+    if (!s) sp_rt_panic("float.parse: null input");
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    if (*s == '\0') sp_rt_panic("float.parse: empty input");
     try {
-        return std::stof(s);
+        size_t pos = 0;
+        float v = std::stof(s, &pos);
+        while (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') ++pos;
+        if (s[pos] != '\0') {
+            std::string msg = "float.parse: invalid number '";
+            msg += s;
+            msg += "'";
+            sp_rt_panic(msg.c_str());
+        }
+        return v;
     } catch (...) {
-        return 0.0f;
+        std::string msg = "float.parse: invalid number '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     }
 }
 
@@ -1289,6 +1344,68 @@ bool sp_rt_set_is_empty(void* set) {
     return sp_rt_map_is_empty(&static_cast<SPSetImpl*>(set)->map);
 }
 
+// Phase 6 slice B: indexed access into a set, for `for (x in set)`.
+// A set is backed by the map's entry arrays; entries are visited in
+// table order (hash order — iteration order is unspecified, and a set
+// must not be mutated during iteration). Out-of-range indices panic:
+// the for-in loop only ever asks for indices below sp_rt_set_size().
+int64_t sp_rt_set_get_i64(void* set, int64_t index) {
+    if (!set) sp_rt_panic("NullPointerException: set is null");
+    auto* impl = &static_cast<SPSetImpl*>(set)->map;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->int_capacity; ++i) {
+        if (impl->int_entries[i].occupied) {
+            if (seen == index) return impl->int_entries[i].key;
+            ++seen;
+        }
+    }
+    sp_rt_panic("Set index out of range");
+    return 0;
+}
+
+const char* sp_rt_set_get_str(void* set, int64_t index) {
+    if (!set) sp_rt_panic("NullPointerException: set is null");
+    auto* impl = &static_cast<SPSetImpl*>(set)->map;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            if (seen == index) return impl->str_entries[i].key;
+            ++seen;
+        }
+    }
+    sp_rt_panic("Set index out of range");
+    return "";
+}
+
+// Phase 6 slice B: printable form of a set, for string interpolation
+// ("${s}" used to print raw pointer bytes — any pointer value was
+// assumed to be a C string). Integer entries first, then string
+// entries, both in table order: {1, 2, 3} / {a, b} / {} when empty.
+const char* sp_rt_set_to_string(void* set) {
+    if (!set) return "{}";
+    auto* impl = &static_cast<SPSetImpl*>(set)->map;
+    std::string out = "{";
+    bool first = true;
+    for (int64_t i = 0; i < impl->int_capacity; ++i) {
+        if (impl->int_entries[i].occupied) {
+            if (!first) out += ", ";
+            out += std::to_string(impl->int_entries[i].key);
+            first = false;
+        }
+    }
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            if (!first) out += ", ";
+            out += impl->str_entries[i].key ? impl->str_entries[i].key : "";
+            first = false;
+        }
+    }
+    out += "}";
+    char* res = static_cast<char*>(malloc(out.size() + 1));
+    if (res) std::memcpy(res, out.c_str(), out.size() + 1);
+    return res;
+}
+
 bool sp_rt_array_is_empty(void* arr) {
     if (!arr) return true;
     return sp_rt_array_length(arr) == 0;
@@ -1945,6 +2062,12 @@ const char* sp_rt_os_arch() {
 #endif
 }
 
+// Phase 6 slice B: captured program arguments (deep-copied, owned by the
+// runtime for the process lifetime; argv[0] — the program name — is kept
+// so callers can inspect it, but sp_rt_os_args() returns argv[1..]).
+static int g_sp_argc = 0;
+static char** g_sp_argv = nullptr;
+
 void* sp_rt_os_args() {
 #if defined(_WIN32)
     int count = __argc > 0 ? __argc : 0;
@@ -1958,8 +2081,40 @@ void* sp_rt_os_args() {
     }
     return arr;
 #else
-    return sp_rt_array_alloc(0, sizeof(int64_t));
+    // Phase 6 slice B: the non-Windows branch used to return an empty
+    // array unconditionally (argv was never captured — the generated
+    // `main` took no parameters). The generated `main` now forwards
+    // argc/argv via sp_rt_set_args() before any user code runs.
+    int count = g_sp_argc > 1 ? g_sp_argc - 1 : 0; // argv[0] is the program name
+    void* arr = sp_rt_array_alloc(static_cast<int64_t>(count), sizeof(int64_t));
+    for (int i = 0; i < count; ++i) {
+        const char* arg_str = (g_sp_argv && g_sp_argv[i + 1]) ? g_sp_argv[i + 1] : "";
+        size_t len = std::strlen(arg_str);
+        char* copy = static_cast<char*>(malloc(len + 1));
+        std::memcpy(copy, arg_str, len + 1);
+        sp_rt_array_set_i64(arr, static_cast<int64_t>(i), reinterpret_cast<int64_t>(copy));
+    }
+    return arr;
 #endif
+}
+
+// Phase 6 slice B: the generated `main` forwards argc/argv here before
+// any user code runs (first call wins; main runs once).
+void sp_rt_set_args(int argc, char** argv) {
+    if (g_sp_argv) return; // first call wins (main runs once)
+    g_sp_argc = argc > 0 ? argc : 0;
+    if (argc <= 0 || !argv) {
+        g_sp_argv = nullptr;
+        return;
+    }
+    g_sp_argv = static_cast<char**>(std::calloc(static_cast<size_t>(argc), sizeof(char*)));
+    for (int i = 0; i < argc; ++i) {
+        const char* a = argv[i] ? argv[i] : "";
+        size_t len = std::strlen(a);
+        char* copy = static_cast<char*>(malloc(len + 1));
+        std::memcpy(copy, a, len + 1);
+        g_sp_argv[i] = copy;
+    }
 }
 
 void sp_rt_os_exit(int64_t code) {

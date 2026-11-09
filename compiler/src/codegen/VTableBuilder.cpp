@@ -435,6 +435,13 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
                 totalBytes += 8;
             }
 
+            // Phase 6 slice B: a derived class sees its base's statics
+            // too (Derived.PI resolves to Base's global unless the
+            // derived class declares its own).
+            for (const auto& [sname, sinfo] : baseLayout.staticFields) {
+                layout.staticFields[sname] = sinfo;
+            }
+
             // Copy base vtable slots
             layout.vtableSlots = baseLayout.vtableSlots;
             layout.methodSlotMap = baseLayout.methodSlotMap;
@@ -466,7 +473,21 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
         if (!member) continue;
         if (member->getKind() == ast::ASTNodeKind::VarDeclStmt) {
             const auto& varDecl = static_cast<const ast::VarDeclStmt&>(*member);
-            if (varDecl.isStatic()) continue; // Static fields are not in instance layout
+            if (varDecl.isStatic()) {
+                // Phase 6 slice B: static fields live in a module-level
+                // global (zero-initialized; the static-init function
+                // stores the declared initializer before main runs).
+                // They are NOT in the instance layout.
+                StaticFieldInfo info;
+                info.name = varDecl.getName();
+                info.typeName = varDecl.getType();
+                info.irType = mapType(varDecl.getType());
+                info.globalName = "@" + className + "_" + varDecl.getName();
+                info.isConst = varDecl.isConst();
+                layout.staticFields[info.name] = info;
+                irModule.addGlobalVariable(info.globalName, info.irType, /*isConstant=*/false, "zeroinitializer");
+                continue;
+            }
 
             FieldLayoutInfo fieldInfo;
             fieldInfo.name = varDecl.getName();

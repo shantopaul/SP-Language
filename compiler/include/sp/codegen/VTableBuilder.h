@@ -19,6 +19,17 @@ struct FieldLayoutInfo {
     std::string className;
 };
 
+// Phase 6 slice B: a static field lives in a module-level global, not
+// in the instance layout (statics were never allocated anywhere —
+// reads returned zero and `ClassName.field` segfaulted).
+struct StaticFieldInfo {
+    std::string name;
+    std::string typeName;
+    ir::IRTypePtr irType;
+    std::string globalName; // e.g. "@MathUtils_PI"
+    bool isConst = false;
+};
+
 struct VTableSlotInfo {
     std::string methodName;
     std::string mangledName; // e.g. "Animal_speak" or "Dog_speak"
@@ -52,6 +63,8 @@ struct ClassLayout {
     ir::IRStructTypePtr structType;
     std::vector<FieldLayoutInfo> fields;
     std::unordered_map<std::string, uint32_t> fieldIndexMap;
+    // Phase 6 slice B: static fields by name (module globals).
+    std::unordered_map<std::string, StaticFieldInfo> staticFields;
     std::vector<VTableSlotInfo> vtableSlots;
     std::unordered_map<std::string, uint32_t> methodSlotMap;
     std::string vtableName; // e.g. "@_vtable_Animal"

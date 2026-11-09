@@ -351,7 +351,8 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
                 .isStatic = fnDecl.isStatic(),
                 .isAbstract = fnDecl.isAbstract(),
                 .isOverride = fnDecl.isOverride(),
-                .isAsync = fnDecl.isAsync()
+                .isAsync = fnDecl.isAsync(),
+                .astDecl = &fnDecl
             };
             clsType->addMethod(std::move(method));
         }
@@ -390,7 +391,8 @@ void NameResolver::resolveInterfaceMembers(const ast::InterfaceDecl& decl) {
             .isStatic = false,
             .isAbstract = true,
             .isOverride = false,
-            .isAsync = fnDecl.isAsync()
+            .isAsync = fnDecl.isAsync(),
+            .astDecl = &fnDecl
         };
         ifaceType->addMethod(std::move(method));
     }

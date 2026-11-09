@@ -39,8 +39,31 @@ public:
     // Class and method compilation helpers
     void compileConstructor(const ast::ClassDecl& classDecl, const ast::FunctionDecl* ctorDecl, const codegen::ClassLayout& layout);
     void compileDefaultConstructor(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout);
+    // Phase 6 slice B: evaluate every non-static field initializer, in
+    // declaration order, into the fresh object. Runs at the start of
+    // every constructor (after the vtable pointer is set, before the
+    // ctor body).
+    void emitFieldInitializers(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout, IRValuePtr thisVal,
+                               const std::vector<std::string>* skipTypeParams = nullptr);
+    // Phase 6 slice B: generate __sp_static_init_<Class>(), which stores
+    // every static field initializer into its module global. Called
+    // once per class, right after its methods are generated; the
+    // function name is recorded for the `main` prologue.
+    void compileStaticInitializer(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout);
+    // Phase 6 slice B: emit calls to every recorded static-init function.
+    void emitStaticInitCalls();
+    // Phase 6 slice B: append evaluated default argument values for any
+    // declared parameters the caller omitted. `declArgOffset` is how
+    // many leading loweredArgs are not declared parameters (1 when
+    // `this` was pushed first, 0 for a plain static call). Defaults
+    // come from the resolved call target's AST decl (methods included);
+    // a default that names another parameter fails loudly via the
+    // existing E1000 path (the name is unresolved at the call site).
+    void appendDefaultArgs(const ast::CallExpr& node, std::vector<IRValuePtr>& loweredArgs,
+                           size_t declArgOffset,
+                           const std::vector<std::shared_ptr<ParameterValue>>& irParams);
     void compileMethod(const ast::ClassDecl& classDecl, const ast::FunctionDecl& methodDecl, const codegen::ClassLayout& layout);
-    void compileSpecializedConstructor(const ast::FunctionDecl* ctorDecl, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs, const codegen::ClassLayout& layout);
+    void compileSpecializedConstructor(const ast::FunctionDecl* ctorDecl, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs, const codegen::ClassLayout& layout, const ast::ClassDecl* classDecl = nullptr);
     void compileSpecializedMethod(const ast::FunctionDecl& methodDecl, const std::vector<std::string>& typeParams, const std::vector<std::string>& typeArgs, const codegen::ClassLayout& layout);
     void compileSpecializedFunction(const ast::FunctionDecl& fnDecl, const std::vector<std::string>& typeArgs);
 
@@ -553,6 +576,9 @@ private:
     std::unordered_map<std::string, const ast::ClassDecl*> m_genericClasses;
     std::unordered_map<std::string, const ast::FunctionDecl*> m_genericFunctions;
     std::unordered_map<std::string, const ast::FunctionDecl*> m_astFunctions;
+    // Phase 6 slice B: per-class static-init functions, in class
+    // declaration order; called from `main` before any user code runs.
+    std::vector<std::string> m_staticInitFunctions;
 };
 
 } // namespace sp::ir

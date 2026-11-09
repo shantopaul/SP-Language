@@ -42,7 +42,10 @@ TEST(IRBuilderTest, HelloSPGeneratesMainAndPrintlnCall) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("define i32 @main() {"), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @main(i32 %argc, ptr %argv) {"), std::string::npos);
+    // Phase 6 slice B: main forwards (argc, argv) to the runtime so
+    // OS.args() sees the real arguments.
+    EXPECT_NE(irStr.find("call void @sp_rt_set_args(i32 %argc, ptr %argv)"), std::string::npos);
     EXPECT_NE(irStr.find("call void @sp_rt_println_string(ptr @.str.0)"), std::string::npos);
     EXPECT_NE(irStr.find("ret i32 0"), std::string::npos);
 }
@@ -63,7 +66,9 @@ TEST(IRBuilderTest, ArithmeticAndVariables) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("define i32 @main() {"), std::string::npos);
+    // Phase 6 slice B: main now takes (argc, argv) so OS.args() can
+    // return the real arguments.
+    EXPECT_NE(irStr.find("define i32 @main(i32 %argc, ptr %argv) {"), std::string::npos);
     EXPECT_NE(irStr.find("alloca i32"), std::string::npos);
     EXPECT_NE(irStr.find("mul i32"), std::string::npos);
     EXPECT_NE(irStr.find("add i32"), std::string::npos);

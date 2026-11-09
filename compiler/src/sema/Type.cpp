@@ -1065,6 +1065,15 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         listCls->addMethod({"map", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"filter", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"reduce", getFunctionType({getAny(), elem ? elem : m_int64Type}, elem ? elem : m_int64Type), "public", false, false, false});
+        // Phase 6 slice B: the 1-argument form reduce(fn) was rejected
+        // by sema ("No matching overload") even though IRBuilder has
+        // always lowered it (initial accumulator = the type's zero
+        // value: 0 for numbers, "" for strings via null-as-empty in
+        // sp_rt_str_concat). Register it as a real overload so the two
+        // paths agree. The accumulator must be the element type; a
+        // differently-typed accumulator (a true generic fold) is still
+        // unsupported.
+        listCls->addMethod({"reduce", getFunctionType({getAny()}, elem ? elem : m_int64Type), "public", false, false, false});
         return listCls;
     }
 

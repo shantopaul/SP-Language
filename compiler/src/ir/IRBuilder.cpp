@@ -2,6 +2,7 @@
 #include "sp/ir/IRVerifier.h"
 #include "sp/codegen/VTableBuilder.h"
 #include "sp/codegen/ClassGenerator.h"
+#include <cctype>
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
@@ -17,6 +18,26 @@ static IRValuePtr makeDefaultValue(const IRTypePtr& type) {
     } else {
         return std::make_shared<ConstantInt>(type, 0);
     }
+}
+
+// Phase 6 slice B: true when a declared field type mentions one of the
+// enclosing generic class's type parameters (as a whole identifier —
+// "Tree" does not mention "T"). Such initializers are skipped in a
+// specialized constructor: their expressions may depend on the type
+// argument and there is no substitution machinery for them here.
+static bool typeMentionsTypeParam(const std::string& type, const std::vector<std::string>& params) {
+    for (const auto& param : params) {
+        if (param.empty()) continue;
+        size_t pos = 0;
+        while ((pos = type.find(param, pos)) != std::string::npos) {
+            bool beforeOk = (pos == 0) || !(std::isalnum(static_cast<unsigned char>(type[pos - 1])) || type[pos - 1] == '_');
+            size_t after = pos + param.size();
+            bool afterOk = (after >= type.size()) || !(std::isalnum(static_cast<unsigned char>(type[after])) || type[after] == '_');
+            if (beforeOk && afterOk) return true;
+            pos += param.size();
+        }
+    }
+    return false;
 }
 
 void IRBuilder::emitPopulateTaggedUnion(IRValuePtr slotPtr, const std::string& typeName, int32_t tag, IRValuePtr payloadVal) {
@@ -740,11 +761,22 @@ IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
 
 IRValuePtr IRBuilder::convertToStringValue(IRValuePtr val, IRTypePtr valType, const ast::ExpressionNode* exprNode) {
     if (!val || !valType) return m_module->getOrCreateStringLiteral("");
+    std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str") : "%str";
+    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
+    // Phase 6 slice B: a Set is a pointer to its hash table, not a C
+    // string — the old code returned any pointer as-is, so "${set}"
+    // printed raw pointer bytes. Render it as {1, 2, 3}.
+    if (semaType && semaType->isClass() && semaType->toString().rfind("Set<", 0) == 0) {
+        auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
+                                               "sp_rt_set_to_string",
+                                               std::vector<IRValuePtr>{val},
+                                               callReg);
+        if (m_currentBlock) m_currentBlock->addInstruction(call);
+        return call;
+    }
     if (valType->isPointer()) {
         return val;
     }
-    std::string callReg = m_currentFunction ? m_currentFunction->nextTempName("str") : "%str";
-    auto semaType = exprNode ? m_sema.getNodeType(exprNode) : nullptr;
     if (valType->isInt1() || (semaType && semaType->getKind() == sema::TypeKind::Bool)) {
         val = emitCastIfNeeded(val, IRType::getInt1());
         auto call = std::make_shared<CallInst>(IRType::getPointer(IRType::getInt8()),
@@ -1084,7 +1116,7 @@ void IRBuilder::visit(const ast::Program& node) {
                                 }
 
                                 if (explicitCtor) {
-                                    compileSpecializedConstructor(explicitCtor, cls->getTypeParams(), typeArgs, *layout);
+                                    compileSpecializedConstructor(explicitCtor, cls->getTypeParams(), typeArgs, *layout, cls);
                                 } else {
                                     compileDefaultConstructor(*cls, *layout);
                                 }
@@ -1121,11 +1153,25 @@ void IRBuilder::visit(const ast::Program& node) {
 
     // If there are top-level statements and no explicit main function, synthesize main
     if (!topLevelStmts.empty() && !hasMainFunc) {
-        auto mainFunc = m_module->createFunction("main", IRType::getInt32(), {});
+        // Phase 6 slice B: the synthesized `main` is the real C entry
+        // point too, so it takes (argc, argv) and forwards them to the
+        // runtime first thing (OS.args()).
+        std::vector<std::shared_ptr<ParameterValue>> mainParams;
+        mainParams.push_back(std::make_shared<ParameterValue>(IRType::getInt32(), "%argc", 0));
+        mainParams.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%argv", 1));
+        auto mainFunc = m_module->createFunction("main", IRType::getInt32(), mainParams);
         m_currentFunction = mainFunc;
         auto entryBB = mainFunc->createBasicBlock("entry");
         setInsertPoint(entryBB);
         pushScope();
+
+        auto setArgsCall = std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_set_args",
+            std::vector<IRValuePtr>{mainParams[0], mainParams[1]});
+        m_currentBlock->addInstruction(setArgsCall);
+        // Phase 6 slice B: run every class's static initializers before
+        // any user code (in class declaration order).
+        emitStaticInitCalls();
 
         for (const auto* stmt : topLevelStmts) {
             stmt->accept(*this);
@@ -1161,6 +1207,14 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_ctx", 1));
     } else {
         returnType = (node.getName() == "main") ? IRType::getInt32() : mapType(node.getReturnType());
+        if (node.getName() == "main") {
+            // Phase 6 slice B: the generated `main` is the real C entry
+            // point, so it takes (argc, argv) and forwards them to the
+            // runtime first thing (OS.args()). A user `main` declares no
+            // parameters; the SP-visible signature is unchanged.
+            params.push_back(std::make_shared<ParameterValue>(IRType::getInt32(), "%argc", 0));
+            params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%argv", 1));
+        }
         for (size_t i = 0; i < node.getParams().size(); ++i) {
             const auto& p = node.getParams()[i];
             params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
@@ -1183,6 +1237,18 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
+
+    if (node.getName() == "main" && !isAsync) {
+        // Phase 6 slice B: forward (argc, argv) to the runtime so
+        // OS.args() sees the real arguments (params[0]/params[1]).
+        auto setArgsCall = std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_set_args",
+            std::vector<IRValuePtr>{params[0], params[1]});
+        m_currentBlock->addInstruction(setArgsCall);
+        // Phase 6 slice B: run every class's static initializers before
+        // any user code (in class declaration order).
+        emitStaticInitCalls();
+    }
 
     if (isAsync) {
         // Resolve the sema types (the pre-scan validates the return /
@@ -1214,10 +1280,13 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         return;
     }
 
-    // Allocate stack slots for parameters and store incoming values
-    for (size_t i = 0; i < params.size(); ++i) {
+    // Allocate stack slots for parameters and store incoming values.
+    // (main's synthetic (argc, argv) params are not SP-visible and get
+    // no slots; declared params start at that offset.)
+    size_t paramOffset = (node.getName() == "main" && !isAsync) ? 2 : 0;
+    for (size_t i = 0; i < node.getParams().size(); ++i) {
         const auto& p = node.getParams()[i];
-        const auto& paramVal = params[i];
+        const auto& paramVal = params[i + paramOffset];
         auto allocaInst = std::make_shared<AllocaInst>(paramVal->getType(), "%p_" + p.getName());
         entryBB->addInstruction(allocaInst);
         entryBB->addInstruction(std::make_shared<StoreInst>(paramVal, allocaInst));
@@ -1597,12 +1666,15 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
     bool isList = semaIterType && semaIterType->isClass() && semaIterType->toString().rfind("List", 0) == 0;
     // Phase 6 slice A: maps iterate over their keys (see below).
     bool isMap = semaIterType && semaIterType->isMap();
+    // Phase 6 slice B: sets iterate by index through sp_rt_set_size /
+    // sp_rt_set_get_* (table order — unspecified, like most sets).
+    bool isSet = semaIterType && semaIterType->isClass() && semaIterType->toString().rfind("Set<", 0) == 0;
 
     // 1. Query collection length/size
     std::string lenReg = m_currentFunction->nextTempName("for_len");
     auto lenCall = std::make_shared<CallInst>(
         IRType::getInt64(),
-        (isMap ? "sp_rt_map_size" : (isList ? "sp_rt_list_size" : "sp_rt_array_length")),
+        (isMap ? "sp_rt_map_size" : (isList ? "sp_rt_list_size" : (isSet ? "sp_rt_set_size" : "sp_rt_array_length"))),
         std::vector<IRValuePtr>{collVal},
         lenReg
     );
@@ -1645,6 +1717,14 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
         const auto& mapTy = static_cast<const sema::MapType&>(*semaIterType);
         itemIRType = mapType(mapTy.getKeyType().get());
     } else if (isList) {
+        std::string s = semaIterType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        if (lt != std::string::npos && gt != std::string::npos && gt > lt) {
+            itemIRType = mapType(s.substr(lt + 1, gt - lt - 1));
+        }
+    } else if (isSet) {
+        // Phase 6 slice B: element type from Set<T>, same as List<T>.
         std::string s = semaIterType->toString();
         size_t lt = s.find('<');
         size_t gt = s.rfind('>');
@@ -1715,6 +1795,26 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
                 IRType::getInt64(), "sp_rt_map_int_key_at",
                 std::vector<IRValuePtr>{collVal, curIdx},
                 m_currentFunction->nextTempName("key"));
+            bodyBB->addInstruction(getCall);
+            auto castVal = emitCastIfNeeded(getCall, itemIRType);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
+        }
+    } else if (isSet) {
+    if (isSet) {
+        // Phase 6 slice B: sets fetch by index (sp_rt_set_get_i64 for
+        // scalar elements, sp_rt_set_get_str for strings).
+        if (itemIRType->isPointer()) {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getPointer(IRType::getInt8()), "sp_rt_set_get_str",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("elem"));
+            bodyBB->addInstruction(getCall);
+            bodyBB->addInstruction(std::make_shared<StoreInst>(getCall, varAlloca));
+        } else {
+            auto getCall = std::make_shared<CallInst>(
+                IRType::getInt64(), "sp_rt_set_get_i64",
+                std::vector<IRValuePtr>{collVal, curIdx},
+                m_currentFunction->nextTempName("elem"));
             bodyBB->addInstruction(getCall);
             auto castVal = emitCastIfNeeded(getCall, itemIRType);
             bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
@@ -2566,10 +2666,195 @@ void IRBuilder::visit(const ast::ClassDecl& node) {
     if (!m_vtableBuilder) return;
     codegen::ClassGenerator classGen(*this, *m_module, *m_vtableBuilder);
     classGen.generateClass(node);
+    // Phase 6 slice B: statics are initialized after the class's own
+    // methods exist (an initializer may call them) and before main runs.
+    const auto* layout = m_vtableBuilder->getClassLayout(node.getName());
+    if (layout) compileStaticInitializer(node, *layout);
+}
+
+void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout) {
+    // Collect the static fields that actually declare an initializer.
+    std::vector<const ast::VarDeclStmt*> inits;
+    for (const auto& member : classDecl.getMembers()) {
+        if (!member || member->getKind() != ast::ASTNodeKind::VarDeclStmt) continue;
+        const auto& field = static_cast<const ast::VarDeclStmt&>(*member);
+        if (field.isStatic() && field.hasInitializer()) inits.push_back(&field);
+    }
+    if (inits.empty()) return;
+
+    std::string initName = "__sp_static_init_" + layout.name;
+    auto func = m_module->createFunction(initName, IRType::getVoid(), {});
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    m_currentClass = &layout;
+
+    for (const auto* field : inits) {
+        auto sit = layout.staticFields.find(field->getName());
+        if (sit == layout.staticFields.end()) continue;
+        const auto& info = sit->second;
+        field->getInitializer()->accept(*this);
+        IRValuePtr initVal = m_lastExprValue;
+        if (!initVal) continue;
+        // Same retain rule as instance field initializers: a `new`
+        // transfers its owning reference; anything else is retained.
+        bool isRefCounted = false;
+        if (info.irType && info.irType->isPointer()) {
+            if (m_vtableBuilder && !field->getType().empty()) {
+                const auto* l = m_vtableBuilder->getClassLayout(field->getType());
+                if (l && l->hasVTable) isRefCounted = true;
+            }
+            if (!isRefCounted) {
+                auto semaType = m_sema.getNodeType(field->getInitializer());
+                if (semaType && semaType->isReferenceType()) {
+                    isRefCounted = true;
+                } else if (dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
+                    isRefCounted = true;
+                }
+            }
+        }
+        if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
+            auto retainCall = std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
+            m_currentBlock->addInstruction(retainCall);
+        }
+        if (info.irType && info.irType->isStruct() && initVal->getType()->isPointer()) {
+            auto loadInst = std::make_shared<LoadInst>(info.irType, initVal, m_currentFunction->nextTempName("st_init"));
+            m_currentBlock->addInstruction(loadInst);
+            initVal = loadInst;
+        }
+        initVal = emitCastIfNeeded(initVal, info.irType);
+        auto gvar = std::make_shared<GlobalVariable>(info.irType, info.globalName);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, gvar));
+    }
+
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    }
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+    m_staticInitFunctions.push_back(initName);
+}
+
+void IRBuilder::emitStaticInitCalls() {
+    if (!m_currentFunction || !m_currentBlock) return;
+    for (const auto& name : m_staticInitFunctions) {
+        auto callInst = std::make_shared<CallInst>(IRType::getVoid(), name, std::vector<IRValuePtr>{});
+        m_currentBlock->addInstruction(callInst);
+    }
+}
+
+void IRBuilder::appendDefaultArgs(const ast::CallExpr& node, std::vector<IRValuePtr>& loweredArgs,
+                                  size_t declArgOffset,
+                                  const std::vector<std::shared_ptr<ParameterValue>>& irParams) {
+    auto target = m_sema.getCallTarget(&node);
+    if (!target) return;
+    const auto* decl = target->getASTDecl();
+    if (!decl) return;
+    const auto& params = decl->getParams();
+    if (loweredArgs.size() < declArgOffset) return;
+    // Phase 5 slice A: for an async callee the body's IR params are
+    // (task, ctx), so a default value's cast type comes from the
+    // declared param type (sema), not from the body's params.
+    bool calleeIsAsync = target->isAsync();
+    size_t provided = loweredArgs.size() - declArgOffset;
+    for (size_t i = provided; i < params.size(); ++i) {
+        if (!params[i].hasDefaultValue()) continue;
+        params[i].getDefaultValue()->accept(*this);
+        IRValuePtr defVal = m_lastExprValue;
+        if (!defVal) continue;
+        if (calleeIsAsync) {
+            const auto& semaParams = target->getFunctionType()->getParamTypes();
+            if (i < semaParams.size() && semaParams[i]) {
+                defVal = emitCastIfNeeded(defVal, mapType(semaParams[i].get()));
+            }
+        } else if (i + declArgOffset < irParams.size()) {
+            defVal = emitCastIfNeeded(defVal, irParams[i + declArgOffset]->getType());
+        } else {
+            // The callee's IR function is not in the module yet (a
+            // forward reference to a class declared later): fall back
+            // to the declared parameter type from sema.
+            const auto& semaParams = target->getFunctionType()->getParamTypes();
+            if (i < semaParams.size() && semaParams[i]) {
+                defVal = emitCastIfNeeded(defVal, mapType(semaParams[i].get()));
+            }
+        }
+        loweredArgs.push_back(defVal);
+    }
+}
+
+void IRBuilder::emitFieldInitializers(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout, IRValuePtr thisVal,
+                                      const std::vector<std::string>* skipTypeParams) {
+    if (!m_currentFunction || !m_currentBlock || !thisVal) return;
+    for (const auto& member : classDecl.getMembers()) {
+        if (!member || member->getKind() != ast::ASTNodeKind::VarDeclStmt) continue;
+        const auto& field = static_cast<const ast::VarDeclStmt&>(*member);
+        if (field.isStatic() || !field.hasInitializer()) continue;
+        // Phase 6 slice B: in a specialized (generic) constructor,
+        // skip initializers for fields whose type mentions a type
+        // parameter — their expressions may depend on the type argument
+        // and there is no substitution for them here. Non-generic-typed
+        // fields (string, int, List<int>, ...) still initialize.
+        if (skipTypeParams && typeMentionsTypeParam(field.getType(), *skipTypeParams)) continue;
+        auto it = layout.fieldIndexMap.find(field.getName());
+        if (it == layout.fieldIndexMap.end()) continue;
+        uint32_t fieldIndex = it->second;
+        size_t fVecIdx = layout.hasVTable ? (fieldIndex - 1) : fieldIndex;
+        if (fVecIdx >= layout.fields.size()) continue;
+        IRTypePtr fieldIRType = layout.fields[fVecIdx].irType;
+
+        field.getInitializer()->accept(*this);
+        IRValuePtr initVal = m_lastExprValue;
+        if (!initVal) continue;
+
+        // A refcounted value keeps one share in the field. A `new`
+        // already transfers its owning reference; anything else is
+        // retained first — mirrors visit(VarDeclStmt).
+        bool isRefCounted = false;
+        if (fieldIRType && fieldIRType->isPointer()) {
+            if (m_vtableBuilder && !field.getType().empty()) {
+                const auto* l = m_vtableBuilder->getClassLayout(field.getType());
+                if (l && l->hasVTable) isRefCounted = true;
+            }
+            if (!isRefCounted) {
+                auto semaType = m_sema.getNodeType(field.getInitializer());
+                if (semaType && semaType->isReferenceType()) {
+                    isRefCounted = true;
+                } else if (dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
+                    isRefCounted = true;
+                }
+            }
+        }
+        if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
+            auto retainCall = std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
+            m_currentBlock->addInstruction(retainCall);
+        }
+
+        if (fieldIRType && fieldIRType->isStruct() && initVal->getType()->isPointer()) {
+            auto loadInst = std::make_shared<LoadInst>(fieldIRType, initVal, m_currentFunction->nextTempName("fld_init"));
+            m_currentBlock->addInstruction(loadInst);
+            initVal = loadInst;
+        }
+        initVal = emitCastIfNeeded(initVal, fieldIRType);
+        auto gep = std::make_shared<GetElementPtrInst>(
+            layout.structType,
+            thisVal,
+            std::vector<IRValuePtr>{
+                std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                std::make_shared<ConstantInt>(IRType::getInt32(), static_cast<int32_t>(fieldIndex))
+            },
+            m_currentFunction->nextTempName("fld_init_ptr")
+        );
+        m_currentBlock->addInstruction(gep);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, gep));
+    }
 }
 
 void IRBuilder::compileDefaultConstructor(const ast::ClassDecl& classDecl, const codegen::ClassLayout& layout) {
-    (void)classDecl;
     std::string mangledName = layout.name + "_" + layout.name;
     auto thisParam = std::make_shared<ParameterValue>(IRType::getPointer(), "%this", 0);
     auto func = m_module->createFunction(mangledName, IRType::getVoid(), {thisParam});
@@ -2599,6 +2884,9 @@ void IRBuilder::compileDefaultConstructor(const ast::ClassDecl& classDecl, const
         entryBB->addInstruction(gep);
         entryBB->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
     }
+
+    // Phase 6 slice B: field initializers run before the ctor body.
+    emitFieldInitializers(classDecl, layout, thisParam);
 
     entryBB->addInstruction(std::make_shared<ReturnInst>());
 
@@ -2658,6 +2946,9 @@ void IRBuilder::compileConstructor(const ast::ClassDecl& classDecl, const ast::F
         entryBB->addInstruction(gep);
         entryBB->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
     }
+
+    // Phase 6 slice B: field initializers run before the ctor body.
+    emitFieldInitializers(classDecl, layout, params[0]);
 
     if (ctorDecl && ctorDecl->hasBody()) {
         for (const auto& stmt : ctorDecl->getBody()->getStatements()) {
@@ -2798,7 +3089,8 @@ void IRBuilder::compileSpecializedConstructor(
     const ast::FunctionDecl* ctorDecl,
     const std::vector<std::string>& typeParams,
     const std::vector<std::string>& typeArgs,
-    const codegen::ClassLayout& layout) {
+    const codegen::ClassLayout& layout,
+    const ast::ClassDecl* classDecl) {
 
     std::string mangledName = layout.name + "_" + layout.name;
     std::vector<std::shared_ptr<ParameterValue>> params;
@@ -2848,6 +3140,14 @@ void IRBuilder::compileSpecializedConstructor(
         );
         entryBB->addInstruction(gep);
         entryBB->addInstruction(std::make_shared<StoreInst>(vtableGlobal, gep));
+    }
+
+    // Phase 6 slice B: field initializers run before the ctor body
+    // here too (non-type-param-typed fields only — see
+    // emitFieldInitializers). Without this, a generic class with an
+    // explicit constructor silently dropped every field initializer.
+    if (classDecl) {
+        emitFieldInitializers(*classDecl, layout, params[0], &typeParams);
     }
 
     if (ctorDecl && ctorDecl->hasBody()) {
@@ -3220,6 +3520,23 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
         return;
     }
 
+    // Phase 6 slice B: a bare static field of the enclosing class
+    // (e.g. `PI` inside MathUtils, or `counter` inside a static
+    // method) reads its module global. This runs before the Math.PI /
+    // Math.E fallback below, so a class's own static wins over the
+    // builtin constant of the same name.
+    if (m_currentClass && m_currentFunction && m_currentBlock) {
+        auto sit = m_currentClass->staticFields.find(node.getName());
+        if (sit != m_currentClass->staticFields.end()) {
+            auto gvar = std::make_shared<GlobalVariable>(sit->second.irType, sit->second.globalName);
+            auto loadInst = std::make_shared<LoadInst>(sit->second.irType, gvar, m_currentFunction->nextTempName("sval"));
+            m_currentBlock->addInstruction(loadInst);
+            m_lastExprValue = loadInst;
+            m_lastExprType = sit->second.irType;
+            return;
+        }
+    }
+
     if (node.getName() == "PI") {
         m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 3.141592653589793);
         m_lastExprType = IRType::getDouble();
@@ -3468,6 +3785,12 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
                     targetPtr = gep;
                 }
             }
+        } else if (m_currentClass && m_currentClass->staticFields.count(ident->getName())) {
+            // Phase 6 slice B: assigning to a bare static field of the
+            // enclosing class stores into its module global.
+            auto sit = m_currentClass->staticFields.find(ident->getName());
+            valType = sit->second.irType;
+            targetPtr = std::make_shared<GlobalVariable>(sit->second.irType, sit->second.globalName);
         }
     } else if (const auto* un = dynamic_cast<const ast::UnaryExpr*>(&node.getTarget())) {
         if (un->getOp() == lexer::TokenType::Star) {
@@ -4022,6 +4345,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                         }
 
                         auto* targetFunc = m_module->getFunction(mangledName);
+                        // Phase 6 slice B: fill omitted default args
+                        // (`this` is loweredArgs[0], so offset 1).
+                        appendDefaultArgs(node, loweredArgs, /*declArgOffset=*/1,
+                                          targetFunc ? targetFunc->getParams()
+                                                     : std::vector<std::shared_ptr<ParameterValue>>{});
                         IRTypePtr returnType = targetFunc ? targetFunc->getReturnType() : IRType::getVoid();
                         std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("scall");
 
@@ -6580,6 +6908,25 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
+            // Phase 6 slice B: fill omitted default args (objVal is
+            // loweredArgs[0], so offset 1). Param types come from the
+            // vtable slot's function type (or the module function).
+            {
+                std::vector<std::shared_ptr<ParameterValue>> slotParams;
+                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                    auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                    if (fnType) {
+                        size_t pi = 0;
+                        for (const auto& pt : fnType->getParamTypes()) {
+                            slotParams.push_back(std::make_shared<ParameterValue>(pt, "", pi++));
+                        }
+                    }
+                } else if (auto* existing = m_module->getFunction(slotInfo.mangledName)) {
+                    slotParams = existing->getParams();
+                }
+                appendDefaultArgs(node, loweredArgs, /*declArgOffset=*/1, slotParams);
+            }
+
             // Phase 5 slice A: an async method called through a
             // virtual dispatch is spawned by passing the vtable-loaded
             // body address directly as the thunk to
@@ -6661,6 +7008,16 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             for (const auto& arg : node.getArgs()) {
                 arg->accept(*this);
                 loweredArgs.push_back(m_lastExprValue);
+            }
+
+            // Phase 6 slice B: fill omitted default args (`this` is
+            // loweredArgs[0] iff the callee takes %this).
+            {
+                size_t thisOffset = (targetFunc && !targetFunc->getParams().empty() &&
+                                     targetFunc->getParams()[0]->getName() == "%this") ? 1 : 0;
+                appendDefaultArgs(node, loweredArgs, thisOffset,
+                                  targetFunc ? targetFunc->getParams()
+                                             : std::vector<std::shared_ptr<ParameterValue>>{});
             }
 
             // Phase 5 slice A: calling an `async` method returns a
@@ -7598,6 +7955,140 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
+    // Check if callee is a method on 'this'
+    // Phase 3 slice A: unqualified method call from inside a class.
+    // The vtable map is keyed by methodName + signature suffix, so use
+    // the overload sema resolved; fall back to the plain name for layouts
+    // keyed the old way (generic classes) and for unresolved calls.
+    int enclosingSlotIdx = -1;
+    if (m_currentClass) {
+        auto enclosingTarget = m_sema.getCallTarget(&node);
+        if (enclosingTarget) {
+            std::string key = calleeName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(enclosingTarget));
+            auto it = m_currentClass->methodSlotMap.find(key);
+            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
+        }
+        if (enclosingSlotIdx < 0) {
+            auto it = m_currentClass->methodSlotMap.find(calleeName);
+            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
+        }
+    }
+    if (enclosingSlotIdx >= 0) {
+        int slotIdx = enclosingSlotIdx;
+        auto [thisAlloca, thisType] = lookupVariable("this");
+        if (thisAlloca) {
+            auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
+            m_currentBlock->addInstruction(thisVal);
+
+            auto gepVTable = std::make_shared<GetElementPtrInst>(
+                m_currentClass->structType,
+                thisVal,
+                std::vector<IRValuePtr>{
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0)
+                },
+                m_currentFunction->nextTempName("vt_slot")
+            );
+            m_currentBlock->addInstruction(gepVTable);
+
+            auto loadVTable = std::make_shared<LoadInst>(
+                IRType::getPointer(),
+                gepVTable,
+                m_currentFunction->nextTempName("vtable")
+            );
+            m_currentBlock->addInstruction(loadVTable);
+
+            auto gepSlot = std::make_shared<GetElementPtrInst>(
+                IRType::getPointer(),
+                loadVTable,
+                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt32(), slotIdx)},
+                m_currentFunction->nextTempName("slot_ptr")
+            );
+            m_currentBlock->addInstruction(gepSlot);
+
+            auto loadFnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gepSlot, m_currentFunction->nextTempName("fn_ptr"));
+            m_currentBlock->addInstruction(loadFnPtr);
+
+            IRTypePtr returnType = IRType::getVoid();
+            const auto& slotInfo = m_currentClass->vtableSlots[slotIdx];
+            if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                if (fnType) returnType = fnType->getReturnType();
+            } else {
+                auto* existing = m_module->getFunction(slotInfo.mangledName);
+                if (existing) returnType = existing->getReturnType();
+            }
+
+            std::vector<IRValuePtr> loweredArgs;
+            loweredArgs.push_back(thisVal);
+            for (const auto& arg : node.getArgs()) {
+                arg->accept(*this);
+                loweredArgs.push_back(m_lastExprValue);
+            }
+
+            // Phase 6 slice B: fill omitted default args (thisVal is
+            // loweredArgs[0], so offset 1). Param types come from the
+            // vtable slot's function type (or the module function).
+            {
+                std::vector<std::shared_ptr<ParameterValue>> slotParams;
+                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                    auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                    if (fnType) {
+                        size_t pi = 0;
+                        for (const auto& pt : fnType->getParamTypes()) {
+                            slotParams.push_back(std::make_shared<ParameterValue>(pt, "", pi++));
+                        }
+                    }
+                } else if (auto* existing = m_module->getFunction(slotInfo.mangledName)) {
+                    slotParams = existing->getParams();
+                }
+                appendDefaultArgs(node, loweredArgs, /*declArgOffset=*/1, slotParams);
+            }
+
+            // Phase 5 slice A: an async method called unqualified
+            // from inside its class also dispatches virtually — spawn
+            // it by passing the vtable-loaded body address directly
+            // as the thunk to sp_rt_async_spawn_sm (Design 2).
+            if (auto enclosingTarget = m_sema.getCallTarget(&node); enclosingTarget && enclosingTarget->isAsync()) {
+                std::string kind;
+                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "the return type of this 'async' method cannot be carried by a Task "
+                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                // Param types come from sema; `this` is the current
+                // class (loweredArgs starts with thisVal).
+                sema::TypePtr thisType = nullptr;
+                if (m_currentClass) thisType = m_sema.getTypeContext().findUserType(m_currentClass->name);
+                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
+                    enclosingTarget->getFunctionType()->getParamTypes(), thisType);
+                IRValuePtr task = emitAsyncSpawnSM(loadFnPtr, loweredArgs, paramTypes);
+                if (!task) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "an argument of this 'async' method cannot be passed through a Task "
+                                      "(only int, bool, string and double arguments are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                m_lastExprValue = task;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+
+            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
+            auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
+            m_currentBlock->addInstruction(callInst);
+
+            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+            m_lastExprType = returnType;
+            return;
+        }
+    }
+
     // Check if callee is a local variable holding a function pointer
     if (!calleeName.empty()) {
         auto [localAlloca, localType] = lookupVariable(calleeName);
@@ -7798,6 +8289,31 @@ IRValuePtr IRBuilder::nullValueOf(IRTypePtr type) {
 }
 
 IRValuePtr IRBuilder::emitMemberPointer(const ast::MemberExpr& node, IRTypePtr& outFieldType, IRValuePtr preEvaluatedObject) {
+    // Phase 6 slice B: static field access (ClassName.field, or
+    // this.field where the field is static) reads a module global, not
+    // an instance slot. This must run before the object is evaluated:
+    // a bare class name lowers to ConstantInt 0, which used to make
+    // `MathUtils.PI` segfault.
+    if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&node.getObject())) {
+        const std::string& objName = ident->getName();
+        const codegen::ClassLayout* staticLayout = nullptr;
+        if (objName == "this" && m_currentClass) {
+            staticLayout = m_currentClass;
+        } else if (m_vtableBuilder) {
+            // A class name is not a variable; if the name resolves to a
+            // variable, the variable wins and this is not a static access.
+            auto [varAlloca, varType] = lookupVariable(objName);
+            if (!varAlloca) staticLayout = m_vtableBuilder->getClassLayout(objName);
+        }
+        if (staticLayout) {
+            auto sit = staticLayout->staticFields.find(node.getMember());
+            if (sit != staticLayout->staticFields.end()) {
+                outFieldType = sit->second.irType;
+                return std::make_shared<GlobalVariable>(sit->second.irType, sit->second.globalName);
+            }
+        }
+    }
+
     // 1. Evaluate the base object (unless the caller already did —
     // safe navigation evaluates it once for the null check and reuses
     // the value here so side effects run exactly once).

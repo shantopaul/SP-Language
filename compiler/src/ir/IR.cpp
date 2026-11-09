@@ -963,6 +963,9 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_os_platform", IRType::getPointer(IRType::getInt8()), {}, true);
     createFunction("sp_rt_os_arch", IRType::getPointer(IRType::getInt8()), {}, true);
     createFunction("sp_rt_os_args", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_set_args", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getInt32(), "argc", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "argv", 1)}, true);
     createFunction("sp_rt_os_exit", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "code", 0)}, true);
 
@@ -1119,6 +1122,20 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_set_alloc", IRType::getPointer(), {}, true);
 
     createFunction("sp_rt_set_size", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)},
+                   true);
+
+    createFunction("sp_rt_set_get_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
+    createFunction("sp_rt_set_get_str", IRType::getPointer(IRType::getInt8()),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "index", 1)},
+                   true);
+
+    createFunction("sp_rt_set_to_string", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)},
                    true);
 

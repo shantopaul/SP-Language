@@ -480,6 +480,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                     auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
                                                                  mm.visibility, mm.isStatic, true);
                     cand->setAsync(mm.isAsync);
+                    cand->setASTDecl(mm.astDecl);
                     methodCandidates.push_back(std::move(cand));
                 }
                 auto resolved = resolveOverload(methodCandidates, argTypes, node.getLocation(), fnName);
@@ -579,6 +580,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
                                                              mm.visibility, mm.isStatic, true);
                 cand->setAsync(mm.isAsync);
+                cand->setASTDecl(mm.astDecl);
                 candidates.push_back(std::move(cand));
             }
 
@@ -602,6 +604,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                 auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
                                                              mm.visibility, mm.isStatic, true);
                 cand->setAsync(mm.isAsync);
+                cand->setASTDecl(mm.astDecl);
                 candidates.push_back(std::move(cand));
             }
 
@@ -1090,7 +1093,14 @@ void TypeChecker::visit(const ast::IndexExpr& node) {
             m_diagnostics.reportError("E1001", "Map key type mismatch: expected '" + mapType.getKeyType()->toString() +
                                       "', got '" + indexType->toString() + "'", node.getLocation());
         }
-        m_currentExprType = m_typeCtx.getNullableType(mapType.getValueType());
+        // Phase 6 slice B: a map index-read returns the plain value
+        // type, NOT a nullable. The runtime (sp_rt_map_get_*) has no
+        // missing-key signal — it returns the type's zero value (0 /
+        // "" / false / null for objects) — and HashMap.get() already
+        // returns the plain value type, so the nullable claim made the
+        // two read paths disagree for no benefit. Use containsKey() to
+        // test presence; a missing key reads back the zero value.
+        m_currentExprType = mapType.getValueType();
         return;
     }
 
@@ -1712,6 +1722,13 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
         const auto& arr = static_cast<const ArrayType&>(*iterType);
         itemType = arr.getElementType();
     } else if (iterType->isClass() && iterType->toString().rfind("List<", 0) == 0) {
+        std::string s = iterType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        itemType = m_typeCtx.resolveType(s.substr(lt + 1, gt - lt - 1));
+        if (!itemType) itemType = m_typeCtx.getAny();
+    } else if (iterType->isClass() && iterType->toString().rfind("Set<", 0) == 0) {
+        // Phase 6 slice B: sets are iterable (element type from Set<T>).
         std::string s = iterType->toString();
         size_t lt = s.find('<');
         size_t gt = s.rfind('>');
