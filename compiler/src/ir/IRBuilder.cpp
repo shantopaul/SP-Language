@@ -1851,7 +1851,6 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
             bodyBB->addInstruction(std::make_shared<StoreInst>(castVal, varAlloca));
         }
     } else if (isSet) {
-    if (isSet) {
         // Phase 6 slice B: sets fetch by index (sp_rt_set_get_i64 for
         // scalar elements, sp_rt_set_get_str for strings).
         if (itemIRType->isPointer()) {
@@ -7237,6 +7236,29 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
+            // Phase 6 slice B: fill omitted default args (thisVal is
+            // loweredArgs[0], so offset 1). Param types come from the
+            // vtable slot's function type (or the module function).
+            // (Ported from B's duplicate enclosing-method block, which
+            // the parent merge deleted: A and B both carried this
+            // dispatch, A's version wins on position + the isMethod
+            // guard, B's default-args fill survives here.)
+            {
+                std::vector<std::shared_ptr<ParameterValue>> slotParams;
+                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                    auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
+                    if (fnType) {
+                        size_t pi = 0;
+                        for (const auto& pt : fnType->getParamTypes()) {
+                            slotParams.push_back(std::make_shared<ParameterValue>(pt, "", pi++));
+                        }
+                    }
+                } else if (auto* existing = m_module->getFunction(slotInfo.mangledName)) {
+                    slotParams = existing->getParams();
+                }
+                appendDefaultArgs(node, loweredArgs, /*declArgOffset=*/1, slotParams);
+            }
+
             // Phase 5 slice A: an async method called unqualified
             // from inside its class also dispatches virtually — spawn
             // it by passing the vtable-loaded body address directly
@@ -7992,139 +8014,6 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         return;
     }
 
-    // Check if callee is a method on 'this'
-    // Phase 3 slice A: unqualified method call from inside a class.
-    // The vtable map is keyed by methodName + signature suffix, so use
-    // the overload sema resolved; fall back to the plain name for layouts
-    // keyed the old way (generic classes) and for unresolved calls.
-    int enclosingSlotIdx = -1;
-    if (m_currentClass) {
-        auto enclosingTarget = m_sema.getCallTarget(&node);
-        if (enclosingTarget) {
-            std::string key = calleeName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(enclosingTarget));
-            auto it = m_currentClass->methodSlotMap.find(key);
-            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
-        }
-        if (enclosingSlotIdx < 0) {
-            auto it = m_currentClass->methodSlotMap.find(calleeName);
-            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
-        }
-    }
-    if (enclosingSlotIdx >= 0) {
-        int slotIdx = enclosingSlotIdx;
-        auto [thisAlloca, thisType] = lookupVariable("this");
-        if (thisAlloca) {
-            auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
-            m_currentBlock->addInstruction(thisVal);
-
-            auto gepVTable = std::make_shared<GetElementPtrInst>(
-                m_currentClass->structType,
-                thisVal,
-                std::vector<IRValuePtr>{
-                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
-                    std::make_shared<ConstantInt>(IRType::getInt32(), 0)
-                },
-                m_currentFunction->nextTempName("vt_slot")
-            );
-            m_currentBlock->addInstruction(gepVTable);
-
-            auto loadVTable = std::make_shared<LoadInst>(
-                IRType::getPointer(),
-                gepVTable,
-                m_currentFunction->nextTempName("vtable")
-            );
-            m_currentBlock->addInstruction(loadVTable);
-
-            auto gepSlot = std::make_shared<GetElementPtrInst>(
-                IRType::getPointer(),
-                loadVTable,
-                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt32(), slotIdx)},
-                m_currentFunction->nextTempName("slot_ptr")
-            );
-            m_currentBlock->addInstruction(gepSlot);
-
-            auto loadFnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gepSlot, m_currentFunction->nextTempName("fn_ptr"));
-            m_currentBlock->addInstruction(loadFnPtr);
-
-            IRTypePtr returnType = IRType::getVoid();
-            const auto& slotInfo = m_currentClass->vtableSlots[slotIdx];
-            if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
-                auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
-                if (fnType) returnType = fnType->getReturnType();
-            } else {
-                auto* existing = m_module->getFunction(slotInfo.mangledName);
-                if (existing) returnType = existing->getReturnType();
-            }
-
-            std::vector<IRValuePtr> loweredArgs;
-            loweredArgs.push_back(thisVal);
-            for (const auto& arg : node.getArgs()) {
-                arg->accept(*this);
-                loweredArgs.push_back(m_lastExprValue);
-            }
-
-            // Phase 6 slice B: fill omitted default args (thisVal is
-            // loweredArgs[0], so offset 1). Param types come from the
-            // vtable slot's function type (or the module function).
-            {
-                std::vector<std::shared_ptr<ParameterValue>> slotParams;
-                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
-                    auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType);
-                    if (fnType) {
-                        size_t pi = 0;
-                        for (const auto& pt : fnType->getParamTypes()) {
-                            slotParams.push_back(std::make_shared<ParameterValue>(pt, "", pi++));
-                        }
-                    }
-                } else if (auto* existing = m_module->getFunction(slotInfo.mangledName)) {
-                    slotParams = existing->getParams();
-                }
-                appendDefaultArgs(node, loweredArgs, /*declArgOffset=*/1, slotParams);
-            }
-
-            // Phase 5 slice A: an async method called unqualified
-            // from inside its class also dispatches virtually — spawn
-            // it by passing the vtable-loaded body address directly
-            // as the thunk to sp_rt_async_spawn_sm (Design 2).
-            if (auto enclosingTarget = m_sema.getCallTarget(&node); enclosingTarget && enclosingTarget->isAsync()) {
-                std::string kind;
-                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
-                    reportUnsupported(node.getLocation(), "call to async method",
-                                      "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
-                    m_lastExprValue = nullptr;
-                    m_lastExprType = nullptr;
-                    return;
-                }
-                // Param types come from sema; `this` is the current
-                // class (loweredArgs starts with thisVal).
-                sema::TypePtr thisType = nullptr;
-                if (m_currentClass) thisType = m_sema.getTypeContext().findUserType(m_currentClass->name);
-                std::vector<IRTypePtr> paramTypes = asyncSpawnParamTypes(
-                    enclosingTarget->getFunctionType()->getParamTypes(), thisType);
-                IRValuePtr task = emitAsyncSpawnSM(loadFnPtr, loweredArgs, paramTypes);
-                if (!task) {
-                    reportUnsupported(node.getLocation(), "call to async method",
-                                      "an argument of this 'async' method cannot be passed through a Task "
-                                      "(only int, bool, string and double arguments are supported)");
-                    m_lastExprValue = nullptr;
-                    m_lastExprType = nullptr;
-                    return;
-                }
-                m_lastExprValue = task;
-                m_lastExprType = IRType::getPointer();
-                return;
-            }
-
-            std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
-            auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
-            m_currentBlock->addInstruction(callInst);
-
-            m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
-            m_lastExprType = returnType;
-            return;
-        }
-    }
 
     // Check if callee is a local variable holding a function pointer
     if (!calleeName.empty()) {
