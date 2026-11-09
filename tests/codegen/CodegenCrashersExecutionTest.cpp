@@ -484,6 +484,149 @@ TEST(CodegenCrashersExecutionTest, SafeNavOnNullDoesNotCrash) {
     EXPECT_TRUE(contains(out, "DONE")) << out;
 }
 
+// --- Phase 7 slice A: safe-nav completion ----------------------------------
+//
+// (1) `??` after `?.` on a null object now fires: safe-nav yields the
+// null VALUE but reports the field's non-nullable type, so `??` used to
+// take its no-op path. (2) `?.` method calls no longer segfault on a
+// null receiver: the dispatch is guarded and yields the null value of
+// the return type. The plain-`??` no-op is pinned too: a non-nullable
+// LHS keeps its zero value (it is a legitimate value, not null).
+
+TEST(CodegenCrashersExecutionTest, CoalesceAfterSafeNavField) {
+    const std::string source = R"(
+        import std.io;
+        class Box {
+            public string label;
+            public int n;
+            Box(string l, int n) { this.label = l; this.n = n; }
+        }
+        fn main() {
+            string? maybe = null;
+            string a = maybe ?? "default-a";
+            println("a=${a}");
+            Box? b = null;
+            string s = b?.label ?? "default-s";
+            println("s=${s}");
+            int v = b?.n ?? 99;
+            println("v=${v}");
+            Box? b2 = new Box("real", 7);
+            string s2 = b2?.label ?? "default-s2";
+            println("s2=${s2}");
+            int v2 = b2?.n ?? 99;
+            println("v2=${v2}");
+            println("DONE");
+        }
+    )";
+    // Before the fix: s="" and v=0 (the `??` no-op path ran because the
+    // safe-nav LHS reported a non-nullable type).
+    std::string out = runSPProgram(source, "CoalesceSafeNavField");
+    EXPECT_TRUE(contains(out, "a=default-a")) << out;
+    EXPECT_TRUE(contains(out, "s=default-s")) << out;
+    EXPECT_TRUE(contains(out, "v=99")) << out;
+    EXPECT_TRUE(contains(out, "s2=real")) << out;
+    EXPECT_TRUE(contains(out, "v2=7")) << out;
+    EXPECT_TRUE(contains(out, "DONE")) << out;
+}
+
+TEST(CodegenCrashersExecutionTest, PlainNonNullableCoalesceIsNoOp) {
+    const std::string source = R"(
+        fn main() {
+            int x = 0;
+            int v = x ?? 99;
+            println("v=${v}");
+            string s = "hi";
+            string t = s ?? "bye";
+            println("t=${t}");
+            println("DONE");
+        }
+    )";
+    // A plain non-nullable LHS keeps its value even when it is zero:
+    // 0 is a legitimate int, not null. This pins the `??` no-op path
+    // that the safe-nav fix must not disturb.
+    std::string out = runSPProgram(source, "CoalescePlainNoOp");
+    EXPECT_TRUE(contains(out, "v=0")) << out;
+    EXPECT_TRUE(contains(out, "t=hi")) << out;
+    EXPECT_TRUE(contains(out, "DONE")) << out;
+}
+
+TEST(CodegenCrashersExecutionTest, SafeNavMethodCallOnNullDoesNotCrash) {
+    const std::string source = R"(
+        import std.io;
+        class Greeter {
+            public string name;
+            Greeter(string n) { this.name = n; }
+            public string greet() { return "hi " + this.name; }
+            public int score() { return 42; }
+            public void shout() { println("SHOUT"); }
+        }
+        class LoudGreeter : Greeter {
+            LoudGreeter(string n) { super(n); }
+            public string greet() { return "LOUD hi " + this.name; }
+        }
+        fn main() {
+            Greeter? g = null;
+            string s = g?.greet() ?? "fallback-greet";
+            println("s=${s}");
+            int v = g?.score() ?? 99;
+            println("v=${v}");
+            g?.shout();
+            println("after-null-shout");
+            Greeter? g2 = new Greeter("Shanto");
+            string s2 = g2?.greet() ?? "fallback2";
+            println("s2=${s2}");
+            int v2 = g2?.score() ?? 99;
+            println("v2=${v2}");
+            g2?.shout();
+            Greeter? g3 = new LoudGreeter("Mina");
+            string s3 = g3?.greet() ?? "fallback3";
+            println("s3=${s3}");
+            println("DONE");
+        }
+    )";
+    // Before the fix the first `g?.greet()` segfaulted (the vtable
+    // load ran on a null receiver with no null check) and nothing
+    // printed at all.
+    std::string out = runSPProgram(source, "SafeNavMethodCall");
+    EXPECT_TRUE(contains(out, "s=fallback-greet")) << out;
+    EXPECT_TRUE(contains(out, "v=99")) << out;
+    EXPECT_TRUE(contains(out, "after-null-shout")) << out;
+    EXPECT_TRUE(contains(out, "s2=hi Shanto")) << out;
+    EXPECT_TRUE(contains(out, "v2=42")) << out;
+    EXPECT_TRUE(contains(out, "SHOUT")) << out;
+    EXPECT_TRUE(contains(out, "s3=LOUD hi Mina")) << out;
+    EXPECT_TRUE(contains(out, "DONE")) << out;
+}
+
+TEST(CodegenCrashersExecutionTest, SafeNavAsyncMethodCall) {
+    const std::string source = R"(
+        import std.io;
+        class Worker {
+            public async fn compute() -> int {
+                await sleep_async(10);
+                return 7;
+            }
+        }
+        async fn run() {
+            Worker? w = null;
+            w?.compute();
+            println("null-async-done");
+            Worker? w2 = new Worker();
+            int v = await w2?.compute();
+            println("v=${v}");
+        }
+        fn main() {
+            run();
+        }
+    )";
+    // A safe-nav call to an async method yields a null Task on a null
+    // receiver (never awaited) and a real Task on a non-null receiver.
+    // Before the fix the null call segfaulted in the vtable load.
+    std::string out = runSPProgram(source, "SafeNavAsyncCall");
+    EXPECT_TRUE(contains(out, "null-async-done")) << out;
+    EXPECT_TRUE(contains(out, "v=7")) << out;
+}
+
 // --- 7. fn-pointer HTTP handlers -------------------------------------------
 //
 // The server is compiled to a real executable, started in the

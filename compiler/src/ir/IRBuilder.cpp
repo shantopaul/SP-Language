@@ -3925,6 +3925,25 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
     m_lastExprType = valType;
 }
 
+// Phase 7 slice A: does an expression yield null at runtime even though
+// its static (sema) type is non-nullable? A safe-nav access does: `?.`
+// yields the null VALUE of the field/return type on the null branch
+// while reporting the plain type (see visit(MemberExpr) and the
+// safe-nav method-call guard in visit(CallExpr)). A `??` whose LHS is
+// such an expression must emit the runtime null check instead of
+// treating `??` as a no-op.
+static bool lhsMayBeNullViaSafeNav(const ast::ExpressionNode& lhs) {
+    if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&lhs)) {
+        return mem->isSafeNav();
+    }
+    if (const auto* call = dynamic_cast<const ast::CallExpr*>(&lhs)) {
+        if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&call->getCallee())) {
+            return mem->isSafeNav();
+        }
+    }
+    return false;
+}
+
 void IRBuilder::visit(const ast::BinaryExpr& node) {
     node.getLeft().accept(*this);
     IRValuePtr lhs = m_lastExprValue;
@@ -4000,7 +4019,14 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         IRTypePtr resType = semaNodeType ? mapType(semaNodeType.get())
                                          : (lhsType ? lhsType : IRType::getInt32());
         auto semaLhsType = m_sema.getNodeType(&node.getLeft());
-        if (!semaLhsType || !semaLhsType->isNullable()) {
+        // Phase 7 slice A: a safe-nav LHS can be null at runtime even
+        // though its static type is non-nullable (see
+        // lhsMayBeNullViaSafeNav above) — it must take the runtime
+        // null-check path below, not the no-op. A plain non-nullable LHS
+        // keeps the no-op: its zero value is a legitimate value, not
+        // null (e.g. `int x = 0; x ?? 99` must stay 0).
+        if ((!semaLhsType || !semaLhsType->isNullable()) &&
+            !lhsMayBeNullViaSafeNav(node.getLeft())) {
             m_lastExprValue = emitCastIfNeeded(lhs, resType);
             m_lastExprType = resType;
             return;
@@ -6890,6 +6916,90 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
         }
 
+        // Phase 7 slice A: safe navigation on a method call
+        // (obj?.method()). The receiver was evaluated once above
+        // (objVal); a null receiver must short-circuit to the null
+        // value of the return type instead of dereferencing the null
+        // vtable pointer below (which segfaulted). Same diamond pattern
+        // as the field-access fix in visit(MemberExpr), but the dispatch
+        // below has several early exits, so each value-producing exit
+        // funnels through safeNavFinish (store + branch to the merge
+        // block + merge load). Error exits (reportUnsupported) are left
+        // alone: they abort the compilation, so the open diamond in the
+        // discarded module is harmless. Builtin member-method paths
+        // above (List/Map/String/Thread/...) are NOT covered by this
+        // guard — a null receiver there still segfaults in the runtime
+        // (see the slice doc); only the vtable + direct/static dispatch
+        // below is guarded. The guard only applies when the receiver is
+        // a pointer (a class/interface object); value receivers cannot
+        // be null.
+        bool isSafeNavCall = false;
+        IRTypePtr safeNavResType = nullptr;
+        std::shared_ptr<AllocaInst> safeNavResAlloca = nullptr;
+        IRBasicBlock* safeNavMergeBB = nullptr;
+        if (mem->isSafeNav() && m_currentFunction && m_currentBlock &&
+            m_currentFunction->getEntryBlock() && objVal && objVal->getType() &&
+            objVal->getType()->isPointer()) {
+            isSafeNavCall = true;
+            auto safeNavTarget = m_sema.getCallTarget(&node);
+            if (safeNavTarget && safeNavTarget->isAsync()) {
+                // An async method call yields a Task pointer.
+                safeNavResType = IRType::getPointer();
+            } else if (auto nodeType = m_sema.getNodeType(&node)) {
+                safeNavResType = mapType(nodeType.get());
+            } else {
+                safeNavResType = IRType::getInt32();
+            }
+            if (!safeNavResType->isVoid()) {
+                safeNavResAlloca = std::make_shared<AllocaInst>(
+                    safeNavResType, m_currentFunction->nextTempName("safenav_call_res"));
+                m_currentFunction->getEntryBlock()->addInstruction(safeNavResAlloca);
+            }
+            auto isNull = std::make_shared<CompareInst>(
+                IROpcode::ICmpEq, objVal, std::make_shared<ConstantNull>(objVal->getType()),
+                m_currentFunction->nextTempName("safenav_call_null"));
+            m_currentBlock->addInstruction(isNull);
+            auto nullBB = createBlock("safenav_call_null");
+            auto callBB = createBlock("safenav_call");
+            safeNavMergeBB = createBlock("safenav_call_merge");
+            m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+                isNull, nullBB->getName(), callBB->getName()));
+            setInsertPoint(nullBB);
+            if (safeNavResAlloca) {
+                if (auto nullVal = nullValueOf(safeNavResType)) {
+                    nullBB->addInstruction(std::make_shared<StoreInst>(nullVal, safeNavResAlloca));
+                }
+            }
+            nullBB->addInstruction(std::make_shared<BranchInst>(safeNavMergeBB->getName()));
+            setInsertPoint(callBB);
+        }
+        // Funnels a dispatch exit through the safe-nav merge block when
+        // this call is a safe-nav call; returns true when it handled the
+        // exit (the caller then returns), false otherwise (the caller
+        // runs its normal exit). `value` is the call's result, or
+        // nullptr for a void result.
+        auto safeNavFinish = [&](IRValuePtr value) -> bool {
+            if (!isSafeNavCall) return false;
+            if (value && safeNavResAlloca) {
+                auto castVal = emitCastIfNeeded(value, safeNavResType);
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(castVal, safeNavResAlloca));
+            }
+            m_currentBlock->addInstruction(
+                std::make_shared<BranchInst>(safeNavMergeBB->getName()));
+            setInsertPoint(safeNavMergeBB);
+            if (safeNavResAlloca) {
+                auto mergeVal = std::make_shared<LoadInst>(
+                    safeNavResType, safeNavResAlloca,
+                    m_currentFunction->nextTempName("safenav_call_val"));
+                safeNavMergeBB->addInstruction(mergeVal);
+                m_lastExprValue = mergeVal;
+            } else {
+                m_lastExprValue = nullptr;
+            }
+            m_lastExprType = safeNavResType;
+            return true;
+        };
+
         if (layout && slotIdx >= 0) {
             // Polymorphic virtual dispatch via vtable!
             auto gepVTable = std::make_shared<GetElementPtrInst>(
@@ -6995,6 +7105,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = nullptr;
                     return;
                 }
+                if (safeNavFinish(task)) return;
                 m_lastExprValue = task;
                 m_lastExprType = IRType::getPointer();
                 return;
@@ -7004,6 +7115,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
             m_currentBlock->addInstruction(callInst);
 
+            if (safeNavFinish(returnType->isVoid() ? nullptr : callInst)) return;
             m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
             m_lastExprType = returnType;
             return;
@@ -7092,6 +7204,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_lastExprType = nullptr;
                     return;
                 }
+                if (safeNavFinish(task)) return;
                 m_lastExprValue = task;
                 m_lastExprType = IRType::getPointer();
                 return;
@@ -7101,6 +7214,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             auto callInst = std::make_shared<CallInst>(returnType, mangledName, loweredArgs, callReg);
             m_currentBlock->addInstruction(callInst);
 
+            if (safeNavFinish(returnType->isVoid() ? nullptr : callInst)) return;
             m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
             m_lastExprType = returnType;
             return;
