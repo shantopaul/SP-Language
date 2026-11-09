@@ -385,6 +385,7 @@ void TypeChecker::visit(const ast::CallExpr& node) {
         if (!candidates.empty()) {
             auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), fnName);
             if (resolved) {
+                m_nodeCallTargets[&node] = resolved;
                 if (resolved->isGeneric() && resolved->getASTDecl()) {
                     const auto* astDecl = resolved->getASTDecl();
                     std::vector<std::string> typeArgs = node.getTypeArgs();
@@ -423,11 +424,14 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             if (!methods.empty()) {
                 std::vector<std::shared_ptr<FunctionSymbol>> methodCandidates;
                 for (const auto& mm : methods) {
-                    methodCandidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                    auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation());
+                    cand->setAsync(mm.isAsync);
+                    methodCandidates.push_back(std::move(cand));
                 }
                 auto resolved = resolveOverload(methodCandidates, argTypes, node.getLocation(), fnName);
                 if (resolved) {
-                    m_currentExprType = resolved->getFunctionType()->getReturnType();
+                    m_nodeCallTargets[&node] = resolved;
+                    m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
                 } else {
                     m_currentExprType = m_typeCtx.getError();
                 }
@@ -504,12 +508,15 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                     m_currentExprType = m_typeCtx.getError();
                     return;
                 }
-                candidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation());
+                cand->setAsync(mm.isAsync);
+                candidates.push_back(std::move(cand));
             }
 
             auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), methodName);
             if (resolved) {
-                m_currentExprType = resolved->getFunctionType()->getReturnType();
+                m_nodeCallTargets[&node] = resolved;
+                m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
             } else {
                 m_currentExprType = m_typeCtx.getError();
             }
@@ -522,12 +529,15 @@ void TypeChecker::visit(const ast::CallExpr& node) {
 
             std::vector<std::shared_ptr<FunctionSymbol>> candidates;
             for (const auto& mm : methods) {
-                candidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation());
+                cand->setAsync(mm.isAsync);
+                candidates.push_back(std::move(cand));
             }
 
             auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), methodName);
             if (resolved) {
-                m_currentExprType = resolved->getFunctionType()->getReturnType();
+                m_nodeCallTargets[&node] = resolved;
+                m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
             } else {
                 m_currentExprType = m_typeCtx.getError();
             }

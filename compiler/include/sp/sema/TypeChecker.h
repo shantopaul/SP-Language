@@ -29,6 +29,16 @@ public:
         return m_typeCtx.getError();
     }
 
+    // Phase 3: overload resolution target recorded for a CallExpr, so IRBuilder
+    // can emit the mangled name of the overload sema picked (the callee name
+    // alone is ambiguous once same-name overloads exist). Nullptr when the
+    // call resolved to a builtin, a variable holding a function, or nothing.
+    [[nodiscard]] std::shared_ptr<FunctionSymbol> getCallTarget(const ast::CallExpr* expr) const {
+        auto it = m_nodeCallTargets.find(expr);
+        if (it != m_nodeCallTargets.end()) return it->second;
+        return nullptr;
+    }
+
     // Expressions
     void visit(const ast::LiteralExpr& node) override;
     void visit(const ast::IdentifierExpr& node) override;
@@ -102,6 +112,7 @@ private:
     ast::Edition m_edition{ast::Edition::Edition2026};
 
     std::unordered_map<const ast::ExpressionNode*, TypePtr> m_nodeTypes;
+    std::unordered_map<const ast::CallExpr*, std::shared_ptr<FunctionSymbol>> m_nodeCallTargets;
 };
 
 } // namespace sp::sema

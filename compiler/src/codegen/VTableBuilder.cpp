@@ -56,6 +56,78 @@ std::string VTableBuilder::mangleGenericName(const std::string& name) {
     return result;
 }
 
+std::string VTableBuilder::sanitizeMangledType(const std::string& typeName) {
+    std::string result;
+    result.reserve(typeName.size());
+    for (char c : typeName) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+            result += c;
+        } else {
+            result += '_';
+        }
+    }
+    return result;
+}
+
+std::string VTableBuilder::overloadSuffix(const std::vector<std::string>& canonicalParamTypes) {
+    if (canonicalParamTypes.empty()) {
+        return "__void";
+    }
+    std::string suffix = "__";
+    for (size_t i = 0; i < canonicalParamTypes.size(); ++i) {
+        if (i > 0) suffix += '_';
+        suffix += sanitizeMangledType(canonicalParamTypes[i]);
+    }
+    return suffix;
+}
+
+std::string VTableBuilder::mangleOverloaded(const std::string& baseName,
+                                           const std::vector<std::string>& canonicalParamTypes,
+                                           bool isOverloaded) {
+    if (!isOverloaded) return baseName;
+    return baseName + overloadSuffix(canonicalParamTypes);
+}
+
+std::vector<std::string> VTableBuilder::canonicalParamTypes(const sema::ClassType& clsType,
+                                                           const ast::FunctionDecl& decl) {
+    // Match this decl to its MemberMethod: same name + arity; prefer the
+    // candidate whose canonical param types spell the same as the decl's
+    // raw param strings. (Aliases such as `int32` vs `int` make a raw
+    // string comparison unreliable on its own.)
+    const sema::MemberMethod* best = nullptr;
+    int bestScore = -1;
+    for (const auto& mm : clsType.getMethods()) {
+        if (mm.name != decl.getName()) continue;
+        if (!mm.functionType) continue;
+        const auto& params = mm.functionType->getParamTypes();
+        if (params.size() != decl.getParams().size()) continue;
+        int score = 0;
+        for (size_t i = 0; i < params.size(); ++i) {
+            if (params[i] && params[i]->toString() == decl.getParams()[i].getType()) ++score;
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            best = &mm;
+        }
+    }
+    std::vector<std::string> out;
+    if (best) {
+        for (const auto& p : best->functionType->getParamTypes()) {
+            out.push_back(p ? p->toString() : "any");
+        }
+        return out;
+    }
+    // Fallback: raw strings (decl not found in the class table).
+    for (const auto& p : decl.getParams()) out.push_back(p.getType());
+    return out;
+}
+
+bool VTableBuilder::isMethodOverloaded(const sema::ClassType& clsType, const std::string& methodName) {
+    // findMethods dedupes overrides (same signature), so size > 1 means
+    // more than one distinct signature is visible with this name.
+    return clsType.findMethods(methodName).size() > 1;
+}
+
 void VTableBuilder::buildProgramLayouts(const ast::Program& program, ir::IRModule& irModule) {
     // 1. Index all class and struct declarations
     for (const auto& decl : program.getDeclarations()) {
@@ -219,6 +291,15 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
         }
     }
 
+    // Sema class type for this class (canonical method signatures for
+    // overload mangling; null for builtin classes without a decl).
+    const sema::ClassType* clsType = nullptr;
+    if (auto userType = m_sema.getTypeContext().findUserType(className)) {
+        if (userType->isClass()) {
+            clsType = static_cast<const sema::ClassType*>(userType.get());
+        }
+    }
+
     // Process methods and construct vtable slots
     for (const auto& member : classDecl.getMembers()) {
         if (!member) continue;
@@ -232,9 +313,24 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
             }
 
             std::string methodName = fnDecl.getName();
-            std::string mangledName = className + "_" + methodName;
+            // Overload key: method name + signature suffix. The vtable map
+            // is keyed by this, so same-name overloads occupy distinct
+            // slots and a derived override (same signature) finds the base
+            // slot. The stored mangledName only gains the suffix when the
+            // name is overloaded in this class (single-definition methods
+            // keep their plain `Class_method` LLVM name).
+            std::vector<std::string> paramTypes;
+            bool isOverloaded = false;
+            if (clsType) {
+                paramTypes = canonicalParamTypes(*clsType, fnDecl);
+                isOverloaded = isMethodOverloaded(*clsType, methodName);
+            } else {
+                for (const auto& p : fnDecl.getParams()) paramTypes.push_back(p.getType());
+            }
+            std::string methodKey = methodName + overloadSuffix(paramTypes);
+            std::string mangledName = mangleOverloaded(className + "_" + methodName, paramTypes, isOverloaded);
 
-            auto slotIt = layout.methodSlotMap.find(methodName);
+            auto slotIt = layout.methodSlotMap.find(methodKey);
             if (slotIt != layout.methodSlotMap.end()) {
                 // Method override: update existing slot
                 uint32_t slotIdx = slotIt->second;
@@ -250,7 +346,7 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
                 slotInfo.originatingClass = className;
 
                 layout.vtableSlots.push_back(slotInfo);
-                layout.methodSlotMap[methodName] = newSlotIdx;
+                layout.methodSlotMap[methodKey] = newSlotIdx;
             }
         }
     }
@@ -445,9 +541,22 @@ int VTableBuilder::getFieldIndex(const std::string& className, const std::string
 }
 
 int VTableBuilder::getMethodVTableSlot(const std::string& className, const std::string& methodName) const {
+    // Legacy name-only lookup: returns the first slot with this method name.
+    // Kept for non-overloaded callers and for generic-class layouts, whose
+    // slot map is still keyed by plain name. Overloaded calls must use
+    // getMethodVTableSlotByKey.
     const auto* layout = getClassLayout(className);
     if (!layout) return -1;
-    auto it = layout->methodSlotMap.find(methodName);
+    for (const auto& slot : layout->vtableSlots) {
+        if (slot.methodName == methodName) return static_cast<int>(slot.slotIndex);
+    }
+    return -1;
+}
+
+int VTableBuilder::getMethodVTableSlotByKey(const std::string& className, const std::string& methodKey) const {
+    const auto* layout = getClassLayout(className);
+    if (!layout) return -1;
+    auto it = layout->methodSlotMap.find(methodKey);
     if (it != layout->methodSlotMap.end()) {
         return static_cast<int>(it->second);
     }

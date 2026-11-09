@@ -52,11 +52,49 @@ public:
     [[nodiscard]] const ClassLayout* getClassLayout(const std::string& className) const;
     [[nodiscard]] int getFieldIndex(const std::string& className, const std::string& fieldName) const;
     [[nodiscard]] int getMethodVTableSlot(const std::string& className, const std::string& methodName) const;
+    // Signature-aware slot lookup: methodKey is the overload key, i.e.
+    // methodName + overloadSuffix(paramTypes) (see below). Used for
+    // overloaded methods, whose plain name is ambiguous.
+    [[nodiscard]] int getMethodVTableSlotByKey(const std::string& className, const std::string& methodKey) const;
 
     // Helper to map type names to IR types
     ir::IRTypePtr mapType(const std::string& typeName) const;
     [[nodiscard]] const sema::SemanticAnalyzer& getSema() const noexcept { return m_sema; }
     static std::string mangleGenericName(const std::string& name);
+
+    // Phase 3 overload mangling (shared by IRBuilder and VTableBuilder).
+    //
+    // A single-definition function keeps its plain LLVM name
+    // (e.g. `foo`, `Animal_speak`) so existing IR/tests are unchanged.
+    // When a name is overloaded, the LLVM name gains a signature suffix:
+    //   base + "__" + join(sanitized(param types), "_")   (no params -> "__void")
+    // The param types are sema-canonical type strings (Type::toString()),
+    // e.g. `int`, `string`, `int[]`, `ptr<int>`, `Foo?`. Sanitization keeps
+    // [A-Za-z0-9_] and replaces every other character with '_':
+    //   add(int, string)  -> add__int_string
+    //   add(int, int)     -> add__int_int
+    //   get(int[])        -> get__int__
+    //   f(ptr<int>)       -> f__ptr_int_
+    //   f()               -> f__void
+    //   Animal_speak()    -> Animal_speak__void  (when overloaded)
+    // The vtable slot KEY for a method is methodName + overloadSuffix(...),
+    // always suffixed (even when not overloaded), so a derived override of
+    // the same signature finds the base slot; the stored mangledName (the
+    // LLVM function name) only carries the suffix when overloaded.
+    static std::string sanitizeMangledType(const std::string& typeName);
+    static std::string overloadSuffix(const std::vector<std::string>& canonicalParamTypes);
+    static std::string mangleOverloaded(const std::string& baseName,
+                                        const std::vector<std::string>& canonicalParamTypes,
+                                        bool isOverloaded);
+
+    // Canonical (sema) param-type strings for a method decl, taken from the
+    // class's MemberMethod table (so `int32` and `int` spell the same
+    // signature), and whether a method name is overloaded in a class
+    // (more than one distinct visible signature). Used by IRBuilder and by
+    // the vtable builder itself so definition and call sites agree.
+    static std::vector<std::string> canonicalParamTypes(const sema::ClassType& clsType,
+                                                        const ast::FunctionDecl& decl);
+    static bool isMethodOverloaded(const sema::ClassType& clsType, const std::string& methodName);
 
 private:
     void buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModule& irModule);

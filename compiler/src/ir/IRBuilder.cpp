@@ -458,6 +458,65 @@ IRTypePtr IRBuilder::mapType(const std::string& typeName) const {
 
 // --- AST Visitors ---
 
+// Phase 3 slice A: function pointers + overload name mangling.
+std::vector<std::string> IRBuilder::fnParamTypes(const ast::FunctionDecl& decl) const {
+    // Canonical param types from the decl's FunctionSymbol, so `int32`
+    // and `int` spell the same signature at definition and call sites.
+    for (const auto& sym : m_sema.getSymbolTable().lookupFunctions(decl.getName())) {
+        if (sym && sym->getASTDecl() == &decl && sym->getFunctionType()) {
+            std::vector<std::string> out;
+            for (const auto& p : sym->getFunctionType()->getParamTypes()) {
+                out.push_back(p ? p->toString() : "any");
+            }
+            return out;
+        }
+    }
+    // Fallback: raw strings (decl not found in the symbol table, e.g. a
+    // stdlib function whose symbol carries no AST decl).
+    std::vector<std::string> out;
+    for (const auto& p : decl.getParams()) out.push_back(p.getType());
+    return out;
+}
+
+std::string IRBuilder::llvmFunctionName(const ast::FunctionDecl& decl) const {
+    // `main` is the entry point and extern "C" names are part of the C ABI:
+    // neither is ever mangled. Generic fns are monomorphized separately.
+    if (decl.getName() == "main" || (!decl.hasBody() && !decl.isShortForm()) || decl.isGeneric()) {
+        return decl.getName();
+    }
+    auto overloads = m_sema.getSymbolTable().lookupFunctions(decl.getName());
+    bool isOverloaded = overloads.size() > 1;
+    return codegen::VTableBuilder::mangleOverloaded(decl.getName(), fnParamTypes(decl), isOverloaded);
+}
+
+std::string IRBuilder::llvmMethodName(const std::string& className, const ast::FunctionDecl& decl) const {
+    std::string base = className + "_" + decl.getName();
+    auto userType = m_sema.getTypeContext().findUserType(className);
+    if (!userType || !userType->isClass()) return base;
+    auto clsType = std::static_pointer_cast<const sema::ClassType>(userType);
+    auto paramTypes = codegen::VTableBuilder::canonicalParamTypes(*clsType, decl);
+    bool isOverloaded = codegen::VTableBuilder::isMethodOverloaded(*clsType, decl.getName());
+    return codegen::VTableBuilder::mangleOverloaded(base, paramTypes, isOverloaded);
+}
+
+std::vector<std::string> IRBuilder::targetParamTypes(const std::shared_ptr<sema::FunctionSymbol>& target) {
+    std::vector<std::string> out;
+    if (target && target->getFunctionType()) {
+        for (const auto& p : target->getFunctionType()->getParamTypes()) {
+            out.push_back(p ? p->toString() : "any");
+        }
+    }
+    return out;
+}
+
+std::string IRBuilder::llvmCallName(const std::string& calleeName,
+                                    const std::shared_ptr<sema::FunctionSymbol>& target) const {
+    if (!target || target->isMethod() || target->isGeneric()) return calleeName;
+    auto overloads = m_sema.getSymbolTable().lookupFunctions(calleeName);
+    bool isOverloaded = overloads.size() > 1;
+    return codegen::VTableBuilder::mangleOverloaded(calleeName, targetParamTypes(target), isOverloaded);
+}
+
 void IRBuilder::visit(const ast::Program& node) {
     // Check if there is an explicit main function
     bool hasMainFunc = false;
@@ -506,14 +565,16 @@ void IRBuilder::visit(const ast::Program& node) {
         if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(decl.get())) {
             for (const auto& member : cls->getMembers()) {
                 if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(member.get())) {
-                    m_astFunctions[cls->getName() + "_" + fn->getName()] = fn;
+                    // Phase 3 slice A: key by the mangled LLVM name so
+                    // same-name overloads coexist in the index.
+                    m_astFunctions[llvmMethodName(cls->getName(), *fn)] = fn;
                 }
             }
             if (cls->isGeneric()) {
                 m_genericClasses[cls->getName()] = cls;
             }
         } else if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(decl.get())) {
-            m_astFunctions[fn->getName()] = fn;
+            m_astFunctions[llvmFunctionName(*fn)] = fn;
             if (fn->isGeneric()) {
                 m_genericFunctions[fn->getName()] = fn;
             }
@@ -530,14 +591,14 @@ void IRBuilder::visit(const ast::Program& node) {
                 if (const auto* cls = dynamic_cast<const ast::ClassDecl*>(inner.get())) {
                     for (const auto& member : cls->getMembers()) {
                         if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(member.get())) {
-                            m_astFunctions[cls->getName() + "_" + fn->getName()] = fn;
+                            m_astFunctions[llvmMethodName(cls->getName(), *fn)] = fn;
                         }
                     }
                     if (cls->isGeneric()) {
                         m_genericClasses[cls->getName()] = cls;
                     }
                 } else if (const auto* fn = dynamic_cast<const ast::FunctionDecl*>(inner.get())) {
-                    m_astFunctions[fn->getName()] = fn;
+                    m_astFunctions[llvmFunctionName(*fn)] = fn;
                     if (!fn->hasBody() && !fn->isShortForm()) {
                         std::vector<std::shared_ptr<ParameterValue>> params;
                         for (size_t i = 0; i < fn->getParams().size(); ++i) {
@@ -648,11 +709,11 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
     }
 
     if (!node.hasBody() && !node.isShortForm()) {
-        m_module->createFunction(node.getName(), returnType, params, /*isExternal=*/true);
+        m_module->createFunction(llvmFunctionName(node), returnType, params, /*isExternal=*/true);
         return;
     }
 
-    auto func = m_module->createFunction(node.getName(), returnType, params);
+    auto func = m_module->createFunction(llvmFunctionName(node), returnType, params);
     m_currentFunction = func;
     // Phase 2 slice B2: remember whether this is an `async fn` so
     // visit(AwaitExpr) knows whether await may lower here. Restored at
@@ -1537,7 +1598,8 @@ void IRBuilder::compileConstructor(const ast::ClassDecl& classDecl, const ast::F
 
 void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::FunctionDecl& methodDecl, const codegen::ClassLayout& layout) {
     (void)classDecl;
-    std::string mangledName = layout.name + "_" + methodDecl.getName();
+    // Phase 3 slice A: overloaded methods are mangled by signature.
+    std::string mangledName = llvmMethodName(layout.name, methodDecl);
     IRTypePtr returnType = mapType(methodDecl.getReturnType());
 
     std::vector<std::shared_ptr<ParameterValue>> params;
@@ -1974,17 +2036,68 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
     }
 
     // Fallback for unresolved or global variables.
-    // Phase 2 (pro-4.0.0): a bare function name used as a value must fail
-    // loudly, never silently become null. Previously this fallback lowered
-    // ANY unresolved identifier to ConstantInt 0, so passing an SP function
-    // as a callback (queue handler, cron task, ws route, ...) compiled to
-    // a null pointer that the runtime bridge silently ignored — the job
-    // landed in the DLQ with no error anywhere. Function pointers are not
-    // lowered yet; until they are, this is error[E1000].
-    if (!m_sema.getSymbolTable().lookupFunctions(node.getName()).empty()) {
-        reportUnsupported(node.getLocation(), "function '" + node.getName() + "' used as a value",
-                          "function pointers are not lowered yet; passing a bare function as a "
-                          "callback argument is not supported in this phase");
+    // Phase 3 slice A: a bare (free) function name used as a value lowers
+    // to the real function address (a GlobalVariable `@name`, exactly like
+    // visit(LambdaExpr)), so it can be passed as a `ptr` callback to
+    // extern "C" functions (queue handlers, cron tasks, ws routes, ...).
+    // LLVM accepts forward references and the verifier does not check
+    // bare `@name` operands, so the definition may come later in the file.
+    // Still loud error[E1000] when the value cannot be a plain function
+    // pointer: an overloaded bare name (ambiguous — SP has only untyped
+    // `ptr`, so there is no way to pick an overload), a method (needs an
+    // instance), or a generic function (no type args at a bare use).
+    // Inside a lambda body, naming a variable from an enclosing scope is
+    // a capture attempt — capturing lambdas are not lowered, so that
+    // fails loudly too (previously it silently became 0).
+    if (!m_lambdaOuterVars.empty() && m_lambdaOuterVars.back().count(node.getName())) {
+        reportUnsupported(node.getLocation(), "lambda captures variable '" + node.getName() + "'",
+                          "capturing lambdas are not supported; pass the value as a parameter");
+    } else {
+        auto functions = m_sema.getSymbolTable().lookupFunctions(node.getName());
+        if (!functions.empty()) {
+            bool anyMethod = false;
+            bool anyGeneric = false;
+            for (const auto& sym : functions) {
+                if (sym && sym->isMethod()) anyMethod = true;
+                if (sym && sym->isGeneric()) anyGeneric = true;
+            }
+            if (functions.size() > 1) {
+                reportUnsupported(node.getLocation(), "function '" + node.getName() + "' used as a value",
+                                  "the name is overloaded; a bare function reference is ambiguous — "
+                                  "pass the function through a typed wrapper or call it instead");
+            } else if (anyMethod) {
+                reportUnsupported(node.getLocation(), "method '" + node.getName() + "' used as a value",
+                                  "a bare method name has no instance; use a lambda or a free function as the callback");
+            } else if (anyGeneric) {
+                reportUnsupported(node.getLocation(), "function '" + node.getName() + "' used as a value",
+                                  "a generic function cannot be used as a bare value; call it with explicit type arguments first");
+            } else {
+                // Exactly one non-generic free function: its address. Extern
+                // "C" functions are declared by plain name; a defined function
+                // by its (possibly mangled) LLVM name — a single-definition
+                // function keeps its plain name.
+                std::string llvmName = node.getName();
+                if (const auto* decl = functions[0]->getASTDecl()) {
+                    llvmName = llvmFunctionName(*decl);
+                }
+                m_lastExprValue = std::make_shared<GlobalVariable>(IRType::getInt8(), "@" + llvmName);
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+        }
+    }
+    // A bare method name inside its own class: the method needs an
+    // instance, so it cannot be a plain function pointer either. (Methods
+    // are not in the symbol table, so the check above cannot see them.)
+    if (m_currentClass) {
+        auto userType = m_sema.getTypeContext().findUserType(m_currentClass->name);
+        if (userType && userType->isClass()) {
+            auto clsType = std::static_pointer_cast<const sema::ClassType>(userType);
+            if (!clsType->findMethods(node.getName()).empty()) {
+                reportUnsupported(node.getLocation(), "method '" + node.getName() + "' used as a value",
+                                  "a bare method name has no instance; use a lambda or a free function as the callback");
+            }
+        }
     }
     m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), 0);
     m_lastExprType = IRType::getInt32();
@@ -2569,6 +2682,18 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (idObj->getName() == "super") {
                 if (m_currentClass && !m_currentClass->baseClass.empty()) {
                     std::string mangledName = m_currentClass->baseClass + "_" + methodName;
+                    // Phase 3 slice A: an overloaded base method is mangled
+                    // by signature (the overload sema resolved).
+                    auto superTarget = m_sema.getCallTarget(&node);
+                    if (superTarget && !superTarget->isGeneric()) {
+                        auto userType = m_sema.getTypeContext().findUserType(m_currentClass->baseClass);
+                        if (userType && userType->isClass()) {
+                            auto clsType = std::static_pointer_cast<const sema::ClassType>(userType);
+                            if (codegen::VTableBuilder::isMethodOverloaded(*clsType, methodName)) {
+                                mangledName += codegen::VTableBuilder::overloadSuffix(targetParamTypes(superTarget));
+                            }
+                        }
+                    }
                     auto [thisAlloca, thisType] = lookupVariable("this");
                     if (thisAlloca) {
                         auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
@@ -5007,7 +5132,21 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         }
 
         const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(className) : nullptr;
-        int slotIdx = (m_vtableBuilder && !className.empty()) ? m_vtableBuilder->getMethodVTableSlot(className, methodName) : -1;
+        // Phase 3 slice A: vtable slots are keyed by methodName + signature
+        // suffix; use the overload sema resolved. Fall back to the legacy
+        // name-only lookup (generic-class layouts are still keyed by plain
+        // name, and unresolved calls keep the old behaviour).
+        int slotIdx = -1;
+        if (m_vtableBuilder && !className.empty()) {
+            auto target = m_sema.getCallTarget(&node);
+            if (target) {
+                std::string key = methodName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(target));
+                slotIdx = m_vtableBuilder->getMethodVTableSlotByKey(className, key);
+            }
+            if (slotIdx < 0) {
+                slotIdx = m_vtableBuilder->getMethodVTableSlot(className, methodName);
+            }
+        }
 
         if (layout && slotIdx >= 0) {
             // Polymorphic virtual dispatch via vtable!
@@ -5073,6 +5212,21 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         } else {
             // Direct/static call
             std::string mangledName = (className.empty() ? "" : className + "_") + methodName;
+            // Phase 3 slice A: an overloaded static method is mangled by
+            // signature (the overload sema resolved).
+            if (!className.empty()) {
+                auto target = m_sema.getCallTarget(&node);
+                if (target && !target->isGeneric()) {
+                    auto userType = m_sema.getTypeContext().findUserType(className);
+                    if (userType && userType->isClass()) {
+                        auto clsType = std::static_pointer_cast<const sema::ClassType>(userType);
+                        if (codegen::VTableBuilder::isMethodOverloaded(*clsType, methodName)) {
+                            mangledName = className + "_" + methodName +
+                                codegen::VTableBuilder::overloadSuffix(targetParamTypes(target));
+                        }
+                    }
+                }
+            }
             auto* targetFunc = m_module->getFunction(mangledName);
             IRTypePtr returnType = nullptr;
             if (targetFunc) {
@@ -5870,8 +6024,25 @@ void IRBuilder::visit(const ast::CallExpr& node) {
     }
 
     // Check if callee is a method on 'this'
-    if (m_currentClass && m_currentClass->methodSlotMap.count(calleeName)) {
-        int slotIdx = m_currentClass->methodSlotMap.at(calleeName);
+    // Phase 3 slice A: unqualified method call from inside a class.
+    // The vtable map is keyed by methodName + signature suffix, so use
+    // the overload sema resolved; fall back to the plain name for layouts
+    // keyed the old way (generic classes) and for unresolved calls.
+    int enclosingSlotIdx = -1;
+    if (m_currentClass) {
+        auto enclosingTarget = m_sema.getCallTarget(&node);
+        if (enclosingTarget) {
+            std::string key = calleeName + codegen::VTableBuilder::overloadSuffix(targetParamTypes(enclosingTarget));
+            auto it = m_currentClass->methodSlotMap.find(key);
+            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
+        }
+        if (enclosingSlotIdx < 0) {
+            auto it = m_currentClass->methodSlotMap.find(calleeName);
+            if (it != m_currentClass->methodSlotMap.end()) enclosingSlotIdx = static_cast<int>(it->second);
+        }
+    }
+    if (enclosingSlotIdx >= 0) {
+        int slotIdx = enclosingSlotIdx;
         auto [thisAlloca, thisType] = lookupVariable("this");
         if (thisAlloca) {
             auto thisVal = std::make_shared<LoadInst>(IRType::getPointer(), thisAlloca, m_currentFunction->nextTempName("this"));
@@ -5981,6 +6152,16 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
         m_lastExprType = returnType;
         return;
+    }
+
+    // Phase 3 slice A: resolve an overloaded free function to its mangled
+    // name (the overload sema picked). Builtins above already returned;
+    // generic calls were rewritten to their monomorphized name above.
+    if (!calleeName.empty()) {
+        auto callTarget = m_sema.getCallTarget(&node);
+        if (callTarget && !callTarget->isMethod()) {
+            calleeName = llvmCallName(calleeName, callTarget);
+        }
     }
 
     // General user function call
@@ -6494,6 +6675,20 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
     // Save previous function context and scope stack
     auto prevFunc = m_currentFunction;
     auto prevBlock = m_currentBlock;
+    // Phase 3 slice A: snapshot the enclosing variable names so a
+    // reference to one from the lambda body fails loudly (capturing
+    // lambdas are not lowered). Each snapshot holds ALL enclosing
+    // variables, so nested lambdas only need the innermost frame.
+    {
+        std::unordered_set<std::string> outerVars;
+        for (const auto& scope : m_scopes) {
+            for (const auto& [name, var] : scope) {
+                (void)var;
+                outerVars.insert(name);
+            }
+        }
+        m_lambdaOuterVars.push_back(std::move(outerVars));
+    }
     auto prevScopes = std::move(m_scopes);
     auto prevRefCountedScopes = std::move(m_refCountedScopes);
     m_scopes.clear();
@@ -6545,6 +6740,7 @@ void IRBuilder::visit(const ast::LambdaExpr& node) {
     m_refCountedScopes = std::move(prevRefCountedScopes);
     m_currentFunction = prevFunc;
     m_currentBlock = prevBlock;
+    m_lambdaOuterVars.pop_back();
 
     auto fnPtr = std::make_shared<GlobalVariable>(IRType::getInt8(), "@" + lambdaName);
     m_lastExprValue = fnPtr;

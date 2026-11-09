@@ -37,6 +37,10 @@ public:
         return m_typeChecker.getNodeType(expr);
     }
 
+    [[nodiscard]] std::shared_ptr<FunctionSymbol> getCallTarget(const ast::CallExpr* expr) const {
+        return m_typeChecker.getCallTarget(expr);
+    }
+
 private:
     diagnostics::DiagnosticEngine& m_diagnostics;
     TypeContext m_typeCtx;

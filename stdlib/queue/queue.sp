@@ -30,6 +30,15 @@ extern "C" {
     fn sp_rt_cron_start(ptr cron);
     fn sp_rt_cron_stop(ptr cron);
     fn sp_rt_cron_task_count(ptr cron) -> int;
+    // Phase 3 slice A: callback registration. The handler / task is a
+    // bare SP fn passed as `ptr` (its real address is lowered by the
+    // compiler); the runtime bridge calls it with the C ABI below.
+    //   queue handler: fn handler(string jobId, string jobName, string payload) -> bool
+    //                  (return false to retry / send the job to the DLQ)
+    //   cron task:     fn task()
+    fn sp_rt_job_queue_register_handler(ptr queue, string name, ptr handlerFnPtr);
+    fn sp_rt_cron_schedule_interval(ptr cron, string name, int interval_ms, ptr taskFnPtr);
+    fn sp_rt_cron_schedule(ptr cron, string name, string cron_expr, ptr taskFnPtr);
 }
 
 public class JobQueue {
@@ -67,6 +76,17 @@ public class JobQueue {
     public fn waitIdle() {
         if (this.handle != null) {
             sp_rt_job_queue_wait_idle(this.handle);
+        }
+    }
+
+    // Phase 3 slice A: register an SP handler fn for jobs named `name`.
+    // The handler must be `fn handler(string jobId, string jobName, string payload) -> bool`
+    // and is passed as a bare fn (its address is lowered by the compiler):
+    //   queue.registerHandler("email", sendEmail);
+    // Returning false marks the job failed (retry, then DLQ).
+    public fn registerHandler(string name, ptr handlerFnPtr) {
+        if (this.handle != null) {
+            sp_rt_job_queue_register_handler(this.handle, name, handlerFnPtr);
         }
     }
 
@@ -147,6 +167,25 @@ public class CronScheduler {
     public fn taskCount() -> int {
         if (this.handle == null) { return 0; }
         return sp_rt_cron_task_count(this.handle);
+    }
+
+    // Phase 3 slice A: schedule an SP task fn to run every `intervalMs`
+    // milliseconds. The task must be `fn task()` and is passed as a bare
+    // fn (its address is lowered by the compiler):
+    //   cron.scheduleInterval("tick", 1000, onTick);
+    public fn scheduleInterval(string name, int intervalMs, ptr taskFnPtr) {
+        if (this.handle != null) {
+            sp_rt_cron_schedule_interval(this.handle, name, intervalMs, taskFnPtr);
+        }
+    }
+
+    // Phase 3 slice A: schedule an SP task fn by cron expression
+    // (same `fn task()` shape as scheduleInterval):
+    //   cron.schedule("nightly", "0 0 2 * * *", onNightly);
+    public fn schedule(string name, string cronExpr, ptr taskFnPtr) {
+        if (this.handle != null) {
+            sp_rt_cron_schedule(this.handle, name, cronExpr, taskFnPtr);
+        }
     }
 }
 

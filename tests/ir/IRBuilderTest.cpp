@@ -287,14 +287,12 @@ TEST(IRBuilderTest, AwaitExpressionFailsIRGeneration) {
     EXPECT_EQ(compileToIR(source), nullptr);
 }
 
-// Phase 2 (pro-4.0.0, parent fix): a bare function name used as a value
-// (e.g. passed as a callback) must fail loudly instead of silently
-// lowering to null. The old IdentifierExpr fallback turned ANY unresolved
-// identifier into ConstantInt 0, so a queue/cron/ws callback silently
-// became a null pointer the runtime bridge ignored (job in DLQ, no error
-// anywhere). Function pointers are not lowered yet; until they are, this
-// is error[E1000].
-TEST(IRBuilderTest, BareFunctionNameAsValueFailsIRGeneration) {
+// Phase 3 slice A (pro-4.0.0): a bare free function used as a value now
+// lowers to its real address (this replaces the Phase 2 loud error, which
+// fired because function pointers were not lowered yet). The IR must pass
+// `@handler` itself, not a null constant, to the extern registration
+// function — a null callback is what silently sent queue jobs to the DLQ.
+TEST(IRBuilderTest, BareFunctionNameAsValueLowersToRealAddress) {
     const std::string source = R"(
         extern "C" {
             fn fake_register(ptr handler);
@@ -309,7 +307,219 @@ TEST(IRBuilderTest, BareFunctionNameAsValueFailsIRGeneration) {
         }
     )";
 
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define void @handler()"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @fake_register(ptr @handler)"), std::string::npos);
+}
+
+// Phase 3 slice A: a bare function assigned to a `ptr` variable also
+// lowers to its address, and calling through the variable works.
+TEST(IRBuilderTest, FunctionPointerAssignedToPtrVariable) {
+    const std::string source = R"(
+        fn doubleIt(int x) -> int {
+            return x * 2;
+        }
+
+        fn main() -> int {
+            let f = doubleIt;
+            return f(21);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @doubleIt(i32 %x)"), std::string::npos);
+    // The variable holds the address, not a null constant.
+    EXPECT_NE(irStr.find("@doubleIt"), std::string::npos);
+}
+
+// Phase 3 slice A: same-name free functions with different signatures
+// coexist (mangled by signature) and each call site resolves to the
+// right one. Single-definition functions keep their plain names (see
+// the fib test above), so only overloaded names gain a suffix.
+TEST(IRBuilderTest, OverloadedFreeFunctionsBothCompileAndResolve) {
+    const std::string source = R"(
+        fn add(int a, int b) -> int {
+            return a + b;
+        }
+
+        fn add(int a, int b, int c) -> int {
+            return a + b + c;
+        }
+
+        fn main() -> int {
+            let x = add(1, 2);
+            let y = add(1, 2, 3);
+            return x + y;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @add__int_int(i32 %a, i32 %b)"), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @add__int_int_int(i32 %a, i32 %b, i32 %c)"), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @add__int_int("), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @add__int_int_int("), std::string::npos);
+    // No plain-`@add(` definition or call may remain.
+    EXPECT_EQ(irStr.find("define i32 @add("), std::string::npos);
+    EXPECT_EQ(irStr.find("call i32 @add("), std::string::npos);
+}
+
+// Phase 3 slice A: same-name overloads differing by parameter TYPE
+// (not just arity) also mangle and resolve correctly.
+TEST(IRBuilderTest, OverloadedFreeFunctionsByParamType) {
+    const std::string source = R"(
+        fn describe(int x) -> int {
+            return x;
+        }
+
+        fn describe(string s) -> int {
+            return 42;
+        }
+
+        fn main() -> int {
+            let a = describe(7);
+            let b = describe("hi");
+            return a + b;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @describe__int(i32 %x)"), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @describe__string(ptr %s)"), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @describe__int("), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @describe__string("), std::string::npos);
+}
+
+// Phase 3 slice A: same-name methods with different signatures coexist
+// on one class and virtual dispatch picks the right slot.
+TEST(IRBuilderTest, OverloadedMethodsBothCompileAndResolve) {
+    const std::string source = R"(
+        class Greeter {
+            public fn greet(int times) -> int {
+                return times;
+            }
+
+            public fn greet(string name) -> int {
+                return 1;
+            }
+        }
+
+        fn main() -> int {
+            let g = new Greeter();
+            let a = g.greet(3);
+            let b = g.greet("shanto");
+            return a + b;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @Greeter_greet__int("), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @Greeter_greet__string("), std::string::npos);
+    // Both overloads occupy vtable slots (two distinct function pointers).
+    EXPECT_NE(irStr.find("@Greeter_greet__int"), std::string::npos);
+    EXPECT_NE(irStr.find("@Greeter_greet__string"), std::string::npos);
+}
+
+// Phase 3 slice A: a bare OVERLOADED name as a value is still ambiguous
+// (SP has only untyped `ptr`, so no overload can be picked) and must
+// fail loudly instead of silently becoming null.
+TEST(IRBuilderTest, OverloadedBareNameAsValueStillFailsIRGeneration) {
+    const std::string source = R"(
+        extern "C" {
+            fn fake_register(ptr handler);
+        }
+
+        fn handler(int x) -> int {
+            return x;
+        }
+
+        fn handler(string s) -> int {
+            return 0;
+        }
+
+        fn main() {
+            fake_register(handler);
+        }
+    )";
+
     EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A: a bare method name as a value (needs an instance)
+// still fails loudly.
+TEST(IRBuilderTest, BareMethodNameAsValueStillFailsIRGeneration) {
+    const std::string source = R"(
+        extern "C" {
+            fn fake_register(ptr handler);
+        }
+
+        class Worker {
+            public fn run() {
+                fake_register(run);
+            }
+        }
+
+        fn main() {
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A: a lambda that captures an outer variable still fails
+// loudly (capturing lambdas are not lowered; previously the captured
+// variable silently became 0 inside the lambda body).
+TEST(IRBuilderTest, CapturingLambdaAsValueStillFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() -> int {
+            let base = 10;
+            let f = (int x) -> int { return x + base; };
+            return f(5);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A: a non-capturing lambda still compiles (control case
+// for the capture check above).
+TEST(IRBuilderTest, NonCapturingLambdaStillCompiles) {
+    // Parent fix (Phase 3): slice A wrote the lambda with `-> int`
+    // syntax, which the parser rejects — lambdas use a fat arrow:
+    // `(int x) => { ... }` (see Parser::parseGroupedOrLambda).
+    const std::string source = R"(
+        fn main() -> int {
+            let f = (int x) => { return x * 2; };
+            return f(21);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
 }
 
 // Phase 2 (pro-4.0.0, parent fix): a `char` passed where a string method

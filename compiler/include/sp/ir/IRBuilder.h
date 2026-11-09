@@ -118,6 +118,33 @@ private:
     void reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
                            const std::string& detail);
 
+    // Phase 3 slice A (pro-4.0.0): function pointers + overload mangling.
+    // Canonical param-type strings for a free function decl, taken from
+    // its FunctionSymbol (so `int32` and `int` spell the same signature).
+    // Falls back to the decl's raw param strings when no symbol is found.
+    std::vector<std::string> fnParamTypes(const ast::FunctionDecl& decl) const;
+    // LLVM name for a free function: plain name, unless the name is
+    // overloaded in the symbol table, in which case the signature suffix
+    // (VTableBuilder::mangleOverloaded). `main` and extern "C" decls are
+    // never mangled.
+    std::string llvmFunctionName(const ast::FunctionDecl& decl) const;
+    // LLVM name for a method: `Class_method`, suffixed when overloaded in
+    // the declaring class.
+    std::string llvmMethodName(const std::string& className, const ast::FunctionDecl& decl) const;
+    // Param-type strings of a resolved call target (FunctionSymbol).
+    static std::vector<std::string> targetParamTypes(const std::shared_ptr<sema::FunctionSymbol>& target);
+    // LLVM name for a resolved direct free-function call target.
+    std::string llvmCallName(const std::string& calleeName,
+                             const std::shared_ptr<sema::FunctionSymbol>& target) const;
+
+    // Lambda capture tracking: while lowering a lambda body, the names of
+    // variables visible in the enclosing scopes (a capturing lambda would
+    // reference one of these). An identifier that falls through to the
+    // fallback while this stack is non-empty and names an outer variable
+    // is a capture attempt and fails loudly (capturing lambdas are not
+    // lowered). Nested lambdas push another frame.
+    std::vector<std::unordered_set<std::string>> m_lambdaOuterVars;
+
     // Guards a C string-runtime call: every argument that must be a string
     // is checked against its sema type. A `char` (or other non-string,
     // non-pointer) value passed as `ptr` would segfault inside strstr etc.,
