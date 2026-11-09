@@ -1,5 +1,26 @@
 #pragma once
 
+// Phase 4 slice C (pro-4.0.0): DapServer changes.
+//   - launch does NOT run the program. Execution starts at
+//     configurationDone (the standard DAP flow: launch -> setBreakpoints
+//     -> configurationDone -> continue). Before this slice, launch ran
+//     the program to completion immediately, so breakpoints set afterwards
+//     could never fire.
+//   - launch fails loudly (success=false) when the program cannot be
+//     loaded (missing file, syntax/sema error). Before, a missing file
+//     "succeeded" and terminated at once.
+//   - launch honours `cwd` (relative program paths) and `noDebug` (run
+//     to completion, breakpoints ignored).
+//   - Program output (println/print) is sent as DAP `output` events
+//     (stdout); a runtime error is sent as an `output` event (stderr)
+//     and the session exits with code 1.
+//   - evaluate fails loudly (success=false) when the expression cannot
+//     be evaluated. Before, it echoed the expression back as its value.
+//   - Unknown commands fail loudly instead of returning success=true
+//     with an empty body.
+//   - setVariable is now handled (it was advertised in initialize but
+//     had no handler at all).
+
 #include "DapProtocol.h"
 #include "DebugSession.h"
 #include <iostream>
@@ -33,8 +54,13 @@ private:
     std::ostream& m_out;
     bool m_running{true};
     int m_seq{1};
+    bool m_launched{false};
 
     DebugSession m_session;
+
+    // Set by a handler when its request must fail; handleMessage turns
+    // it into success=false + message. Cleared on every request.
+    std::string m_lastError;
 
     JsonValue handleInitialize(const JsonValue& args);
     JsonValue handleLaunch(const JsonValue& args);
@@ -49,9 +75,11 @@ private:
     JsonValue handleStepIn();
     JsonValue handleStepOut();
     JsonValue handleEvaluate(const JsonValue& args);
+    JsonValue handleSetVariable(const JsonValue& args);
     JsonValue handleDisconnect();
 
     void checkSessionState();
+    void drainOutputEvents();
 };
 
 } // namespace sp::dap

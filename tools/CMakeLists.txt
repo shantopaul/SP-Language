@@ -91,6 +91,7 @@ target_compile_features(spls PRIVATE cxx_std_20)
 add_library(sp_debugger
     debugger/DebugSession.cpp
     debugger/DapServer.cpp
+    debugger/Interpreter.cpp # Phase 4 slice C: tree-walking interpreter
 )
 target_include_directories(sp_debugger PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_debugger PUBLIC sp_compiler)
