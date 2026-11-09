@@ -331,16 +331,25 @@ std::unique_ptr<TcpSocket> TcpListener::accept() {
 std::unique_ptr<TcpSocket> TcpListener::acceptTimeout(int timeoutMs) {
     if (m_handle == SP_INVALID_SOCKET) return nullptr;
 
+    // Snapshot the handle: another thread may close the listener (e.g.
+    // HttpServer::stop()) while select() blocks. Reading m_handle again
+    // after select() could see SP_INVALID_SOCKET (-1), and the fortified
+    // FD_ISSET(-1) aborts the whole process via __fdelt_chk. The snapshot
+    // keeps every fd_set operation on the fd select() actually waited on;
+    // if the listener was closed meanwhile, accept() fails and we return
+    // nullptr. (Phase 31: this race aborted every HttpServer test that
+    // called stop() while the accept thread was mid-select.)
+    sp_socket_handle_t fd = m_handle;
     fd_set readSet;
     FD_ZERO(&readSet);
-    FD_SET(m_handle, &readSet);
+    FD_SET(fd, &readSet);
 
     struct timeval tv{};
     tv.tv_sec = timeoutMs / 1000;
     tv.tv_usec = (timeoutMs % 1000) * 1000;
 
-    int selRes = select(static_cast<int>(m_handle + 1), &readSet, nullptr, nullptr, &tv);
-    if (selRes > 0 && FD_ISSET(m_handle, &readSet)) {
+    int selRes = select(static_cast<int>(fd + 1), &readSet, nullptr, nullptr, &tv);
+    if (selRes > 0 && FD_ISSET(fd, &readSet)) {
         return accept();
     }
     return nullptr;

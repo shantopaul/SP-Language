@@ -384,6 +384,24 @@ extern "C" {
     int64_t     sp_rt_eventloop_poll(void* loop, int64_t timeout_ms);
     void        sp_rt_eventloop_destroy(void* loop);
 
+    // Async (Phase 2 slice B2): timer scheduler + Task futures. The
+    // scheduler handle is the process-wide default scheduler; tasks are
+    // heap-allocated and owned by the caller until sp_rt_async_task_destroy.
+    // Awaiting pumps the scheduler (it does NOT block the loop): other
+    // timers/tasks fire while the await is outstanding.
+    void*       sp_rt_async_default_scheduler();
+    void*       sp_rt_async_sleep_ms(void* sched, int64_t ms);
+    void*       sp_rt_async_delayed_i64(void* sched, int64_t ms, int64_t value);
+    void        sp_rt_async_task_await_void(void* sched, void* task);
+    int64_t     sp_rt_async_task_await_i64(void* sched, void* task);
+    bool        sp_rt_async_task_is_ready(void* task);
+    bool        sp_rt_async_task_cancel(void* task);
+    bool        sp_rt_async_task_was_cancelled(void* task);
+    void        sp_rt_async_task_destroy(void* task);
+    void        sp_rt_async_scheduler_run_once(void* sched);
+    bool        sp_rt_async_scheduler_has_pending(void* sched);
+    void        sp_rt_async_scheduler_run_until_idle(void* sched);
+
     // Crypto
     const char* sp_rt_crypto_sha256(const char* data);
     const char* sp_rt_crypto_hmac_sha256(const char* key, const char* data);
@@ -523,6 +541,8 @@ extern "C" {
     const char* sp_rt_pg_last_error(void* conn);
     void*       sp_rt_pg_query(void* conn, const char* sql);
     void*       sp_rt_pg_query_params(void* conn, const char* sql, const char** params, int64_t param_count);
+    bool        sp_rt_pg_prepare(void* conn, const char* name, const char* sql);
+    void*       sp_rt_pg_exec_prepared(void* conn, const char* name, const char** params, int64_t param_count);
     bool        sp_rt_pg_ping(void* conn);
     bool        sp_rt_pg_begin(void* conn);
     bool        sp_rt_pg_commit(void* conn);
@@ -582,6 +602,18 @@ extern "C" {
     const char* sp_rt_session_regenerate(void* store, const char* old_session_id, int64_t ttl_secs);
     void        sp_rt_session_store_destroy(void* store);
 
+    // Persistent (SQLite-backed) sessions (Phase 31). open() returns null
+    // on failure; last_error() explains why. No in-memory fallback.
+    void*       sp_rt_psession_open(const char* path, int64_t default_ttl_secs);
+    void        sp_rt_psession_close(void* store);
+    const char* sp_rt_psession_last_error(void* store);
+    const char* sp_rt_psession_create(void* store, const char* data_json, int64_t ttl_secs);
+    const char* sp_rt_psession_get(void* store, const char* session_id);
+    bool        sp_rt_psession_set(void* store, const char* session_id, const char* data_json, int64_t ttl_secs);
+    bool        sp_rt_psession_destroy(void* store, const char* session_id);
+    const char* sp_rt_psession_regenerate(void* store, const char* old_session_id, int64_t ttl_secs);
+    int64_t     sp_rt_psession_count(void* store);
+
     // ========================================================================
     // Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis) (SP 2.8)
     // ========================================================================
@@ -595,6 +627,13 @@ extern "C" {
     void        sp_rt_ws_hub_leave(void* hub, int64_t conn_id, const char* room);
     int64_t     sp_rt_ws_hub_size(void* hub);
     int64_t     sp_rt_ws_hub_room_size(void* hub, const char* room);
+
+    // WebSocket server transport (Phase 31): text handler per upgrade path.
+    void        sp_rt_ws_route(const char* path, void (*handler_fn)(int64_t conn_id, const char* msg));
+    bool        sp_rt_ws_send(int64_t conn_id, const char* msg);
+    void        sp_rt_ws_broadcast(const char* msg);
+    void        sp_rt_ws_close_conn(int64_t conn_id);
+    int64_t     sp_rt_ws_connection_count();
 
     // Server-Sent Events (SSE)
     const char* sp_rt_sse_format(const char* event, const char* data, const char* id, int64_t retry);
@@ -695,6 +734,21 @@ extern "C" {
     void        sp_rt_cron_start(void* cron);
     void        sp_rt_cron_stop(void* cron);
     int32_t     sp_rt_cron_task_count(void* cron);
+
+    // Persistent (SQLite-backed) job queue (Phase 31). open() returns null
+    // on failure; last_error() explains why. No in-memory fallback.
+    // dequeue() returns "{}" when no job is due, else the job as JSON.
+    void*       sp_rt_pqueue_open(const char* path);
+    void        sp_rt_pqueue_close(void* queue);
+    const char* sp_rt_pqueue_last_error(void* queue);
+    const char* sp_rt_pqueue_enqueue(void* queue, const char* name, const char* payload, int32_t max_retries, int32_t backoff_ms, int32_t delay_ms);
+    const char* sp_rt_pqueue_dequeue(void* queue);
+    bool        sp_rt_pqueue_complete(void* queue, const char* job_id);
+    bool        sp_rt_pqueue_fail(void* queue, const char* job_id, const char* error);
+    int32_t     sp_rt_pqueue_pending_count(void* queue);
+    int32_t     sp_rt_pqueue_dlq_count(void* queue);
+    bool        sp_rt_pqueue_retry_dlq(void* queue, const char* job_id);
+    void        sp_rt_pqueue_clear_dlq(void* queue);
 
     // ========================================================================
     // Phase 28: In-Memory HTTP Test Client (std.test.http) & OpenAPI Docs

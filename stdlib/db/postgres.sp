@@ -10,6 +10,9 @@ extern "C" {
     fn sp_rt_pg_is_connected(ptr conn) -> bool;
     fn sp_rt_pg_last_error(ptr conn) -> string;
     fn sp_rt_pg_query(ptr conn, string sql) -> ptr;
+    fn sp_rt_pg_query_params(ptr conn, string sql, string[] params) -> ptr;
+    fn sp_rt_pg_prepare(ptr conn, string name, string sql) -> bool;
+    fn sp_rt_pg_exec_prepared(ptr conn, string name, string[] params) -> ptr;
     fn sp_rt_pg_ping(ptr conn) -> bool;
     fn sp_rt_pg_begin(ptr conn) -> bool;
     fn sp_rt_pg_commit(ptr conn) -> bool;
@@ -114,6 +117,35 @@ public class PgConnection {
         let res = new PgResult();
         if (this.handle != null) {
             res.handle = sp_rt_pg_query(this.handle, sql);
+        }
+        return res;
+    }
+
+    public fn queryParams(string sql, string[] params) -> PgResult {
+        let res = new PgResult();
+        if (this.handle != null) {
+            res.handle = sp_rt_pg_query_params(this.handle, sql, params);
+        }
+        return res;
+    }
+
+    // Named prepared statement, server-side (extended query protocol).
+    // Unlike SQLite's statement-handle pattern, a Postgres prepared
+    // statement lives on the connection under its name, so there is no
+    // separate PgStatement handle: prepare() registers the name, and
+    // execPrepared() reuses it. prepare() returns false on any failure
+    // (including a duplicate name -- Postgres rejects it and the old
+    // statement is kept). execPrepared() returns a PgResult whose handle
+    // is null on failure; check isValid() / isOk() and lastError().
+    public fn prepare(string name, string sql) -> bool {
+        if (this.handle == null) return false;
+        return sp_rt_pg_prepare(this.handle, name, sql);
+    }
+
+    public fn execPrepared(string name, string[] params) -> PgResult {
+        let res = new PgResult();
+        if (this.handle != null) {
+            res.handle = sp_rt_pg_exec_prepared(this.handle, name, params);
         }
         return res;
     }

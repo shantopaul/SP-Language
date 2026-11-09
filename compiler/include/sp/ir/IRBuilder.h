@@ -118,6 +118,15 @@ private:
     void reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
                            const std::string& detail);
 
+    // Guards a C string-runtime call: every argument that must be a string
+    // is checked against its sema type. A `char` (or other non-string,
+    // non-pointer) value passed as `ptr` would segfault inside strstr etc.,
+    // so such a call fails loudly with error[E1000] instead of being
+    // emitted. Unknown (null) and error sema types are allowed through.
+    // Returns false after reporting when any checked argument is unusable.
+    bool checkStringArgs(const ast::CallExpr& node, const std::vector<size_t>& argIndices,
+                         const std::string& methodName);
+
     [[maybe_unused]] const sema::SemanticAnalyzer& m_sema;
     std::unique_ptr<IRModule> m_module;
     IRFunction* m_currentFunction{nullptr};
@@ -139,6 +148,13 @@ private:
     // Loop control flow targets for break / continue
     std::vector<std::string> m_breakStack;
     std::vector<std::string> m_continueStack;
+
+    // Phase 2 slice B2: true while lowering the body of an `async fn`
+    // (set in visit(FunctionDecl) / compileMethod). visit(AwaitExpr)
+    // only lowers inside an async function; sema normally rejects await
+    // elsewhere (E1802) first, but IRBuilder must not silently accept it
+    // if sema is ever bypassed.
+    bool m_inAsyncFunction{false};
 
     // Evaluated expression result from the latest visited expression
     IRValuePtr m_lastExprValue{nullptr};

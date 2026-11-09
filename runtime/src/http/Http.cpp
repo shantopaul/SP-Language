@@ -1,5 +1,8 @@
 #include "sp/runtime/Http.h"
 #include "sp/runtime/Crypto.h"
+#include "sp/runtime/WebSocket.h"
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -9,6 +12,170 @@
 namespace sp::rt::http {
 
 namespace {
+
+// Drain OpenSSL's error queue into a readable string (and clear it).
+std::string opensslErrorString() {
+    std::string out;
+    unsigned long err = 0;
+    while ((err = ERR_get_error()) != 0) {
+        char buf[256];
+        ERR_error_string_n(err, buf, sizeof(buf));
+        if (!out.empty()) out += "; ";
+        out += buf;
+    }
+    if (out.empty()) out = "unknown OpenSSL error";
+    return out;
+}
+
+// Write every byte, through TLS when ssl != nullptr, plaintext otherwise.
+bool writeAllBytes(net::TcpSocket& sock, SSL* ssl, const std::string& data) {
+    size_t total = 0;
+    while (total < data.size()) {
+        int64_t n = 0;
+        if (ssl) {
+            n = SSL_write(ssl, data.data() + total, static_cast<int>(data.size() - total));
+        } else {
+            n = sock.write(data.data() + total, data.size() - total);
+        }
+        if (n <= 0) return false;
+        total += static_cast<size_t>(n);
+    }
+    return true;
+}
+
+// Read until the peer closes the connection (the client sends
+// "Connection: close", so the server closes after the response).
+std::string readUntilClose(net::TcpSocket& sock, SSL* ssl) {
+    std::string out;
+    while (true) {
+        std::string chunk;
+        if (ssl) {
+            std::string buf;
+            buf.resize(8192);
+            int n = SSL_read(ssl, buf.data(), 8192);
+            if (n <= 0) break;
+            buf.resize(static_cast<size_t>(n));
+            chunk = std::move(buf);
+        } else {
+            chunk = sock.readString(8192);
+            if (chunk.empty()) break;
+        }
+        out += chunk;
+    }
+    return out;
+}
+
+struct ParsedUrl {
+    std::string host{"127.0.0.1"};
+    int port{80};
+    std::string path{"/"};
+    bool useTls{false};
+};
+
+// Shared by HttpClient::get/post. https:// enables TLS and defaults to
+// port 443; http:// (or no scheme) stays plaintext on port 80.
+ParsedUrl parseClientUrl(const std::string& url) {
+    ParsedUrl out;
+    std::string clean = url;
+    if (clean.rfind("https://", 0) == 0) {
+        out.useTls = true;
+        out.port = 443;
+        clean = clean.substr(8);
+    } else if (clean.rfind("http://", 0) == 0) {
+        clean = clean.substr(7);
+    }
+
+    size_t slash = clean.find('/');
+    std::string hostPort = (slash == std::string::npos) ? clean : clean.substr(0, slash);
+    if (slash != std::string::npos) out.path = clean.substr(slash);
+
+    size_t colon = hostPort.find(':');
+    if (colon != std::string::npos) {
+        out.host = hostPort.substr(0, colon);
+        out.port = std::stoi(hostPort.substr(colon + 1));
+    } else {
+        out.host = hostPort;
+    }
+    return out;
+}
+
+// Transport abstraction so HttpServer::handleClient works identically over
+// plaintext TCP and TLS. PlainConnection owns the socket; TlsConnection owns
+// the socket plus the SSL object and shuts TLS down cleanly on close.
+class Connection {
+public:
+    virtual ~Connection() = default;
+    virtual std::string readString(size_t maxLength) = 0;
+    virtual int64_t writeString(const std::string& str) = 0;
+    virtual bool isValid() const = 0;
+    virtual void close() = 0;
+};
+
+class PlainConnection final : public Connection {
+public:
+    explicit PlainConnection(std::unique_ptr<net::TcpSocket> sock) : m_sock(std::move(sock)) {}
+    std::string readString(size_t maxLength) override {
+        return m_sock ? m_sock->readString(maxLength) : std::string{};
+    }
+    int64_t writeString(const std::string& str) override {
+        return m_sock ? m_sock->writeString(str) : -1;
+    }
+    bool isValid() const override { return m_sock && m_sock->isValid(); }
+    void close() override { if (m_sock) m_sock->close(); }
+private:
+    std::unique_ptr<net::TcpSocket> m_sock;
+};
+
+class TlsConnection final : public Connection {
+public:
+    TlsConnection(std::unique_ptr<net::TcpSocket> sock, SSL* ssl)
+        : m_sock(std::move(sock)), m_ssl(ssl) {}
+    ~TlsConnection() override { close(); }
+    std::string readString(size_t maxLength) override {
+        if (!m_sock || !m_ssl) return {};
+        std::string buf;
+        buf.resize(maxLength);
+        int n = SSL_read(m_ssl, buf.data(), static_cast<int>(maxLength));
+        if (n <= 0) return {};
+        buf.resize(static_cast<size_t>(n));
+        return buf;
+    }
+    int64_t writeString(const std::string& str) override {
+        if (!m_sock || !m_ssl || str.empty()) return 0;
+        size_t total = 0;
+        while (total < str.size()) {
+            int n = SSL_write(m_ssl, str.data() + total, static_cast<int>(str.size() - total));
+            if (n <= 0) return total == 0 ? -1 : static_cast<int64_t>(total);
+            total += static_cast<size_t>(n);
+        }
+        return static_cast<int64_t>(total);
+    }
+    bool isValid() const override { return m_sock && m_sock->isValid() && m_ssl != nullptr; }
+    void close() override {
+        if (m_ssl) {
+            SSL_shutdown(m_ssl);
+            SSL_free(m_ssl);
+            m_ssl = nullptr;
+        }
+        if (m_sock) m_sock->close();
+    }
+private:
+    std::unique_ptr<net::TcpSocket> m_sock;
+    SSL* m_ssl{nullptr};
+};
+
+// Adapts the HTTP server's (plaintext or TLS) Connection to the
+// WebSocket frame loop's transport interface, so upgraded connections
+// keep working over TLS (wss://) without WebSocket.cpp knowing about SSL.
+class WsConnectionAdapter final : public ws::WsTransport {
+public:
+    explicit WsConnectionAdapter(Connection& conn) : m_conn(conn) {}
+    std::string readSome(size_t maxLength) override { return m_conn.readString(maxLength); }
+    int64_t writeString(const std::string& str) override { return m_conn.writeString(str); }
+    bool isValid() const override { return m_conn.isValid(); }
+private:
+    Connection& m_conn;
+};
 
 std::string trim(const std::string& str) {
     size_t start = str.find_first_not_of(" \t\r\n");
@@ -378,9 +545,97 @@ std::string HttpResponse::serialize(bool keepAlive) const {
 // ----------------------------------------------------------------------------
 
 HttpResponse HttpClient::send(const HttpRequest& req, const std::string& host, int port, int timeoutMs) {
+    HttpClientOptions opts;
+    opts.timeoutMs = timeoutMs;
+    return send(req, host, port, opts);
+}
+
+HttpResponse HttpClient::send(const HttpRequest& req, const std::string& host, int port, const HttpClientOptions& options) {
     net::TcpSocket sock;
-    if (!sock.connect(host, port, timeoutMs)) {
+    if (!sock.connect(host, port, options.timeoutMs)) {
         return HttpResponse::internalError("Failed to connect to " + host + ":" + std::to_string(port));
+    }
+
+    // --- TLS setup (only when requested) -----------------------------------
+    SSL_CTX* ctx = nullptr;
+    SSL* ssl = nullptr;
+    if (options.useTls) {
+        OPENSSL_init_ssl(0, nullptr);
+        ctx = SSL_CTX_new(TLS_client_method());
+        if (!ctx) {
+            sock.close();
+            return HttpResponse::internalError("TLS: failed to create SSL context");
+        }
+        SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+
+        if (options.insecureSkipVerify) {
+            // Explicit opt-in only: no chain check, no hostname check.
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+        } else {
+            // Verify the chain against the system CA store by default, plus
+            // any extra CA bundle/path the caller supplied (e.g. a test CA).
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+            SSL_CTX_set_default_verify_paths(ctx);
+            if (!options.caFile.empty() || !options.caPath.empty()) {
+                if (SSL_CTX_load_verify_locations(ctx,
+                        options.caFile.empty() ? nullptr : options.caFile.c_str(),
+                        options.caPath.empty() ? nullptr : options.caPath.c_str()) != 1) {
+                    std::string err = opensslErrorString();
+                    SSL_CTX_free(ctx);
+                    sock.close();
+                    return HttpResponse::internalError("TLS: failed to load CA file/path: " + err);
+                }
+            }
+        }
+
+        ssl = SSL_new(ctx);
+        if (!ssl) {
+            std::string err = opensslErrorString();
+            SSL_CTX_free(ctx);
+            sock.close();
+            return HttpResponse::internalError("TLS: failed to create SSL object: " + err);
+        }
+        if (SSL_set_fd(ssl, static_cast<int>(sock.getHandle())) != 1) {
+            std::string err = opensslErrorString();
+            SSL_free(ssl);
+            SSL_CTX_free(ctx);
+            sock.close();
+            return HttpResponse::internalError("TLS: failed to attach socket: " + err);
+        }
+        // SNI so virtual-hosted servers present the right certificate.
+        SSL_set_tlsext_host_name(ssl, host.c_str());
+        if (!options.insecureSkipVerify) {
+            // Hostname verification: OpenSSL checks the cert's SAN (then CN)
+            // against this name during SSL_connect.
+            if (SSL_set1_host(ssl, host.c_str()) != 1) {
+                std::string err = opensslErrorString();
+                SSL_free(ssl);
+                SSL_CTX_free(ctx);
+                sock.close();
+                return HttpResponse::internalError("TLS: failed to set verification hostname: " + err);
+            }
+            SSL_set_hostflags(ssl, 0);
+        }
+
+        // Bound the handshake so a silent peer cannot stall the client.
+        sock.setTimeouts(options.timeoutMs, options.timeoutMs);
+        if (SSL_connect(ssl) <= 0) {
+            std::string err = opensslErrorString();
+            SSL_free(ssl);
+            SSL_CTX_free(ctx);
+            sock.close();
+            return HttpResponse::internalError("TLS handshake failed with " + host + ": " + err);
+        }
+        if (!options.insecureSkipVerify) {
+            long verifyResult = SSL_get_verify_result(ssl);
+            if (verifyResult != X509_V_OK) {
+                std::string err = X509_verify_cert_error_string(verifyResult);
+                SSL_free(ssl);
+                SSL_CTX_free(ctx);
+                sock.close();
+                return HttpResponse::internalError("TLS certificate verification failed for " + host + ": " + err);
+            }
+        }
     }
 
     std::ostringstream reqStream;
@@ -402,14 +657,17 @@ HttpResponse HttpClient::send(const HttpRequest& req, const std::string& host, i
     reqStream << "\r\n";
     reqStream << req.body;
 
-    std::string reqStr = reqStream.str();
-    sock.writeString(reqStr);
+    if (!writeAllBytes(sock, ssl, reqStream.str())) {
+        if (ssl) { SSL_free(ssl); SSL_CTX_free(ctx); }
+        sock.close();
+        return HttpResponse::internalError("Failed to send request to " + host + ":" + std::to_string(port));
+    }
 
-    std::string fullResp;
-    while (true) {
-        std::string chunk = sock.readString(8192);
-        if (chunk.empty()) break;
-        fullResp += chunk;
+    std::string fullResp = readUntilClose(sock, ssl);
+    if (ssl) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
     }
     sock.close();
 
@@ -455,60 +713,41 @@ HttpResponse HttpClient::send(const HttpRequest& req, const std::string& host, i
 }
 
 HttpResponse HttpClient::get(const std::string& url, int timeoutMs) {
-    std::string host = "127.0.0.1";
-    int port = 80;
-    std::string path = "/";
-
-    std::string clean = url;
-    if (clean.rfind("http://", 0) == 0) clean = clean.substr(7);
-
-    size_t slash = clean.find('/');
-    std::string hostPort = (slash == std::string::npos) ? clean : clean.substr(0, slash);
-    if (slash != std::string::npos) path = clean.substr(slash);
-
-    size_t colon = hostPort.find(':');
-    if (colon != std::string::npos) {
-        host = hostPort.substr(0, colon);
-        port = std::stoi(hostPort.substr(colon + 1));
-    } else {
-        host = hostPort;
-    }
-
-    HttpRequest req;
-    req.method = "GET";
-    req.path = path;
-    req.setHeader("User-Agent", "SP-Http-Client/2.2");
-    return send(req, host, port, timeoutMs);
+    HttpClientOptions opts;
+    opts.timeoutMs = timeoutMs;
+    return get(url, opts);
 }
 
-HttpResponse HttpClient::post(const std::string& url, const std::string& body, 
+HttpResponse HttpClient::get(const std::string& url, const HttpClientOptions& options) {
+    ParsedUrl p = parseClientUrl(url);
+    HttpClientOptions opts = options;
+    opts.useTls = p.useTls;  // URL scheme decides; https:// means TLS.
+    HttpRequest req;
+    req.method = "GET";
+    req.path = p.path;
+    req.setHeader("User-Agent", "SP-Http-Client/2.2");
+    return send(req, p.host, p.port, opts);
+}
+
+HttpResponse HttpClient::post(const std::string& url, const std::string& body,
                               const std::string& contentType, int timeoutMs) {
-    std::string host = "127.0.0.1";
-    int port = 80;
-    std::string path = "/";
+    HttpClientOptions opts;
+    opts.timeoutMs = timeoutMs;
+    return post(url, body, contentType, opts);
+}
 
-    std::string clean = url;
-    if (clean.rfind("http://", 0) == 0) clean = clean.substr(7);
-
-    size_t slash = clean.find('/');
-    std::string hostPort = (slash == std::string::npos) ? clean : clean.substr(0, slash);
-    if (slash != std::string::npos) path = clean.substr(slash);
-
-    size_t colon = hostPort.find(':');
-    if (colon != std::string::npos) {
-        host = hostPort.substr(0, colon);
-        port = std::stoi(hostPort.substr(colon + 1));
-    } else {
-        host = hostPort;
-    }
-
+HttpResponse HttpClient::post(const std::string& url, const std::string& body,
+                              const std::string& contentType, const HttpClientOptions& options) {
+    ParsedUrl p = parseClientUrl(url);
+    HttpClientOptions opts = options;
+    opts.useTls = p.useTls;  // URL scheme decides; https:// means TLS.
     HttpRequest req;
     req.method = "POST";
-    req.path = path;
+    req.path = p.path;
     req.body = body;
     req.setHeader("Content-Type", contentType);
     req.setHeader("User-Agent", "SP-Http-Client/2.2");
-    return send(req, host, port, timeoutMs);
+    return send(req, p.host, p.port, opts);
 }
 
 // ----------------------------------------------------------------------------
@@ -891,13 +1130,56 @@ bool HttpServer::listen(const std::string& host, int port, int workerThreads) {
 
 bool HttpServer::listen(const std::string& host, int port, const HttpServerConfig& config) {
     m_config = config;
+    m_lastError.clear();
     if (m_config.workerThreads <= 0) {
         m_config.workerThreads = std::max(2u, std::thread::hardware_concurrency());
     }
 
+    // --- TLS setup: fail loudly, never fall back to plaintext ---------------
+    SSL_CTX* tlsCtx = nullptr;
+    if (m_config.tlsEnabled) {
+        if (m_config.tlsCertFile.empty() || m_config.tlsKeyFile.empty()) {
+            m_lastError = "TLS enabled but tlsCertFile/tlsKeyFile is not set";
+            std::cerr << "HttpServer: " << m_lastError << "\n";
+            return false;
+        }
+        OPENSSL_init_ssl(0, nullptr);
+        tlsCtx = SSL_CTX_new(TLS_server_method());
+        if (!tlsCtx) {
+            m_lastError = "TLS: failed to create SSL context: " + opensslErrorString();
+            std::cerr << "HttpServer: " << m_lastError << "\n";
+            return false;
+        }
+        SSL_CTX_set_min_proto_version(tlsCtx, TLS1_2_VERSION);
+        if (SSL_CTX_use_certificate_chain_file(tlsCtx, m_config.tlsCertFile.c_str()) != 1) {
+            m_lastError = "TLS: failed to load certificate file '" + m_config.tlsCertFile
+                + "': " + opensslErrorString();
+            SSL_CTX_free(tlsCtx);
+            std::cerr << "HttpServer: " << m_lastError << "\n";
+            return false;
+        }
+        if (SSL_CTX_use_PrivateKey_file(tlsCtx, m_config.tlsKeyFile.c_str(), SSL_FILETYPE_PEM) != 1) {
+            m_lastError = "TLS: failed to load private key file '" + m_config.tlsKeyFile
+                + "': " + opensslErrorString();
+            SSL_CTX_free(tlsCtx);
+            std::cerr << "HttpServer: " << m_lastError << "\n";
+            return false;
+        }
+        if (SSL_CTX_check_private_key(tlsCtx) != 1) {
+            m_lastError = "TLS: private key '" + m_config.tlsKeyFile
+                + "' does not match certificate '" + m_config.tlsCertFile
+                + "': " + opensslErrorString();
+            SSL_CTX_free(tlsCtx);
+            std::cerr << "HttpServer: " << m_lastError << "\n";
+            return false;
+        }
+    }
+
     if (!m_listener.bindAndListen(host, port, 1024)) {
+        if (tlsCtx) SSL_CTX_free(tlsCtx);
         return false;
     }
+    m_tlsCtx = tlsCtx;
     m_port = m_listener.getPort();
     m_running.store(true);
 
@@ -945,6 +1227,12 @@ void HttpServer::stop() {
             m_connectionQueue.pop_front();
         }
     }
+
+    // Workers are joined by now, so no connection can still use the context.
+    if (m_tlsCtx) {
+        SSL_CTX_free(static_cast<SSL_CTX*>(m_tlsCtx));
+        m_tlsCtx = nullptr;
+    }
 }
 
 void HttpServer::serverLoop() {
@@ -982,12 +1270,42 @@ void HttpServer::workerLoop() {
 }
 
 void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
+    // TLS handshake first when enabled; a failed handshake closes the
+    // connection without serving anything (no plaintext fallback).
+    std::unique_ptr<Connection> conn;
+    if (m_tlsCtx) {
+        SSL* ssl = SSL_new(static_cast<SSL_CTX*>(m_tlsCtx));
+        if (!ssl) {
+            std::cerr << "HttpServer: TLS: failed to create SSL object: " << opensslErrorString() << "\n";
+            client->close();
+            return;
+        }
+        if (SSL_set_fd(ssl, static_cast<int>(client->getHandle())) != 1) {
+            std::cerr << "HttpServer: TLS: failed to attach socket: " << opensslErrorString() << "\n";
+            SSL_free(ssl);
+            client->close();
+            return;
+        }
+        // Bound the handshake (and later reads) so a client that never
+        // speaks TLS cannot stall a worker thread forever.
+        client->setTimeouts(m_config.requestTimeoutMs, m_config.requestTimeoutMs);
+        if (SSL_accept(ssl) <= 0) {
+            std::cerr << "HttpServer: TLS handshake failed: " << opensslErrorString() << "\n";
+            SSL_free(ssl);
+            client->close();
+            return;
+        }
+        conn = std::make_unique<TlsConnection>(std::move(client), ssl);
+    } else {
+        conn = std::make_unique<PlainConnection>(std::move(client));
+    }
+
     std::string buffer;
     int requestCount = 0;
 
     // Persistent HTTP/1.1 keep-alive loop
-    while (m_running.load() && client && client->isValid()) {
-        std::string chunk = client->readString(16384);
+    while (m_running.load() && conn && conn->isValid()) {
+        std::string chunk = conn->readString(16384);
         if (chunk.empty()) {
             if (buffer.empty()) {
                 break; // Client closed connection cleanly
@@ -1002,6 +1320,28 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
             m_activeRequests++;
             buffer.erase(0, bytesConsumed);
             requestCount++;
+
+            // RFC 6455 upgrade: if a WebSocket route is registered for this
+            // path, the connection leaves HTTP and the frame loop owns the
+            // socket until the peer closes. No route -> normal HTTP handling.
+            if (equalsIgnoreCase(req.getHeader("Upgrade"), "websocket")) {
+                std::string connHdr = req.getHeader("Connection");
+                std::string key = req.getHeader("Sec-WebSocket-Key");
+                bool wantsUpgrade = false;
+                {
+                    std::string lower = connHdr;
+                    std::transform(lower.begin(), lower.end(), lower.begin(),
+                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    wantsUpgrade = lower.find("upgrade") != std::string::npos;
+                }
+                if (wantsUpgrade && !key.empty() &&
+                    ws::WebSocketServer::getGlobal().hasRoute(req.path)) {
+                    m_activeRequests--;
+                    WsConnectionAdapter transport(*conn);
+                    ws::WebSocketServer::getGlobal().serveUpgraded(transport, req.path, key, buffer);
+                    break;
+                }
+            }
 
             HttpResponse res;
 
@@ -1035,7 +1375,7 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
                              m_running.load();
 
             std::string rawRes = res.serialize(keepAlive);
-            client->writeString(rawRes);
+            conn->writeString(rawRes);
             m_activeRequests--;
 
             if (!keepAlive) {
@@ -1045,7 +1385,7 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
             // Check for oversized header DOS attack
             if (buffer.size() > m_config.maxHeaderSize && buffer.find("\r\n\r\n") == std::string::npos) {
                 HttpResponse res = HttpResponse::status(431, "Request Header Fields Too Large");
-                client->writeString(res.serialize(false));
+                conn->writeString(res.serialize(false));
                 break;
             }
             if (chunk.empty()) {
@@ -1055,7 +1395,7 @@ void HttpServer::handleClient(std::unique_ptr<net::TcpSocket> client) {
         }
     }
 
-    client->close();
+    conn->close();
 }
 
 HttpResponse HttpServer::handle(const HttpRequest& req) {

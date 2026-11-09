@@ -1,14 +1,19 @@
 # ============================================================================
 # TechEmpower Industry Benchmark Suite for SP Language (SP 3.0)
 #
-# HONESTY NOTE (Phase 1): this script does NOT measure performance. It only
-# runs `spc check` on each benchmark source to verify it still compiles.
-# It never starts a server and never runs a load test, so it produces NO
-# requests/sec or latency numbers. Any RPS/latency figures previously
-# printed by this script were hard-coded placeholders, not measurements,
-# and have been removed. Do not cite benchmark numbers from this script.
-# A real measurement harness (server start + load generator + dated
-# results file) is Phase 2 work.
+# HONESTY NOTE (Phase 1 + Phase 2): this script does NOT measure performance.
+# It only runs `spc check` on each benchmark source to verify it still
+# compiles. It never starts a server and never runs a load test, so it
+# produces NO requests/sec or latency numbers. Any RPS/latency figures
+# previously printed by this script were hard-coded placeholders, not
+# measurements, and have been removed. Do not cite benchmark numbers from
+# this script.
+# A real measurement harness now exists (Phase 2, slice D):
+# benchmarks/registry/load_test.py — a Python load generator that fires
+# real HTTP requests and reports MEASURED requests/sec + latency
+# percentiles. Use it against a running service, e.g.:
+#   python3 benchmarks/registry/load_test.py --url http://127.0.0.1:8090/api/health --duration 10
+# See docs/v2/PHASE-31-PRO-4.0.0.md for the one measured run recorded so far.
 # ============================================================================
 param (
     [string]$Compiler = ""

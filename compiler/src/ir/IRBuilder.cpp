@@ -123,6 +123,22 @@ void IRBuilder::reportUnsupported(const diagnostics::SourceLocation& loc, const 
                        detail + ") --> " + loc.toString());
 }
 
+bool IRBuilder::checkStringArgs(const ast::CallExpr& node, const std::vector<size_t>& argIndices,
+                                const std::string& methodName) {
+    for (size_t idx : argIndices) {
+        if (idx >= node.getArgs().size()) continue;
+        auto argType = m_sema.getNodeType(node.getArgs()[idx].get());
+        if (!argType || argType->isError()) continue;
+        if (argType->isString() || argType->isPointer()) continue;
+        reportUnsupported(node.getLocation(),
+                          methodName + " with a '" + argType->toString() + "' argument",
+                          "string methods take string arguments; a '" + argType->toString() +
+                          "' value passed as a string pointer is not supported in this phase");
+        return false;
+    }
+    return true;
+}
+
 void IRBuilder::pushScope() {
     m_scopes.emplace_back();
     m_refCountedScopes.emplace_back();
@@ -638,6 +654,12 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
 
     auto func = m_module->createFunction(node.getName(), returnType, params);
     m_currentFunction = func;
+    // Phase 2 slice B2: remember whether this is an `async fn` so
+    // visit(AwaitExpr) knows whether await may lower here. Restored at
+    // the end of this function; methods and generic specializations do
+    // not go through here, so await inside them still fails loudly.
+    bool prevAsync = m_inAsyncFunction;
+    m_inAsyncFunction = node.isAsync();
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
@@ -677,6 +699,7 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
     }
 
     popScope();
+    m_inAsyncFunction = prevAsync;
     m_currentFunction = nullptr;
     m_currentBlock = nullptr;
 }
@@ -1950,7 +1973,19 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
         }
     }
 
-    // Fallback for unresolved or global variables
+    // Fallback for unresolved or global variables.
+    // Phase 2 (pro-4.0.0): a bare function name used as a value must fail
+    // loudly, never silently become null. Previously this fallback lowered
+    // ANY unresolved identifier to ConstantInt 0, so passing an SP function
+    // as a callback (queue handler, cron task, ws route, ...) compiled to
+    // a null pointer that the runtime bridge silently ignored — the job
+    // landed in the DLQ with no error anywhere. Function pointers are not
+    // lowered yet; until they are, this is error[E1000].
+    if (!m_sema.getSymbolTable().lookupFunctions(node.getName()).empty()) {
+        reportUnsupported(node.getLocation(), "function '" + node.getName() + "' used as a value",
+                          "function pointers are not lowered yet; passing a bare function as a "
+                          "callback argument is not supported in this phase");
+    }
     m_lastExprValue = std::make_shared<ConstantInt>(IRType::getInt32(), 0);
     m_lastExprType = IRType::getInt32();
 }
@@ -2728,6 +2763,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
 
             if (targetName == "String") {
                 if (methodName == "upper" || methodName == "lower" || methodName == "trim" || methodName == "reverse") {
+                    if (!checkStringArgs(node, {0}, "String." + methodName)) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (!node.getArgs().empty()) {
                         node.getArgs()[0]->accept(*this);
                         std::string fnName = (methodName == "upper") ? "sp_rt_str_upper" :
@@ -2747,6 +2787,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
                 if (methodName == "length") {
+                    if (!checkStringArgs(node, {0}, "String.length")) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (!node.getArgs().empty()) {
                         node.getArgs()[0]->accept(*this);
                         std::string resReg = m_currentFunction->nextTempName("str_len");
@@ -2763,6 +2808,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
                 if (methodName == "contains") {
+                    if (!checkStringArgs(node, {0, 1}, "String.contains")) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (node.getArgs().size() >= 2) {
                         node.getArgs()[0]->accept(*this);
                         auto sVal = m_lastExprValue;
@@ -2782,6 +2832,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
                 if (methodName == "indexOf") {
+                    if (!checkStringArgs(node, {0, 1}, "String.indexOf")) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (node.getArgs().size() >= 2) {
                         node.getArgs()[0]->accept(*this);
                         auto sVal = m_lastExprValue;
@@ -2801,6 +2856,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
                 if (methodName == "replace") {
+                    if (!checkStringArgs(node, {0, 1, 2}, "String.replace")) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (node.getArgs().size() >= 3) {
                         node.getArgs()[0]->accept(*this);
                         auto sVal = m_lastExprValue;
@@ -2822,6 +2882,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
                 if (methodName == "substring") {
+                    if (!checkStringArgs(node, {0}, "String.substring")) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (node.getArgs().size() >= 3) {
                         node.getArgs()[0]->accept(*this);
                         auto sVal = m_lastExprValue;
@@ -2843,6 +2908,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     }
                 }
                 if (methodName == "split") {
+                    if (!checkStringArgs(node, {0, 1}, "String.split")) {
+                        m_lastExprValue = nullptr;
+                        m_lastExprType = nullptr;
+                        return;
+                    }
                     if (node.getArgs().size() >= 2) {
                         node.getArgs()[0]->accept(*this);
                         auto sVal = m_lastExprValue;
@@ -4239,6 +4309,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 return;
             }
             if (methodName == "contains") {
+                if (!checkStringArgs(node, {0}, "String.contains")) {
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     std::string contReg = m_currentFunction->nextTempName("scont");
@@ -4255,6 +4330,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
             if (methodName == "startsWith") {
+                if (!checkStringArgs(node, {0}, "String.startsWith")) {
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     std::string swReg = m_currentFunction->nextTempName("ssw");
@@ -4271,6 +4351,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
             if (methodName == "endsWith") {
+                if (!checkStringArgs(node, {0}, "String.endsWith")) {
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     std::string ewReg = m_currentFunction->nextTempName("sew");
@@ -4287,6 +4372,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
             if (methodName == "indexOf") {
+                if (!checkStringArgs(node, {0}, "String.indexOf")) {
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     std::string idxReg = m_currentFunction->nextTempName("sidx");
@@ -4303,6 +4393,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
             if (methodName == "replace") {
+                if (!checkStringArgs(node, {0, 1}, "String.replace")) {
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
                 if (node.getArgs().size() >= 2) {
                     node.getArgs()[0]->accept(*this);
                     auto fromVal = m_lastExprValue;
@@ -4363,6 +4458,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
             }
             if (methodName == "split") {
+                if (!checkStringArgs(node, {0}, "String.split")) {
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
                 IRValuePtr delimVal = nullptr;
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
@@ -6844,18 +6944,119 @@ void IRBuilder::visit(const ast::TryExpr& node) {
 }
 
 void IRBuilder::visit(const ast::AwaitExpr& node) {
-    // Phase 1 (pro-4.0.0): 'await' has no coroutine lowering. It used to
-    // forward the inner expression, silently running async code
-    // synchronously. ComptimeEvaluator::processProgram only registers
-    // comptime functions; it never rewrites await nodes, so there is no
-    // earlier lowering path to preserve. Fail loudly instead.
-    reportUnsupported(node.getLocation(), "await",
-                      "async/await is not implemented yet; there is no coroutine runtime in this phase");
-    // Still visit the inner expression so nested unsupported constructs
-    // are reported in the same pass; the module is discarded either way.
-    node.getExpr().accept(*this);
-    m_lastExprValue = nullptr;
-    m_lastExprType = nullptr;
+    // Phase 2 slice B2 (pro-4.0.0): REAL await, for a deliberately small
+    // subset. See the doc section "Slice B2 — Real async" for the full
+    // contract; the short version:
+    //
+    // SUPPORTED (lowers, no longer errors):
+    //   - `await sleep_async(ms)` inside a free `async fn`
+    //     (ms: int). Yields void.
+    //   - `await delayed_value(ms, value)` inside a free `async fn`
+    //     (ms, value: int). Yields the int `value` after `ms`.
+    //   Both may appear anywhere in the async fn body (statement,
+    //   initializer, inside if/while, ...) because the lowering is
+    //   pump-based, not a state machine (see below).
+    //
+    // LOWERING (pump-based await, NOT a heap state machine):
+    //   %sched = call ptr @sp_rt_async_default_scheduler()
+    //   %task  = call ptr @sp_rt_async_sleep_ms(ptr %sched, i64 %ms)
+    //   call void @sp_rt_async_task_await_void(ptr %sched, ptr %task)
+    //   call void @sp_rt_async_task_destroy(ptr %task)
+    //   (value form: %v = call i64 @sp_rt_async_task_await_i64(...))
+    // The runtime call that creates the task returns immediately — the
+    // timer is registered on the scheduler and fires on the loop. The
+    // await call then PUMPS that scheduler until this task completes, so
+    // the awaiting function makes no progress while other timers/tasks
+    // fire in the meantime. That is real suspension of the async fn's
+    // progress with a live loop — not a blocking sleep: no
+    // sp_rt_time_sleep_ms / sp_rt_thread_sleep_ms is emitted anywhere on
+    // this path. Honest limits of this design: the awaiting frame stays
+    // on the stack while pumping, and calling an async fn still runs it
+    // to completion (the caller is not handed a Task). A heap-frame
+    // state machine that returns a Task to the caller is future work.
+    //
+    // NOT SUPPORTED (still error[E1000], never silently miscompiled):
+    //   - await on anything else: literals, identifiers, other calls
+    //     (including calls to user async fns — `await worker()` has no
+    //     Task to wait on), member calls, operators, ...
+    //   - await outside a free `async fn` (sema normally rejects this
+    //     first with E1802; this is the IRBuilder backstop, and it also
+    //     covers async methods / generic async fns, which B2 does not
+    //     lower — see m_inAsyncFunction).
+    if (!m_inAsyncFunction) {
+        reportUnsupported(node.getLocation(), "await",
+                          "await is only supported inside a free 'async fn' in this phase "
+                          "(async methods and generic async functions are not supported yet)");
+        node.getExpr().accept(*this);
+        m_lastExprValue = nullptr;
+        m_lastExprType = nullptr;
+        return;
+    }
+
+    const auto* call = dynamic_cast<const ast::CallExpr*>(&node.getExpr());
+    const ast::IdentifierExpr* calleeIdent = nullptr;
+    if (call) {
+        calleeIdent = dynamic_cast<const ast::IdentifierExpr*>(&call->getCallee());
+    }
+    const std::string calleeName = calleeIdent ? calleeIdent->getName() : "";
+    const bool isSleepAsync = (calleeName == "sleep_async" && call->getArgs().size() == 1);
+    const bool isDelayedValue = (calleeName == "delayed_value" && call->getArgs().size() == 2);
+    if (!call || (!isSleepAsync && !isDelayedValue)) {
+        reportUnsupported(node.getLocation(), "await",
+                          "only 'await sleep_async(ms)' and 'await delayed_value(ms, value)' "
+                          "are supported in this phase; awaiting any other expression is not implemented yet");
+        node.getExpr().accept(*this);
+        m_lastExprValue = nullptr;
+        m_lastExprType = nullptr;
+        return;
+    }
+
+    // Evaluate the arguments (in source order) without visiting the call
+    // itself: a plain visit(CallExpr) would emit a call to the SP-level
+    // `sleep_async` / `delayed_value`, which has no IR function.
+    call->getArgs()[0]->accept(*this);
+    IRValuePtr ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+    IRValuePtr value = nullptr;
+    if (isDelayedValue) {
+        call->getArgs()[1]->accept(*this);
+        value = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+    }
+
+    auto schedCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_async_default_scheduler",
+        std::vector<IRValuePtr>{},
+        m_currentFunction->nextTempName("async_sched"));
+    m_currentBlock->addInstruction(schedCall);
+
+    std::vector<IRValuePtr> taskArgs{schedCall, ms};
+    if (isDelayedValue) taskArgs.push_back(value);
+    auto taskCall = std::make_shared<CallInst>(
+        IRType::getPointer(),
+        isDelayedValue ? "sp_rt_async_delayed_i64" : "sp_rt_async_sleep_ms",
+        taskArgs, m_currentFunction->nextTempName("async_task"));
+    m_currentBlock->addInstruction(taskCall);
+
+    if (isDelayedValue) {
+        auto awaitCall = std::make_shared<CallInst>(
+            IRType::getInt64(), "sp_rt_async_task_await_i64",
+            std::vector<IRValuePtr>{schedCall, taskCall},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(awaitCall);
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_destroy",
+            std::vector<IRValuePtr>{taskCall}));
+        m_lastExprValue = awaitCall;
+        m_lastExprType = IRType::getInt64();
+    } else {
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_await_void",
+            std::vector<IRValuePtr>{schedCall, taskCall}));
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_destroy",
+            std::vector<IRValuePtr>{taskCall}));
+        m_lastExprValue = nullptr;
+        m_lastExprType = IRType::getVoid();
+    }
 }
 
 void IRBuilder::visit(const ast::ComptimeExpr& node) {

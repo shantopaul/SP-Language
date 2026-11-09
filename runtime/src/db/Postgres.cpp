@@ -263,6 +263,23 @@ std::vector<uint8_t> pbkdf2HmacSha256(const std::string& password, const std::ve
 
 } // namespace
 
+// Extract the human-readable message ('M' field) from an ErrorResponse
+// payload; falls back to a generic string when no 'M' field is present.
+static std::string pgErrorMessage(const std::vector<uint8_t>& payload) {
+    std::string err;
+    size_t idx = 0;
+    while (idx < payload.size() && payload[idx] != 0) {
+        char code = static_cast<char>(payload[idx++]);
+        std::string val;
+        while (idx < payload.size() && payload[idx] != 0) {
+            val.push_back(static_cast<char>(payload[idx++]));
+        }
+        if (idx < payload.size()) idx++; // Skip null terminator
+        if (code == 'M') err = val;
+    }
+    return err.empty() ? "PostgreSQL error" : err;
+}
+
 // --- PgConfig ---
 
 PgConfig PgConfig::parseConnectionString(const std::string& connStr) {
@@ -293,6 +310,7 @@ PgConfig PgConfig::parseConnectionString(const std::string& connStr) {
                 else if (k == "password") cfg.password = v;
                 else if (k == "dbname" || k == "database") cfg.database = v;
                 else if (k == "sslmode") cfg.sslmode = v;
+                else if (k == "sslrootcert") cfg.sslrootcert = v;
             }
         }
         return cfg;
@@ -311,6 +329,7 @@ PgConfig PgConfig::parseConnectionString(const std::string& connStr) {
                 std::string k = param.substr(0, eq);
                 std::string v = param.substr(eq + 1);
                 if (k == "sslmode") cfg.sslmode = v;
+                else if (k == "sslrootcert") cfg.sslrootcert = v;
             }
         }
     }
@@ -412,6 +431,7 @@ PgConnection::PgConnection(PgConnection&& other) noexcept
       m_config(std::move(other.m_config)),
       m_lastError(std::move(other.m_lastError)),
       m_connected(other.m_connected),
+      m_prepared(std::move(other.m_prepared)),
       m_transactionStatus(other.m_transactionStatus),
       m_backendPid(other.m_backendPid),
       m_backendKey(other.m_backendKey) {
@@ -430,6 +450,7 @@ PgConnection& PgConnection::operator=(PgConnection&& other) noexcept {
         m_config = std::move(other.m_config);
         m_lastError = std::move(other.m_lastError);
         m_connected = other.m_connected;
+        m_prepared = std::move(other.m_prepared);
         m_transactionStatus = other.m_transactionStatus;
         m_backendPid = other.m_backendPid;
         m_backendKey = other.m_backendKey;
@@ -446,21 +467,28 @@ bool PgConnection::isConnected() const {
 }
 
 void PgConnection::close() {
-    if (isConnected()) {
-        sendMessage('X', {});
-        if (m_ssl) {
-            SSL_shutdown(static_cast<SSL*>(m_ssl));
-            SSL_free(static_cast<SSL*>(m_ssl));
-            m_ssl = nullptr;
-        }
-        if (m_sslCtx) {
-            SSL_CTX_free(static_cast<SSL_CTX*>(m_sslCtx));
-            m_sslCtx = nullptr;
-        }
+    // Always release whatever resources exist, even if the connection never
+    // reached the connected state (e.g. a failed TLS handshake or auth):
+    // the old code only freed the socket/SSL when isConnected() was true,
+    // leaking the fd and SSL objects on every failed connect().
+    if (m_connected && m_socket != 0 && m_socket != static_cast<uintptr_t>(INVALID_SOCK)) {
+        sendMessage('X', {}); // Terminate; best effort, ignore failure
+    }
+    if (m_ssl) {
+        SSL_shutdown(static_cast<SSL*>(m_ssl));
+        SSL_free(static_cast<SSL*>(m_ssl));
+        m_ssl = nullptr;
+    }
+    if (m_sslCtx) {
+        SSL_CTX_free(static_cast<SSL_CTX*>(m_sslCtx));
+        m_sslCtx = nullptr;
+    }
+    if (m_socket != 0 && m_socket != static_cast<uintptr_t>(INVALID_SOCK)) {
         CLOSE_SOCK(static_cast<socket_t>(m_socket));
     }
     m_socket = 0;
     m_connected = false;
+    m_prepared.clear();
 }
 
 bool PgConnection::connect(const std::string& connStr) {
@@ -538,6 +566,29 @@ bool PgConnection::connect(const PgConfig& config) {
                 close();
                 return false;
             }
+            // Certificate verification (verify-ca / verify-full). This must
+            // be configured BEFORE SSL_connect: the default context does
+            // not verify the peer at all, which is exactly what sslmode=
+            // require keeps doing below (encrypted but unauthenticated --
+            // documented, not verified).
+            const bool verifyPeer = m_config.sslRequiresVerification();
+            if (verifyPeer) {
+                SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+                if (SSL_CTX_set_default_verify_paths(ctx) != 1) {
+                    m_lastError = "Failed to load default TLS trust roots";
+                    SSL_CTX_free(ctx);
+                    close();
+                    return false;
+                }
+                if (!m_config.sslrootcert.empty()) {
+                    if (SSL_CTX_load_verify_locations(ctx, m_config.sslrootcert.c_str(), nullptr) != 1) {
+                        m_lastError = "Failed to load sslrootcert: " + m_config.sslrootcert;
+                        SSL_CTX_free(ctx);
+                        close();
+                        return false;
+                    }
+                }
+            }
             SSL* ssl = SSL_new(ctx);
             if (!ssl) {
                 SSL_CTX_free(ctx);
@@ -548,6 +599,19 @@ bool PgConnection::connect(const PgConfig& config) {
             SSL_set_fd(ssl, static_cast<int>(sock));
             // SNI: Server Name Indication (Required by cloud tenants including Neon)
             SSL_set_tlsext_host_name(ssl, m_config.host.c_str());
+            // verify-full: the certificate must match the host we connected
+            // to (SAN DNS/IP, via X509_check_host semantics). Set before
+            // the handshake so verification happens during SSL_connect.
+            if (m_config.sslRequiresHostnameVerification()) {
+                if (SSL_set1_host(ssl, m_config.host.c_str()) != 1) {
+                    m_lastError = "Failed to configure TLS hostname verification for host: " + m_config.host;
+                    SSL_free(ssl);
+                    SSL_CTX_free(ctx);
+                    close();
+                    return false;
+                }
+                SSL_set_hostflags(ssl, 0);
+            }
 
             if (SSL_connect(ssl) <= 0) {
                 char errBuf[256];
@@ -559,10 +623,30 @@ bool PgConnection::connect(const PgConfig& config) {
                 return false;
             }
 
+            // The handshake alone does not prove the chain verified: with
+            // SSL_VERIFY_PEER OpenSSL aborts the handshake on a bad chain,
+            // but check the result explicitly so a verification failure can
+            // never slip through as a connected session.
+            if (verifyPeer) {
+                long verifyResult = SSL_get_verify_result(ssl);
+                if (verifyResult != X509_V_OK) {
+                    m_lastError = std::string("TLS certificate verification failed: ") +
+                        X509_verify_cert_error_string(verifyResult);
+                    SSL_free(ssl);
+                    SSL_CTX_free(ctx);
+                    close();
+                    return false;
+                }
+            }
+
             m_sslCtx = ctx;
             m_ssl = ssl;
-        } else if (m_config.sslmode == "require") {
-            m_lastError = "Server does not support SSL but sslmode=require was specified";
+        } else if (m_config.sslmode == "require" || m_config.sslRequiresVerification()) {
+            // Server answered 'N' (no TLS). require and both verify modes
+            // must fail loudly -- never silently fall back to plaintext.
+            // sslmode=prefer (and other non-verifying modes) keep the
+            // previous fall-through to an unencrypted connection.
+            m_lastError = "Server does not support SSL but sslmode=" + m_config.sslmode + " was specified";
             close();
             return false;
         }
@@ -590,7 +674,13 @@ bool PgConnection::writeBytes(const uint8_t* buf, size_t len) {
         if (m_ssl) {
             sent = SSL_write(static_cast<SSL*>(m_ssl), buf + total, static_cast<int>(len - total));
         } else {
+#if defined(MSG_NOSIGNAL)
+            // A server that already closed the connection must surface as a
+            // failed write, not kill the process with SIGPIPE.
+            sent = send(static_cast<socket_t>(m_socket), reinterpret_cast<const char*>(buf + total), static_cast<int>(len - total), MSG_NOSIGNAL);
+#else
             sent = send(static_cast<socket_t>(m_socket), reinterpret_cast<const char*>(buf + total), static_cast<int>(len - total), 0);
+#endif
         }
         if (sent <= 0) return false;
         total += sent;
@@ -838,7 +928,11 @@ bool PgConnection::handleScramAuth(const std::vector<uint8_t>& /*saslList*/) {
     std::vector<uint8_t> finalPayload(clientFinalMsg.begin(), clientFinalMsg.end());
     if (!sendMessage('p', finalPayload)) return false;
 
-    // 5. Read AuthenticationSASLFinal (12)
+    // 5. Read AuthenticationSASLFinal (12) and verify the server's
+    // signature (RFC 7677 §3). A server that cannot prove knowledge of
+    // the password -- or that sends no signature at all -- must fail
+    // authentication; previously the v= value was never checked, so any
+    // server (including an impostor) was accepted.
     std::vector<uint8_t> saslFinalPayload;
     if (!readMessage(msgType, saslFinalPayload)) return false;
     if (msgType != 'R' || saslFinalPayload.size() < 4) return false;
@@ -848,7 +942,165 @@ bool PgConnection::handleScramAuth(const std::vector<uint8_t>& /*saslList*/) {
         return false;
     }
 
+    std::string serverFinalMsg(reinterpret_cast<const char*>(saslFinalPayload.data() + 4),
+                               saslFinalPayload.size() - 4);
+    std::string serverSigB64;
+    {
+        std::istringstream fss(serverFinalMsg);
+        std::string tok;
+        while (std::getline(fss, tok, ',')) {
+            if (tok.rfind("v=", 0) == 0) serverSigB64 = tok.substr(2);
+        }
+    }
+    if (serverSigB64.empty()) {
+        m_lastError = "SCRAM server signature verification failed: server sent no ServerSignature (v=)";
+        return false;
+    }
+
+    // ServerKey = HMAC(SaltedPassword, "Server Key")
+    static const char serverKeyConst[] = "Server Key";
+    std::string serverKeyHex = sp::rt::crypto::hmacSha256Bytes(
+        saltedPassword.data(), saltedPassword.size(),
+        reinterpret_cast<const uint8_t*>(serverKeyConst), sizeof(serverKeyConst) - 1);
+    std::vector<uint8_t> serverKey = hexToBytes(serverKeyHex);
+
+    // ServerSignature = HMAC(ServerKey, AuthMessage)
+    std::string serverSigHex = sp::rt::crypto::hmacSha256Bytes(
+        serverKey.data(), serverKey.size(),
+        reinterpret_cast<const uint8_t*>(authMessage.data()), authMessage.size());
+    std::vector<uint8_t> expectedSig = hexToBytes(serverSigHex);
+
+    // Compare the decoded bytes in constant time (base64 spellings of the
+    // same bytes can differ in padding, so compare bytes, not strings).
+    std::string receivedSigStr = sp::rt::crypto::base64Decode(serverSigB64);
+    std::vector<uint8_t> receivedSig(receivedSigStr.begin(), receivedSigStr.end());
+    if (!sp::rt::crypto::timingSafeEqualBytes(expectedSig.data(), expectedSig.size(),
+                                              receivedSig.data(), receivedSig.size())) {
+        m_lastError = "SCRAM server signature verification failed";
+        return false;
+    }
+
     return true;
+}
+
+bool PgConnection::sendParse(const std::string& name, const std::string& sql, int paramTypeCount) {
+    std::vector<uint8_t> parsePayload;
+    writeStringNull(parsePayload, name);
+    writeStringNull(parsePayload, sql);
+    writeInt16BE(parsePayload, static_cast<uint16_t>(paramTypeCount));
+    for (int i = 0; i < paramTypeCount; ++i) {
+        writeInt32BE(parsePayload, 0); // unspecified type OID, infer
+    }
+    return sendMessage('P', parsePayload);
+}
+
+bool PgConnection::sendBindExecute(const std::string& stmtName, const std::vector<std::string>& params) {
+    // Bind ('B'): fresh unnamed portal, the named statement, all params
+    // in text format, all result columns in text format.
+    std::vector<uint8_t> bindPayload;
+    writeStringNull(bindPayload, ""); // unnamed portal
+    writeStringNull(bindPayload, stmtName);
+    writeInt16BE(bindPayload, 0); // all params text format
+    writeInt16BE(bindPayload, static_cast<uint16_t>(params.size()));
+    for (const auto& p : params) {
+        writeInt32BE(bindPayload, static_cast<uint32_t>(p.size()));
+        bindPayload.insert(bindPayload.end(), p.begin(), p.end());
+    }
+    writeInt16BE(bindPayload, 0); // all result columns text format
+    if (!sendMessage('B', bindPayload)) return false;
+
+    // Describe portal ('D'): 'P' + unnamed portal name
+    std::vector<uint8_t> descPayload;
+    descPayload.push_back('P');
+    writeStringNull(descPayload, "");
+    if (!sendMessage('D', descPayload)) return false;
+
+    // Execute ('E'): unnamed portal, 0 = unlimited rows
+    std::vector<uint8_t> execPayload;
+    writeStringNull(execPayload, "");
+    writeInt32BE(execPayload, 0);
+    if (!sendMessage('E', execPayload)) return false;
+
+    // Sync ('S')
+    return sendMessage('S', {});
+}
+
+bool PgConnection::readResultLoop(const std::shared_ptr<PgResult>& res) {
+    while (true) {
+        char msgType = 0;
+        std::vector<uint8_t> msgData;
+        if (!readMessage(msgType, msgData)) {
+            res->setOk(false);
+            res->setErrorMessage("Connection dropped during query");
+            return false;
+        }
+
+        if (msgType == '1') { // ParseComplete
+            // OK
+        } else if (msgType == '2') { // BindComplete
+            // OK
+        } else if (msgType == 'T') { // RowDescription
+            if (msgData.size() >= 2) {
+                uint16_t numFields = readInt16BE(msgData.data());
+                size_t offset = 2;
+                for (uint16_t i = 0; i < numFields; ++i) {
+                    PgColumn col;
+                    while (offset < msgData.size() && msgData[offset] != 0) {
+                        col.name.push_back(static_cast<char>(msgData[offset++]));
+                    }
+                    if (offset < msgData.size()) offset++; // skip 0
+                    if (offset + 18 <= msgData.size()) {
+                        col.typeOid = readInt32BE(&msgData[offset + 6]);
+                        col.format = static_cast<int16_t>(readInt16BE(&msgData[offset + 16]));
+                        offset += 18;
+                    }
+                    res->addColumn(std::move(col));
+                }
+            }
+        } else if (msgType == 'D') { // DataRow
+            if (msgData.size() >= 2) {
+                uint16_t numCols = readInt16BE(msgData.data());
+                size_t offset = 2;
+                PgRow row;
+                row.values.reserve(numCols);
+                row.isNull.reserve(numCols);
+
+                for (uint16_t i = 0; i < numCols; ++i) {
+                    if (offset + 4 <= msgData.size()) {
+                        int32_t len = static_cast<int32_t>(readInt32BE(&msgData[offset]));
+                        offset += 4;
+                        if (len == -1) {
+                            row.values.push_back("");
+                            row.isNull.push_back(true);
+                        } else if (offset + static_cast<size_t>(len) <= msgData.size()) {
+                            std::string val(reinterpret_cast<const char*>(&msgData[offset]), len);
+                            row.values.push_back(std::move(val));
+                            row.isNull.push_back(false);
+                            offset += len;
+                        }
+                    }
+                }
+                res->addRow(std::move(row));
+            }
+        } else if (msgType == 'C') { // CommandComplete
+            std::string tag(reinterpret_cast<const char*>(msgData.data()), msgData.size());
+            if (!tag.empty() && tag.back() == 0) tag.pop_back();
+            res->setCommandTag(tag);
+        } else if (msgType == 'E') { // ErrorResponse
+            // Record the error but keep reading until ReadyForQuery: the
+            // server still sends it after Sync, and stopping early would
+            // desynchronise the connection.
+            res->setOk(false);
+            res->setErrorMessage(pgErrorMessage(msgData));
+        } else if (msgType == 'Z') { // ReadyForQuery
+            if (!msgData.empty()) {
+                m_transactionStatus = static_cast<char>(msgData[0]);
+            }
+            return true;
+        }
+        // Any other message type (NoticeResponse 'N', ParameterStatus 'S',
+        // etc.) is ignored; the loop continues until ReadyForQuery.
+    }
 }
 
 std::shared_ptr<PgResult> PgConnection::query(const std::string& sql) {
@@ -867,86 +1119,7 @@ std::shared_ptr<PgResult> PgConnection::query(const std::string& sql) {
         return res;
     }
 
-    while (true) {
-        char msgType = 0;
-        std::vector<uint8_t> msgData;
-        if (!readMessage(msgType, msgData)) {
-            res->setOk(false);
-            res->setErrorMessage("Connection dropped during query");
-            return res;
-        }
-
-        if (msgType == 'T') { // RowDescription
-            if (msgData.size() >= 2) {
-                uint16_t numFields = readInt16BE(msgData.data());
-                size_t offset = 2;
-                for (uint16_t i = 0; i < numFields; ++i) {
-                    PgColumn col;
-                    // Read null-terminated name
-                    while (offset < msgData.size() && msgData[offset] != 0) {
-                        col.name.push_back(static_cast<char>(msgData[offset++]));
-                    }
-                    if (offset < msgData.size()) offset++; // skip 0
-                    if (offset + 18 <= msgData.size()) {
-                        // tableOID(4) + colAttr(2) + typeOID(4) + typeLen(2) + typeMod(4) + format(2)
-                        col.typeOid = readInt32BE(&msgData[offset + 6]);
-                        col.format = static_cast<int16_t>(readInt16BE(&msgData[offset + 16]));
-                        offset += 18;
-                    }
-                    res->addColumn(std::move(col));
-                }
-            }
-        } else if (msgType == 'D') { // DataRow
-            if (msgData.size() >= 2) {
-                uint16_t numCols = readInt16BE(msgData.data());
-                size_t offset = 2;
-                PgRow row;
-                row.values.reserve(numCols);
-                row.isNull.reserve(numCols);
-
-                for (uint16_t i = 0; i < numCols; ++i) {
-                    if (offset + 4 <= msgData.size()) {
-                        int32_t len = static_cast<int32_t>(readInt32BE(&msgData[offset]));
-                        offset += 4;
-                        if (len == -1) {
-                            row.values.push_back("");
-                            row.isNull.push_back(true);
-                        } else if (offset + static_cast<size_t>(len) <= msgData.size()) {
-                            std::string val(reinterpret_cast<const char*>(&msgData[offset]), len);
-                            row.values.push_back(std::move(val));
-                            row.isNull.push_back(false);
-                            offset += len;
-                        }
-                    }
-                }
-                res->addRow(std::move(row));
-            }
-        } else if (msgType == 'C') { // CommandComplete
-            std::string tag(reinterpret_cast<const char*>(msgData.data()), msgData.size());
-            if (!tag.empty() && tag.back() == 0) tag.pop_back();
-            res->setCommandTag(tag);
-        } else if (msgType == 'E') { // ErrorResponse
-            std::string err;
-            size_t idx = 0;
-            while (idx < msgData.size() && msgData[idx] != 0) {
-                char code = static_cast<char>(msgData[idx++]);
-                std::string val;
-                while (idx < msgData.size() && msgData[idx] != 0) {
-                    val.push_back(static_cast<char>(msgData[idx++]));
-                }
-                if (idx < msgData.size()) idx++;
-                if (code == 'M') err = val;
-            }
-            res->setOk(false);
-            res->setErrorMessage(err);
-        } else if (msgType == 'Z') { // ReadyForQuery
-            if (!msgData.empty()) {
-                m_transactionStatus = static_cast<char>(msgData[0]);
-            }
-            break;
-        }
-    }
-
+    readResultLoop(res);
     return res;
 }
 
@@ -963,136 +1136,91 @@ std::shared_ptr<PgResult> PgConnection::queryParams(const std::string& sql, cons
         return res;
     }
 
-    // 1. Parse message ('P'): statement name "", sql, paramTypes: 0
-    std::vector<uint8_t> parsePayload;
-    writeStringNull(parsePayload, ""); // unnamed statement
-    writeStringNull(parsePayload, sql);
-    writeInt16BE(parsePayload, static_cast<uint16_t>(params.size()));
-    for (size_t i = 0; i < params.size(); ++i) {
-        writeInt32BE(parsePayload, 0); // unspecified type OID, infer
-    }
-    if (!sendMessage('P', parsePayload)) {
+    // Parse the unnamed statement, then Bind/Describe/Execute/Sync.
+    if (!sendParse("", sql, static_cast<int>(params.size()))) {
         res->setOk(false);
         res->setErrorMessage("Failed to send Parse message");
         return res;
     }
-
-    // 2. Bind message ('B'): portal "", stmt "", param formats: 0 (text), params, result formats: 0
-    std::vector<uint8_t> bindPayload;
-    writeStringNull(bindPayload, ""); // unnamed portal
-    writeStringNull(bindPayload, ""); // unnamed statement
-    writeInt16BE(bindPayload, 0); // all params text format
-
-    writeInt16BE(bindPayload, static_cast<uint16_t>(params.size()));
-    for (const auto& p : params) {
-        writeInt32BE(bindPayload, static_cast<uint32_t>(p.size()));
-        bindPayload.insert(bindPayload.end(), p.begin(), p.end());
-    }
-    writeInt16BE(bindPayload, 0); // all result columns text format
-    if (!sendMessage('B', bindPayload)) {
+    if (!sendBindExecute("", params)) {
         res->setOk(false);
         res->setErrorMessage("Failed to send Bind message");
         return res;
     }
 
-    // 3. Describe message ('D'): portal 'P', ""
-    std::vector<uint8_t> descPayload;
-    descPayload.push_back('P');
-    writeStringNull(descPayload, "");
-    sendMessage('D', descPayload);
+    readResultLoop(res);
+    return res;
+}
 
-    // 4. Execute message ('E'): portal "", max rows: 0 (unlimited)
-    std::vector<uint8_t> execPayload;
-    writeStringNull(execPayload, "");
-    writeInt32BE(execPayload, 0);
-    sendMessage('E', execPayload);
-
-    // 5. Sync message ('S')
-    sendMessage('S', {});
-
-    // Read messages until ReadyForQuery ('Z')
-    while (true) {
-        char msgType = 0;
-        std::vector<uint8_t> msgData;
-        if (!readMessage(msgType, msgData)) {
-            res->setOk(false);
-            res->setErrorMessage("Connection dropped during extended query");
-            return res;
-        }
-
-        if (msgType == '1') { // ParseComplete
-            // OK
-        } else if (msgType == '2') { // BindComplete
-            // OK
-        } else if (msgType == 'T') { // RowDescription
-            if (msgData.size() >= 2) {
-                uint16_t numFields = readInt16BE(msgData.data());
-                size_t offset = 2;
-                for (uint16_t i = 0; i < numFields; ++i) {
-                    PgColumn col;
-                    while (offset < msgData.size() && msgData[offset] != 0) {
-                        col.name.push_back(static_cast<char>(msgData[offset++]));
-                    }
-                    if (offset < msgData.size()) offset++;
-                    if (offset + 18 <= msgData.size()) {
-                        col.typeOid = readInt32BE(&msgData[offset + 6]);
-                        col.format = static_cast<int16_t>(readInt16BE(&msgData[offset + 16]));
-                        offset += 18;
-                    }
-                    res->addColumn(std::move(col));
-                }
-            }
-        } else if (msgType == 'D') { // DataRow
-            if (msgData.size() >= 2) {
-                uint16_t numCols = readInt16BE(msgData.data());
-                size_t offset = 2;
-                PgRow row;
-                row.values.reserve(numCols);
-                row.isNull.reserve(numCols);
-
-                for (uint16_t i = 0; i < numCols; ++i) {
-                    if (offset + 4 <= msgData.size()) {
-                        int32_t len = static_cast<int32_t>(readInt32BE(&msgData[offset]));
-                        offset += 4;
-                        if (len == -1) {
-                            row.values.push_back("");
-                            row.isNull.push_back(true);
-                        } else if (offset + static_cast<size_t>(len) <= msgData.size()) {
-                            std::string val(reinterpret_cast<const char*>(&msgData[offset]), len);
-                            row.values.push_back(std::move(val));
-                            row.isNull.push_back(false);
-                            offset += len;
-                        }
-                    }
-                }
-                res->addRow(std::move(row));
-            }
-        } else if (msgType == 'C') { // CommandComplete
-            std::string tag(reinterpret_cast<const char*>(msgData.data()), msgData.size());
-            if (!tag.empty() && tag.back() == 0) tag.pop_back();
-            res->setCommandTag(tag);
-        } else if (msgType == 'E') { // ErrorResponse
-            std::string err;
-            size_t idx = 0;
-            while (idx < msgData.size() && msgData[idx] != 0) {
-                char code = static_cast<char>(msgData[idx++]);
-                std::string val;
-                while (idx < msgData.size() && msgData[idx] != 0) {
-                    val.push_back(static_cast<char>(msgData[idx++]));
-                }
-                if (idx < msgData.size()) idx++;
-                if (code == 'M') err = val;
-            }
-            res->setOk(false);
-            res->setErrorMessage(err);
-        } else if (msgType == 'Z') { // ReadyForQuery
-            if (!msgData.empty()) {
-                m_transactionStatus = static_cast<char>(msgData[0]);
-            }
-            break;
-        }
+bool PgConnection::prepare(const std::string& name, const std::string& sql) {
+    if (!isConnected()) {
+        m_lastError = "Not connected to PostgreSQL";
+        return false;
+    }
+    if (name.empty()) {
+        m_lastError = "Prepared statement name must not be empty";
+        return false;
+    }
+    if (sql.empty()) {
+        m_lastError = "Prepared statement SQL must not be empty";
+        return false;
     }
 
+    // Parse with the named statement (0 declared param types: PostgreSQL
+    // infers them from the $n placeholders), then Sync so any Parse error
+    // is reported immediately instead of at the next Execute.
+    if (!sendParse(name, sql, 0)) {
+        m_lastError = "Failed to send Parse message";
+        return false;
+    }
+    if (!sendMessage('S', {})) {
+        m_lastError = "Failed to send Sync message";
+        return false;
+    }
+
+    auto res = std::make_shared<PgResult>();
+    if (!readResultLoop(res)) {
+        m_lastError = res->errorMessage();
+        return false;
+    }
+    if (!res->isOk()) {
+        // Duplicate name (42P05) and any other Parse error surface here;
+        // the name is NOT registered, so a later retry can succeed.
+        m_lastError = res->errorMessage();
+        return false;
+    }
+
+    m_prepared.insert(name);
+    return true;
+}
+
+std::shared_ptr<PgResult> PgConnection::execPrepared(const std::string& name, const std::vector<std::string>& params) {
+    auto res = std::make_shared<PgResult>();
+    if (!isConnected()) {
+        res->setOk(false);
+        res->setErrorMessage("Not connected to PostgreSQL");
+        m_lastError = "Not connected to PostgreSQL";
+        return res;
+    }
+    if (!hasPrepared(name)) {
+        std::string err = "Prepared statement not found: " + name;
+        res->setOk(false);
+        res->setErrorMessage(err);
+        m_lastError = err;
+        return res;
+    }
+
+    if (!sendBindExecute(name, params)) {
+        res->setOk(false);
+        res->setErrorMessage("Failed to send Bind message");
+        m_lastError = res->errorMessage();
+        return res;
+    }
+
+    readResultLoop(res);
+    if (!res->isOk()) {
+        m_lastError = res->errorMessage();
+    }
     return res;
 }
 

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "sp/runtime/WebSocket.h"
+#include "sp/runtime/Http.h"
+#include "sp/runtime/Net.h"
 #include "sp/runtime/Sse.h"
 #include "sp/runtime/Redis.h"
 #include "sp/runtime/Crypto.h"
@@ -489,4 +491,109 @@ TEST(RealtimeTest, WebSocketAndRedisStress) {
     auto lastPrice = redis.get("last_price");
     ASSERT_TRUE(lastPrice.has_value());
     EXPECT_TRUE(lastPrice->find("\"tick\":199") != std::string::npos);
+}
+
+// ============================================================================
+// 10. Phase 31: WebSocket transport over the HTTP server (RFC 6455)
+//     Real handshake + masked text frame + echo, with a raw socket client.
+//     No fake: the bytes on the wire are real WS frames.
+// ============================================================================
+
+namespace {
+
+void phase31WsEchoHandler(int64_t connId, const char* msg) {
+    // Echo every text frame back to the same connection.
+    sp_rt_ws_send(connId, msg ? msg : "");
+}
+
+} // anonymous namespace
+
+TEST(RealtimeTest, Phase31WebSocketUpgradeHandshakeAndEchoRoundTrip) {
+    // Register the echo route the way an SP program does (C ABI).
+    sp_rt_ws_route("/echo", &phase31WsEchoHandler);
+
+    sp::rt::http::HttpServer server;
+    server.get("/ping", [](const sp::rt::http::HttpRequest&) {
+        return sp::rt::http::HttpResponse::ok("pong");
+    });
+    ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    int port = server.getPort();
+    ASSERT_GT(port, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Raw socket client: RFC 6455 handshake, no WebSocket library.
+    sp::rt::net::TcpSocket client;
+    ASSERT_TRUE(client.connect("127.0.0.1", port, 3000));
+    client.setTimeouts(3000, 3000);
+    const std::string key = "dGhlIHNhbXBsZSBub25jZQ=="; // RFC 6455 §1.3 example
+    std::string upgradeReq =
+        "GET /echo HTTP/1.1\r\n"
+        "Host: 127.0.0.1\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: " + key + "\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n";
+    ASSERT_GT(client.writeString(upgradeReq), 0);
+
+    std::string resp;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (resp.find("\r\n\r\n") == std::string::npos &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::string chunk = client.readString(4096);
+        if (chunk.empty()) break;
+        resp += chunk;
+    }
+    EXPECT_NE(resp.find("101 Switching Protocols"), std::string::npos);
+    // RFC 6455 §1.3: accept for "dGhlIHNhbXBsZSBub25jZQ==" is fixed.
+    EXPECT_NE(resp.find("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), std::string::npos);
+    EXPECT_GE(sp_rt_ws_connection_count(), 1);
+
+    // Plain HTTP still works on the same server while the WS conn is open.
+    auto ping = sp::rt::http::HttpClient::get("http://127.0.0.1:" + std::to_string(port) + "/ping");
+    EXPECT_EQ(ping.statusCode, 200);
+    EXPECT_EQ(ping.body, "pong");
+
+    // Client frames MUST be masked (RFC 6455 §5.1). Fixed mask key so the
+    // test is deterministic.
+    WsFrame frame;
+    frame.fin = true;
+    frame.opcode = WsOpCode::Text;
+    frame.masked = true;
+    frame.maskKey[0] = 0x37;
+    frame.maskKey[1] = 0xfa;
+    frame.maskKey[2] = 0x21;
+    frame.maskKey[3] = 0x3d;
+    frame.payload = "hello ws";
+    auto bytes = encodeFrame(frame);
+    ASSERT_GT(client.write(bytes.data(), bytes.size()), 0);
+
+    // Read the echoed (unmasked, server-side) frame.
+    std::string incoming;
+    WsFrame echo;
+    size_t consumed = 0;
+    bool gotEcho = false;
+    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::string chunk = client.readString(4096);
+        if (chunk.empty()) break;
+        incoming += chunk;
+        if (decodeFrame(reinterpret_cast<const uint8_t*>(incoming.data()),
+                        incoming.size(), echo, consumed)) {
+            gotEcho = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(gotEcho);
+    EXPECT_EQ(echo.opcode, WsOpCode::Text);
+    EXPECT_EQ(echo.payload, "hello ws");
+
+    // Clean close, then the server must drop the connection.
+    auto closeBytes = encodeCloseFrame(1000, "done", true);
+    client.write(closeBytes.data(), closeBytes.size());
+    client.close();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    EXPECT_EQ(sp_rt_ws_connection_count(), 0);
+
+    server.stop();
 }

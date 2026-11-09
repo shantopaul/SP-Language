@@ -1,5 +1,6 @@
 #include "sp/runtime/Net.h"
 #include "sp/runtime/EventLoop.h"
+#include "sp/runtime/Async.h"
 #include "sp/runtime/Crypto.h"
 #include "sp/runtime/Json.h"
 #include "sp/runtime/Http.h"
@@ -223,6 +224,75 @@ void sp_rt_eventloop_destroy(void* loop) {
         auto* el = static_cast<sp::rt::net::EventLoop*>(loop);
         delete el;
     }
+}
+
+// Async (Phase 2 slice B2). Tasks are held as shared_ptr<Task> in a
+// heap box so the C ABI can pass an opaque handle; await consumes nothing
+// (the caller must destroy the handle), cancel marks the task done so a
+// pending await returns promptly instead of pumping forever.
+namespace {
+struct AsyncTaskBox {
+    sp::rt::async::TaskPtr task;
+};
+sp::rt::async::Scheduler* asyncSched(void* sched) {
+    return sched ? static_cast<sp::rt::async::Scheduler*>(sched)
+                 : &sp::rt::async::defaultScheduler();
+}
+} // namespace
+
+void* sp_rt_async_default_scheduler() {
+    return &sp::rt::async::defaultScheduler();
+}
+
+void* sp_rt_async_sleep_ms(void* sched, int64_t ms) {
+    return new AsyncTaskBox{sp::rt::async::sleepTask(*asyncSched(sched), ms)};
+}
+
+void* sp_rt_async_delayed_i64(void* sched, int64_t ms, int64_t value) {
+    return new AsyncTaskBox{sp::rt::async::delayedValueTask(*asyncSched(sched), ms, value)};
+}
+
+void sp_rt_async_task_await_void(void* sched, void* task) {
+    if (!task) return;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    sp::rt::async::awaitTaskVoid(*asyncSched(sched), *box->task);
+}
+
+int64_t sp_rt_async_task_await_i64(void* sched, void* task) {
+    if (!task) return 0;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return sp::rt::async::awaitTask(*asyncSched(sched), *box->task);
+}
+
+bool sp_rt_async_task_is_ready(void* task) {
+    if (!task) return true;
+    return static_cast<AsyncTaskBox*>(task)->task->isReady();
+}
+
+bool sp_rt_async_task_cancel(void* task) {
+    if (!task) return false;
+    return static_cast<AsyncTaskBox*>(task)->task->cancel();
+}
+
+bool sp_rt_async_task_was_cancelled(void* task) {
+    if (!task) return false;
+    return static_cast<AsyncTaskBox*>(task)->task->wasCancelled();
+}
+
+void sp_rt_async_task_destroy(void* task) {
+    delete static_cast<AsyncTaskBox*>(task);
+}
+
+void sp_rt_async_scheduler_run_once(void* sched) {
+    asyncSched(sched)->runOnce();
+}
+
+bool sp_rt_async_scheduler_has_pending(void* sched) {
+    return asyncSched(sched)->hasPending();
+}
+
+void sp_rt_async_scheduler_run_until_idle(void* sched) {
+    asyncSched(sched)->runUntilIdle();
 }
 
 // ============================================================================
@@ -864,6 +934,36 @@ int64_t sp_rt_ws_hub_size(void* hub) {
 int64_t sp_rt_ws_hub_room_size(void* hub, const char* room) {
     if (!hub || !room) return 0;
     return static_cast<int64_t>(static_cast<sp::rt::ws::WebSocketHub*>(hub)->roomSize(room));
+}
+
+// WebSocket server transport (Phase 31): register a text handler for one
+// upgrade path on the HTTP server. `handler_fn` is a plain native function
+// (an SP `fn` passed as `ptr`) invoked as handler_fn(conn_id, message).
+// It runs on the connection's worker thread and may call sp_rt_ws_send.
+void sp_rt_ws_route(const char* path, void (*handler_fn)(int64_t conn_id, const char* msg)) {
+    if (!path || !handler_fn) return;
+    sp::rt::ws::WebSocketServer::getGlobal().onText(path, [handler_fn](uint64_t connId, const std::string& message) {
+        handler_fn(static_cast<int64_t>(connId), message.c_str());
+    });
+}
+
+bool sp_rt_ws_send(int64_t conn_id, const char* msg) {
+    if (conn_id < 0 || !msg) return false;
+    return sp::rt::ws::WebSocketServer::getGlobal().sendTo(static_cast<uint64_t>(conn_id), msg);
+}
+
+void sp_rt_ws_broadcast(const char* msg) {
+    if (!msg) return;
+    sp::rt::ws::WebSocketServer::getGlobal().broadcast(msg);
+}
+
+void sp_rt_ws_close_conn(int64_t conn_id) {
+    if (conn_id < 0) return;
+    sp::rt::ws::WebSocketServer::getGlobal().closeConnection(static_cast<uint64_t>(conn_id));
+}
+
+int64_t sp_rt_ws_connection_count() {
+    return static_cast<int64_t>(sp::rt::ws::WebSocketServer::getGlobal().connectionCount());
 }
 
 // Server-Sent Events (SSE)

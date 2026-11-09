@@ -48,12 +48,15 @@ add_executable(sp_tests
     codegen/DebugInfoGeneratorTest.cpp
     codegen/LLVMOptimizerTest.cpp
     runtime/RuntimeTest.cpp
+    runtime/AsyncTest.cpp
     runtime/ConcurrencyTest.cpp
     runtime/NetTest.cpp
     runtime/CryptoTest.cpp
     runtime/JsonTest.cpp
     runtime/HttpTest.cpp
+    runtime/TlsTest.cpp
     runtime/DatabaseTest.cpp
+    runtime/PostgresTest.cpp
     runtime/SecurityTest.cpp
     runtime/WebTest.cpp
     runtime/RealtimeTest.cpp

@@ -332,3 +332,81 @@ TEST(ObservabilityTest, CAbiObservabilityBridges) {
     EXPECT_EQ(sp_rt_job_queue_dlq_count(q), 1); // no handler registered -> went to DLQ
     sp_rt_job_queue_destroy(q);
 }
+
+// ============================================================================
+// 7. Phase 31: Queue handlers & Cron from SP (C-ABI function pointers)
+//    An SP `fn` passed as `ptr` is a native function pointer, so these
+//    plain C callbacks are exactly what compiled SP handlers look like.
+// ============================================================================
+
+namespace {
+
+std::atomic<int> g_phase31HandlerCalls{0};
+std::string g_phase31LastPayload;
+std::mutex g_phase31PayloadMtx;
+
+bool phase31EchoHandler(const char* jobId, const char* jobName, const char* payload) {
+    (void)jobId;
+    (void)jobName;
+    std::lock_guard<std::mutex> lock(g_phase31PayloadMtx);
+    g_phase31LastPayload = payload ? payload : "";
+    g_phase31HandlerCalls++;
+    return true;
+}
+
+std::atomic<int> g_phase31CronTicks{0};
+
+void phase31CronTask() {
+    g_phase31CronTicks++;
+}
+
+} // anonymous namespace
+
+TEST(ObservabilityTest, Phase31JobQueueHandlerViaCABIFires) {
+    g_phase31HandlerCalls = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_phase31PayloadMtx);
+        g_phase31LastPayload.clear();
+    }
+
+    void* q = sp_rt_job_queue_create(2);
+    ASSERT_NE(q, nullptr);
+
+    // Register the handler exactly the way an SP program does: a native
+    // function pointer. The worker thread must really invoke it.
+    sp_rt_job_queue_register_handler(q, "send_email", &phase31EchoHandler);
+    const char* jobId = sp_rt_job_queue_enqueue(q, "send_email", "{\"to\":\"a@example.com\"}", 3, 10, 0);
+    ASSERT_NE(jobId, nullptr);
+    EXPECT_STRNE(jobId, "");
+
+    sp_rt_job_queue_wait_idle(q);
+
+    EXPECT_EQ(g_phase31HandlerCalls.load(), 1);
+    {
+        std::lock_guard<std::mutex> lock(g_phase31PayloadMtx);
+        EXPECT_EQ(g_phase31LastPayload, "{\"to\":\"a@example.com\"}");
+    }
+    EXPECT_EQ(sp_rt_job_queue_completed_count(q), 1);
+    EXPECT_EQ(sp_rt_job_queue_dlq_count(q), 0);
+
+    sp_rt_job_queue_destroy(q);
+}
+
+TEST(ObservabilityTest, Phase31CronIntervalViaCABIFires) {
+    g_phase31CronTicks = 0;
+
+    void* cron = sp_rt_cron_create();
+    ASSERT_NE(cron, nullptr);
+
+    sp_rt_cron_schedule_interval(cron, "heartbeat", 50, &phase31CronTask);
+    EXPECT_EQ(sp_rt_cron_task_count(cron), 1);
+
+    sp_rt_cron_start(cron);
+    std::this_thread::sleep_for(std::chrono::milliseconds(220));
+    sp_rt_cron_stop(cron);
+
+    // 220ms at a 50ms interval: the task must have fired at least twice.
+    EXPECT_GE(g_phase31CronTicks.load(), 2);
+
+    sp_rt_cron_destroy(cron);
+}

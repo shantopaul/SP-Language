@@ -1,0 +1,146 @@
+openapi: 3.0.3
+info:
+  title: SP Registry API
+  version: 3.1.0
+  description: >-
+    Package registry backend implemented as an SP program on the SP
+    HTTP server + SQLite (Phase 2 dogfooding). This spec is GENERATED
+    from examples/registry-backend/src/routes.sp by generate_openapi.py;
+    every path here is a route the service actually registers.
+    The Next.js registry (splang-registry) is a separate labelled
+    preview/mock and is NOT described by this spec.
+servers:
+  - url: http://127.0.0.1:8090
+    description: Local SP registry service (default REGISTRY_PORT)
+paths:
+  /api/health:
+    get:
+      summary: "Service health probe (also reports stored package count)"
+      responses:
+        '200':
+          description: "Service is up; body reports the stored package count."
+  /api/v1/publish:
+    post:
+      summary: "Publish package metadata (what spm publish sends)"
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: "Package metadata stored in SQLite."
+        '400':
+          description: "Invalid JSON, missing fields, bad name/version/checksum."
+        '401':
+          description: "Missing or invalid Bearer token."
+        '409':
+          description: "That name@version is already published (releases are immutable)."
+        '500':
+          description: "Registry storage error."
+  /api/v1/packages/{name}/{version}/tarball:
+    post:
+      summary: "Upload the base64 tarball for a published version"
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Tarball stored; its SHA-256 matches the published checksum."
+        '400':
+          description: "Empty/invalid base64 body, or checksum mismatch."
+        '401':
+          description: "Missing or invalid Bearer token."
+        '404':
+          description: "No such package version; publish its metadata first."
+        '500':
+          description: "Registry storage error."
+  /api/v1/verify/{name}/{version}:
+    get:
+      summary: "Verify a package version against stored data"
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Verification result computed from stored data."
+        '404':
+          description: "No such package version."
+        '500':
+          description: "Registry storage error."
+  /api/v1/packages:
+    get:
+      summary: "List all published packages"
+      responses:
+        '200':
+          description: "List of all published packages."
+  /api/v1/packages/{name}/{version}:
+    get:
+      summary: "Get metadata for one package version"
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Metadata for one package version."
+        '404':
+          description: "No such package version."
+  /api/v1/packages/{name}/{version}/download:
+    get:
+      summary: "Download the tarball for one package version (base64 body)"
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Base64 tarball bytes (X-Content-Encoding: base64)."
+        '404':
+          description: "No such package version, or no tarball uploaded yet."
+  /openapi.yaml:
+    get:
+      summary: "OpenAPI specification for this service (YAML)"
+      responses:
+        '200':
+          description: "This OpenAPI specification."
+        '500':
+          description: "Spec file not found on the server."
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >-
+        Publish token from SP_REGISTRY_TOKEN. Compared with a
+        timing-safe equality check; missing or wrong tokens get 401.

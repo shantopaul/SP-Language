@@ -1,0 +1,37 @@
+{
+  "measured_at_utc": "2026-11-09T05:23:52.691923+00:00",
+  "target": {
+    "url": "http://127.0.0.1:8090/api/health",
+    "method": "GET"
+  },
+  "config": {
+    "concurrency": 4,
+    "duration_seconds": 10.0,
+    "requested_total": 250,
+    "timeout_seconds": 5.0,
+    "warmup_seconds": 1.0
+  },
+  "context": {
+    "host": "htch-runtime",
+    "os": "Linux-7.0.0-43-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "cpus": 4
+  },
+  "measured": {
+    "elapsed_seconds": 0.231,
+    "requests_sent": 250,
+    "requests_succeeded_2xx": 250,
+    "requests_per_second": 1084.27,
+    "latency_ms": {
+      "mean": 3.62,
+      "p50": 2.37,
+      "p95": 4.81,
+      "p99": 47.05,
+      "max": 50.03
+    },
+    "status_codes": {
+      "200": 250
+    },
+    "errors": {}
+  }
+}

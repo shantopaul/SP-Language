@@ -1,0 +1,37 @@
+{
+  "measured_at_utc": "2026-11-09T03:38:29.871940+00:00",
+  "target": {
+    "url": "http://127.0.0.1:18099/",
+    "method": "GET"
+  },
+  "config": {
+    "concurrency": 10,
+    "duration_seconds": 10.0,
+    "requested_total": null,
+    "timeout_seconds": 5.0,
+    "warmup_seconds": 1.0
+  },
+  "context": {
+    "host": "htch-runtime",
+    "os": "Linux-7.0.0-43-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "cpus": 4
+  },
+  "measured": {
+    "elapsed_seconds": 10.831,
+    "requests_sent": 1624,
+    "requests_succeeded_2xx": 1624,
+    "requests_per_second": 149.93,
+    "latency_ms": {
+      "mean": 62.84,
+      "p50": 17.43,
+      "p95": 93.29,
+      "p99": 1101.05,
+      "max": 2316.7
+    },
+    "status_codes": {
+      "200": 1624
+    },
+    "errors": {}
+  }
+}

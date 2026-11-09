@@ -342,6 +342,21 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("sleep", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("sleepSeconds", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
+
+    // Built-in async functions (Phase 2 slice B2). These return Task<T>
+    // and are the ONLY expressions `await` can lower (see
+    // IRBuilder::visit(AwaitExpr)). sleep_async is the non-blocking
+    // counterpart of sleep: it returns immediately and completes after
+    // the delay on the event loop. delayed_value completes with `value`
+    // after the delay, so `await` can yield a value.
+    auto taskVoid = typeCtx.resolveType("Task<void>");
+    auto taskInt = typeCtx.resolveType("Task<int>");
+    if (taskVoid) {
+        define(std::make_shared<FunctionSymbol>("sleep_async", typeCtx.getFunctionType({typeCtx.getInt()}, taskVoid), builtinLoc));
+    }
+    if (taskInt) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, taskInt), builtinLoc));
+    }
     define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
 

@@ -812,6 +812,26 @@ void IRModule::initRuntimeDeclarations() {
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 0)}, true);
     createFunction("sp_rt_time_sleep_secs", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "s", 0)}, true);
+
+    // Async runtime functions (Phase 2 slice B2, std.async). These are
+    // the only runtime calls IRBuilder::visit(AwaitExpr) emits; the
+    // blocking sleep above is deliberately NOT used on the await path.
+    createFunction("sp_rt_async_default_scheduler", IRType::getPointer(), {}, true);
+    createFunction("sp_rt_async_sleep_ms", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 1)}, true);
+    createFunction("sp_rt_async_delayed_i64", IRType::getPointer(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "ms", 1),
+                    std::make_shared<ParameterValue>(IRType::getInt64(), "value", 2)}, true);
+    createFunction("sp_rt_async_task_await_void", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1)}, true);
+    createFunction("sp_rt_async_task_await_i64", IRType::getInt64(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "sched", 0),
+                    std::make_shared<ParameterValue>(IRType::getPointer(), "task", 1)}, true);
+    createFunction("sp_rt_async_task_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "task", 0)}, true);
     createFunction("sp_rt_time_format_iso", IRType::getPointer(IRType::getInt8()),
                    {std::make_shared<ParameterValue>(IRType::getInt64(), "epoch_ms", 0)}, true);
     createFunction("sp_rt_time_parse_iso", IRType::getInt64(),

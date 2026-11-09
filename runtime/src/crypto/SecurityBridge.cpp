@@ -1,6 +1,7 @@
 #include "sp/runtime/Password.h"
 #include "sp/runtime/Jwt.h"
 #include "sp/runtime/Session.h"
+#include "sp/runtime/PersistentSession.h"
 #include "sp/runtime/Crypto.h"
 #include "sp/runtime/Runtime.h"
 #include <cstdlib>
@@ -226,6 +227,67 @@ void sp_rt_session_store_destroy(void* store) {
         auto* s = static_cast<sp::rt::crypto::SessionStore*>(store);
         delete s;
     }
+}
+
+// ============================================================================
+// Persistent Session C-ABI (Phase 31)
+// ============================================================================
+
+void* sp_rt_psession_open(const char* path, int64_t default_ttl_secs) {
+    if (!path || !*path) return nullptr;
+    auto* s = new sp::rt::crypto::PersistentSessionStore(default_ttl_secs > 0 ? default_ttl_secs : 3600);
+    if (!s->open(path)) {
+        delete s;
+        return nullptr;
+    }
+    return s;
+}
+
+void sp_rt_psession_close(void* store) {
+    if (store) {
+        delete static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    }
+}
+
+const char* sp_rt_psession_last_error(void* store) {
+    if (!store) return alloc_str("persistent session store is not open");
+    return alloc_str(static_cast<sp::rt::crypto::PersistentSessionStore*>(store)->lastError());
+}
+
+const char* sp_rt_psession_create(void* store, const char* data_json, int64_t ttl_secs) {
+    if (!store) return alloc_str("");
+    auto* s = static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    return alloc_str(s->create(data_json ? data_json : "{}", ttl_secs));
+}
+
+const char* sp_rt_psession_get(void* store, const char* session_id) {
+    if (!store || !session_id) return alloc_str("");
+    auto* s = static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    return alloc_str(s->get(session_id));
+}
+
+bool sp_rt_psession_set(void* store, const char* session_id, const char* data_json, int64_t ttl_secs) {
+    if (!store || !session_id) return false;
+    auto* s = static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    return s->set(session_id, data_json ? data_json : "{}", ttl_secs);
+}
+
+bool sp_rt_psession_destroy(void* store, const char* session_id) {
+    if (!store || !session_id) return false;
+    auto* s = static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    return s->destroy(session_id);
+}
+
+const char* sp_rt_psession_regenerate(void* store, const char* old_session_id, int64_t ttl_secs) {
+    if (!store || !old_session_id) return alloc_str("");
+    auto* s = static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    return alloc_str(s->regenerate(old_session_id, ttl_secs));
+}
+
+int64_t sp_rt_psession_count(void* store) {
+    if (!store) return 0;
+    auto* s = static_cast<sp::rt::crypto::PersistentSessionStore*>(store);
+    return static_cast<int64_t>(s->count());
 }
 
 } // extern "C"

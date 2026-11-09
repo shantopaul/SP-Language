@@ -516,6 +516,14 @@ TypeContext::TypeContext() {
 
     auto durationCls = createClassType("Duration");
     durationCls->addField({"millis", m_int32Type, "public", false, false});
+
+    // Async (Phase 2 slice B2): Task<T> is the awaitable type. It is an
+    // opaque handle at runtime (a pointer to the runtime Task); the type
+    // parameter exists so sema can unwrap `await e` (e: Task<T>) to T
+    // (see TypeChecker::visit(AwaitExpr)). No methods: tasks are created
+    // only by the sleep_async / delayed_value builtins.
+    auto taskCls = createClassType("Task");
+    taskCls->setTypeParams({"T"});
     durationCls->addMethod({"fromMillis", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"fromMillis", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"fromSeconds", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});

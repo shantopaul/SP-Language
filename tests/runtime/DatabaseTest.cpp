@@ -2,6 +2,8 @@
 #include "sp/runtime/Sqlite.h"
 #include "sp/runtime/Postgres.h"
 #include "sp/runtime/DbPool.h"
+#include "sp/runtime/PersistentQueue.h"
+#include "sp/runtime/PersistentSession.h"
 #include "sp/runtime/Runtime.h"
 #include <chrono>
 #include <thread>
@@ -449,6 +451,44 @@ TEST(DbBridgeTest, SqliteCAbiWorkflow) {
     sp_rt_sqlite_close(db);
 }
 
+// Phase 2 (pro-4.0.0, parent fix): sp_rt_sqlite_col_string used to return
+// a pointer to a single shared thread_local buffer, so reading columns
+// 0..N in a loop left every value but the last dangling — a longer later
+// value reallocated the buffer and freed the storage the earlier pointers
+// referenced. The registry service stored correct rows in SQLite yet
+// served corrupted strings back. Each returned pointer must be an
+// independent copy that stays valid after later reads.
+TEST(DbBridgeTest, SqliteColStringValuesSurviveLaterReads) {
+    void* db = sp_rt_sqlite_open(":memory:", 5000, false);
+    ASSERT_NE(db, nullptr);
+
+    ASSERT_GE(sp_rt_sqlite_exec(db, "CREATE TABLE t (a TEXT, b TEXT, c TEXT);"), 0);
+    ASSERT_EQ(sp_rt_sqlite_exec(db, "INSERT INTO t VALUES ('short', 'medium-length-value', 'a much longer value that forces the shared buffer to reallocate');"), 1);
+
+    void* stmt = sp_rt_sqlite_prepare(db, "SELECT a, b, c FROM t;");
+    ASSERT_NE(stmt, nullptr);
+    ASSERT_EQ(sp_rt_sqlite_step(stmt), 100); // SQLITE_ROW
+
+    // Read all three BEFORE asserting any of them: with the old shared
+    // buffer the first two would dangle once the third (longest) was read.
+    const char* a = sp_rt_sqlite_col_string(stmt, 0);
+    const char* b = sp_rt_sqlite_col_string(stmt, 1);
+    const char* c = sp_rt_sqlite_col_string(stmt, 2);
+    EXPECT_STREQ(a, "short");
+    EXPECT_STREQ(b, "medium-length-value");
+    EXPECT_STREQ(c, "a much longer value that forces the shared buffer to reallocate");
+
+    // Column names have the same requirement.
+    EXPECT_STREQ(sp_rt_sqlite_col_name(stmt, 0), "a");
+    EXPECT_STREQ(sp_rt_sqlite_col_name(stmt, 1), "b");
+    EXPECT_STREQ(sp_rt_sqlite_col_name(stmt, 2), "c");
+    EXPECT_STREQ(a, "short");
+    EXPECT_STREQ(b, "medium-length-value");
+
+    sp_rt_sqlite_finalize(stmt);
+    sp_rt_sqlite_close(db);
+}
+
 TEST(DbBridgeTest, DbPoolCAbiWorkflow) {
     void* pool = sp_rt_db_pool_create_sqlite(":memory:", 2, 4, 1000);
     ASSERT_NE(pool, nullptr);
@@ -536,4 +576,202 @@ TEST(SqliteTest, HighThroughputBenchmark) {
               << durationMs << " ms (" << static_cast<int>(qps) << " queries/sec)\n";
 
     EXPECT_GT(qps, 50000.0); // Exceeds 50k queries/sec
+}
+
+// ============================================================================
+// Phase 31: Persistent queue & persistent sessions (SQLite-backed)
+// ============================================================================
+
+TEST(PersistentQueueTest, SurvivesRestartAndKeepsFifoOrder) {
+    fs::path dbPath = fs::temp_directory_path() / "sp_phase31_pqueue.db";
+    if (fs::exists(dbPath)) fs::remove(dbPath);
+    fs::path walPath = dbPath.string() + "-wal";
+    fs::path shmPath = dbPath.string() + "-shm";
+    if (fs::exists(walPath)) fs::remove(walPath);
+    if (fs::exists(shmPath)) fs::remove(shmPath);
+
+    // Process 1: enqueue three jobs, then "die" (close without dequeuing).
+    {
+        sp::rt::obs::PersistentQueue q;
+        ASSERT_TRUE(q.open(dbPath.string())) << q.lastError();
+        EXPECT_STRNE(q.enqueue("email", "first").c_str(), "");
+        EXPECT_STRNE(q.enqueue("email", "second").c_str(), "");
+        EXPECT_STRNE(q.enqueue("report", "third").c_str(), "");
+        EXPECT_EQ(q.pendingCount(), 3);
+        // No explicit close: destructor closes, like a process exit.
+    }
+
+    // Process 2 (restart): the same file, the jobs are still there, in order.
+    {
+        sp::rt::obs::PersistentQueue q;
+        ASSERT_TRUE(q.open(dbPath.string())) << q.lastError();
+        EXPECT_EQ(q.pendingCount(), 3);
+        EXPECT_EQ(q.dlqCount(), 0);
+
+        sp::rt::obs::PersistentJob job;
+        ASSERT_TRUE(q.tryDequeue(job));
+        EXPECT_EQ(job.payload, "first");
+        EXPECT_EQ(job.name, "email");
+        EXPECT_TRUE(q.complete(job.id));
+
+        ASSERT_TRUE(q.tryDequeue(job));
+        EXPECT_EQ(job.payload, "second");
+        EXPECT_TRUE(q.complete(job.id));
+
+        ASSERT_TRUE(q.tryDequeue(job));
+        EXPECT_EQ(job.payload, "third");
+        EXPECT_EQ(job.name, "report");
+        EXPECT_TRUE(q.complete(job.id));
+
+        EXPECT_FALSE(q.tryDequeue(job)); // empty now
+        EXPECT_EQ(q.pendingCount(), 0);
+    }
+
+    fs::remove(dbPath);
+    if (fs::exists(walPath)) fs::remove(walPath);
+    if (fs::exists(shmPath)) fs::remove(shmPath);
+}
+
+TEST(PersistentQueueTest, ClaimedJobIsRetriedAfterCrashNotLost) {
+    fs::path dbPath = fs::temp_directory_path() / "sp_phase31_pqueue_crash.db";
+    if (fs::exists(dbPath)) fs::remove(dbPath);
+
+    std::string jobId;
+    {
+        sp::rt::obs::PersistentQueue q;
+        ASSERT_TRUE(q.open(dbPath.string()));
+        jobId = q.enqueue("job", "crash-me");
+        ASSERT_FALSE(jobId.empty());
+        // Claim it, then "crash" without complete()/fail().
+        sp::rt::obs::PersistentJob job;
+        ASSERT_TRUE(q.tryDequeue(job));
+        EXPECT_EQ(job.id, jobId);
+        EXPECT_EQ(q.pendingCount(), 0);
+    }
+    // Reopen: the crashed claim must come back as pending, not vanish.
+    {
+        sp::rt::obs::PersistentQueue q;
+        ASSERT_TRUE(q.open(dbPath.string()));
+        EXPECT_EQ(q.pendingCount(), 1);
+        sp::rt::obs::PersistentJob job;
+        ASSERT_TRUE(q.tryDequeue(job));
+        EXPECT_EQ(job.id, jobId);
+        EXPECT_TRUE(q.complete(job.id));
+    }
+
+    fs::remove(dbPath);
+}
+
+TEST(PersistentQueueTest, OpenFailureIsARealError) {
+    // Missing parent directory: SQLite cannot create the file.
+    sp::rt::obs::PersistentQueue q;
+    fs::path badPath = fs::temp_directory_path() / "sp_no_such_dir_xyz" / "q.db";
+    EXPECT_FALSE(q.open(badPath.string()));
+    EXPECT_FALSE(q.lastError().empty());
+    EXPECT_FALSE(q.isOpen());
+    // And enqueue on an unopened queue fails instead of pretending.
+    EXPECT_TRUE(q.enqueue("job", "x").empty());
+    EXPECT_EQ(q.pendingCount(), 0u);
+
+    // Same story through the C ABI: open returns null.
+    void* handle = sp_rt_pqueue_open(badPath.string().c_str());
+    EXPECT_EQ(handle, nullptr);
+}
+
+TEST(PersistentQueueTest, CAbiEnqueueDequeueAcrossReopen) {
+    fs::path dbPath = fs::temp_directory_path() / "sp_phase31_pqueue_cabi.db";
+    if (fs::exists(dbPath)) fs::remove(dbPath);
+
+    void* q = sp_rt_pqueue_open(dbPath.string().c_str());
+    ASSERT_NE(q, nullptr);
+    const char* id = sp_rt_pqueue_enqueue(q, "task", "{\"n\":1}", 3, 10, 0);
+    ASSERT_NE(id, nullptr);
+    EXPECT_STRNE(id, "");
+    EXPECT_EQ(sp_rt_pqueue_pending_count(q), 1);
+    sp_rt_pqueue_close(q);
+
+    void* q2 = sp_rt_pqueue_open(dbPath.string().c_str());
+    ASSERT_NE(q2, nullptr);
+    const char* jobJson = sp_rt_pqueue_dequeue(q2);
+    ASSERT_NE(jobJson, nullptr);
+    EXPECT_NE(std::string(jobJson).find("\"task\""), std::string::npos);
+    EXPECT_NE(std::string(jobJson).find("{\\\"n\\\":1}"), std::string::npos);
+    EXPECT_EQ(sp_rt_pqueue_pending_count(q2), 0);
+    // Empty queue dequeues to "{}" instead of crashing.
+    EXPECT_STREQ(sp_rt_pqueue_dequeue(q2), "{}");
+    sp_rt_pqueue_close(q2);
+
+    fs::remove(dbPath);
+}
+
+TEST(PersistentSessionTest, SurvivesRestartAndEnforcesExpiry) {
+    fs::path dbPath = fs::temp_directory_path() / "sp_phase31_psession.db";
+    if (fs::exists(dbPath)) fs::remove(dbPath);
+
+    std::string sid;
+    {
+        sp::rt::crypto::PersistentSessionStore store;
+        ASSERT_TRUE(store.open(dbPath.string())) << store.lastError();
+        sid = store.create("{\"user\":\"shanto\"}", 3600);
+        ASSERT_FALSE(sid.empty());
+        EXPECT_EQ(store.get(sid), "{\"user\":\"shanto\"}");
+        EXPECT_EQ(store.count(), 1);
+    }
+    // Restart: the session is still there.
+    {
+        sp::rt::crypto::PersistentSessionStore store;
+        ASSERT_TRUE(store.open(dbPath.string()));
+        EXPECT_EQ(store.get(sid), "{\"user\":\"shanto\"}");
+        EXPECT_TRUE(store.set(sid, "{\"user\":\"shanto\",\"role\":\"admin\"}", 3600));
+        EXPECT_EQ(store.get(sid), "{\"user\":\"shanto\",\"role\":\"admin\"}");
+
+        // Short-lived session expires for real.
+        std::string shortSid = store.create("{\"temp\":1}", 1);
+        ASSERT_FALSE(shortSid.empty());
+        EXPECT_EQ(store.get(shortSid), "{\"temp\":1}");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+        EXPECT_EQ(store.get(shortSid), "");
+        EXPECT_EQ(store.count(), 1); // only the long session remains visible
+
+        // Destroy works, and unknown ids stay missing.
+        EXPECT_TRUE(store.destroy(sid));
+        EXPECT_EQ(store.get(sid), "");
+        EXPECT_FALSE(store.destroy("no-such-session"));
+    }
+
+    fs::remove(dbPath);
+}
+
+TEST(PersistentSessionTest, OpenFailureIsARealError) {
+    sp::rt::crypto::PersistentSessionStore store;
+    fs::path badPath = fs::temp_directory_path() / "sp_no_such_dir_xyz" / "s.db";
+    EXPECT_FALSE(store.open(badPath.string()));
+    EXPECT_FALSE(store.lastError().empty());
+    EXPECT_TRUE(store.create("{}", 60).empty());
+
+    void* handle = sp_rt_psession_open(badPath.string().c_str(), 3600);
+    EXPECT_EQ(handle, nullptr);
+}
+
+TEST(PersistentSessionTest, CAbiCreateGetAcrossReopen) {
+    fs::path dbPath = fs::temp_directory_path() / "sp_phase31_psession_cabi.db";
+    if (fs::exists(dbPath)) fs::remove(dbPath);
+
+    void* store = sp_rt_psession_open(dbPath.string().c_str(), 3600);
+    ASSERT_NE(store, nullptr);
+    const char* sid = sp_rt_psession_create(store, "{\"cart\":[1,2]}", 3600);
+    ASSERT_NE(sid, nullptr);
+    EXPECT_STRNE(sid, "");
+    std::string sidCopy = sid;
+    EXPECT_EQ(sp_rt_psession_count(store), 1);
+    sp_rt_psession_close(store);
+
+    void* store2 = sp_rt_psession_open(dbPath.string().c_str(), 3600);
+    ASSERT_NE(store2, nullptr);
+    const char* data = sp_rt_psession_get(store2, sidCopy.c_str());
+    ASSERT_NE(data, nullptr);
+    EXPECT_STREQ(data, "{\"cart\":[1,2]}");
+    sp_rt_psession_close(store2);
+
+    fs::remove(dbPath);
 }
