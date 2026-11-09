@@ -1016,10 +1016,207 @@ TEST(IRBuilderTest, AwaitOnAsyncFnWithDoublePayloadStillFailsIRGeneration) {
     EXPECT_EQ(compileToIR(source), nullptr);
 }
 
-TEST(IRBuilderTest, ComptimeExpressionFailsIRGeneration) {
+// Phase 3 slice D (pro-4.0.0): comptime is now REALLY evaluated at
+// compile time and folded to a constant — the Phase 1 test below (which
+// asserted that every comptime fails) is replaced by this suite.
+// `var x = comptime 1 + 2` must lower to the constant 3 with no runtime
+// add instruction left in the IR.
+// `comptime` binds its operand at unary precedence (like `await` in
+// Parser.cpp), so a binary expression must be parenthesized:
+// `comptime 1 + 2` would parse as `(comptime 1) + 2` at runtime.
+// The parens below put the whole arithmetic inside the comptime expr.
+TEST(IRBuilderTest, ComptimeArithmeticFoldsToConstant) {
     const std::string source = R"(
         fn main() {
-            var x = comptime 1 + 2;
+            var x = comptime (1 + 2);
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 3"), std::string::npos);
+    EXPECT_EQ(irStr.find("add i32"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimePrecedenceFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            var x = comptime (2 + 3 * 4);
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 14"), std::string::npos);
+    EXPECT_EQ(irStr.find("add i32"), std::string::npos);
+    EXPECT_EQ(irStr.find("mul i32"), std::string::npos);
+}
+
+// The spec example (docs/SP-Syntax-Guide.md §101): a recursive
+// `comptime fn` called from `comptime` folds factorial(10) = 3628800.
+TEST(IRBuilderTest, ComptimeRecursiveFunctionFoldsToConstant) {
+    const std::string source = R"(
+        comptime fn factorial(int n) -> int {
+            if (n <= 1) {
+                return 1;
+            }
+            return n * factorial(n - 1);
+        }
+
+        fn main() {
+            let result = comptime factorial(10);
+            println(result);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("3628800"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeStringConcatFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let s = comptime ("SP " + "2.0");
+            println(s);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("SP 2.0"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeBlockFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let x = comptime {
+                let a = 6;
+                let b = 7;
+                a * b;
+            };
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 42"), std::string::npos);
+    EXPECT_EQ(irStr.find("mul i32"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeTernaryAndLengthFoldToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let a = comptime ((2 > 1) ? 10 : 20);
+            let b = comptime "hello".length;
+            println(a);
+            println(b);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 10"), std::string::npos);
+    EXPECT_NE(irStr.find("i32 5"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeArrayIndexFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let x = comptime [10, 20, 30][1];
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 20"), std::string::npos);
+}
+
+// Phase 3 slice D: the loud errors are KEPT for everything comptime
+// cannot compute. A runtime value (here: a function parameter) inside
+// `comptime` must fail the build, never silently become runtime code.
+TEST(IRBuilderTest, ComptimeWithRuntimeValueFailsIRGeneration) {
+    const std::string source = R"(
+        fn f(int n) -> int {
+            return comptime n + 1;
+        }
+
+        fn main() {
+            println(f(1));
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, ComptimeCallingNonComptimeFunctionFailsIRGeneration) {
+    const std::string source = R"(
+        fn double(int n) -> int {
+            return n * 2;
+        }
+
+        fn main() {
+            let x = comptime double(21);
+            println(x);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, ComptimeDivisionByZeroFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            var x = comptime (1 / 0);
+            println(x);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, ComptimeWithMethodCallFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            let x = comptime "abc".indexOf("b");
             println(x);
         }
     )";

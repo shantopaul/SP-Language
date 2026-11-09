@@ -92,6 +92,12 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
     m_vtableBuilder = std::make_unique<codegen::VTableBuilder>(m_sema);
     m_vtableBuilder->buildProgramLayouts(program, *m_module);
 
+    // Phase 3 slice D: build the compile-time evaluator registry from the
+    // whole program before lowering, so visit(ComptimeExpr) can evaluate
+    // comptime expressions and fold the computed constants into the IR.
+    m_comptimeEval = std::make_unique<sema::ComptimeEvaluator>(nullptr);
+    m_comptimeEval->processProgram(program);
+
     visit(program);
 
     // Phase 1 (pro-4.0.0): fail loudly instead of silently dropping
@@ -8139,83 +8145,160 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
     const std::string calleeName = calleeIdent ? calleeIdent->getName() : "";
     const bool isSleepAsync = (calleeName == "sleep_async" && call->getArgs().size() == 1);
     const bool isDelayedValue = (calleeName == "delayed_value" && call->getArgs().size() == 2);
-    if (!call || (!isSleepAsync && !isDelayedValue)) {
-        reportUnsupported(node.getLocation(), "await",
-                          "only 'await sleep_async(ms)' and 'await delayed_value(ms, value)' "
-                          "are supported in this phase; awaiting any other expression is not implemented yet");
-        node.getExpr().accept(*this);
+
+    // (1) Builtins: sleep_async / delayed_value (incl. the Phase 3
+    // string/bool delayed_value overloads).
+    if (call && (isSleepAsync || isDelayedValue)) {
+        // Evaluate the ms argument (in source order) without visiting
+        // the call itself: a plain visit(CallExpr) would emit a call
+        // to the SP-level builtin, which has no IR function.
+        call->getArgs()[0]->accept(*this);
+        IRValuePtr ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        auto sched = emitAsyncScheduler();
+
+        if (isSleepAsync) {
+            auto taskCall = std::make_shared<CallInst>(
+                IRType::getPointer(), "sp_rt_async_sleep_ms",
+                std::vector<IRValuePtr>{sched, ms},
+                m_currentFunction->nextTempName("async_task"));
+            m_currentBlock->addInstruction(taskCall);
+            emitAwaitTask(sched, taskCall, "void");
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_async_task_destroy",
+                std::vector<IRValuePtr>{taskCall}));
+            m_lastExprValue = nullptr;
+            m_lastExprType = IRType::getVoid();
+            return;
+        }
+
+        // delayed_value: payload kind from the value arg's sema type.
+        std::string valKind;
+        if (auto valSemaType = m_sema.getNodeType(call->getArgs()[1].get())) {
+            std::string tn = valSemaType->toString();
+            if (tn == "string") valKind = "string";
+            else if (tn == "bool") valKind = "bool";
+            else if (tn == "int" || tn == "int8" || tn == "int16" || tn == "int32" || tn == "int64") valKind = "int";
+        }
+        if (valKind.empty()) {
+            reportUnsupported(node.getLocation(), "await",
+                              "'delayed_value' only carries int, bool and string payloads in this phase");
+            node.getExpr().accept(*this);
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        call->getArgs()[1]->accept(*this);
+        IRValuePtr value = (valKind == "string")
+            ? m_lastExprValue
+            : emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
+        auto taskCall = std::make_shared<CallInst>(
+            IRType::getPointer(),
+            valKind == "string" ? "sp_rt_async_delayed_str" : "sp_rt_async_delayed_i64",
+            std::vector<IRValuePtr>{sched, ms, value},
+            m_currentFunction->nextTempName("async_task"));
+        m_currentBlock->addInstruction(taskCall);
+        IRValuePtr awaited = emitAwaitTask(sched, taskCall, valKind);
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_destroy",
+            std::vector<IRValuePtr>{taskCall}));
+        m_lastExprValue = awaited;
+        m_lastExprType = valKind == "string" ? IRType::getPointer()
+                       : valKind == "bool" ? IRType::getInt1()
+                       : IRType::getInt64();
+        return;
+    }
+
+    // (2) await on a call to a user async fn: spawn (via visit(CallExpr))
+    // + await inline, then destroy the temporary task.
+    if (call) {
+        if (auto target = m_sema.getCallTarget(call); target && target->isAsync()) {
+            std::string kind;
+            if (!taskPayloadKind(m_sema.getNodeType(call), kind)) {
+                reportUnsupported(node.getLocation(), "await",
+                                  "the return type of this 'async fn' cannot be carried by a Task "
+                                  "(only void, int, bool and string payloads are supported)");
+                node.getExpr().accept(*this);
+                m_lastExprValue = nullptr;
+                m_lastExprType = nullptr;
+                return;
+            }
+            call->accept(*this);
+            IRValuePtr task = m_lastExprValue;
+            auto sched = emitAsyncScheduler();
+            IRValuePtr awaited = emitAwaitTask(sched, task, kind);
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_async_task_destroy",
+                std::vector<IRValuePtr>{task}));
+            m_lastExprValue = awaited;
+            m_lastExprType = kind == "void" ? IRType::getVoid()
+                           : kind == "string" ? IRType::getPointer()
+                           : kind == "bool" ? IRType::getInt1()
+                           : IRType::getInt64();
+            return;
+        }
+    }
+
+    // (3) await on an existing Task value: pump until it completes.
+    // The task is NOT destroyed here — its owner keeps it.
+    {
+        std::string kind;
+        if (taskPayloadKind(m_sema.getNodeType(&node.getExpr()), kind)) {
+            node.getExpr().accept(*this);
+            IRValuePtr task = m_lastExprValue;
+            auto sched = emitAsyncScheduler();
+            IRValuePtr awaited = emitAwaitTask(sched, task, kind);
+            m_lastExprValue = awaited;
+            m_lastExprType = kind == "void" ? IRType::getVoid()
+                           : kind == "string" ? IRType::getPointer()
+                           : kind == "bool" ? IRType::getInt1()
+                           : IRType::getInt64();
+            return;
+        }
+    }
+
+    // (4) Backstop: everything else still fails loudly.
+    reportUnsupported(node.getLocation(), "await",
+                      "only 'await sleep_async(ms)', 'await delayed_value(ms, value)', "
+                      "'await <async fn call>' and 'await <Task<T> value>' are supported in this phase; "
+                      "awaiting any other expression is not implemented yet");
+    node.getExpr().accept(*this);
+    m_lastExprValue = nullptr;
+    m_lastExprType = nullptr;
+}
+
+void IRBuilder::visit(const ast::ComptimeExpr& node) {
+    // Phase 3 slice D (pro-4.0.0): REAL compile-time evaluation. The inner
+    // expression (or block) is interpreted by sema::ComptimeEvaluator and
+    // the computed value is lowered as an ordinary literal, so the constant
+    // is folded into the IR with zero runtime code. Anything the evaluator
+    // cannot compute — runtime values, calls to non-comptime functions,
+    // unsupported constructs — fails the build loudly instead of passing
+    // through as runtime code (the Phase 1 E1000 behaviour is kept for
+    // exactly those cases; the evaluator reports the specific reason,
+    // which is embedded in the detail below).
+    if (!m_comptimeEval) {
+        reportUnsupported(node.getLocation(), "comptime",
+                          "the compile-time evaluator was not initialized for this build");
         m_lastExprValue = nullptr;
         m_lastExprType = nullptr;
         return;
     }
-
-    // Evaluate the arguments (in source order) without visiting the call
-    // itself: a plain visit(CallExpr) would emit a call to the SP-level
-    // `sleep_async` / `delayed_value`, which has no IR function.
-    call->getArgs()[0]->accept(*this);
-    IRValuePtr ms = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
-    IRValuePtr value = nullptr;
-    if (isDelayedValue) {
-        call->getArgs()[1]->accept(*this);
-        value = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
-    }
-
-    auto schedCall = std::make_shared<CallInst>(
-        IRType::getPointer(), "sp_rt_async_default_scheduler",
-        std::vector<IRValuePtr>{},
-        m_currentFunction->nextTempName("async_sched"));
-    m_currentBlock->addInstruction(schedCall);
-
-    std::vector<IRValuePtr> taskArgs{schedCall, ms};
-    if (isDelayedValue) taskArgs.push_back(value);
-    auto taskCall = std::make_shared<CallInst>(
-        IRType::getPointer(),
-        isDelayedValue ? "sp_rt_async_delayed_i64" : "sp_rt_async_sleep_ms",
-        taskArgs, m_currentFunction->nextTempName("async_task"));
-    m_currentBlock->addInstruction(taskCall);
-
-    if (isDelayedValue) {
-        auto awaitCall = std::make_shared<CallInst>(
-            IRType::getInt64(), "sp_rt_async_task_await_i64",
-            std::vector<IRValuePtr>{schedCall, taskCall},
-            m_currentFunction->nextTempName("awaited"));
-        m_currentBlock->addInstruction(awaitCall);
-        m_currentBlock->addInstruction(std::make_shared<CallInst>(
-            IRType::getVoid(), "sp_rt_async_task_destroy",
-            std::vector<IRValuePtr>{taskCall}));
-        m_lastExprValue = awaitCall;
-        m_lastExprType = IRType::getInt64();
-    } else {
-        m_currentBlock->addInstruction(std::make_shared<CallInst>(
-            IRType::getVoid(), "sp_rt_async_task_await_void",
-            std::vector<IRValuePtr>{schedCall, taskCall}));
-        m_currentBlock->addInstruction(std::make_shared<CallInst>(
-            IRType::getVoid(), "sp_rt_async_task_destroy",
-            std::vector<IRValuePtr>{taskCall}));
+    sema::ComptimeValue value = m_comptimeEval->evaluate(node);
+    if (m_comptimeEval->hasError() || value.kind == sema::ComptimeKind::Void) {
+        std::string detail;
+        if (m_comptimeEval->hasError() && !m_comptimeEval->getLastError().empty()) {
+            detail = m_comptimeEval->getLastError() + " ";
+        } else {
+            detail = "the expression could not be evaluated at compile time ";
+        }
+        detail += "(comptime supports: literal int/float/bool/string/char arithmetic and logic, string concatenation, ternary, arrays + indexing, `.length`, and calls to `comptime fn` functions; anything depending on runtime values fails)";
+        reportUnsupported(node.getLocation(), "comptime", detail);
         m_lastExprValue = nullptr;
-        m_lastExprType = IRType::getVoid();
+        m_lastExprType = nullptr;
+        return;
     }
-}
-
-void IRBuilder::visit(const ast::ComptimeExpr& node) {
-    // Phase 1 (pro-4.0.0): 'comptime' blocks and expressions are neither
-    // folded nor specially lowered. They used to be forwarded as ordinary
-    // runtime code, silently turning compile-time code into runtime code.
-    // ComptimeEvaluator only registers comptime functions; it never
-    // rewrites ComptimeExpr nodes, so there is no earlier evaluation path
-    // to preserve. Fail loudly instead.
-    reportUnsupported(node.getLocation(), "comptime",
-                      "comptime evaluation is not implemented yet in IR lowering");
-    // Still visit the inner expression/block so nested unsupported
-    // constructs are reported in the same pass; the module is discarded
-    // either way.
-    if (node.hasExpr()) {
-        node.getExpr()->accept(*this);
-    } else if (node.isBlock() && node.getBlock()) {
-        node.getBlock()->accept(*this);
-    }
-    m_lastExprValue = nullptr;
-    m_lastExprType = nullptr;
+    auto literal = value.toLiteralAST(node.getLocation());
+    literal->accept(*this);
 }
 
 } // namespace sp::ir

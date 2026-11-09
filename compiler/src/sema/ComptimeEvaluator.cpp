@@ -198,6 +198,10 @@ ComptimeValue ComptimeEvaluator::evaluate(const ast::ExpressionNode& expr) {
                     return ComptimeValue::fromChar(arrVal.stringVal[static_cast<size_t>(i)]);
                 }
                 reportError("E1804", "String index out of bounds in comptime evaluation: " + std::to_string(i), expr.getLocation());
+            } else if (!m_hasError) {
+                // Phase 3 slice D: indexing a non-array/non-string (or with
+                // a non-int index) is a loud error, never a silent void.
+                reportError("E1807", "Indexing is only supported on arrays and strings with an int index in compile-time evaluation", expr.getLocation());
             }
             return ComptimeValue::voidVal();
         }
@@ -211,6 +215,12 @@ ComptimeValue ComptimeEvaluator::evaluate(const ast::ExpressionNode& expr) {
                 } else if (obj.kind == ComptimeKind::String) {
                     return ComptimeValue::fromInt(static_cast<int64_t>(obj.stringVal.size()));
                 }
+            }
+            // Phase 3 slice D: only `.length` is supported on values in
+            // comptime; any other member access is a loud error, never a
+            // silent void.
+            if (!m_hasError) {
+                reportError("E1807", "Only '.length' is supported on values in compile-time evaluation (got '." + mem.getMember() + "')", expr.getLocation());
             }
             return ComptimeValue::voidVal();
         }
@@ -229,6 +239,9 @@ ComptimeValue ComptimeEvaluator::evaluate(const ast::ExpressionNode& expr) {
                 setVar(targetId.getName(), rightVal);
                 return rightVal;
             }
+            if (!m_hasError) {
+                reportError("E1807", "Only assignment to a local variable is supported in compile-time evaluation", expr.getLocation());
+            }
             return ComptimeValue::voidVal();
         }
 
@@ -244,6 +257,12 @@ ComptimeValue ComptimeEvaluator::evaluate(const ast::ExpressionNode& expr) {
         }
 
         default:
+            // Phase 3 slice D: an expression kind the evaluator cannot
+            // interpret is a loud error, never a silent void that the
+            // caller might mistake for a value (or fold to null).
+            if (!m_hasError) {
+                reportError("E1807", "This expression kind is not supported in compile-time evaluation", expr.getLocation());
+            }
             break;
     }
 
@@ -328,11 +347,20 @@ ComptimeValue ComptimeEvaluator::evaluateBinary(const ast::BinaryExpr& expr) {
             if (left.kind == ComptimeKind::Float && right.kind == ComptimeKind::Float) {
                 return ComptimeValue::fromBool(left.floatVal == right.floatVal);
             }
+            if ((left.kind == ComptimeKind::Int && right.kind == ComptimeKind::Float) ||
+                (left.kind == ComptimeKind::Float && right.kind == ComptimeKind::Int)) {
+                double l = (left.kind == ComptimeKind::Float) ? left.floatVal : static_cast<double>(left.intVal);
+                double r = (right.kind == ComptimeKind::Float) ? right.floatVal : static_cast<double>(right.intVal);
+                return ComptimeValue::fromBool(l == r);
+            }
             if (left.kind == ComptimeKind::Bool && right.kind == ComptimeKind::Bool) {
                 return ComptimeValue::fromBool(left.boolVal == right.boolVal);
             }
             if (left.kind == ComptimeKind::String && right.kind == ComptimeKind::String) {
                 return ComptimeValue::fromBool(left.stringVal == right.stringVal);
+            }
+            if (left.kind == ComptimeKind::Char && right.kind == ComptimeKind::Char) {
+                return ComptimeValue::fromBool(left.charVal == right.charVal);
             }
             return ComptimeValue::fromBool(left.kind == right.kind);
 
@@ -343,11 +371,20 @@ ComptimeValue ComptimeEvaluator::evaluateBinary(const ast::BinaryExpr& expr) {
             if (left.kind == ComptimeKind::Float && right.kind == ComptimeKind::Float) {
                 return ComptimeValue::fromBool(left.floatVal != right.floatVal);
             }
+            if ((left.kind == ComptimeKind::Int && right.kind == ComptimeKind::Float) ||
+                (left.kind == ComptimeKind::Float && right.kind == ComptimeKind::Int)) {
+                double l = (left.kind == ComptimeKind::Float) ? left.floatVal : static_cast<double>(left.intVal);
+                double r = (right.kind == ComptimeKind::Float) ? right.floatVal : static_cast<double>(right.intVal);
+                return ComptimeValue::fromBool(l != r);
+            }
             if (left.kind == ComptimeKind::Bool && right.kind == ComptimeKind::Bool) {
                 return ComptimeValue::fromBool(left.boolVal != right.boolVal);
             }
             if (left.kind == ComptimeKind::String && right.kind == ComptimeKind::String) {
                 return ComptimeValue::fromBool(left.stringVal != right.stringVal);
+            }
+            if (left.kind == ComptimeKind::Char && right.kind == ComptimeKind::Char) {
+                return ComptimeValue::fromBool(left.charVal != right.charVal);
             }
             return ComptimeValue::fromBool(left.kind != right.kind);
 
@@ -377,11 +414,21 @@ ComptimeValue ComptimeEvaluator::evaluateBinary(const ast::BinaryExpr& expr) {
             if (left.kind == ComptimeKind::Int && right.kind == ComptimeKind::Int) {
                 return ComptimeValue::fromBool(left.intVal <= right.intVal);
             }
+            if (left.kind == ComptimeKind::Float || right.kind == ComptimeKind::Float) {
+                double l = (left.kind == ComptimeKind::Float) ? left.floatVal : static_cast<double>(left.intVal);
+                double r = (right.kind == ComptimeKind::Float) ? right.floatVal : static_cast<double>(right.intVal);
+                return ComptimeValue::fromBool(l <= r);
+            }
             break;
 
         case lexer::TokenType::GreaterEqual:
             if (left.kind == ComptimeKind::Int && right.kind == ComptimeKind::Int) {
                 return ComptimeValue::fromBool(left.intVal >= right.intVal);
+            }
+            if (left.kind == ComptimeKind::Float || right.kind == ComptimeKind::Float) {
+                double l = (left.kind == ComptimeKind::Float) ? left.floatVal : static_cast<double>(left.intVal);
+                double r = (right.kind == ComptimeKind::Float) ? right.floatVal : static_cast<double>(right.intVal);
+                return ComptimeValue::fromBool(l >= r);
             }
             break;
 
@@ -425,6 +472,12 @@ ComptimeValue ComptimeEvaluator::evaluateBinary(const ast::BinaryExpr& expr) {
             break;
     }
 
+    // Phase 3 slice D: reaching here means the operator has no lowering
+    // for these operand types (e.g. float `<=`, char arithmetic). Loud
+    // error, never a silent void.
+    if (!m_hasError) {
+        reportError("E1807", "This operator cannot be applied to these operand types in compile-time evaluation", expr.getLocation());
+    }
     return ComptimeValue::voidVal();
 }
 
@@ -442,6 +495,11 @@ ComptimeValue ComptimeEvaluator::evaluateUnary(const ast::UnaryExpr& expr) {
             break;
         default:
             break;
+    }
+    // Phase 3 slice D: no lowering for this operand type — loud error,
+    // never a silent void.
+    if (!m_hasError) {
+        reportError("E1807", "This unary operator cannot be applied to this operand type in compile-time evaluation", expr.getLocation());
     }
     return ComptimeValue::voidVal();
 }
@@ -506,6 +564,17 @@ ComptimeValue ComptimeEvaluator::evaluateCall(const ast::CallExpr& expr) {
         return res;
     }
 
+    // Phase 3 slice D: calling anything that is not a registered
+    // `comptime fn` (or a comptime builtin) is a loud error. The old code
+    // silently returned void, so `comptime println("x")` or a call to a
+    // plain runtime function would fold to nothing with no diagnostic.
+    // (An arg that already errored still reports only that first error.)
+    if (!m_hasError) {
+        std::string what = fnName.empty()
+            ? "a method or non-identifier call"
+            : "function '" + fnName + "'";
+        reportError("E1806", "Cannot call " + what + " in compile-time evaluation: only `comptime fn` functions and the builtins min/max/abs/assert are available", expr.getLocation());
+    }
     return ComptimeValue::voidVal();
 }
 
@@ -576,6 +645,12 @@ ComptimeValue ComptimeEvaluator::evaluateStmt(const ast::StatementNode& stmt, bo
             return evaluateBlock(static_cast<const ast::BlockStmt&>(stmt), returned);
 
         default:
+            // Phase 3 slice D: a statement kind the evaluator cannot
+            // interpret (throw, try/catch, switch, ...) is a loud error,
+            // never a silent skip.
+            if (!m_hasError) {
+                reportError("E1807", "This statement kind is not supported in compile-time evaluation", stmt.getLocation());
+            }
             break;
     }
     return ComptimeValue::voidVal();
@@ -598,11 +673,19 @@ std::unique_ptr<ast::ExpressionNode> ComptimeEvaluator::foldToLiteral(const ast:
     return val.toLiteralAST(expr.getLocation());
 }
 
-void ComptimeEvaluator::processProgram(ast::Program& program) {
-    // 1. Register all functions marked comptime or pure
+void ComptimeEvaluator::processProgram(const ast::Program& program) {
+    // Phase 3 slice D: register ONLY functions marked `comptime`. The old
+    // code registered every function, so a comptime call could silently
+    // interpret a runtime function body (whose IO/side effects the
+    // evaluator cannot reproduce). Only `comptime fn` bodies are pure
+    // compile-time code; anything else called from comptime is a loud
+    // error (see evaluateCall).
     for (const auto& decl : program.getDeclarations()) {
         if (decl && decl->getKind() == ast::ASTNodeKind::FunctionDecl) {
-            registerFunction(static_cast<const ast::FunctionDecl*>(decl.get()));
+            const auto* fn = static_cast<const ast::FunctionDecl*>(decl.get());
+            if (fn->isComptime()) {
+                registerFunction(fn);
+            }
         }
     }
 }

@@ -7,10 +7,12 @@
 #include "sp/diagnostics/SourceLocation.h"
 #include "sp/ir/IRModule.h"
 #include "sp/sema/SemanticAnalyzer.h"
+#include "sp/sema/ComptimeEvaluator.h"
 #include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace sp::codegen {
 class VTableBuilder;
@@ -191,6 +193,12 @@ private:
     // is a capture attempt and fails loudly (capturing lambdas are not
     // lowered). Nested lambdas push another frame.
     std::vector<std::unordered_set<std::string>> m_lambdaOuterVars;
+
+    // Phase 3 slice D: the compile-time evaluator, built once per build()
+    // from the whole program (it registers the `comptime fn` functions).
+    // visit(ComptimeExpr) interprets the inner expression with it and
+    // lowers the computed value as an ordinary literal.
+    std::unique_ptr<sema::ComptimeEvaluator> m_comptimeEval;
 
     // Guards a C string-runtime call: every argument that must be a string
     // is checked against its sema type. A `char` (or other non-string,

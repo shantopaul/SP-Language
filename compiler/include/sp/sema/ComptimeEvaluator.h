@@ -107,7 +107,7 @@ public:
     std::unique_ptr<ast::ExpressionNode> foldToLiteral(const ast::ExpressionNode& expr);
 
     // Scan an entire Program, registering comptime functions and folding comptime blocks/expressions
-    void processProgram(ast::Program& program);
+    void processProgram(const ast::Program& program);
 
     [[nodiscard]] bool hasError() const noexcept { return m_hasError; }
     [[nodiscard]] const std::string& getLastError() const noexcept { return m_lastError; }
