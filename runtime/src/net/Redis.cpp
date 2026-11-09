@@ -143,19 +143,29 @@ bool RedisClient::connect(const std::string& host, int port, int timeoutMs) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_host = host;
     m_port = port;
+    m_lastError.clear();
 
-    if (!m_mockMode) {
-        m_socket = std::make_unique<sp::rt::net::TcpSocket>();
-        if (m_socket->connect(host, port, timeoutMs)) {
-            m_connected = true;
-            return true;
-        }
-        // Fallback to mock mode if daemon isn't running
-        m_mockMode = true;
+    if (m_mockMode) {
+        // Explicit in-memory mock (opted in via setMockMode(true) or
+        // RedisPoolConfig::mockMode). No socket is opened; callers can
+        // tell via isMockMode().
+        m_socket.reset();
+        m_connected = true;
+        return true;
     }
 
-    m_connected = true;
-    return true;
+    m_socket = std::make_unique<sp::rt::net::TcpSocket>();
+    if (m_socket->connect(host, port, timeoutMs)) {
+        m_connected = true;
+        return true;
+    }
+    // Honest failure: never silently fall back to the mock and never
+    // report connected. Callers must check the return value,
+    // isConnected(), or lastError().
+    m_lastError = "Failed to connect to Redis at " + host + ":" + std::to_string(port);
+    m_socket.reset();
+    m_connected = false;
+    return false;
 }
 
 void RedisClient::disconnect() {
@@ -172,9 +182,19 @@ bool RedisClient::isConnected() const {
     return m_connected;
 }
 
+std::string RedisClient::lastError() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lastError;
+}
+
 void RedisClient::setMockMode(bool enabled) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_mockMode = enabled;
+    if (enabled) {
+        // The mock engine needs no socket; it is "connected" by
+        // definition once explicitly opted into.
+        m_connected = true;
+    }
 }
 
 void RedisClient::clearMockStore() {
@@ -195,8 +215,16 @@ RespValue RedisClient::execute(const std::vector<std::string>& args) {
         return err;
     }
 
-    if (m_mockMode || !m_socket || !m_connected) {
+    if (m_mockMode) {
         return executeMock(args);
+    }
+    if (!m_connected || !m_socket) {
+        // Live mode with no connection: fail loudly instead of silently
+        // serving in-memory mock data for a server that is not there.
+        RespValue err;
+        err.type = RespType::Error;
+        err.stringVal = "ERR not connected to Redis (mock mode is off; call setMockMode(true) for an explicit in-memory mock)";
+        return err;
     }
 
     // Live socket execution

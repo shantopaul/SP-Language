@@ -4,6 +4,7 @@
 #include "sp/codegen/DebugInfoGenerator.h"
 #include "sp/codegen/LLVMOptimizer.h"
 #include "sp/ir/IRPrinter.h"
+#include "sp/ir/IRVerifier.h"
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -89,6 +90,21 @@ std::string LLVMGenerator::findRuntimeLibPath() {
 }
 
 std::string LLVMGenerator::generateLLVMIR(const ir::IRModule& module) {
+    // Phase 1 (pro-4.0.0): never emit IR text for a module that fails
+    // verification. IRBuilder::build() already verifies, so this is
+    // defense in depth for modules built by any other path. On failure
+    // the last error is set and an empty string is returned; callers
+    // check for that (see emitLLVMIRToFile / emitObjectFile).
+    ir::IRVerifier verifier;
+    if (!verifier.verify(module)) {
+        m_lastError = "IR verification failed:";
+        for (const auto& error : verifier.getErrors()) {
+            m_lastError += "\n  " + error;
+            std::cerr << "error[E1000]: IR verification failed: " << error << '\n';
+        }
+        return "";
+    }
+
     std::ostringstream ss;
     ss << "; ModuleID = '" << module.getName() << "'\n";
     ss << "source_filename = \"" << module.getName() << ".sp\"\n";
@@ -120,18 +136,33 @@ std::string LLVMGenerator::generateLLVMIR(const ir::IRModule& module) {
 }
 
 bool LLVMGenerator::emitLLVMIRToFile(const ir::IRModule& module, const std::string& filePath) {
+    // Generate first so a verification failure does not truncate an
+    // existing output file.
+    std::string ir = generateLLVMIR(module);
+    if (ir.empty()) {
+        // IR verification failed; m_lastError is already set by
+        // generateLLVMIR.
+        return false;
+    }
+
     std::ofstream out(filePath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) {
         m_lastError = "Could not open file for writing: " + filePath;
         return false;
     }
 
-    out << generateLLVMIR(module);
+    out << ir;
     return out.good();
 }
 
 bool LLVMGenerator::emitObjectFile(const ir::IRModule& module, const std::string& outputObjPath) {
     std::string ir = generateLLVMIR(module);
+
+    if (ir.empty()) {
+        // IR verification failed; m_lastError is already set by
+        // generateLLVMIR. Do not feed empty IR to the backend compiler.
+        return false;
+    }
 
     if (m_options.debugSymbols) {
         DebugInfoGenerator dbg(module.getName() + ".sp", "src");

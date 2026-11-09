@@ -1,4 +1,5 @@
 #include "sp/ir/IRBuilder.h"
+#include "sp/ir/IRVerifier.h"
 #include "sp/codegen/VTableBuilder.h"
 #include "sp/codegen/ClassGenerator.h"
 #include <iostream>
@@ -78,6 +79,7 @@ IRBuilder::IRBuilder(const sema::SemanticAnalyzer& sema)
 IRBuilder::~IRBuilder() = default;
 
 std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const std::string& moduleName) {
+    m_errors.clear();
     m_module = std::make_unique<IRModule>(moduleName);
     m_blockCounter = 0;
     m_varCounter = 0;
@@ -91,7 +93,34 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
     m_vtableBuilder->buildProgramLayouts(program, *m_module);
 
     visit(program);
+
+    // Phase 1 (pro-4.0.0): fail loudly instead of silently dropping
+    // semantics. Constructs with no lowering record errors while visiting;
+    // the finished module is then verified. Either failure aborts
+    // compilation: every caller (spc, spm, TestRunner, --watch, the
+    // setup smoke test) treats a null module as a failed build.
+    if (!m_errors.empty()) {
+        for (const auto& error : m_errors) {
+            std::cerr << error << '\n';
+        }
+        return nullptr;
+    }
+
+    IRVerifier verifier;
+    if (!verifier.verify(*m_module)) {
+        for (const auto& error : verifier.getErrors()) {
+            std::cerr << "error[E1000]: IR verification failed: " << error << '\n';
+        }
+        return nullptr;
+    }
+
     return std::move(m_module);
+}
+
+void IRBuilder::reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
+                                  const std::string& detail) {
+    m_errors.push_back("error[E1000]: '" + construct + "' is not yet supported in this phase of the SP compiler (" +
+                       detail + ") --> " + loc.toString());
 }
 
 void IRBuilder::pushScope() {
@@ -1341,12 +1370,33 @@ void IRBuilder::visit(const ast::ContinueStmt& node) {
 }
 
 void IRBuilder::visit(const ast::TryCatchStmt& node) {
+    if (!node.getCatches().empty()) {
+        // Phase 1 (pro-4.0.0): catch clauses have no lowering. They used
+        // to be silently dropped, so a program that threw would run past
+        // its handler as if the handler did not exist. Fail loudly
+        // instead; Result<T, E> with the '?' operator is the supported
+        // error path until exception handling lands.
+        reportUnsupported(node.getLocation(), "try/catch",
+                          "catch clauses are not implemented yet; use Result<T, E> and the '?' operator for error handling");
+    }
     node.getTryBlock().accept(*this);
     if (node.hasFinally() && node.getFinallyBlock()) {
         node.getFinallyBlock()->accept(*this);
     }
 }
-void IRBuilder::visit(const ast::ThrowStmt& node) { (void)node; }
+void IRBuilder::visit(const ast::ThrowStmt& node) {
+    // Phase 1 (pro-4.0.0): 'throw' has no lowering. It used to be silently
+    // dropped, so a program that threw would keep running as if nothing
+    // happened. Fail loudly instead; Result<T, E> with the '?' operator
+    // is the supported error path until exception handling lands.
+    reportUnsupported(node.getLocation(), "throw",
+                      "exceptions are not implemented yet; use Result<T, E> and the '?' operator for error handling");
+    // Still visit the thrown expression so nested unsupported constructs
+    // are reported in the same pass; the module is discarded either way.
+    node.getExpr().accept(*this);
+    m_lastExprValue = nullptr;
+    m_lastExprType = nullptr;
+}
 
 void IRBuilder::visit(const ast::ClassDecl& node) {
     if (!m_vtableBuilder) return;
@@ -2141,6 +2191,54 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
     IRValuePtr lhs = m_lastExprValue;
     IRTypePtr lhsType = m_lastExprType;
 
+    // Phase 1 (pro-4.0.0): && and || short-circuit. The RHS is evaluated
+    // only when the LHS does not already decide the result, so RHS side
+    // effects run exactly when the language semantics say they should.
+    // The result is carried through a stack slot (same pattern as
+    // TernaryExpr) so no Phi node is needed: Phi has no lowering in
+    // this IR and would print as "unknown_inst".
+    if ((node.getOp() == lexer::TokenType::AmpAmp || node.getOp() == lexer::TokenType::PipePipe) &&
+        m_currentFunction && m_currentBlock && m_currentFunction->getEntryBlock() && lhs) {
+        const bool isAnd = node.getOp() == lexer::TokenType::AmpAmp;
+        IRValuePtr lhsBool = emitCastIfNeeded(lhs, IRType::getInt1());
+
+        auto rhsBB = createBlock(isAnd ? "and_rhs" : "or_rhs");
+        auto mergeBB = createBlock(isAnd ? "and_merge" : "or_merge");
+
+        auto resAlloca = std::make_shared<AllocaInst>(IRType::getInt1(), m_currentFunction->nextTempName("logic_res"));
+        m_currentFunction->getEntryBlock()->addInstruction(resAlloca);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(lhsBool, resAlloca));
+
+        if (isAnd) {
+            // false && _ == false: skip the RHS.
+            m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(lhsBool, rhsBB->getName(), mergeBB->getName()));
+        } else {
+            // true || _ == true: skip the RHS.
+            m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(lhsBool, mergeBB->getName(), rhsBB->getName()));
+        }
+
+        setInsertPoint(rhsBB);
+        node.getRight().accept(*this);
+        IRValuePtr rhs = m_lastExprValue;
+        if (rhs) {
+            rhs = emitCastIfNeeded(rhs, IRType::getInt1());
+            // addInstruction inserts before a terminator if one is present;
+            // expressions cannot terminate a block, so this is the RHS value.
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhs, resAlloca));
+        }
+        if (!m_currentBlock->hasTerminator()) {
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+        }
+
+        setInsertPoint(mergeBB);
+        auto loadInst = std::make_shared<LoadInst>(IRType::getInt1(), resAlloca, m_currentFunction->nextTempName("logic_val"));
+        mergeBB->addInstruction(loadInst);
+
+        m_lastExprValue = loadInst;
+        m_lastExprType = IRType::getInt1();
+        return;
+    }
+
     node.getRight().accept(*this);
     IRValuePtr rhs = m_lastExprValue;
     IRTypePtr rhsType = m_lastExprType;
@@ -2193,7 +2291,12 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         }
     }
 
-    // Logical operations on booleans stay as i1 without integer promotion
+    // Logical operations on booleans stay as i1 without integer promotion.
+    // NOTE (Phase 1): this eager path is now only a fallback for
+    // expressions lowered without a current function/block (e.g. outside
+    // any function body), where short-circuit control flow cannot be
+    // built. All in-function && / || are handled by the short-circuit
+    // path above and never reach here.
     if (node.getOp() == lexer::TokenType::AmpAmp || node.getOp() == lexer::TokenType::PipePipe) {
         lhs = emitCastIfNeeded(lhs, IRType::getInt1());
         rhs = emitCastIfNeeded(rhs, IRType::getInt1());
@@ -6217,7 +6320,24 @@ void IRBuilder::visit(const ast::ArrayExpr& node) {
     m_lastExprValue = allocCall;
     m_lastExprType = IRType::getPointer();
 }
-void IRBuilder::visit(const ast::MapExpr& node) { (void)node; }
+void IRBuilder::visit(const ast::MapExpr& node) {
+    // Phase 1 (pro-4.0.0): map literals have no lowering. They used to be
+    // silently dropped, evaluating to nothing. Fail loudly instead.
+    reportUnsupported(node.getLocation(), "map literal",
+                      "map literals are not implemented yet in IR lowering");
+    // Still visit the entries so nested unsupported constructs are
+    // reported in the same pass; the module is discarded either way.
+    for (const auto& entry : node.getEntries()) {
+        if (entry.first) {
+            entry.first->accept(*this);
+        }
+        if (entry.second) {
+            entry.second->accept(*this);
+        }
+    }
+    m_lastExprValue = nullptr;
+    m_lastExprType = nullptr;
+}
 void IRBuilder::visit(const ast::LambdaExpr& node) {
     std::string lambdaName = "__sp_lambda_" + std::to_string(m_lambdaCounter++);
 
@@ -6724,15 +6844,39 @@ void IRBuilder::visit(const ast::TryExpr& node) {
 }
 
 void IRBuilder::visit(const ast::AwaitExpr& node) {
+    // Phase 1 (pro-4.0.0): 'await' has no coroutine lowering. It used to
+    // forward the inner expression, silently running async code
+    // synchronously. ComptimeEvaluator::processProgram only registers
+    // comptime functions; it never rewrites await nodes, so there is no
+    // earlier lowering path to preserve. Fail loudly instead.
+    reportUnsupported(node.getLocation(), "await",
+                      "async/await is not implemented yet; there is no coroutine runtime in this phase");
+    // Still visit the inner expression so nested unsupported constructs
+    // are reported in the same pass; the module is discarded either way.
     node.getExpr().accept(*this);
+    m_lastExprValue = nullptr;
+    m_lastExprType = nullptr;
 }
 
 void IRBuilder::visit(const ast::ComptimeExpr& node) {
+    // Phase 1 (pro-4.0.0): 'comptime' blocks and expressions are neither
+    // folded nor specially lowered. They used to be forwarded as ordinary
+    // runtime code, silently turning compile-time code into runtime code.
+    // ComptimeEvaluator only registers comptime functions; it never
+    // rewrites ComptimeExpr nodes, so there is no earlier evaluation path
+    // to preserve. Fail loudly instead.
+    reportUnsupported(node.getLocation(), "comptime",
+                      "comptime evaluation is not implemented yet in IR lowering");
+    // Still visit the inner expression/block so nested unsupported
+    // constructs are reported in the same pass; the module is discarded
+    // either way.
     if (node.hasExpr()) {
         node.getExpr()->accept(*this);
     } else if (node.isBlock() && node.getBlock()) {
         node.getBlock()->accept(*this);
     }
+    m_lastExprValue = nullptr;
+    m_lastExprType = nullptr;
 }
 
 } // namespace sp::ir

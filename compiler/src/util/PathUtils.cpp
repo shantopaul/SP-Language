@@ -191,9 +191,9 @@ fs::path getStdlibDir() {
         }
     }
 #else
-    const char* home = std::getenv("HOME");
-    if (home && *home) {
-        fs::path p = fs::path(home) / ".sp" / "stdlib";
+    const char* homeEnv = std::getenv("HOME");
+    if (homeEnv && *homeEnv) {
+        fs::path p = fs::path(homeEnv) / ".sp" / "stdlib";
         if (fs::exists(p)) return fs::absolute(p);
     }
     const std::vector<std::string> unixDirs = {

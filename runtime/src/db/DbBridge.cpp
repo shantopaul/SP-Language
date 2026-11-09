@@ -231,7 +231,12 @@ void* sp_rt_pg_connect(const char* conn_str) {
     auto conn = new PgConnection();
     if (!conn->connect(conn_str)) {
         g_lastPgConnectError = conn->lastError();
-        return conn;
+        // Honest failure: return nullptr instead of a non-null handle to
+        // a dead connection. The reason stays retrievable via
+        // sp_rt_pg_last_error(nullptr); callers must check the handle
+        // (stdlib PgConnection::isValid()/isConnected() already do).
+        delete conn;
+        return nullptr;
     }
     return conn;
 }

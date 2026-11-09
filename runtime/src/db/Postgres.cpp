@@ -25,7 +25,7 @@ typedef SOCKET socket_t;
 #include <unistd.h>
 typedef int socket_t;
 #define INVALID_SOCK (-1)
-#define CLOSE_SOCK close
+#define CLOSE_SOCK ::close
 #endif
 
 namespace sp::runtime {

@@ -32,6 +32,11 @@ public:
     static HealthRegistry& getGlobal();
 
 private:
+    // Runs every registered callback (exception-safe) and merges static
+    // statuses. Shared by liveness and readiness so both report the same
+    // truth; liveness must never hard-code UP.
+    std::pair<bool, std::map<std::string, HealthCheckResult>> evaluateChecks();
+
     std::mutex m_mutex;
     std::map<std::string, HealthCheckCallback> m_callbacks;
     std::map<std::string, HealthCheckResult> m_staticStatuses;

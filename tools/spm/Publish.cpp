@@ -245,24 +245,74 @@ PublishResult PackagePublisher::publish(const std::string& projectDir, const Pub
                 << "  \"archiveSizeBytes\": " << result.archiveSizeBytes << "\n"
                 << "}";
 
-    // Execute publication HTTP POST request
+    // Execute publication HTTP POST request.
+    //
+    // Honesty notes (Phase 1):
+    // - HttpClient::post() takes no headers, so it CANNOT send the Bearer
+    //   token. Use HttpClient::send() with a hand-built HttpRequest instead,
+    //   which carries headers (see runtime/src/http/Http.cpp).
+    // - The HTTP client has no TLS support, so an https:// registry URL
+    //   cannot be published to at all. Fail with a clear error instead of
+    //   attempting it or pretending it worked. Follow-up (out of scope for
+    //   this file): add TLS + an authenticated post() to the runtime HTTP
+    //   client, then allow https:// registry URLs here.
+    // - A failed/unreachable registry is a FAILURE. The old code treated
+    //   statusCode == 0 or >= 500 as success ("staged offline"); that
+    //   misled users into believing a package was published when it was not.
     std::string endpoint = options.registryUrl;
     if (endpoint.back() == '/') endpoint.pop_back();
     endpoint += "/api/v1/publish";
 
-    auto resp = sp::rt::http::HttpClient::post(endpoint, jsonPayload.str(), "application/json", 5000);
+    if (endpoint.rfind("https://", 0) == 0) {
+        result.errorMessage =
+            "Cannot publish to https:// registry '" + endpoint +
+            "': the SP HTTP client has no TLS support and cannot send an "
+            "authenticated request over HTTPS. Publish to an http:// registry "
+            "URL, or wait for TLS + authenticated post() support in the "
+            "runtime HTTP client. The package was validated and archived "
+            "locally only; nothing was published.";
+        return result;
+    }
+
+    std::string publishUrl = endpoint;
+    if (publishUrl.rfind("http://", 0) == 0) publishUrl = publishUrl.substr(7);
+    std::string publishPath = "/";
+    std::string hostPort = publishUrl;
+    size_t slash = publishUrl.find('/');
+    if (slash != std::string::npos) {
+        hostPort = publishUrl.substr(0, slash);
+        publishPath = publishUrl.substr(slash);
+    }
+    std::string publishHost = hostPort;
+    int publishPort = 80;
+    size_t colon = hostPort.find(':');
+    if (colon != std::string::npos) {
+        publishHost = hostPort.substr(0, colon);
+        try {
+            publishPort = std::stoi(hostPort.substr(colon + 1));
+        } catch (const std::exception&) {
+            result.errorMessage = "Invalid registry URL (bad port): " + endpoint;
+            return result;
+        }
+    }
+
+    sp::rt::http::HttpRequest req;
+    req.method = "POST";
+    req.path = publishPath;
+    req.body = jsonPayload.str();
+    req.setHeader("Content-Type", "application/json");
+    req.setHeader("Authorization", "Bearer " + token);
+    req.setHeader("User-Agent", "SP-Http-Client/2.2");
+
+    auto resp = sp::rt::http::HttpClient::send(req, publishHost, publishPort, 5000);
 
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
         result.success = true;
         result.registryResponse = resp.body;
-    } else if (resp.statusCode == 0 || resp.statusCode >= 500) {
-        // If registry host is unreachable in local offline test environment,
-        // treat as successful local staged package with offline confirmation
-        result.success = true;
-        result.registryResponse = "Package validated and staged successfully. (Registry endpoint " +
-                                  endpoint + " is currently offline or unreachable; archive and checksum verified).";
     } else {
-        result.errorMessage = "Registry returned HTTP " + std::to_string(resp.statusCode) + ": " + resp.body;
+        result.errorMessage = "Registry publish failed (HTTP " + std::to_string(resp.statusCode) +
+                              "): " + resp.body +
+                              " The package was validated and archived locally only; nothing was published.";
         return result;
     }
 

@@ -404,6 +404,50 @@ TEST(RealtimeTest, RedisConnectionPoolConcurrency) {
 }
 
 // ============================================================================
+// 8b. Redis Honesty: connect failure is explicit, mock is opt-in only
+// ============================================================================
+
+TEST(RealtimeTest, RedisConnectFailureIsExplicitNotMock) {
+    // Default mode is live, NOT mock: a refused connection must fail
+    // loudly instead of silently serving in-memory mock data.
+    RedisClient client;
+    EXPECT_FALSE(client.isMockMode());
+    EXPECT_FALSE(client.connect("127.0.0.1", 63999, 500));
+    EXPECT_FALSE(client.isConnected());
+    EXPECT_FALSE(client.lastError().empty());
+
+    // A live-but-disconnected client fails visibly on use.
+    auto res = client.execute({"GET", "any_key"});
+    EXPECT_TRUE(res.isError());
+    EXPECT_NE(client.ping().find("ERR"), std::string::npos);
+
+    // Mock mode is opt-in only, and it works when explicitly enabled.
+    RedisClient mock;
+    mock.setMockMode(true);
+    ASSERT_TRUE(mock.connect("127.0.0.1", 63999, 500));
+    EXPECT_TRUE(mock.isMockMode());
+    EXPECT_TRUE(mock.isConnected());
+    ASSERT_TRUE(mock.set("k", "v"));
+    auto v = mock.get("k");
+    ASSERT_TRUE(v.has_value());
+    EXPECT_EQ(*v, "v");
+}
+
+TEST(RealtimeTest, RedisPoolAcquireFailsWithoutServer) {
+    RedisPoolConfig cfg;
+    cfg.minConnections = 0;
+    cfg.maxConnections = 1;
+    cfg.acquireTimeoutMs = 200;
+    // mockMode stays at its default (false): no silent mock pool.
+    EXPECT_FALSE(cfg.mockMode);
+
+    RedisPool pool(cfg);
+    EXPECT_EQ(pool.total(), 0);
+    EXPECT_EQ(pool.acquire(), nullptr);
+    pool.close();
+}
+
+// ============================================================================
 // 9. Realtime WebSocket & Redis High-Throughput Stress Test
 // ============================================================================
 

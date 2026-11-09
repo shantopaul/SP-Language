@@ -1,7 +1,7 @@
-# Script to package official SP Language 1.0.0 distribution archive
+# Script to package official SP Language 3.1.0 distribution archive
 $ErrorActionPreference = "Stop"
 
-$distDir = "build\dist\sp-1.0.0-windows-x64"
+$distDir = "build\dist\sp-3.1.0-windows-x64"
 if (Test-Path $distDir) { Remove-Item $distDir -Recurse -Force }
 New-Item -ItemType Directory -Path "$distDir\bin" -Force | Out-Null
 New-Item -ItemType Directory -Path "$distDir\stdlib" -Force | Out-Null
@@ -22,7 +22,7 @@ $sampleCode = @"
 import std.io;
 
 fn main() -> void {
-    println("Welcome to SP Programming Language 1.0!");
+    println("Welcome to SP Programming Language 3.1.0!");
     println("Native LLVM compilation verified.");
 }
 "@
@@ -32,7 +32,7 @@ if (Test-Path "LICENSE") {
     Copy-Item "LICENSE" "$distDir\LICENSE"
 }
 
-$outZip = "build\dist\sp-1.0.0-windows-x64.zip"
+$outZip = "build\dist\sp-3.1.0-windows-x64.zip"
 if (Test-Path $outZip) { Remove-Item $outZip -Force }
 Compress-Archive -Path "$distDir\*" -DestinationPath $outZip -CompressionLevel Optimal
 
@@ -47,7 +47,7 @@ Write-Host "SHA-256: $hash"
 
 # Output variables to a JSON file for website use
 $meta = @{
-    version = "1.0.0"
+    version = "3.1.0"
     zip = $outZip
     size = "$sizeMB MB"
     sha256 = $hash

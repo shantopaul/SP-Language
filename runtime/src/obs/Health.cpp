@@ -47,19 +47,10 @@ void HealthRegistry::setStatus(const std::string& name, bool isUp, const std::st
     m_staticStatuses[name] = HealthCheckResult{isUp, message};
 }
 
-std::string HealthRegistry::checkLiveness() {
-    std::string ts = currentIsoTimestamp();
-    return "{\"status\":\"UP\",\"timestamp\":\"" + ts + "\"}";
-}
-
-std::pair<bool, std::string> HealthRegistry::checkReadiness() {
+std::pair<bool, std::map<std::string, HealthCheckResult>> HealthRegistry::evaluateChecks() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    std::string ts = currentIsoTimestamp();
 
     bool overallUp = true;
-    std::ostringstream ss;
-    ss << "{\"status\":";
-
     std::map<std::string, HealthCheckResult> results;
     for (const auto& [name, check] : m_callbacks) {
         try {
@@ -76,6 +67,44 @@ std::pair<bool, std::string> HealthRegistry::checkReadiness() {
         if (!staticRes.isUp) overallUp = false;
         results[name] = staticRes;
     }
+
+    return {overallUp, results};
+}
+
+std::string HealthRegistry::checkLiveness() {
+    std::string ts = currentIsoTimestamp();
+    auto [overallUp, results] = evaluateChecks();
+
+    // Semantics: liveness answers "is this process alive and are its
+    // registered checks passing?" With no checks registered there is
+    // nothing failing, so the result is UP — but the empty "checks"
+    // object is always emitted so callers can see that no check ran,
+    // instead of mistaking an unchecked UP for a verified one.
+    std::ostringstream ss;
+    ss << "{\"status\":" << (overallUp ? "\"UP\"" : "\"DOWN\"")
+       << ",\"timestamp\":\"" << ts << "\""
+       << ",\"checks\":{";
+    bool first = true;
+    for (const auto& [name, res] : results) {
+        if (!first) ss << ",";
+        first = false;
+        ss << "\"" << escapeJson(name) << "\":{"
+           << "\"status\":\"" << (res.isUp ? "UP" : "DOWN") << "\"";
+        if (!res.message.empty()) {
+            ss << ",\"message\":\"" << escapeJson(res.message) << "\"";
+        }
+        ss << "}";
+    }
+    ss << "}}";
+    return ss.str();
+}
+
+std::pair<bool, std::string> HealthRegistry::checkReadiness() {
+    std::string ts = currentIsoTimestamp();
+    auto [overallUp, results] = evaluateChecks();
+
+    std::ostringstream ss;
+    ss << "{\"status\":";
 
     ss << (overallUp ? "\"UP\"" : "\"DOWN\"")
        << ",\"timestamp\":\"" << ts << "\"";

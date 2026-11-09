@@ -53,6 +53,19 @@ public:
                                bool isExternal = false) {
         auto it = m_functionMap.find(name);
         if (it != m_functionMap.end()) {
+            // Phase 1 (pro-4.0.0): a redefinition with a different signature
+            // used to be silently swallowed (the first definition won, and
+            // callers compiled against the second signature would call the
+            // wrong function). Record the clash instead of hiding it; the
+            // existing function is still returned so lowering can continue
+            // and report every clash in one pass, and IRVerifier fails the
+            // build on the recorded errors.
+            if (!hasSameSignature(*it->second, returnType, params)) {
+                m_signatureErrors.push_back(
+                    "Function '" + name + "' redefined with a different signature: existing '" +
+                    signatureString(it->second->getReturnType(), it->second->getParams()) +
+                    "' vs new '" + signatureString(returnType, params) + "'");
+            }
             if (isExternal && it->second->isExternal()) {
                 return it->second;
             }
@@ -78,6 +91,14 @@ public:
         return nullptr;
     }
 
+    // Signature clashes recorded by createFunction (see below). A module
+    // cannot hold two functions under one name, so a redefinition with a
+    // different signature cannot be seen from the function list alone;
+    // IRVerifier surfaces these errors instead.
+    [[nodiscard]] const std::vector<std::string>& getSignatureErrors() const noexcept {
+        return m_signatureErrors;
+    }
+
     // Allocate or retrieve deduplicated global string literal
     std::shared_ptr<ConstantString> getOrCreateStringLiteral(const std::string& str) {
         auto it = m_stringLiteralMap.find(str);
@@ -94,6 +115,31 @@ public:
     void initRuntimeDeclarations();
 
 private:
+    // Textual function signature used only to detect redefinitions with a
+    // different signature (pointer types compare as "ptr" regardless of
+    // pointee; that approximation is documented, not hidden).
+    static std::string signatureString(IRTypePtr returnType,
+                                       const std::vector<std::shared_ptr<ParameterValue>>& params) {
+        std::string sig = returnType ? returnType->toString() : "?";
+        sig += "(";
+        bool first = true;
+        for (const auto& param : params) {
+            if (!first) {
+                sig += ", ";
+            }
+            first = false;
+            sig += (param && param->getType()) ? param->getType()->toString() : "?";
+        }
+        sig += ")";
+        return sig;
+    }
+
+    static bool hasSameSignature(const IRFunction& func, IRTypePtr returnType,
+                                 const std::vector<std::shared_ptr<ParameterValue>>& params) {
+        return signatureString(func.getReturnType(), func.getParams()) ==
+               signatureString(std::move(returnType), params);
+    }
+
     std::string m_name;
     std::vector<IRFunctionPtr> m_functions;
     std::unordered_map<std::string, IRFunction*> m_functionMap;
@@ -101,6 +147,7 @@ private:
     std::unordered_map<std::string, std::string> m_stringLiteralMap;
     std::vector<StructTypeDef> m_structTypes;
     std::vector<GlobalVariableInfo> m_globals;
+    std::vector<std::string> m_signatureErrors;
 };
 
 using IRModulePtr = std::unique_ptr<IRModule>;

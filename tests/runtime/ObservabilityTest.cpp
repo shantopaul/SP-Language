@@ -179,6 +179,27 @@ TEST(ObservabilityTest, HealthRegistryLivenessAndReadiness) {
     EXPECT_NE(downReadyJson.find("\"redis\":{\"status\":\"DOWN\""), std::string::npos);
 }
 
+TEST(ObservabilityTest, HealthLivenessRunsChecks) {
+    HealthRegistry health;
+
+    // No checks registered: UP, but the empty checks object shows that
+    // no check actually ran (honest UP, not a hard-coded one).
+    std::string liveJson = health.checkLiveness();
+    EXPECT_NE(liveJson.find("\"status\":\"UP\""), std::string::npos);
+    EXPECT_NE(liveJson.find("\"checks\":{}"), std::string::npos);
+
+    // A failing registered check makes liveness DOWN, like readiness.
+    health.registerCheck("db", []() { return HealthCheckResult{false, "connection refused"}; });
+    std::string downJson = health.checkLiveness();
+    EXPECT_NE(downJson.find("\"status\":\"DOWN\""), std::string::npos);
+    EXPECT_NE(downJson.find("\"db\":{\"status\":\"DOWN\""), std::string::npos);
+
+    // A throwing check is DOWN too, not a crash.
+    health.registerCheck("boom", []() -> HealthCheckResult { throw 42; });
+    std::string throwJson = health.checkLiveness();
+    EXPECT_NE(throwJson.find("\"status\":\"DOWN\""), std::string::npos);
+}
+
 // ============================================================================
 // 4. Background Job Queue & Retries (std.queue)
 // ============================================================================

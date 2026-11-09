@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <iostream>
 
 namespace {
@@ -27,6 +29,26 @@ const char* alloc_str(const std::string& s) {
 struct JsonWrapper {
     sp::rt::json::JsonValuePtr val;
 };
+
+// Redis pool C-ABI ownership registry.
+//
+// RedisPool::acquire() returns a std::shared_ptr<RedisClient>, but the C
+// ABI can only hand a raw RedisClient* back to SP code — and the pool
+// drops its own reference when a client is checked out, so the local
+// shared_ptr in sp_rt_redis_pool_acquire used to be the sole owner.
+// Returning client.get() directly therefore dangled the moment that
+// local died (use-after-free on first use), and the old no-op release()
+// never returned the client to the pool either. This registry keeps one
+// owning shared_ptr per checked-out raw pointer until release() hands it
+// back to the pool. Clients MUST be released before their pool is
+// destroyed; destroying a pool with checked-out clients drops those
+// registry entries and invalidates the outstanding handles.
+struct RedisPoolClientEntry {
+    void* pool;
+    std::shared_ptr<sp::rt::redis::RedisClient> client;
+};
+std::mutex g_redisPoolClientsMutex;
+std::unordered_map<void*, RedisPoolClientEntry> g_redisPoolClients;
 
 } // anonymous namespace
 
@@ -981,17 +1003,48 @@ void* sp_rt_redis_pool_create(const char* host, int64_t port, int64_t min_conn, 
 }
 
 void sp_rt_redis_pool_destroy(void* pool) {
-    if (pool) delete static_cast<sp::rt::redis::RedisPool*>(pool);
+    if (!pool) return;
+    {
+        // Drop ownership of any still-checked-out clients of this pool so
+        // a later release() cannot touch the deleted pool (those handles
+        // are invalid once their pool is gone — release clients first).
+        std::lock_guard<std::mutex> lock(g_redisPoolClientsMutex);
+        for (auto it = g_redisPoolClients.begin(); it != g_redisPoolClients.end();) {
+            if (it->second.pool == pool) {
+                it = g_redisPoolClients.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    delete static_cast<sp::rt::redis::RedisPool*>(pool);
 }
 
 void* sp_rt_redis_pool_acquire(void* pool) {
     if (!pool) return nullptr;
     auto client = static_cast<sp::rt::redis::RedisPool*>(pool)->acquire();
-    return client.get();
+    if (!client) return nullptr;
+    // Keep one owning reference in the registry: without it the local
+    // shared_ptr dies here and the returned raw pointer dangles.
+    void* raw = client.get();
+    {
+        std::lock_guard<std::mutex> lock(g_redisPoolClientsMutex);
+        g_redisPoolClients[raw] = RedisPoolClientEntry{pool, std::move(client)};
+    }
+    return raw;
 }
 
 void sp_rt_redis_pool_release(void* pool, void* client) {
-    (void)pool; (void)client;
+    if (!pool || !client) return;
+    std::shared_ptr<sp::rt::redis::RedisClient> owned;
+    {
+        std::lock_guard<std::mutex> lock(g_redisPoolClientsMutex);
+        auto it = g_redisPoolClients.find(client);
+        if (it == g_redisPoolClients.end() || it->second.pool != pool) return;
+        owned = std::move(it->second.client);
+        g_redisPoolClients.erase(it);
+    }
+    static_cast<sp::rt::redis::RedisPool*>(pool)->release(std::move(owned));
 }
 
 int64_t sp_rt_redis_pool_available(void* pool) {

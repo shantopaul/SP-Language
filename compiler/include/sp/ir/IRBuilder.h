@@ -4,6 +4,7 @@
 #include "sp/ast/Declaration.h"
 #include "sp/ast/Statement.h"
 #include "sp/ast/Expression.h"
+#include "sp/diagnostics/SourceLocation.h"
 #include "sp/ir/IRModule.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include <memory>
@@ -24,6 +25,13 @@ public:
     ~IRBuilder() override;
 
     std::unique_ptr<IRModule> build(const ast::Program& program, const std::string& moduleName = "main");
+
+    // Phase 1 (pro-4.0.0): lowering failures are recorded, not thrown and
+    // not silently dropped. build() returns nullptr when any error was
+    // recorded (or the finished module fails IR verification); every
+    // caller already treats a null module as a failed build.
+    [[nodiscard]] bool hasErrors() const noexcept { return !m_errors.empty(); }
+    [[nodiscard]] const std::vector<std::string>& getErrors() const noexcept { return m_errors; }
 
     // Class and method compilation helpers
     void compileConstructor(const ast::ClassDecl& classDecl, const ast::FunctionDecl* ctorDecl, const codegen::ClassLayout& layout);
@@ -103,10 +111,22 @@ private:
     IRValuePtr emitCreateTaggedUnion(const std::string& typeName, int32_t tag, IRValuePtr payloadVal);
     void emitPopulateTaggedUnion(IRValuePtr slotPtr, const std::string& typeName, int32_t tag, IRValuePtr payloadVal);
 
+    // Records a "not yet supported" error for a construct that has no
+    // lowering. The message names the construct and its source location so
+    // the failure is loud at compile time instead of silently changing
+    // program semantics.
+    void reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
+                           const std::string& detail);
+
     [[maybe_unused]] const sema::SemanticAnalyzer& m_sema;
     std::unique_ptr<IRModule> m_module;
     IRFunction* m_currentFunction{nullptr};
     IRBasicBlock* m_currentBlock{nullptr};
+
+    // "Not yet supported" errors recorded while lowering (see
+    // reportUnsupported). build() fails the compilation when this is
+    // non-empty instead of emitting a module with dropped semantics.
+    std::vector<std::string> m_errors;
 
     // Scoped variable symbol tables: (alloca pointer, value type)
     std::vector<std::unordered_map<std::string, std::pair<IRValuePtr, IRTypePtr>>> m_scopes;

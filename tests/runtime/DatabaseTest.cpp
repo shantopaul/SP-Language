@@ -470,6 +470,17 @@ TEST(DbBridgeTest, DbPoolCAbiWorkflow) {
     sp_rt_db_pool_close(pool);
 }
 
+TEST(DbBridgeTest, PgConnectFailureReturnsNull) {
+    // A refused connection must return nullptr, not a non-null handle to
+    // a dead connection. The failure reason stays retrievable via
+    // sp_rt_pg_last_error(nullptr).
+    void* conn = sp_rt_pg_connect("host=127.0.0.1 port=63999 dbname=sp_test user=sp_test");
+    EXPECT_EQ(conn, nullptr);
+    EXPECT_FALSE(sp_rt_pg_is_connected(nullptr));
+    EXPECT_STRNE(sp_rt_pg_last_error(nullptr), "Invalid connection handle");
+    EXPECT_STRNE(sp_rt_pg_last_error(nullptr), "");
+}
+
 TEST(DbBridgeTest, SqliteNamedParameterCAbi) {
     void* db = sp_rt_sqlite_open(":memory:", 5000, false);
     ASSERT_NE(db, nullptr);

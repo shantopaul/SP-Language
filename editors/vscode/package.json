@@ -2,7 +2,7 @@
   "name": "sp-language-support",
   "displayName": "SP Language Support",
   "description": "Rich language support for the SP Programming Language, powered by spls (SP Language Server).",
-  "version": "1.0.0",
+  "version": "3.1.0",
   "publisher": "shantopaul",
   "author": {
     "name": "Shanto Paul",

@@ -55,7 +55,7 @@ void printVersion() {
               << "Copyright (c) 2026 Shanto Paul\n"
               << "Website: " << sp::SP_HOMEPAGE_URL << "\n"
               << "Docs:    " << sp::SP_DOCS_URL << "\n"
-              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (in-process LLVM & LLD backend)\n";
+              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (SP IR text via external Clang driver; no in-process LLVM/LLD)\n";
 }
 
 void printHelp() {
@@ -527,20 +527,20 @@ int handleFix(int argc, char* argv[]) {
 
     for (const auto& p : spFiles) {
         filesChecked++;
-        std::string content = readFile(p.string());
-        bool changed = false;
-
-        // Modernize legacy constructs if needed
-        if (changed && !dryRun) {
-            std::ofstream out(p);
-            out << content;
-            filesModified++;
-            std::cout << "[FIX] Modernized: " << p.string() << "\n";
-        }
+        // NOTE: no .sp source transformations are implemented in this version,
+        // so there is deliberately no write step here. The old code declared
+        // `bool changed = false` and then wrote the file `if (changed)` — a
+        // condition that could never be true — while still printing
+        // "Migration Complete". Do not re-add a write here until a real
+        // transformation sets a flag when it actually changes the file.
+        (void)readFile(p.string());
     }
 
     std::cout << "\nMigration Complete: " << filesChecked << " file(s) scanned, "
               << filesModified << " file(s) updated.\n";
+    if (!spFiles.empty()) {
+        std::cout << "[NOTE] No .sp file transformations are implemented yet; .sp files were scanned only, not modified.\n";
+    }
     if (dryRun) {
         std::cout << "[NOTE] Dry-run mode completed. Re-run without '--dry-run' to write changes.\n";
     }

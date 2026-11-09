@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PACKAGES } from "@/data/packages-db";
+import { PACKAGES, REGISTRY_PREVIEW } from "@/data/packages-db";
 
 const VALID_PACKAGE_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 const VALID_SEMVER_REGEX = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
@@ -97,14 +97,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. Successful publication registration
+    // 4. Preview-only endpoint: the registry has no storage backend yet, so
+    // nothing can actually be published. The payload was validated for shape
+    // only (name/version/checksum format); the token was NOT verified against
+    // any account, and nothing is stored. Return 501, not a fake 201 success.
     const publishedAt = new Date().toISOString();
-    const downloadUrl = `https://dl.splang.shantopaul.com/packages/${name}/${name}-${version}.tar.gz`;
-
     return NextResponse.json(
       {
-        success: true,
-        message: `Package '${name}@${version}' received and verified successfully.`,
+        success: false,
+        preview: REGISTRY_PREVIEW.preview,
+        mock: REGISTRY_PREVIEW.mock,
+        stored: false,
+        verified: false,
+        message:
+          "SP Registry is a preview/mock: publishing is not implemented yet. " +
+          "This request was validated for shape only and nothing was stored, " +
+          "verified, or made downloadable. Do not treat this as a published package.",
         package: {
           name,
           version,
@@ -113,13 +121,13 @@ export async function POST(request: Request) {
           license: license || "MIT",
           authors: authors || [],
           dependencies: dependencies || [],
-          downloadUrl,
+          downloadUrl: null,
           publishedAt,
-          immutable: true,
+          immutable: false,
         },
       },
       {
-        status: 201,
+        status: 501,
         headers: { "Access-Control-Allow-Origin": "*" },
       }
     );
