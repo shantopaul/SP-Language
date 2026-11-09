@@ -5187,13 +5187,15 @@ fn main() {
     HttpServer app = HttpServer.create();
 
     // Static JSON routes work, and so do fn-pointer handlers
-    // registered with getHandler (routeHandler). Note the trap:
-    // HttpServer.get uses the 3-string route ABI, not the typed
-    // handler ABI — a typed handler registered with get segfaults
-    // the server on first request.
+    // registered with get (or getHandler — the explicit alias; both
+    // take typed handlers, fn(HttpRequest) -> HttpResponse). The
+    // low-level route() is the only 3-string entry point: its handler
+    // takes (method, path, body) and returns a string. Do not register
+    // a typed handler through route(). (Phase 7 slice B: get used to
+    // call route(), so a typed handler segfaulted on first request.)
     app.routeJson("GET", "/", "{\"message\": \"Welcome to SP Web Framework!\"}");
     app.routeJson("GET", "/api/health", "{\"status\": \"healthy\", \"version\": \"1.0.0\"}");
-    app.getHandler("/hello", hello);
+    app.get("/hello", hello);
 
     println("Server running at http://localhost:8080/");
     println("Serving routes: GET /, GET /api/health, GET /hello");

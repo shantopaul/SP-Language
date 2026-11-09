@@ -720,3 +720,136 @@ TEST(CodegenCrashersExecutionTest, NamedFnHttpHandlerTypedRequest) {
                return ss.str();
            }();
 }
+
+// --- Phase 7 slice B: HttpServer.get takes typed handlers -------------------
+//
+// Before the fix HttpServer.get (and RouteGroup.get) called route(),
+// the 3-string ABI ((method, path, body) -> const char*), while
+// App.get and getHandler used routeHandler, the typed-handler ABI.
+// A typed fn(HttpRequest) -> HttpResponse registered with
+// HttpServer.get segfaulted the server on its first request. After the
+// fix get/post/... route to routeHandler, exactly like App.get.
+// Same shape as NamedFnHttpHandlerTypedRequest above: build the server
+// executable, start it, probe with curl, kill it.
+TEST(CodegenCrashersExecutionTest, HttpServerGetTypedHandler) {
+    const std::string source = R"(
+        import std.io;
+        import std.http;
+        import std.web;
+        import std.time;
+
+        fn hello(HttpRequest req) -> HttpResponse {
+            return req.text("hi typed", 200);
+        }
+
+        fn main() {
+            HttpServer app = HttpServer.create();
+            app.routeJson("GET", "/", "{\"message\": \"Welcome to SP Web Framework!\"}");
+            // Typed fn via HttpServer.get (was: segfault on first request).
+            app.get("/hello", hello);
+            // (ptr req) lambda via HttpServer.get — the backend-crud
+            // pattern; must keep working under the typed ABI (the req
+            // arrives wrapped, Context.create unwraps it).
+            app.get("/echo", (ptr req) => {
+                let ctx = Context.create(req);
+                return ctx.json("{\"echo\":true}");
+            });
+            // getHandler keeps working unchanged.
+            app.getHandler("/hi2", hello);
+            // RouteGroup.get is aligned the same way.
+            let api = app.group("/api");
+            api.get("/v1", hello);
+            app.listen(18772);
+            println("serving on 18772");
+            while (true) { Time.sleep(1000); }
+        }
+    )";
+    fs::create_directories(getOutputDir());
+    diagnostics::DiagnosticEngine diags(std::cerr);
+    lexer::Lexer lexer(source, "HttpServerGetTyped.sp", &diags);
+    auto tokens = lexer.tokenizeAll();
+    ASSERT_FALSE(diags.hasErrors());
+    parser::Parser parser(tokens, "HttpServerGetTyped.sp", &diags);
+    auto program = parser.parseProgram();
+    ASSERT_NE(program, nullptr);
+    ASSERT_FALSE(diags.hasErrors());
+    sema::ModuleLoader moduleLoader(diags);
+    ASSERT_TRUE(moduleLoader.loadAndMergeAll(*program, "HttpServerGetTyped.sp"));
+    sema::SemanticAnalyzer sema(diags);
+    ASSERT_TRUE(sema.analyze(*program));
+    ASSERT_FALSE(diags.hasErrors());
+    ir::IRBuilder builder(sema);
+    auto module = builder.build(*program, "HttpServerGetTyped");
+    ASSERT_NE(module, nullptr);
+    fs::path exePath = getOutputDir() / "HttpServerGetTyped.exe";
+    codegen::CodegenOptions opts;
+    codegen::LLVMGenerator generator(opts);
+    ASSERT_TRUE(generator.compileToExecutable(*module, exePath.string()))
+        << generator.getLastError();
+
+    // Skip when curl is unavailable (offline test environment).
+    if (std::system("curl --version >/dev/null 2>&1") != 0) {
+        GTEST_SKIP() << "curl is not available, cannot probe the test server";
+    }
+
+    auto curlBody = [](const std::string& url) {
+        std::string cmd = "curl -s -m 2 " + url;
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) return std::string();
+        char buf[256];
+        std::string chunk;
+        size_t n = 0;
+        while ((n = fread(buf, 1, sizeof(buf), pipe)) > 0) chunk.append(buf, n);
+        pclose(pipe);
+        return chunk;
+    };
+    auto curlCode = [](const std::string& url) {
+        std::string cmd = "curl -s -m 2 -o /dev/null -w \"%{http_code}\" " + url;
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) return std::string();
+        char buf[64];
+        std::string chunk;
+        size_t n = 0;
+        while ((n = fread(buf, 1, sizeof(buf), pipe)) > 0) chunk.append(buf, n);
+        pclose(pipe);
+        return chunk;
+    };
+
+    std::string pidFile = (getOutputDir() / "HttpServerGetTyped.pid").string();
+    std::string startCmd = "timeout 60 \"" + exePath.string() + "\" >\"" +
+        (getOutputDir() / "HttpServerGetTyped.log").string() + "\" 2>&1 & echo $! >\"" + pidFile + "\"";
+    ASSERT_EQ(std::system(startCmd.c_str()), 0);
+
+    // Poll until the server answers (compile + listen take a moment).
+    std::string helloBody;
+    for (int i = 0; i < 20; ++i) {
+        helloBody = curlBody("http://127.0.0.1:18772/hello");
+        if (!helloBody.empty()) break;
+        int sleepRc = std::system("sleep 1");
+        (void)sleepRc;
+    }
+
+    std::string echoBody = curlBody("http://127.0.0.1:18772/echo");
+    std::string hi2Body = curlBody("http://127.0.0.1:18772/hi2");
+    std::string groupBody = curlBody("http://127.0.0.1:18772/api/v1");
+    std::string rootBody = curlBody("http://127.0.0.1:18772/");
+    std::string missingCode = curlCode("http://127.0.0.1:18772/missing");
+
+    // Always kill the server again, even when an assertion below fails.
+    std::string killCmd = "kill $(cat \"" + pidFile + "\") 2>/dev/null; sleep 1";
+    int killRc = std::system(killCmd.c_str());
+    (void)killRc;
+
+    auto serverLog = [&] {
+        std::ifstream f(getOutputDir() / "HttpServerGetTyped.log");
+        std::stringstream ss;
+        ss << f.rdbuf();
+        return ss.str();
+    };
+    EXPECT_EQ(helloBody, "hi typed") << "server log: " << serverLog();
+    EXPECT_EQ(echoBody, "{\"echo\":true}") << "server log: " << serverLog();
+    EXPECT_EQ(hi2Body, "hi typed") << "server log: " << serverLog();
+    EXPECT_EQ(groupBody, "hi typed") << "server log: " << serverLog();
+    EXPECT_EQ(rootBody, "{\"message\": \"Welcome to SP Web Framework!\"}") << "server log: " << serverLog();
+    EXPECT_EQ(missingCode, "404") << "server log: " << serverLog();
+}
