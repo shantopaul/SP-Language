@@ -2198,23 +2198,24 @@ fn main() {
     //  NULL COALESCING (??)
     // ═══════════════════════════════════════
 
-    // ?? supplies a fallback when the left side is null. It
-    // works on a nullable value — here a nullable field read
-    // through ?. — but not on the result of ?. itself when the
-    // OBJECT is null: that result is typed as the plain field
-    // type, so ?? does not see it as null. For a possibly-null
-    // object, check for null explicitly (below).
+    // ?? supplies a fallback when the left side is null —
+    // including the result of ?. when the OBJECT is null.
+    // (Phase 7 slice A: ?? now fires after ?. on a null object.)
     string e1 = user1?.email ?? "no-email@default.com";
     println("\nEmail 1: ${e1}");    // shanto@email.com
 
     string e2 = user2?.email ?? "no-email@default.com";
     println("Email 2: ${e2}");      // no-email@default.com
 
-    if (user3 == null) {
-        println("Name 3: Unknown User");
-    } else {
-        println("Name 3: ${user3?.name}");
-    }
+    string n3 = user3?.name ?? "Unknown User";
+    println("Name 3: ${n3}");       // Unknown User
+
+    // Note: for value types, null is represented as zero, so
+    // `user?.age ?? 99` yields 99 both when the user is null
+    // AND when age is really 0 — the same convention as plain
+    // `int?` (`int? m = 0; m ?? 99` is also 99). Strings are
+    // unaffected: only a null pointer means null, so a real
+    // empty string is never replaced by the fallback.
 
     // ═══════════════════════════════════════
     //  NULL CHECK
