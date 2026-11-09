@@ -1,5 +1,6 @@
 #include "DependencyResolver.h"
 #include "Cache.h"
+#include "sp/runtime/Crypto.h"
 #include <filesystem>
 #include <functional>
 #include <sstream>
@@ -186,6 +187,125 @@ DependencyResolver::DependencyResolver(std::shared_ptr<IPackageProvider> provide
     }
 }
 
+// ---------------------------------------------------------------------------
+// RegistryProvider — Phase 4 slice A
+// ---------------------------------------------------------------------------
+
+RegistryProvider::RegistryProvider(std::shared_ptr<IRegistryClient> client)
+    : m_client(std::move(client)) {}
+
+bool RegistryProvider::ensureIndex(std::string& err) {
+    if (m_indexLoaded) return !m_registryUnavailable;
+    m_indexLoaded = true;
+    if (!m_client) {
+        m_registryUnavailable = true;
+        m_lastRegistryError = "no registry client configured";
+        err = m_lastRegistryError;
+        return false;
+    }
+    if (!m_client->listPackages(m_index, err)) {
+        m_registryUnavailable = true;
+        m_lastRegistryError = err;
+        m_index.clear();
+        return false;
+    }
+    return true;
+}
+
+std::optional<RegistryPackageInfo> RegistryProvider::findInIndex(const std::string& name,
+                                                                 const std::string& version) const {
+    for (const auto& info : m_index) {
+        if (info.name == name && info.version == version) return info;
+    }
+    return std::nullopt;
+}
+
+std::vector<Version> RegistryProvider::getAvailableVersions(const std::string& name) {
+    std::vector<Version> versions = m_fallback.getAvailableVersions(name);
+    std::string err;
+    if (ensureIndex(err)) {
+        for (const auto& info : m_index) {
+            if (info.name != name) continue;
+            auto v = Version::parse(info.version);
+            if (!v) continue;
+            bool already = false;
+            for (const auto& ex : versions) {
+                if (ex == *v) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) versions.push_back(*v);
+        }
+    }
+    std::sort(versions.rbegin(), versions.rend()); // descending order
+    return versions;
+}
+
+std::optional<ProjectConfig> RegistryProvider::getPackageConfig(const std::string& name,
+                                                                const Version& version) {
+    m_lastConfigError.clear();
+    std::string err;
+    if (ensureIndex(err)) {
+        if (auto info = findInIndex(name, version.toString())) {
+            const std::string verStr = version.toString();
+            bool cachedOk = PackageCache::isCached(name, verStr) &&
+                            PackageCache::verifyChecksum(name, verStr, info->checksum);
+            if (!cachedOk) {
+                // The registry's metadata carries no dependency list — the
+                // transitive deps live in the package's sp.toml, which is
+                // inside the archive. Download (SHA-256 verified by the
+                // client) into the cache first.
+                std::string bytes, checksum;
+                if (!m_client->download(name, verStr, bytes, checksum, err)) {
+                    m_lastConfigError = "cannot fetch '" + name + "@" + verStr +
+                                        "' from the registry: " + err;
+                    // Fall through to the cache delegate only when it
+                    // already holds a verified copy; otherwise fail.
+                    if (!PackageCache::isCached(name, verStr) ||
+                        !PackageCache::verifyChecksum(name, verStr, info->checksum)) {
+                        return std::nullopt;
+                    }
+                } else {
+                    std::string storeErr;
+                    if (!PackageCache::storeArchive(name, verStr, bytes, checksum, storeErr)) {
+                        m_lastConfigError = "cannot cache '" + name + "@" + verStr + "': " + storeErr;
+                        return std::nullopt;
+                    }
+                }
+            }
+        }
+    }
+    return m_fallback.getPackageConfig(name, version);
+}
+
+std::optional<ProjectConfig> RegistryProvider::resolvePathDependency(
+    const std::string& relativeOrAbsolutePath, const std::string& baseDir,
+    std::string& outAbsPath) {
+    return m_fallback.resolvePathDependency(relativeOrAbsolutePath, baseDir, outAbsPath);
+}
+
+std::optional<std::string> RegistryProvider::getPackageChecksum(const std::string& name,
+                                                                const Version& version) {
+    std::string err;
+    if (ensureIndex(err)) {
+        if (auto info = findInIndex(name, version.toString())) {
+            if (!info->checksum.empty()) return info->checksum;
+        }
+        // Version known to the fallback (mock/cache) but not to the
+        // registry: fall through to the cache check below.
+    }
+    // Offline / cache-only: the cached archive's own SHA-256 is the
+    // content hash the lock pins. Tampering AFTER locking is still
+    // caught, because verify()/install() re-hash the archive bytes and
+    // compare them against the lock.
+    std::string archiveBytes;
+    if (PackageCache::readCachedArchive(name, version.toString(), archiveBytes)) {
+        return sp::rt::crypto::sha256(archiveBytes);
+    }
+    return std::nullopt;
+}
+
 std::string DependencyResolver::computeChecksum(const std::string& name, const Version& v, const std::string& source) {
     // Deterministic hash representation
     std::string combined = name + "@" + v.toString() + "(" + source + ")";
@@ -347,6 +467,12 @@ ResolutionResult DependencyResolver::resolve(
             sourceLocation = "registry";
             auto avail = m_provider->getAvailableVersions(pkgName);
             bool found = false;
+            // Phase 4 slice A: if the newest matching version cannot be
+            // fetched (download/verification failure), do NOT silently
+            // fall back to an older version — fail loudly instead.
+            bool skippedNewerDueToError = false;
+            std::string skippedError;
+            std::string skippedVersion;
             for (const auto& v : avail) {
                 // Must satisfy all accumulated constraints
                 bool allSatisfied = true;
@@ -364,13 +490,30 @@ ResolutionResult DependencyResolver::resolve(
                         found = true;
                         break;
                     }
+                    std::string providerErr = m_provider->lastError();
+                    if (!providerErr.empty()) {
+                        skippedNewerDueToError = true;
+                        skippedError = providerErr;
+                        skippedVersion = v.toString();
+                    }
                 }
+            }
+
+            if (found && skippedNewerDueToError) {
+                result.errorMessage = "Refusing to install an older version of '" + pkgName +
+                    "': version " + skippedVersion + " matches the requirement but could not be fetched (" +
+                    skippedError + "). Pin the older version explicitly if that is intended.";
+                return false;
             }
 
             if (!found) {
                 const auto& firstReq = state.constraints[pkgName].front();
                 result.errorMessage = "No compatible version found for package '" + pkgName +
                     "' matching requirement '" + firstReq.reqStr + "'";
+                std::string providerErr = m_provider->lastError();
+                if (!providerErr.empty()) {
+                    result.errorMessage += " (" + providerErr + ")";
+                }
                 return false;
             }
         }
@@ -382,7 +525,15 @@ ResolutionResult DependencyResolver::resolve(
         resolvedPkg.sourceKind = sourceKind;
         resolvedPkg.sourceLocation = sourceLocation;
         resolvedPkg.projectDir = projectDir;
-        resolvedPkg.checksum = computeChecksum(pkgName, chosenVersion, sourceLocation);
+        // Phase 4 slice A: prefer the provider's content checksum (the
+        // registry tarball's SHA-256) over the legacy metadata hash, so
+        // sp.lock pins the actual bytes. Providers without content
+        // knowledge keep the metadata hash.
+        if (auto contentChecksum = m_provider->getPackageChecksum(pkgName, chosenVersion)) {
+            resolvedPkg.checksum = *contentChecksum;
+        } else {
+            resolvedPkg.checksum = computeChecksum(pkgName, chosenVersion, sourceLocation);
+        }
 
         for (const auto& childDep : pkgConfig.getDependencies()) {
             resolvedPkg.dependencies.push_back(childDep.name);

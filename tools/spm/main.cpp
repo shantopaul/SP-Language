@@ -52,6 +52,7 @@ void printHelp() {
               << "  --release           Build/run with optimizations enabled\n"
               << "  --debug             Build/run with debug symbols\n"
               << "  --frozen            Require that sp.lock is up-to-date (used in CI)\n"
+              << "  --registry <url>    Registry base URL (default: $SP_REGISTRY_URL or http://127.0.0.1:8090)\n"
               << "  --workspace         Build all workspace members in a monorepo\n"
               << "  -p, --package <pkg> Target specific workspace member package\n"
               << "  --dry-run           Package and verify without uploading to registry\n"
@@ -264,13 +265,15 @@ int handleAdd(int argc, char* argv[]) {
     }
     std::cout << " to sp.toml\n";
 
-    // Auto-update lockfile
-    fs::path lockPath = "sp.lock";
-    sp::spm::DependencyResolver resolver;
-    auto res = resolver.resolve(config, ".", true);
-    if (res.success) {
-        auto lock = sp::spm::Lockfile::fromResolution(res);
-        lock.saveToFile(lockPath.string());
+    // Auto-install: resolve against the registry (cache fallback),
+    // lock with content hashes, and vendor into .spm/packages/.
+    // A failed install does not undo the add — the dependency is in
+    // sp.toml — but it is reported loudly instead of silently skipped.
+    auto installRes = sp::spm::BuildOrchestrator::install(".", "", false, false);
+    if (!installRes.success) {
+        std::cerr << "warning: dependency added to sp.toml but install failed: "
+                  << installRes.errorMessage << "\n"
+                  << "Run 'spm install' to retry.\n";
     }
 
     return 0;
@@ -335,93 +338,46 @@ int handleRemove(int argc, char* argv[]) {
 
 int handleInstall(int argc, char* argv[]) {
     bool frozen = false;
+    std::string registryUrl;
     for (int i = 2; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--frozen") {
             frozen = true;
+        } else if (std::string_view(argv[i]) == "--registry" && i + 1 < argc) {
+            registryUrl = argv[++i];
         }
     }
 
-    fs::path tomlPath = "sp.toml";
-    if (!fs::exists(tomlPath)) {
-        std::cerr << "error: could not find 'sp.toml' in current directory\n";
-        return 1;
-    }
-
-    sp::spm::ProjectConfig config;
-    if (!config.loadFromFile(tomlPath.string())) {
-        std::cerr << "error: failed to load sp.toml: " << config.getLastError() << "\n";
-        return 1;
-    }
-
-    fs::path lockPath = "sp.lock";
-    if (fs::exists(lockPath)) {
-        sp::spm::Lockfile lock;
-        if (lock.loadFromFile(lockPath.string()) && lock.isUpToDate(config)) {
-            std::cout << "All dependencies up-to-date (" << lock.getPackages().size() << " packages locked).\n";
-            return 0;
-        }
-        if (frozen) {
-            std::cerr << "error: sp.lock is out-of-sync with sp.toml and --frozen was specified\n";
-            return 1;
-        }
-    }
-
-    std::cout << "Resolving dependencies for '" << config.getPackage().name << "'...\n";
-    sp::spm::DependencyResolver resolver;
-    auto res = resolver.resolve(config, ".", true);
+    // Phase 4 slice A: resolve against the real registry first (with
+    // cache fallback), write content-hash lock entries, and vendor the
+    // packages into .spm/packages/ so `spm build` can import them.
+    auto res = sp::spm::BuildOrchestrator::install(".", registryUrl, false, frozen);
     if (!res.success) {
-        std::cerr << "error: dependency resolution failed: " << res.errorMessage << "\n";
+        std::cerr << "error: install failed: " << res.errorMessage << "\n";
         return 1;
     }
-
-    auto lock = sp::spm::Lockfile::fromResolution(res);
-    if (!lock.saveToFile(lockPath.string())) {
-        std::cerr << "error: failed to save sp.lock: " << lock.getLastError() << "\n";
-        return 1;
+    if (res.packagesInstalled > 0) {
+        std::cout << "Installed " << res.packagesInstalled << " package(s) into .spm/packages/.\n";
     }
-
-    std::cout << "Successfully resolved and locked " << res.resolvedPackages.size() << " package(s):\n";
-    for (const auto& pkg : res.resolvedPackages) {
-        std::cout << "  - " << pkg.name << " v" << pkg.version.toString()
-                  << " (" << sp::spm::sourceKindToString(pkg.sourceKind) << ")\n";
-    }
-
     return 0;
 }
 
-int handleUpdate(int /*argc*/, char* /*argv*/[]) {
-    fs::path tomlPath = "sp.toml";
-    if (!fs::exists(tomlPath)) {
-        std::cerr << "error: could not find 'sp.toml' in current directory\n";
-        return 1;
+int handleUpdate(int argc, char* argv[]) {
+    std::string registryUrl;
+    for (int i = 2; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--registry" && i + 1 < argc) {
+            registryUrl = argv[++i];
+        }
     }
 
-    sp::spm::ProjectConfig config;
-    if (!config.loadFromFile(tomlPath.string())) {
-        std::cerr << "error: failed to load sp.toml: " << config.getLastError() << "\n";
-        return 1;
-    }
-
-    std::cout << "Updating dependencies for '" << config.getPackage().name << "'...\n";
-    sp::spm::DependencyResolver resolver;
-    auto res = resolver.resolve(config, ".", true);
+    std::cout << "Updating dependencies...\n";
+    auto res = sp::spm::BuildOrchestrator::install(".", registryUrl, true, false);
     if (!res.success) {
-        std::cerr << "error: dependency resolution failed: " << res.errorMessage << "\n";
+        std::cerr << "error: update failed: " << res.errorMessage << "\n";
         return 1;
     }
-
-    auto lock = sp::spm::Lockfile::fromResolution(res);
-    if (!lock.saveToFile("sp.lock")) {
-        std::cerr << "error: failed to save sp.lock: " << lock.getLastError() << "\n";
-        return 1;
+    if (res.packagesInstalled > 0) {
+        std::cout << "Installed " << res.packagesInstalled << " package(s) into .spm/packages/.\n";
     }
-
-    std::cout << "Updated " << res.resolvedPackages.size() << " package(s) in sp.lock:\n";
-    for (const auto& pkg : res.resolvedPackages) {
-        std::cout << "  - " << pkg.name << " v" << pkg.version.toString()
-                  << " (" << sp::spm::sourceKindToString(pkg.sourceKind) << ")\n";
-    }
-
     return 0;
 }
 
@@ -615,12 +571,18 @@ int handleCache(int argc, char* argv[]) {
 int handleSearch(int argc, char* argv[]) {
     if (argc < 3) {
         std::cerr << "error: 'spm search' requires a query string\n"
-                  << "Usage: spm search <query>\n";
+                  << "Usage: spm search <query> [--registry <url>]\n";
         return 1;
     }
 
     std::string query = argv[2];
-    auto results = sp::spm::BuildOrchestrator::search(query);
+    std::string registryUrl;
+    for (int i = 3; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--registry" && i + 1 < argc) {
+            registryUrl = argv[++i];
+        }
+    }
+    auto results = sp::spm::BuildOrchestrator::search(query, registryUrl);
 
     std::cout << "Search results for '" << query << "' (" << results.size() << " match"
               << (results.size() == 1 ? "" : "es") << "):\n\n";

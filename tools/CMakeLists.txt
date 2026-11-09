@@ -57,6 +57,8 @@ add_library(spm_core
     spm/Cache.cpp
     spm/Publish.cpp
     spm/DependencyTree.cpp
+    spm/RegistryClient.cpp
+    spm/PackageArchive.cpp
 )
 target_include_directories(spm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(spm_core PUBLIC sp_compiler sp_runtime)

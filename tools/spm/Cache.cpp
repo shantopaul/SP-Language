@@ -1,4 +1,5 @@
 #include "Cache.h"
+#include "PackageArchive.h"
 #include "sp/runtime/Crypto.h"
 #include <cstdlib>
 #include <fstream>
@@ -92,6 +93,88 @@ bool PackageCache::storePackage(const std::string& name,
     return true;
 }
 
+fs::path PackageCache::getCachedArchivePath(const std::string& name, const std::string& version) {
+    return getPackageDir(name, version) / "target" / "packages" /
+           PackageArchive::archiveFileName(name, version);
+}
+
+bool PackageCache::readCachedArchive(const std::string& name, const std::string& version,
+                                     std::string& outBytes) {
+    fs::path archivePath = getCachedArchivePath(name, version);
+    if (!fs::exists(archivePath)) return false;
+    std::ifstream in(archivePath, std::ios::binary);
+    if (!in.is_open()) return false;
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    outBytes = ss.str();
+    return true;
+}
+
+bool PackageCache::storeArchive(const std::string& name,
+                                const std::string& version,
+                                const std::string& archiveBytes,
+                                const std::string& checksum,
+                                std::string& errorMsg) {
+    // The bytes must hash to the claimed checksum; never cache bytes
+    // whose integrity is already in doubt.
+    if (sp::rt::crypto::sha256(archiveBytes) != checksum) {
+        errorMsg = "refusing to cache archive for '" + name + "@" + version +
+                   "': SHA-256 does not match the claimed checksum";
+        return false;
+    }
+    PackageArchiveData data;
+    if (!PackageArchive::parse(archiveBytes, data, errorMsg)) {
+        errorMsg = "refusing to cache archive for '" + name + "@" + version +
+                   "': unparsable archive: " + errorMsg;
+        return false;
+    }
+
+    fs::path targetDir = getPackageDir(name, version);
+    std::error_code ec;
+    fs::create_directories(targetDir / "target" / "packages", ec);
+    if (ec) {
+        errorMsg = "Failed to create cache directory: " + ec.message();
+        return false;
+    }
+    {
+        std::ofstream out(getCachedArchivePath(name, version), std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            errorMsg = "Failed to write cached archive file";
+            return false;
+        }
+        out.write(archiveBytes.data(), static_cast<std::streamsize>(archiveBytes.size()));
+    }
+    {
+        std::ofstream cksOut(targetDir / ".sp-checksum", std::ios::trunc);
+        if (cksOut.is_open()) cksOut << checksum;
+    }
+    // Extract the manifest + sources into the cache dir so the resolver
+    // can read sp.toml (transitive deps) without another download.
+    // Extraction into the cache dir uses the project layout (src/ kept),
+    // not the vendor layout — that is PackageArchive::extract's job.
+    if (!data.manifestToml.empty()) {
+        std::ofstream tomlOut(targetDir / "sp.toml", std::ios::trunc);
+        if (tomlOut.is_open()) tomlOut << data.manifestToml;
+    }
+    for (const auto& file : data.files) {
+        fs::path target = targetDir / file.relPath;
+        if (target.has_parent_path()) {
+            fs::create_directories(target.parent_path(), ec);
+            if (ec) {
+                errorMsg = "Failed to create cache directory for '" + target.string() + "': " + ec.message();
+                return false;
+            }
+        }
+        std::ofstream out(target, std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            errorMsg = "Failed to write cached file '" + target.string() + "'";
+            return false;
+        }
+        out.write(file.bytes.data(), static_cast<std::streamsize>(file.bytes.size()));
+    }
+    return true;
+}
+
 std::string PackageCache::getCachedChecksum(const std::string& name, const std::string& version) {
     fs::path cksPath = getPackageDir(name, version) / ".sp-checksum";
     if (!fs::exists(cksPath)) return "";
@@ -106,6 +189,13 @@ bool PackageCache::verifyChecksum(const std::string& name,
                                  const std::string& version,
                                  const std::string& expectedChecksum) {
     if (expectedChecksum.empty()) return true;
+    // Content check first: hash the cached archive bytes when present.
+    std::string archiveBytes;
+    if (readCachedArchive(name, version, archiveBytes)) {
+        return sp::rt::crypto::sha256(archiveBytes) == expectedChecksum;
+    }
+    // No archive on disk (legacy cache): only the recorded string can be
+    // compared. This detects a changed record, not tampered files.
     std::string cached = getCachedChecksum(name, version);
     if (cached.empty()) return false;
     return cached == expectedChecksum;

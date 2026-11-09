@@ -1,9 +1,13 @@
 #include "BuildOrchestrator.h"
 #include "Publish.h"
 #include "DependencyTree.h"
+#include "Cache.h"
+#include "PackageArchive.h"
+#include "RegistryClient.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
+#include "sp/runtime/Crypto.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/sema/ModuleLoader.h"
 #include "sp/ast/Edition.h"
@@ -41,6 +45,242 @@ std::string BuildOrchestrator::readFile(const std::string& path) {
     std::ostringstream ss;
     ss << file.rdbuf();
     return ss.str();
+}
+
+std::string BuildOrchestrator::defaultRegistryUrl() {
+    return HttpRegistryClient::resolveBaseUrl("");
+}
+
+namespace {
+
+// Re-lock legacy registry checksums (pre-Phase-4 metadata hashes) with
+// real tarball SHA-256 values, WITHOUT changing versions. The hash comes
+// from the registry metadata when reachable, else from the cached archive
+// bytes. Returns false when neither source can supply a hash — the
+// lockfile is then left untouched and the caller fails loudly.
+bool refreshLegacyChecksums(Lockfile& lock, RegistryProvider& provider, std::string& err) {
+    Lockfile refreshed;
+    for (const auto& pkg : lock.getPackages()) {
+        LockedPackage entry = pkg;
+        if (entry.source == "registry") {
+            auto ver = Version::parse(entry.version);
+            if (ver && entry.checksum ==
+                          DependencyResolver::computeChecksum(entry.name, *ver, entry.source)) {
+                std::string real;
+                if (auto sum = provider.getPackageChecksum(entry.name, *ver)) {
+                    real = *sum;
+                } else {
+                    std::string archiveBytes;
+                    if (PackageCache::readCachedArchive(entry.name, entry.version, archiveBytes)) {
+                        real = sp::rt::crypto::sha256(archiveBytes);
+                    }
+                }
+                if (real.empty()) {
+                    err = "cannot re-lock '" + entry.name + "@" + entry.version +
+                          "' with a content hash: registry unreachable and no cached archive; "
+                          "run 'spm install' with a reachable registry or restore the package cache";
+                    return false;
+                }
+                entry.checksum = real;
+            }
+        }
+        refreshed.addPackage(entry);
+    }
+    lock = refreshed;
+    return true;
+}
+
+} // namespace
+
+bool BuildOrchestrator::ensureVendored(const std::string& projectDir, const Lockfile& lock,
+                                       const std::string& registryUrl, std::string& errorMessage) {
+    auto client = std::make_shared<HttpRegistryClient>(registryUrl);
+    return ensureVendored(projectDir, lock, client, errorMessage);
+}
+
+bool BuildOrchestrator::ensureVendored(const std::string& projectDir, const Lockfile& lock,
+                                       std::shared_ptr<IRegistryClient> client,
+                                       std::string& errorMessage) {
+    fs::path vendorRoot = fs::path(projectDir) / ".spm" / "packages";
+    for (const auto& pkg : lock.getPackages()) {
+        if (pkg.source != "registry") continue;
+        fs::path destDir = vendorRoot / pkg.name;
+
+        // Fast path: already vendored with a matching checksum marker.
+        if (fs::exists(destDir / "mod.sp")) {
+            std::ifstream marker(destDir / ".sp-checksum");
+            std::string recorded;
+            if (marker.is_open()) std::getline(marker, recorded);
+            if (recorded == pkg.checksum) continue;
+        }
+
+        // 1. Archive bytes: cache first (hash-verified), else the registry.
+        std::string archiveBytes;
+        bool haveBytes = false;
+        if (PackageCache::readCachedArchive(pkg.name, pkg.version, archiveBytes)) {
+            if (sp::rt::crypto::sha256(archiveBytes) == pkg.checksum) {
+                haveBytes = true;
+            } else {
+                // Cached archive disagrees with sp.lock: do not trust it;
+                // try the registry instead.
+                archiveBytes.clear();
+            }
+        }
+        if (!haveBytes) {
+            std::string downloaded, downloadedChecksum, err;
+            if (!client->download(pkg.name, pkg.version, downloaded, downloadedChecksum, err)) {
+                errorMessage = "cannot vendor '" + pkg.name + "@" + pkg.version + "': " + err +
+                               " (run 'spm install' with a reachable registry or restore the package cache)";
+                return false;
+            }
+            if (downloadedChecksum != pkg.checksum) {
+                errorMessage = "refusing to vendor '" + pkg.name + "@" + pkg.version +
+                               "': registry tarball SHA-256 (" + downloadedChecksum +
+                               ") does not match sp.lock (" + pkg.checksum + "). "
+                               "If sp.lock predates Phase 4, run 'spm install' to re-lock with content hashes.";
+                return false;
+            }
+            archiveBytes = std::move(downloaded);
+            std::string storeErr;
+            if (!PackageCache::storeArchive(pkg.name, pkg.version, archiveBytes, downloadedChecksum,
+                                            storeErr)) {
+                errorMessage = "cannot cache downloaded '" + pkg.name + "@" + pkg.version +
+                               "': " + storeErr;
+                return false;
+            }
+        }
+
+        // 2. Parse + extract (wipe any stale tree first).
+        PackageArchiveData data;
+        std::string parseErr;
+        if (!PackageArchive::parse(archiveBytes, data, parseErr)) {
+            errorMessage = "cannot vendor '" + pkg.name + "@" + pkg.version +
+                           "': unparsable archive: " + parseErr;
+            return false;
+        }
+        std::error_code ec;
+        fs::remove_all(destDir, ec);
+        std::string extractErr;
+        if (!PackageArchive::extract(data, destDir, pkg.checksum, extractErr)) {
+            errorMessage = "cannot vendor '" + pkg.name + "@" + pkg.version + "': " + extractErr;
+            return false;
+        }
+    }
+    return true;
+}
+
+InstallResult BuildOrchestrator::install(const std::string& projectDir,
+                                         const std::string& registryUrl,
+                                         bool forceResolve,
+                                         bool frozen) {
+    auto client = std::make_shared<HttpRegistryClient>(registryUrl);
+    return install(projectDir, client, forceResolve, frozen);
+}
+
+InstallResult BuildOrchestrator::install(const std::string& projectDir,
+                                         std::shared_ptr<IRegistryClient> client,
+                                         bool forceResolve,
+                                         bool frozen) {
+    InstallResult result;
+    std::string url = client ? client->baseUrl() : HttpRegistryClient::resolveBaseUrl("");
+
+    fs::path tomlPath = fs::path(projectDir) / "sp.toml";
+    if (!fs::exists(tomlPath)) {
+        result.errorMessage = "could not find 'sp.toml' in '" + projectDir + "'";
+        return result;
+    }
+    ProjectConfig config;
+    if (!config.loadFromFile(tomlPath.string())) {
+        result.errorMessage = "failed to load sp.toml: " + config.getLastError();
+        return result;
+    }
+
+    auto provider = std::make_shared<RegistryProvider>(client);
+
+    fs::path lockPath = fs::path(projectDir) / "sp.lock";
+    Lockfile lock;
+    bool haveLock = fs::exists(lockPath) && lock.loadFromFile(lockPath.string()) &&
+                    lock.isUpToDate(config);
+
+    if (haveLock && !forceResolve) {
+        // Up-to-date lock: still vendor (a fresh checkout has sp.lock
+        // but no .spm/packages), and upgrade any legacy metadata
+        // checksums to content hashes without changing versions.
+        bool legacyFound = false;
+        for (const auto& pkg : lock.getPackages()) {
+            if (pkg.source != "registry") continue;
+            auto ver = Version::parse(pkg.version);
+            if (ver && pkg.checksum ==
+                          DependencyResolver::computeChecksum(pkg.name, *ver, pkg.source)) {
+                legacyFound = true;
+                break;
+            }
+        }
+        if (legacyFound) {
+            if (frozen) {
+                result.errorMessage = "sp.lock uses legacy metadata checksums and --frozen was "
+                                      "specified; run 'spm install' without --frozen to re-lock "
+                                      "with content hashes";
+                return result;
+            }
+            std::string refreshErr;
+            if (!refreshLegacyChecksums(lock, *provider, refreshErr)) {
+                result.errorMessage = refreshErr;
+                return result;
+            }
+            if (!lock.saveToFile(lockPath.string())) {
+                result.errorMessage = "failed to save sp.lock: " + lock.getLastError();
+                return result;
+            }
+            std::cout << "sp.lock re-locked with content hashes (versions unchanged).\n";
+        } else {
+            std::cout << "All dependencies up-to-date (" << lock.getPackages().size()
+                      << " packages locked).\n";
+        }
+    } else {
+        if (frozen) {
+            result.errorMessage = "sp.lock is out-of-sync with sp.toml and --frozen was specified";
+            return result;
+        }
+        std::cout << "Resolving dependencies for '" << config.getPackage().name << "'...\n";
+        DependencyResolver resolver(provider);
+        auto res = resolver.resolve(config, projectDir, true);
+        if (!res.success) {
+            result.errorMessage = "dependency resolution failed: " + res.errorMessage;
+            return result;
+        }
+        lock = Lockfile::fromResolution(res);
+        if (!lock.saveToFile(lockPath.string())) {
+            result.errorMessage = "failed to save sp.lock: " + lock.getLastError();
+            return result;
+        }
+        std::cout << "Successfully resolved and locked " << res.resolvedPackages.size()
+                  << " package(s):\n";
+        for (const auto& pkg : res.resolvedPackages) {
+            std::cout << "  - " << pkg.name << " v" << pkg.version.toString() << " ("
+                      << sourceKindToString(pkg.sourceKind) << ")\n";
+        }
+    }
+
+    if (provider->registryUnavailable()) {
+        result.registryUnavailable = true;
+        std::cout << "[spm] note: registry at " << url << " unreachable ("
+                  << provider->lastRegistryError()
+                  << "); resolved from the local package cache only.\n";
+    }
+
+    std::string vendorErr;
+    if (!ensureVendored(projectDir, lock, client, vendorErr)) {
+        result.errorMessage = vendorErr;
+        return result;
+    }
+    size_t registryCount = 0;
+    for (const auto& pkg : lock.getPackages()) {
+        if (pkg.source == "registry") registryCount++;
+    }
+    result.packagesInstalled = registryCount;
+    result.success = true;
+    return result;
 }
 
 BuildResult BuildOrchestrator::buildWorkspace(const std::string& workspaceDir, const BuildOptions& options) {
@@ -121,7 +361,11 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
     }
 
     if (needsResolution) {
-        DependencyResolver resolver;
+        // Phase 4 slice A: resolve through the registry-first provider so
+        // the lockfile pins real tarball SHA-256 checksums, not metadata
+        // hashes — install()/ensureVendored() below verify against them.
+        auto registryClient = std::make_shared<HttpRegistryClient>(defaultRegistryUrl());
+        DependencyResolver resolver(std::make_shared<RegistryProvider>(registryClient));
         auto res = resolver.resolve(config, projectDir, false);
         if (!res.success) {
             result.errorMessage = "Dependency resolution failed: " + res.errorMessage;
@@ -130,6 +374,16 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
         lock = Lockfile::fromResolution(res);
         if (!lock.saveToFile(lockPath.string())) {
             result.errorMessage = "Failed to save 'sp.lock': " + lock.getLastError();
+            return result;
+        }
+    }
+
+    // Phase 4 slice A: vendor registry dependencies before compiling —
+    // a fresh checkout has sp.lock but no .spm/packages yet.
+    if (!lock.getPackages().empty()) {
+        std::string vendorErr;
+        if (!ensureVendored(projectDir, lock, defaultRegistryUrl(), vendorErr)) {
+            result.errorMessage = vendorErr;
             return result;
         }
     }
@@ -432,7 +686,37 @@ DependencyTreeResult BuildOrchestrator::tree(const std::string& projectDir, int 
     return DependencyTree::buildTree(config, projectDir, nullptr, maxDepth);
 }
 
-std::vector<SearchResult> BuildOrchestrator::search(const std::string& query, const std::string& /*registryUrl*/) {
+std::vector<SearchResult> BuildOrchestrator::search(const std::string& query, const std::string& registryUrl) {
+    // Phase 4 slice A: query the real registry first. A reachable
+    // registry is the source of truth; the static index below is only a
+    // fallback when the registry cannot be reached, and the fallback is
+    // announced rather than silent.
+    std::string url = HttpRegistryClient::resolveBaseUrl(registryUrl);
+    auto client = std::make_shared<HttpRegistryClient>(url);
+    std::vector<RegistryPackageInfo> pkgs;
+    std::string err;
+    if (client->listPackages(pkgs, err)) {
+        std::string qLower = query;
+        std::transform(qLower.begin(), qLower.end(), qLower.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        std::vector<SearchResult> matches;
+        for (const auto& item : pkgs) {
+            std::string nLower = item.name;
+            std::string dLower = item.description;
+            std::transform(nLower.begin(), nLower.end(), nLower.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            std::transform(dLower.begin(), dLower.end(), dLower.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (nLower.find(qLower) != std::string::npos ||
+                dLower.find(qLower) != std::string::npos) {
+                matches.push_back(SearchResult{item.name, item.version, item.description});
+            }
+        }
+        return matches;
+    }
+    std::cerr << "[spm] warning: registry at " << url << " unreachable (" << err
+              << "); showing the built-in offline index instead.\n";
+
     // Standard package index
     static const std::vector<SearchResult> registryIndex = {
         {"sp_math", "1.0.0", "Advanced mathematics, linear algebra, and statistical functions for SP"},
@@ -491,7 +775,10 @@ VerifyResult BuildOrchestrator::verify(const std::string& projectDir) {
     fs::path lockPath = fs::path(projectDir) / "sp.lock";
     if (!fs::exists(lockPath)) {
         // Self-healing: auto-resolve and generate lockfile
-        DependencyResolver resolver;
+        // Phase 4 slice A: resolve through the registry-first provider so
+        // the generated lock pins real tarball SHA-256 checksums.
+        auto registryClient = std::make_shared<HttpRegistryClient>(defaultRegistryUrl());
+        DependencyResolver resolver(std::make_shared<RegistryProvider>(registryClient));
         auto res = resolver.resolve(config, projectDir, false);
         if (!res.success) {
             result.errorMessage = "Auto-generating 'sp.lock' failed: " + res.errorMessage;
@@ -544,12 +831,37 @@ VerifyResult BuildOrchestrator::verify(const std::string& projectDir) {
             return result;
         }
 
-        // Verify checksum matches expected deterministic hash
-        std::string expectedChecksum = DependencyResolver::computeChecksum(pkg.name, *ver, pkg.source);
-        if (pkg.checksum != expectedChecksum) {
-            result.errorMessage = "Security audit failed: Checksum mismatch / tampering detected for package '" +
-                                  pkg.name + "' (expected: " + expectedChecksum + ", recorded: " + pkg.checksum + ")";
-            return result;
+        // Phase 4 slice A: registry entries pin the tarball CONTENT hash.
+        // A legacy metadata hash (pre-Phase-4 lockfile) is not a content
+        // check and fails loudly with a re-lock instruction; a content
+        // hash is verified against the cached archive bytes, so a
+        // tampered cache is detected instead of silently trusted.
+        if (pkg.source == "registry") {
+            if (pkg.checksum == DependencyResolver::computeChecksum(pkg.name, *ver, pkg.source)) {
+                result.errorMessage = "Security audit failed: sp.lock for package '" + pkg.name +
+                    "' uses a legacy metadata checksum, not a content hash. "
+                    "Run 'spm install' to re-lock with content hashes.";
+                return result;
+            }
+            std::string archiveBytes;
+            if (!PackageCache::readCachedArchive(pkg.name, pkg.version, archiveBytes)) {
+                result.errorMessage = "Security audit failed: package '" + pkg.name + "@" +
+                    pkg.version + "' is not in the local cache; run 'spm install' to fetch and verify it";
+                return result;
+            }
+            if (sp::rt::crypto::sha256(archiveBytes) != pkg.checksum) {
+                result.errorMessage = "Security audit failed: Checksum mismatch / tampering detected for package '" +
+                    pkg.name + "' (cached archive SHA-256 does not match sp.lock)";
+                return result;
+            }
+        } else {
+            // Verify checksum matches expected deterministic hash
+            std::string expectedChecksum = DependencyResolver::computeChecksum(pkg.name, *ver, pkg.source);
+            if (pkg.checksum != expectedChecksum) {
+                result.errorMessage = "Security audit failed: Checksum mismatch / tampering detected for package '" +
+                                      pkg.name + "' (expected: " + expectedChecksum + ", recorded: " + pkg.checksum + ")";
+                return result;
+            }
         }
 
         result.packagesVerified++;

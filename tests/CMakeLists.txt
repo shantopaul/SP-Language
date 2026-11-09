@@ -69,11 +69,13 @@ add_executable(sp_tests
     spm/LockfileTest.cpp
     spm/BuildOrchestratorTest.cpp
     spm/Phase17ToolingTest.cpp
+    spm/RegistryEcosystemTest.cpp
     fmt/FormatterTest.cpp
     test/TestRunnerTest.cpp
     doc/DocGeneratorTest.cpp
     spls/LspServerTest.cpp
     spls/SplsPhase17Test.cpp
+    spls/LspDepthTest.cpp
     debugger/DapServerTest.cpp
     bindgen/BindgenTest.cpp
     benchmark/BenchmarkTest.cpp
