@@ -1252,19 +1252,17 @@ fn main() {
     //  ITERATE
     // ═══════════════════════════════════════
     //
-    // Iterating a Map directly is broken at runtime: the loop
-    // never terminates and yields garbage keys. Iterate a list of
-    // known keys and look each value up instead.
+    // A Map iterates over its keys directly. Iteration order is
+    // the hash-table order, not insertion order — do not rely on
+    // it, and do not mutate the map while iterating.
 
     println("\nAll ages:");
-    string[] names = ["Shanto", "Alice", "Charlie"];
-    for (string name in names) {
+    for (string name in ages) {
         println("  ${name}: ${ages[name]}");
     }
 
     println("\nAll scores:");
-    string[] subjects = ["math", "science", "english"];
-    for (string subject in subjects) {
+    for (string subject in scores) {
         println("  📚 ${subject} → ${scores[subject]}");
     }
 }
@@ -1278,15 +1276,18 @@ Alice is 25 years old
 Total entries: 3
 
 All ages:
-  Shanto: 22
-  Alice: 25
   Charlie: 28
+  Alice: 25
+  Shanto: 22
 
 All scores:
-  📚 math → 95
-  📚 science → 87
   📚 english → 92
+  📚 science → 87
+  📚 math → 95
 ```
+
+(Map iteration order is hash-table order, not insertion order —
+the listing above is one run's order.)
 
 ---
 
@@ -1440,20 +1441,20 @@ class BankAccount {
     // ═══════════════════════════════════════
     internal string branchCode;
 
-    // generateId is declared FIRST: a method may only call methods
-    // declared earlier in the same class. A constructor may not
-    // call a method at all (it segfaults), so the account number
-    // is set directly here; generateId is called from renewId().
-    private fn generateId() -> string {
-        return "123456789";
-    }
-
+    // generateId is declared AFTER the constructor that calls
+    // it: method declaration order does not matter — a method
+    // may call any other method of the same class, and a
+    // constructor may call methods too.
     public BankAccount(string owner, double initial) {
         this.ownerName = owner;
         this.balance = initial;
-        this.accountNumber = "ACC-123456789";
+        this.accountNumber = "ACC-" + this.generateId();
         this.accountType = "Savings";
         this.branchCode = "BR-001";
+    }
+
+    private fn generateId() -> string {
+        return "123456789";
     }
 
     public fn renewId() {
@@ -1711,14 +1712,22 @@ class Rectangle implements Drawable, Resizable {
 }
 
 fn main() {
-    // Calling a method through an interface-typed variable fails
-    // IR generation today ("call to undeclared function"), so the
-    // polymorphic loop is replaced by concrete calls. A
-    // List<Drawable> can still hold both shapes.
+    // A method can be called through an interface-typed variable:
+    // dispatch goes through the class's vtable, so the concrete
+    // implementation runs. A List<Drawable> can hold both shapes
+    // and dispatch each element the same way.
     List<Drawable> shapes = new List<Drawable>();
     shapes.add(new Circle(5.0, "Red"));
     shapes.add(new Rectangle(4.0, 6.0, "Blue"));
-    println("Shapes in the list: ${shapes.size()}");
+
+    Drawable first = shapes[0];
+    first.draw();
+    println("First color: ${first.getColor()}");
+
+    for (Drawable s in shapes) {
+        s.draw();
+        println("  color: ${s.getColor()}");
+    }
 
     Circle c = new Circle(5.0, "Red");
     c.draw();
@@ -1810,15 +1819,19 @@ Trek (2023) — Human Power 🚴, max 45 km/h
 
 ## 22. Static Members ✅
 
-> Static methods work, and static consts work when used inside
-> the class. Static mutable state does NOT work: a static field
-> assigned inside a static method still reads back its zero
-> value, and reading a static const from outside the class
-> (`MathUtils.PI`) segfaults. So there is no working static
-> counter — the counting below uses a plain instance.
+> Static fields are real storage: a static const can be read
+> from outside the class (`MathUtils.PI`), a static mutable
+> field keeps its value across calls, and a bare static name
+> works inside the class. Static initializers run once, in
+> class declaration order, before `main` — so a static
+> initializer that reads another class's static field sees zero
+> if that class is declared later.
 
 ```sp
 class Counter {
+    // Static mutable state: shared by every Counter.
+    public static int total = 0;
+
     private int count;
 
     Counter() {
@@ -1827,6 +1840,8 @@ class Counter {
 
     fn increment() {
         this.count = this.count + 1;
+        // Bare static access inside the class.
+        total = total + 1;
     }
 
     fn getCount() -> int {
@@ -1865,6 +1880,10 @@ fn main() {
     counter.increment();
     counter.increment();
     println("Count: ${counter.getCount()}");    // 3
+    println("Total increments: ${Counter.total}");  // 3
+
+    // Static const read from outside the class.
+    println("PI: ${MathUtils.PI}");
 
     // Static methods — no object needed
     println("Circle area (r=5): ${MathUtils.circleArea(5.0)}");
@@ -2171,30 +2190,25 @@ fn main() {
 
     println("User 1 name: ${user1?.name}");       // Shanto
     println("User 1 email: ${user1?.email}");      // shanto@email.com
-    // ?. on a null object segfaults in interpolation, so check first:
-    if (user3 == null) {
-        println("User 3 name: null (no crash!)");
-    }
+    // ?. on a null object is safe: it yields the null value of
+    // the field type, which prints as empty.
+    println("User 3 name: ${user3?.name}");        // (empty)
 
     // ═══════════════════════════════════════
     //  NULL COALESCING (??)
     // ═══════════════════════════════════════
 
-    // The `??` operator generates invalid LLVM IR, so write the
-    // fallback out by hand:
-    string? e1 = user1?.email;
-    if (e1 == null) {
-        println("\nEmail 1: no-email@default.com");
-    } else {
-        println("\nEmail 1: ${e1}");    // shanto@email.com
-    }
+    // ?? supplies a fallback when the left side is null. It
+    // works on a nullable value — here a nullable field read
+    // through ?. — but not on the result of ?. itself when the
+    // OBJECT is null: that result is typed as the plain field
+    // type, so ?? does not see it as null. For a possibly-null
+    // object, check for null explicitly (below).
+    string e1 = user1?.email ?? "no-email@default.com";
+    println("\nEmail 1: ${e1}");    // shanto@email.com
 
-    string? e2 = user2?.email;
-    if (e2 == null) {
-        println("Email 2: no-email@default.com");
-    } else {
-        println("Email 2: ${e2}");
-    }
+    string e2 = user2?.email ?? "no-email@default.com";
+    println("Email 2: ${e2}");      // no-email@default.com
 
     if (user3 == null) {
         println("Name 3: Unknown User");
@@ -2752,10 +2766,6 @@ fn main() {
 > myapp.models.User`) does **not** resolve, and `import` statements
 > belong at the top of the file, never inside `main`. Check the whole
 > project with `spc check src/main.sp` from the project root.
->
-> Field initializers with `new` are silently dropped at runtime
-> (the field stays null — a known compiler gap, see the Phase 34
-> slice D notes), so the service builds its list in the constructor.
 
 **FILE: `src/myapp/models/user.sp`**
 
@@ -2781,11 +2791,7 @@ module myapp.services;
 import myapp.models.user;
 
 public class UserService {
-    private List<User> users;
-
-    public UserService() {
-        this.users = new List<User>();
-    }
+    private List<User> users = new List<User>();
 
     public fn addUser(User user) {
         users.add(user);
@@ -3327,13 +3333,7 @@ class Task {
 }
 
 class TodoApp {
-    private List<Task> tasks;
-
-    TodoApp() {
-        // Field initializers with `new` are silently dropped at
-        // runtime (the field stays null), so build it here.
-        this.tasks = new List<Task>();
-    }
+    private List<Task> tasks = new List<Task>();
 
     fn add(string title) {
         tasks.add(new Task(title));
@@ -3415,22 +3415,19 @@ import std.collections;
 class Account {
     private string owner;
     private double balance;
-    private List<string> history;
-
-    // `log` is declared FIRST: a method may only call methods
-    // declared earlier in the same class — calling a
-    // later-declared method segfaults at runtime.
-    private fn log(string message) {
-        history.add(message);
-    }
+    private List<string> history = new List<string>();
 
     Account(string owner, double initial) {
         this.owner = owner;
         this.balance = initial;
-        // Field initializers with `new` are silently dropped at
-        // runtime (the field stays null), so build it here.
-        this.history = new List<string>();
-        this.log("Account created with \$${initial}");
+        // Bare method call: resolves to this class's method even
+        // though a builtin `log(double)` exists, and even though
+        // `log` is declared after this constructor.
+        log("Account created with \$${initial}");
+    }
+
+    private fn log(string message) {
+        history.add(message);
     }
 
     fn deposit(double amount) {
@@ -3439,9 +3436,7 @@ class Account {
             return;
         }
         balance += amount;
-        // Bare method calls do not resolve inside a class: methods
-        // must be called on an explicit receiver (`this.`).
-        this.log("Deposit: +\$${amount}");
+        log("Deposit: +\$${amount}");
         println("✅ Deposited \$${amount}");
     }
 
@@ -3451,7 +3446,7 @@ class Account {
             return;
         }
         balance -= amount;
-        this.log("Withdraw: -\$${amount}");
+        log("Withdraw: -\$${amount}");
         println("✅ Withdrew \$${amount}");
     }
 
@@ -3462,7 +3457,7 @@ class Account {
         }
         balance -= amount;
         target.balance += amount;
-        this.log("Transfer: -\$${amount} → ${target.owner}");
+        log("Transfer: -\$${amount} → ${target.owner}");
         target.log("Received: +\$${amount} from ${owner}");
         println("✅ Transferred \$${amount} to ${target.owner}");
     }
@@ -3995,9 +3990,11 @@ fn main() {
     Set<int> setB = new Set<int>();
     setB.add(4); setB.add(5); setB.add(6); setB.add(7); setB.add(8);
 
-    // No Set.of / union / intersect / difference, and Set is not
-    // iterable: build the results by testing membership over the
-    // known value range.
+    // No Set.of / union / intersect / difference methods, so
+    // build the results by testing membership over the known
+    // value range. But a Set prints directly ({1, 2, 3}) and
+    // iterates with for-in — the order is hash order, not
+    // insertion order.
     Set<int> unionSet = new Set<int>();
     Set<int> intersectSet = new Set<int>();
     Set<int> diffSet = new Set<int>();
@@ -4010,27 +4007,47 @@ fn main() {
         }
     }
 
-    // A Set cannot be printed directly (interpolating one prints
-    // raw pointer bytes), so show sizes and membership instead.
-    println("Set A size: ${setA.size()}, Set B size: ${setB.size()}");
-    println("Union size: ${unionSet.size()}");
-    println("Intersection size: ${intersectSet.size()}");
-    println("Difference size: ${diffSet.size()}");
+    println("Set A: ${setA}");
+    println("Set B: ${setB}");
+    println("Union: ${unionSet}");
+    println("Intersection: ${intersectSet}");
+    println("Difference: ${diffSet}");
     println("Union contains 7: ${unionSet.contains(7)}");
     println("Intersection contains 4: ${intersectSet.contains(4)}");
     println("Difference contains 1: ${diffSet.contains(1)}");
     println("Difference contains 4: ${diffSet.contains(4)}");
+
+    println("Union elements:");
+    for (int x in unionSet) {
+        println("  ${x}");
+    }
 }
 ```
 
 **Output:**
 ```
-Set A: {1, 2, 3, 4, 5}
-Set B: {4, 5, 6, 7, 8}
-Union (A ∪ B): {1, 2, 3, 4, 5, 6, 7, 8}
-Intersection (A ∩ B): {4, 5}
-Difference (A - B): {1, 2, 3}
+Set A: {4, 3, 5, 2, 1}
+Set B: {4, 7, 8, 5, 6}
+Union: {4, 7, 3, 8, 5, 6, 2, 1}
+Intersection: {4, 5}
+Difference: {3, 2, 1}
+Union contains 7: true
+Intersection contains 4: true
+Difference contains 1: true
+Difference contains 4: false
+Union elements:
+  4
+  7
+  3
+  8
+  5
+  6
+  2
+  1
 ```
+
+(Set printing and iteration order is hash order, not insertion
+order — the listing above is one run's order.)
 
 ---
 
@@ -4388,10 +4405,26 @@ Railway-oriented error handling for operations that can fail without throwing ex
 ```sp
 import std.io;
 
-// `string` has no toInt(): use int.parse. It returns 0 for
-// non-numeric input (it never throws), so the range check is what
-// rejects bad values.
+// `string` has no toInt(): use int.parse. It is strict —
+// int.parse("abc") panics (SP Panic: int.parse: invalid
+// integer 'abc') — so validate the input before parsing.
+fn isDigit(string c) -> bool {
+    return c == "0" || c == "1" || c == "2" || c == "3" || c == "4"
+        || c == "5" || c == "6" || c == "7" || c == "8" || c == "9";
+}
+
+fn isAllDigits(string s) -> bool {
+    if (s.length() == 0) return false;
+    for (int i = 0; i < s.length(); i++) {
+        if (!isDigit(s.substring(i, i + 1))) return false;
+    }
+    return true;
+}
+
 fn parsePort(string input) -> Result<int, string> {
+    if (!isAllDigits(input)) {
+        return Result.Err("Port must be a number");
+    }
     int port = int.parse(input);
     if (port >= 1 && port <= 65535) {
         return Result.Ok(port);
@@ -4422,6 +4455,7 @@ fn main() {
 ```
 Server listening on port: 8080
 Configuration error: Port must be between 1 and 65535
+Configuration error: Port must be a number
 ```
 
 ---
@@ -4538,19 +4572,12 @@ class HttpRequest {
 }
 
 class RequestBuilder {
-    private string method;
-    private string url;
-    private Map<string, string> headers;
-    private string body;
-
-    RequestBuilder() {
-        // Field initializers with `new` are silently dropped at
-        // runtime (the field stays null), so build them here.
-        this.method = "GET";
-        this.url = "";
-        this.headers = new Map<string, string>();
-        this.body = "";
-    }
+    // Field initializers run in every constructor, including
+    // the default one — `new` initializers included.
+    private string method = "GET";
+    private string url = "";
+    private Map<string, string> headers = new Map<string, string>();
+    private string body = "";
 
     public fn setMethod(string m) -> RequestBuilder { this.method = m; return this; }
     public fn setUrl(string u) -> RequestBuilder { this.url = u; return this; }
@@ -4604,21 +4631,17 @@ class SmsService implements NotificationService {
 
 class NotificationFactory {
     // `channel` is a reserved word in SP, so the parameter is
-    // named channelName. And a method cannot be called through an
-    // interface-typed variable (IR generation fails), so the
-    // factory returns the concrete types.
-    public static fn createEmail() -> EmailService {
+    // named channelName. The factory returns the interface type
+    // and the caller dispatches through it.
+    public static fn create(string channelName) -> NotificationService {
+        if (channelName == "sms") return new SmsService();
         return new EmailService();
-    }
-
-    public static fn createSms() -> SmsService {
-        return new SmsService();
     }
 }
 
 fn main() {
-    EmailService email = NotificationFactory.createEmail();
-    SmsService sms = NotificationFactory.createSms();
+    NotificationService email = NotificationFactory.create("email");
+    NotificationService sms = NotificationFactory.create("sms");
 
     email.notify("Your SP compiler v1.0 build has finished!");
     sms.notify("Two-factor code: 489201");
@@ -4633,40 +4656,39 @@ fn main() {
 
 ---
 
-## 73. Singleton Design Pattern ❌ Not Implemented
+## 73. Singleton Design Pattern ✅
 
 Ensure only a single global instance of a resource manager exists.
 
-> A singleton cannot be written in SP today. Three ways to write
-> one all fail: a lazily-initialized static instance cannot be
-> unwrapped back to the plain type (no flow narrowing, no `!`
-> operator), an eagerly-initialized static instance segfaults at
-> runtime, and static field initializers are silently dropped
-> (a static string initialized to `"Production"` reads back
-> empty). Static mutable state does not work at all: a static
-> field assigned inside a static method still reads back its
-> zero value. The closest working form is one shared instance
-> created in `main` and passed to everything that needs it.
+> The eager form works: a static field initialized with `new`
+> runs once before `main`, and every `getInstance()` call returns
+> the same object. A lazy form is still not writable — a
+> lazily-initialized static instance cannot be unwrapped back to
+> the plain type (no flow narrowing, no `!` operator) — so use
+> the eager form.
 
 ```sp
 import std.io;
 
 class ConfigurationManager {
-    public string environment;
+    // Eagerly initialized once, before main runs.
+    public static ConfigurationManager instance = new ConfigurationManager();
 
-    ConfigurationManager() {
-        this.environment = "Production";
+    public string environment = "Production";
+
+    public static fn getInstance() -> ConfigurationManager {
+        return ConfigurationManager.instance;
     }
 }
 
 fn main() {
-    // One instance, created once and shared by passing it around.
-    ConfigurationManager cfg = new ConfigurationManager();
-    println("cfg env: " + cfg.environment);
-    cfg.environment = "Staging";
-    println("cfg env now: " + cfg.environment);
+    ConfigurationManager cfg1 = ConfigurationManager.getInstance();
+    ConfigurationManager cfg2 = ConfigurationManager.getInstance();
+    println("cfg1 env: ${cfg1.environment}");
+    cfg1.environment = "Staging";
+    println("cfg2 env: ${cfg2.environment}");
+    println("Identical reference: ${cfg1 == cfg2}");
 }
-```
 ```
 
 **Output:**
@@ -4691,33 +4713,17 @@ interface Observer {
 }
 
 class EventHub {
-    private List<UserLogger> loggers;
-    private List<EmailAlert> alerts;
+    private List<Observer> observers = new List<Observer>();
 
-    EventHub() {
-        // Field initializers with `new` are silently dropped at
-        // runtime, so build the lists here.
-        this.loggers = new List<UserLogger>();
-        this.alerts = new List<EmailAlert>();
+    public fn subscribe(Observer obs) {
+        this.observers.add(obs);
     }
 
-    public fn subscribeLogger(UserLogger obs) {
-        this.loggers.add(obs);
-    }
-
-    public fn subscribeAlert(EmailAlert obs) {
-        this.alerts.add(obs);
-    }
-
-    // Calling a method through an interface-typed variable fails
-    // IR generation, so the hub keeps one list per concrete
-    // listener type instead of a single List<Observer>.
+    // One list of the interface type: emit dispatches through
+    // each listener's vtable.
     public fn emit(string eventName) {
         println("📢 Event emitted: ${eventName}");
-        for (UserLogger obs in this.loggers) {
-            obs.onEvent(eventName);
-        }
-        for (EmailAlert obs in this.alerts) {
+        for (Observer obs in this.observers) {
             obs.onEvent(eventName);
         }
     }
@@ -4733,8 +4739,8 @@ class EmailAlert implements Observer {
 
 fn main() {
     EventHub hub = new EventHub();
-    hub.subscribeLogger(new UserLogger());
-    hub.subscribeAlert(new EmailAlert());
+    hub.subscribe(new UserLogger());
+    hub.subscribe(new EmailAlert());
 
     hub.emit("USER_REGISTERED");
 }
@@ -4760,19 +4766,9 @@ import std.io;
 // strategy is a named method selected by name instead of a
 // first-class function.
 //
-// NOTE: a method may only call methods declared EARLIER in the
-// same class — calling a later-declared method segfaults at
-// runtime — so the strategy methods come first.
+// The public method comes first and the private strategies after
+// it: declaration order does not matter.
 class Checkout {
-    private fn payByCard(double amount) -> bool {
-        println("Charging $${amount} via Credit Card gateway.");
-        return true;
-    }
-    private fn payByCrypto(double amount) -> bool {
-        println("Generating on-chain transaction for $${amount}.");
-        return true;
-    }
-
     public fn processPayment(double amount, string method) {
         println("Initiating checkout of $${amount}...");
         bool ok = false;
@@ -4782,6 +4778,15 @@ class Checkout {
             ok = this.payByCrypto(amount);
         }
         if (ok) println("✅ Payment settled successfully.");
+    }
+
+    private fn payByCard(double amount) -> bool {
+        println("Charging $${amount} via Credit Card gateway.");
+        return true;
+    }
+    private fn payByCrypto(double amount) -> bool {
+        println("Generating on-chain transaction for $${amount}.");
+        return true;
     }
 }
 
@@ -5171,17 +5176,27 @@ import std.io;
 import std.http;
 import std.time;
 
+// A named function can be a dynamic handler: it receives the
+// typed HttpRequest and returns an HttpResponse. (req.text takes
+// an optional status — the default is 200.)
+fn hello(HttpRequest req) -> HttpResponse {
+    return req.text("hi typed", 200);
+}
+
 fn main() {
     HttpServer app = HttpServer.create();
 
-    // Static JSON routes work. A fn-pointer handler registered
-    // with app.get(path, handlerFn) segfaults the server on its
-    // first request, so dynamic handlers are not shown here.
+    // Static JSON routes work, and so do fn-pointer handlers
+    // registered with getHandler (routeHandler). Note the trap:
+    // HttpServer.get uses the 3-string route ABI, not the typed
+    // handler ABI — a typed handler registered with get segfaults
+    // the server on first request.
     app.routeJson("GET", "/", "{\"message\": \"Welcome to SP Web Framework!\"}");
     app.routeJson("GET", "/api/health", "{\"status\": \"healthy\", \"version\": \"1.0.0\"}");
+    app.getHandler("/hello", hello);
 
     println("Server running at http://localhost:8080/");
-    println("Serving routes: GET /, GET /api/health");
+    println("Serving routes: GET /, GET /api/health, GET /hello");
     app.listen(8080);
 
     // listen() is non-blocking by design: it binds, starts the worker
@@ -5197,8 +5212,10 @@ fn main() {
 **Output:**
 ```
 Server running at http://localhost:8080/
-Serving routes: GET /, GET /api/health
+Serving routes: GET /, GET /api/health, GET /hello
 ```
+
+`curl http://localhost:8080/hello` → `hi typed` (HTTP 200).
 
 ---
 
@@ -5242,10 +5259,12 @@ import std.io;
 import std.os;
 
 fn main() {
-    // No CLI parser in the stdlib, and OS.args() returns an empty
-    // array in this build, so the parser below works on an explicit
-    // argument list (swap in OS.args() when it forwards argv).
-    string[] args = ["--verbose", "-o", "program.exe", "-O", "3"];
+    // No CLI parser in the stdlib, so parse the flags by hand.
+    // OS.args() returns the real argv (program name excluded) —
+    // note `spc run` does not forward extra arguments, so run a
+    // built binary: `spc build cli.sp && ./cli --verbose -o
+    // program.exe -O 3`.
+    string[] args = OS.args();
     bool verbose = false;
     string output = "out.bin";
     string optimize = "2";
@@ -5596,15 +5615,13 @@ fn main() {
     for (int i = 1; i <= 10; i++) { numbers.add(i); }
 
     // Filter even numbers -> Square each -> Sum total.
-    // reduce() cannot be used here: its accumulator parameter is
-    // typed `any`, which cannot be added, so sum with a loop.
+    // reduce() folds a list with an element-typed accumulator:
+    // the 1-arg form starts from the first element, the 2-arg
+    // form from the given initial value.
     List<int> squares = numbers
         .filter((int n) => n % 2 == 0)
         .map((int n) => n * n);
-    int sumOfSquares = 0;
-    for (int x in squares) {
-        sumOfSquares = sumOfSquares + x;
-    }
+    int sumOfSquares = squares.reduce((int acc, int x) => acc + x);
 
     println("Numbers: [1 .. 10]");
     println("Even Squares sum (4 + 16 + 36 + 64 + 100): ${sumOfSquares}");
@@ -5668,15 +5685,10 @@ import std.io;
 import std.sync;
 
 class Counter {
-    private int value;
-    private Mutex lock;
-
-    Counter() {
-        // Field initializers with `new` are silently dropped at
-        // runtime, so build them here.
-        this.value = 0;
-        this.lock = new Mutex();
-    }
+    // Field initializers run in every constructor, including
+    // the default one — `new` initializers included.
+    private int value = 0;
+    private Mutex lock = new Mutex();
 
     public fn increment() {
         // No acquire()/release(): the methods are lock()/unlock().
@@ -5768,16 +5780,7 @@ class CacheItem {
 }
 
 class KeyValueStore {
-    private HashMap<string, CacheItem> store;
-
-    KeyValueStore() {
-        // Field initializers with `new` are silently dropped at
-        // runtime, so build the map here. HashMap (not Map) is
-        // used on purpose: a builtin Map index-read returns a
-        // nullable value, while HashMap.get() returns the plain
-        // value type.
-        this.store = new HashMap<string, CacheItem>();
-    }
+    private HashMap<string, CacheItem> store = new HashMap<string, CacheItem>();
 
     public fn set(string key, string value, int64 ttlSeconds) {
         this.store.set(key, new CacheItem(value, ttlSeconds));
@@ -5845,12 +5848,7 @@ class Product {
 }
 
 class ProductCatalogService {
-    private List<Product> catalog;
-
-    ProductCatalogService() {
-        // A brace literal cannot initialize a List: build it here.
-        this.catalog = new List<Product>();
-    }
+    private List<Product> catalog = new List<Product>();
 
     public fn init() {
         this.catalog.add(new Product(1, "SP Compiler Enterprise", 499.0));
@@ -5877,9 +5875,8 @@ fn main() {
     ProductCatalogService service = new ProductCatalogService();
     service.init();
 
-    // Dynamic handlers (lambdas / fn pointers) segfault the
-    // server on first request, so serialize the catalog once and
-    // serve it as a static JSON route.
+    // The catalog is serialized once and served as a static JSON
+    // route. Dynamic fn-pointer handlers work too (see §85).
     HttpServer app = HttpServer.create();
     app.routeJson("GET", "/api/products", service.toJson());
     app.routeJson("GET", "/health", "{\"status\": \"healthy\"}");

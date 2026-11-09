@@ -96,6 +96,12 @@ map.put("Bob", 88);
 println("Alice score: ${map.get("Alice")}");
 ```
 
+- A builtin `Map<K, V>` index-read returns the plain value type
+  (`map[k]`), the same as `HashMap.get()`; a missing key reads back
+  the zero value — use `containsKey()` to test presence.
+- A `Set<T>` prints as `{1, 2, 3}` and iterates with
+  `for (x in set)`; iteration order is hash order, not insertion order.
+
 ---
 
 ## 5. `std/fs` — File System Operations
@@ -154,6 +160,11 @@ import std.process;
 
 let homeDir: string = OS.getEnv("HOME");
 let platform: string = OS.platform(); // "windows", "linux", "darwin"
+
+// OS.args() returns the process arguments, program name excluded
+// (argv[1..]). Note `spc run` does not forward extra arguments;
+// run a built binary to see them.
+let args: string[] = OS.args();
 
 let exitCode: int = Process.run("git --version");
 println("Process exit status: ${exitCode}");
