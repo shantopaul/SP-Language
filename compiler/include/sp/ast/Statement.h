@@ -349,6 +349,9 @@ public:
 
     [[nodiscard]] const std::string& getType() const noexcept { return m_type; }
     [[nodiscard]] const std::string& getName() const noexcept { return m_name; }
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child; hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const BlockStmt& getBody() const noexcept { return *m_body; }
     [[nodiscard]] std::unique_ptr<BlockStmt>& getBodyPtr() noexcept { return m_body; }
 
@@ -376,6 +379,9 @@ public:
         : StatementNode(ASTNodeKind::TryCatchStmt, std::move(loc)),
           m_tryBlock(std::move(tryBlock)), m_catches(std::move(catches)), m_finallyBlock(std::move(finallyBlock)) {}
 
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child; hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasTryBlock() const noexcept { return m_tryBlock != nullptr; }
     [[nodiscard]] const BlockStmt& getTryBlock() const noexcept { return *m_tryBlock; }
     [[nodiscard]] const std::vector<CatchClause>& getCatches() const noexcept { return m_catches; }
     [[nodiscard]] bool hasFinally() const noexcept { return m_finallyBlock != nullptr; }

@@ -876,6 +876,12 @@ ast::StmtPtr Parser::parseVarDecl(bool isConst, bool isVar, bool isWeak, std::st
 
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected variable name in declaration");
 
+    // Phase 5 slice C: no name, no declaration (`let ;` used to produce
+    // a VarDeclStmt with an empty name). Do not synchronize here: the
+    // trailing `;` (or whatever follows) is consumed by the enclosing
+    // loop / next parse attempt, so returning null cannot loop.
+    if (nameTok.lexeme.empty()) return nullptr;
+
     // Support type annotation after colon: let x: int = 10; or const PI: float = 3.14;
     if (match(lexer::TokenType::Colon)) {
         type = parseType();
@@ -895,6 +901,12 @@ ast::StmtPtr Parser::parseIfStatement() {
     diagnostics::SourceLocation loc = previous().location;
     consume(lexer::TokenType::OpenParen, "Expected '(' after 'if'");
     ast::ExprPtr condition = parseExpression();
+    // Phase 5 slice C: no condition, no if. Return null instead of an
+    // IfStmt with a null condition (which used to segfault analyze()),
+    // and do NOT synchronize: the failed expression parse already
+    // advanced past the offending token, so the next real statement
+    // must not be swallowed as this if's then-branch.
+    if (!condition) return nullptr;
     consume(lexer::TokenType::CloseParen, "Expected ')' after if condition");
 
     ast::StmtPtr thenBranch = parseStatement();
@@ -911,6 +923,8 @@ ast::StmtPtr Parser::parseWhileStatement() {
     diagnostics::SourceLocation loc = previous().location;
     consume(lexer::TokenType::OpenParen, "Expected '(' after 'while'");
     ast::ExprPtr condition = parseExpression();
+    // Phase 5 slice C: no condition, no loop (same as parseIfStatement).
+    if (!condition) return nullptr;
     consume(lexer::TokenType::CloseParen, "Expected ')' after while condition");
 
     ast::StmtPtr body = parseStatement();
@@ -1011,14 +1025,17 @@ ast::StmtPtr Parser::parseSwitchStatement() {
             std::vector<ast::StmtPtr> stmts;
             while (!isAtEnd() && !check(lexer::TokenType::KeywordCase) &&
                    !check(lexer::TokenType::KeywordDefault) && !check(lexer::TokenType::CloseBrace)) {
-                stmts.push_back(parseStatement());
+                // Phase 5 slice C: a failed statement parse returns null;
+                // do not keep a null entry in the case body.
+                if (auto stmt = parseStatement()) stmts.push_back(std::move(stmt));
             }
             cases.emplace_back(std::move(val), std::move(stmts));
         } else if (match(lexer::TokenType::KeywordDefault)) {
             consume(lexer::TokenType::Colon, "Expected ':' after default");
             while (!isAtEnd() && !check(lexer::TokenType::KeywordCase) &&
                    !check(lexer::TokenType::KeywordDefault) && !check(lexer::TokenType::CloseBrace)) {
-                defaultStmts.push_back(parseStatement());
+                // Phase 5 slice C: same null-skip as the case bodies above.
+                if (auto stmt = parseStatement()) defaultStmts.push_back(std::move(stmt));
             }
         } else {
             errorAt(peek(), "Expected 'case' or 'default' in switch block");
@@ -1126,7 +1143,10 @@ std::unique_ptr<ast::BlockStmt> Parser::parseBlock() {
 
     std::vector<ast::StmtPtr> statements;
     while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
-        statements.push_back(parseStatement());
+        // Phase 5 slice C: a failed statement parse returns null; do not
+        // keep null entries in the block (they used to surface as
+        // phantom null ExprStmts to later passes).
+        if (auto stmt = parseStatement()) statements.push_back(std::move(stmt));
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' to close block");
@@ -1136,6 +1156,10 @@ std::unique_ptr<ast::BlockStmt> Parser::parseBlock() {
 ast::StmtPtr Parser::parseExprStatement() {
     diagnostics::SourceLocation loc = peek().location;
     ast::ExprPtr expr = parseExpression();
+    // Phase 5 slice C: no expression, no statement. A lone `;` used to
+    // produce an ExprStmt with a null expression (which segfaulted
+    // analyze()); now it produces nothing and the caller skips it.
+    if (!expr) return nullptr;
     consume(lexer::TokenType::Semicolon, "Expected ';' after expression");
     return std::make_unique<ast::ExprStmt>(std::move(expr), loc);
 }
@@ -1384,6 +1408,17 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
         : consume(lexer::TokenType::Identifier, "Expected function name");
     std::string name = nameTok.lexeme;
 
+    // Phase 5 slice C: a failed name consume leaves the token stream
+    // untouched, so without this the parser would return a nameless
+    // FunctionDecl AND re-parse the leftover keyword as something else
+    // (`fn test()` produced a nameless fn plus a phantom
+    // `__sp_test_anonymous_test`). Drop the declaration and skip to the
+    // next declaration boundary instead.
+    if (name.empty()) {
+        synchronize();
+        return nullptr;
+    }
+
     std::vector<std::string> typeParams;
     if (match(lexer::TokenType::Less)) {
         do {
@@ -1428,6 +1463,12 @@ ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) 
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected class name");
     std::string name = nameTok.lexeme;
+
+    // Phase 5 slice C: no name, no declaration (same as parseFunctionDecl).
+    if (name.empty()) {
+        synchronize();
+        return nullptr;
+    }
 
     std::vector<std::string> typeParams;
     if (match(lexer::TokenType::Less)) {
@@ -1483,7 +1524,9 @@ ast::ASTNodePtr Parser::parseClassDecl(std::string visibility, bool isAbstract) 
             continue;
         }
 
-        members.push_back(parseDeclaration());
+        // Phase 5 slice C: a failed member parse returns null; do not
+        // keep a null member (member parsers can now return null).
+        if (auto member = parseDeclaration()) members.push_back(std::move(member));
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of class body");
@@ -1496,6 +1539,12 @@ ast::ASTNodePtr Parser::parseInterfaceDecl(std::string visibility) {
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected interface name");
     std::string name = nameTok.lexeme;
 
+    // Phase 5 slice C: no name, no declaration (same as parseFunctionDecl).
+    if (name.empty()) {
+        synchronize();
+        return nullptr;
+    }
+
     consume(lexer::TokenType::OpenBrace, "Expected '{' to start interface body");
 
     std::vector<std::unique_ptr<ast::FunctionDecl>> methods;
@@ -1503,6 +1552,12 @@ ast::ASTNodePtr Parser::parseInterfaceDecl(std::string visibility) {
     while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
         if (match(lexer::TokenType::KeywordFn)) {
             const lexer::Token& fnName = consume(lexer::TokenType::Identifier, "Expected method name in interface");
+            // Phase 5 slice C: no method name, no method. Synchronize
+            // (the failed consume did not advance) and try the next one.
+            if (fnName.lexeme.empty()) {
+                synchronize();
+                continue;
+            }
             diagnostics::SourceLocation fnLoc = fnName.location;
             std::vector<ast::Parameter> params = parseParameters();
             std::string returnType = "void";
@@ -1527,6 +1582,12 @@ ast::ASTNodePtr Parser::parseStructDecl(std::string visibility, bool isReprC) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected struct name");
     std::string name = nameTok.lexeme;
+
+    // Phase 5 slice C: no name, no declaration (same as parseFunctionDecl).
+    if (name.empty()) {
+        synchronize();
+        return nullptr;
+    }
 
     consume(lexer::TokenType::OpenBrace, "Expected '{' to start struct body");
 
@@ -1553,7 +1614,11 @@ ast::ASTNodePtr Parser::parseStructDecl(std::string visibility, bool isReprC) {
                 advance();
             }
         }
-        fields.push_back(std::make_unique<ast::VarDeclStmt>(type, fieldName, nullptr, false, false, fieldLoc));
+        // Phase 5 slice C: a failed field-name consume yields an empty
+        // name; do not keep a phantom field for it.
+        if (!fieldName.empty()) {
+            fields.push_back(std::make_unique<ast::VarDeclStmt>(type, fieldName, nullptr, false, false, fieldLoc));
+        }
     }
 
     consume(lexer::TokenType::CloseBrace, "Expected '}' at end of struct body");
@@ -1564,6 +1629,12 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
     diagnostics::SourceLocation loc = previous().location;
     const lexer::Token& nameTok = consume(lexer::TokenType::Identifier, "Expected enum name");
     std::string name = nameTok.lexeme;
+
+    // Phase 5 slice C: no name, no declaration (same as parseFunctionDecl).
+    if (name.empty()) {
+        synchronize();
+        return nullptr;
+    }
 
     std::vector<std::string> typeParams;
     if (match(lexer::TokenType::Less)) {
@@ -1596,7 +1667,11 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
             val = parseExpression();
         }
 
-        variants.emplace_back(varTok.lexeme, std::move(val), std::move(payloadTypes));
+        // Phase 5 slice C: a failed variant-name consume yields an empty
+        // name; do not keep a phantom variant for it.
+        if (!varTok.lexeme.empty()) {
+            variants.emplace_back(varTok.lexeme, std::move(val), std::move(payloadTypes));
+        }
 
         if (!match(lexer::TokenType::Comma)) {
             break;
@@ -1610,6 +1685,7 @@ ast::ASTNodePtr Parser::parseEnumDecl(std::string visibility) {
 ast::ASTNodePtr Parser::parseTestDecl() {
     diagnostics::SourceLocation loc = previous().location;
     std::string testName;
+    bool nameOk = true;
 
     if (match(lexer::TokenType::StringLiteral)) {
         testName = previous().lexeme;
@@ -1621,6 +1697,7 @@ ast::ASTNodePtr Parser::parseTestDecl() {
     } else {
         errorAt(peek(), "Expected test name string literal or identifier after 'test'");
         testName = "anonymous_test";
+        nameOk = false;
     }
 
     if (match(lexer::TokenType::OpenParen)) {
@@ -1628,11 +1705,24 @@ ast::ASTNodePtr Parser::parseTestDecl() {
     }
 
     std::unique_ptr<ast::BlockStmt> body;
+    bool bodyOk = false;
     if (check(lexer::TokenType::OpenBrace)) {
         body = parseBlock();
+        bodyOk = true;
     } else {
         errorAt(peek(), "Expected '{' to start test body");
         body = std::make_unique<ast::BlockStmt>(std::vector<ast::StmtPtr>{}, loc);
+    }
+
+    // Phase 5 slice C: a test declaration with neither a name nor a
+    // body is not a declaration at all — it is leftover garbage from a
+    // failed parse elsewhere (e.g. the `test` keyword left behind by a
+    // failed `fn test()`). Drop it instead of emitting a phantom
+    // `__sp_test_anonymous_test`. The anonymous-test fallback stays
+    // when a body IS present: `test { ... }` is a real test.
+    if (!nameOk && !bodyOk) {
+        synchronize();
+        return nullptr;
     }
 
     std::string funcName = "__sp_test_";

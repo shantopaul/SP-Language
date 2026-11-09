@@ -20,6 +20,7 @@
 #include "sp/ir/IRBuilder.h"
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
+#include "sp/sema/ModuleLoader.h"
 #include "sp/sema/SemanticAnalyzer.h"
 
 namespace fs = std::filesystem;
@@ -44,6 +45,15 @@ std::string runSPProgram(const std::string& source, const std::string& testName,
     parser::Parser parser(tokens, testName + ".sp", &diags);
     auto program = parser.parseProgram();
     if (!program || diags.hasErrors()) return "PARSER_ERROR";
+
+    // Phase 5 slice C: resolve + merge imports exactly like `spc` does
+    // (ModuleLoader::loadAndMergeAll), mirroring the Phase 4 parent fix
+    // for ExecutionTest.cpp. Without this, `import std.<module>` silently
+    // contributed nothing to this harness, so a program using a real
+    // stdlib class failed sema here while the real compiler accepted it.
+    sema::ModuleLoader moduleLoader(diags);
+    if (!moduleLoader.loadAndMergeAll(*program, testName + ".sp")) return "MODULE_ERROR";
+
     sema::SemanticAnalyzer sema(diags);
     if (!sema.analyze(*program) || diags.hasErrors()) return "SEMA_ERROR";
 

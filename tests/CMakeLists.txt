@@ -37,6 +37,7 @@ add_executable(sp_tests
     sema/GoldenSemanticTest.cpp
     sema/EscapeAnalysisTest.cpp
     sema/ModuleLoaderTest.cpp
+    sema/BrokenProgramTest.cpp
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
     ir/TryCatchTest.cpp

@@ -61,6 +61,9 @@ public:
         : ExpressionNode(ASTNodeKind::BinaryExpr, std::move(loc)),
           m_left(std::move(left)), m_op(op), m_right(std::move(right)) {}
 
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child (e.g. `1 +`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasLeft() const noexcept { return m_left != nullptr; }
     // Phase 4 slice B: the parser's error recovery can build this node
     // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
     [[nodiscard]] bool hasRight() const noexcept { return m_right != nullptr; }
@@ -111,6 +114,9 @@ public:
     CallExpr(ExprPtr callee, std::vector<ExprPtr> args, diagnostics::SourceLocation loc)
         : CallExpr(std::move(callee), {}, std::move(args), std::move(loc)) {}
 
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child; hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasCallee() const noexcept { return m_callee != nullptr; }
     [[nodiscard]] const ExpressionNode& getCallee() const noexcept { return *m_callee; }
     [[nodiscard]] const std::vector<std::string>& getTypeArgs() const noexcept { return m_typeArgs; }
     [[nodiscard]] bool isGeneric() const noexcept { return !m_typeArgs.empty(); }
@@ -134,6 +140,9 @@ public:
         : ExpressionNode(ASTNodeKind::MemberExpr, std::move(loc)),
           m_object(std::move(object)), m_member(std::move(member)), m_isSafeNav(isSafeNav) {}
 
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child; hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasObject() const noexcept { return m_object != nullptr; }
     [[nodiscard]] const ExpressionNode& getObject() const noexcept { return *m_object; }
     [[nodiscard]] const std::string& getMember() const noexcept { return m_member; }
     [[nodiscard]] bool isSafeNav() const noexcept { return m_isSafeNav; }
@@ -157,6 +166,8 @@ public:
     // Phase 4 slice B: the parser's error recovery can build this node
     // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
     [[nodiscard]] bool hasIndex() const noexcept { return m_index != nullptr; }
+    // Phase 5 slice C: same for the object (e.g. a broken postfix chain).
+    [[nodiscard]] bool hasObject() const noexcept { return m_object != nullptr; }
     [[nodiscard]] const ExpressionNode& getObject() const noexcept { return *m_object; }
     [[nodiscard]] const ExpressionNode& getIndex() const noexcept { return *m_index; }
 
@@ -236,6 +247,8 @@ public:
     // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
     [[nodiscard]] bool hasThenExpr() const noexcept { return m_thenExpr != nullptr; }
     [[nodiscard]] bool hasElseExpr() const noexcept { return m_elseExpr != nullptr; }
+    // Phase 5 slice C: same for the condition.
+    [[nodiscard]] bool hasCondition() const noexcept { return m_condition != nullptr; }
     [[nodiscard]] const ExpressionNode& getCondition() const noexcept { return *m_condition; }
     [[nodiscard]] const ExpressionNode& getThenExpr() const noexcept { return *m_thenExpr; }
     [[nodiscard]] const ExpressionNode& getElseExpr() const noexcept { return *m_elseExpr; }
@@ -257,6 +270,8 @@ public:
     // Phase 4 slice B: the parser's error recovery can build this node
     // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
     [[nodiscard]] bool hasValue() const noexcept { return m_value != nullptr; }
+    // Phase 5 slice C: same for the target.
+    [[nodiscard]] bool hasTarget() const noexcept { return m_target != nullptr; }
     [[nodiscard]] const ExpressionNode& getTarget() const noexcept { return *m_target; }
     [[nodiscard]] lexer::TokenType getOp() const noexcept { return m_op; }
     [[nodiscard]] const ExpressionNode& getValue() const noexcept { return *m_value; }
@@ -294,6 +309,9 @@ public:
         : ExpressionNode(ASTNodeKind::TryExpr, std::move(loc)),
           m_expr(std::move(expr)) {}
 
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child; hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasExpr() const noexcept { return m_expr != nullptr; }
     [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
     [[nodiscard]] const ExprPtr& getExprPtr() const noexcept { return m_expr; }
 
@@ -309,6 +327,9 @@ public:
         : ExpressionNode(ASTNodeKind::AwaitExpr, std::move(loc)),
           m_expr(std::move(expr)) {}
 
+    // Phase 5 slice C: the parser's error recovery can build this node
+    // without a child (e.g. `await ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasExpr() const noexcept { return m_expr != nullptr; }
     [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
     [[nodiscard]] const ExprPtr& getExprPtr() const noexcept { return m_expr; }
     [[nodiscard]] ExprPtr& getExprPtr() noexcept { return m_expr; }
