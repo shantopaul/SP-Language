@@ -123,3 +123,30 @@ TEST(FormatterTest, BlankLineNormalization) {
     EXPECT_EQ(formatted, expected);
     EXPECT_EQ(formatter.format(formatted), formatted);
 }
+
+// Phase 4 slice B: the formatter used to strip the quotes off string
+// and char literals (the lexer hands it the decoded content, not the
+// source text), so `let s = "hi";` came out as `let s = hi;`.
+TEST(FormatterTest, StringLiteralQuotesPreserved) {
+    Formatter formatter;
+    std::string input = "fn main() {\nlet s = \"hi\";\nprint(s);\n}\n";
+    std::string formatted = formatter.format(input);
+    EXPECT_NE(formatted.find("\"hi\""), std::string::npos);
+    EXPECT_EQ(formatter.format(formatted), formatted);
+}
+
+TEST(FormatterTest, StringEscapesPreserved) {
+    Formatter formatter;
+    std::string input = "fn main() {\nlet s = \"a\\n\\t\\\"b\\\"\";\nprint(s);\n}\n";
+    std::string formatted = formatter.format(input);
+    EXPECT_NE(formatted.find("\"a\\n\\t\\\"b\\\"\""), std::string::npos);
+    EXPECT_EQ(formatter.format(formatted), formatted);
+}
+
+TEST(FormatterTest, CharLiteralQuotesPreserved) {
+    Formatter formatter;
+    std::string input = "fn main() {\nlet c = 'x';\nprint(c);\n}\n";
+    std::string formatted = formatter.format(input);
+    EXPECT_NE(formatted.find("'x'"), std::string::npos);
+    EXPECT_EQ(formatter.format(formatted), formatted);
+}

@@ -92,7 +92,7 @@
         "sp.format.onSave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically format SP source files on save using spc fmt."
+          "description": "Automatically format SP source files on save using the SP Language Server formatter (same engine as `spc fmt`)."
         }
       }
     },

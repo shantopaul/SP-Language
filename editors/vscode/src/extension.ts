@@ -140,6 +140,31 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Phase 4 slice B: `sp.format.onSave` defaulted to true in
+    // package.json but nothing ever implemented it, so the setting did
+    // nothing. Format SP documents on save through the language
+    // server's document formatting provider (spls, same formatter
+    // engine as `spc fmt`), honoring the setting.
+    context.subscriptions.push(
+        vscode.workspace.onWillSaveTextDocument(async (event) => {
+            if (event.document.languageId !== 'sp') {
+                return;
+            }
+            const formatOnSave = vscode.workspace
+                .getConfiguration('sp')
+                .get<boolean>('format.onSave', true);
+            if (!formatOnSave) {
+                return;
+            }
+            event.waitUntil(
+                vscode.commands.executeCommand(
+                    'vscode.executeFormatDocumentProvider',
+                    event.document.uri
+                ) as Thenable<vscode.TextEdit[]>
+            );
+        })
+    );
+
     // Command: Run Current File
     context.subscriptions.push(
         vscode.commands.registerCommand('sp.run', (uri?: vscode.Uri) => {

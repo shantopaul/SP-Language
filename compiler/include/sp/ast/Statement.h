@@ -40,6 +40,9 @@ public:
         : StatementNode(ASTNodeKind::ExprStmt, std::move(loc)),
           m_expr(std::move(expr)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasExpr() const noexcept { return m_expr != nullptr; }
     [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
     [[nodiscard]] ExprPtr& getExprPtr() noexcept { return m_expr; }
 
@@ -98,6 +101,10 @@ public:
         : StatementNode(ASTNodeKind::IfStmt, std::move(loc)),
           m_condition(std::move(condition)), m_thenBranch(std::move(thenBranch)), m_elseBranch(std::move(elseBranch)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasCondition() const noexcept { return m_condition != nullptr; }
+    [[nodiscard]] bool hasThenBranch() const noexcept { return m_thenBranch != nullptr; }
     [[nodiscard]] const ExpressionNode& getCondition() const noexcept { return *m_condition; }
     [[nodiscard]] const StatementNode& getThenBranch() const noexcept { return *m_thenBranch; }
     [[nodiscard]] bool hasElseBranch() const noexcept { return m_elseBranch != nullptr; }
@@ -121,6 +128,10 @@ public:
         : StatementNode(ASTNodeKind::WhileStmt, std::move(loc)),
           m_condition(std::move(condition)), m_body(std::move(body)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasCondition() const noexcept { return m_condition != nullptr; }
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const ExpressionNode& getCondition() const noexcept { return *m_condition; }
     [[nodiscard]] const StatementNode& getBody() const noexcept { return *m_body; }
 
@@ -140,6 +151,10 @@ public:
         : StatementNode(ASTNodeKind::DoWhileStmt, std::move(loc)),
           m_body(std::move(body)), m_condition(std::move(condition)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
+    [[nodiscard]] bool hasCondition() const noexcept { return m_condition != nullptr; }
     [[nodiscard]] const StatementNode& getBody() const noexcept { return *m_body; }
     [[nodiscard]] const ExpressionNode& getCondition() const noexcept { return *m_condition; }
 
@@ -164,6 +179,9 @@ public:
     [[nodiscard]] bool hasCondition() const noexcept { return m_condition != nullptr; }
     [[nodiscard]] const ExpressionNode* getCondition() const noexcept { return m_condition.get(); }
     [[nodiscard]] bool hasIncrement() const noexcept { return m_increment != nullptr; }
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const ExpressionNode* getIncrement() const noexcept { return m_increment.get(); }
     [[nodiscard]] const StatementNode& getBody() const noexcept { return *m_body; }
 
@@ -189,6 +207,10 @@ public:
 
     [[nodiscard]] const std::string& getVarName() const noexcept { return m_varName; }
     [[nodiscard]] const std::string& getType() const noexcept { return m_type; }
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasIterable() const noexcept { return m_iterable != nullptr; }
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const ExpressionNode& getIterable() const noexcept { return *m_iterable; }
     [[nodiscard]] const StatementNode& getBody() const noexcept { return *m_body; }
 
@@ -209,6 +231,9 @@ public:
     SwitchCase(ExprPtr value, std::vector<StmtPtr> stmts)
         : m_value(std::move(value)), m_stmts(std::move(stmts)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasValue() const noexcept { return m_value != nullptr; }
     [[nodiscard]] const ExpressionNode& getValue() const noexcept { return *m_value; }
     [[nodiscard]] const std::vector<StmtPtr>& getStatements() const noexcept { return m_stmts; }
     [[nodiscard]] std::vector<StmtPtr>& getStatements() noexcept { return m_stmts; }
@@ -224,6 +249,9 @@ public:
         : StatementNode(ASTNodeKind::SwitchStmt, std::move(loc)),
           m_subject(std::move(subject)), m_cases(std::move(cases)), m_defaultStmts(std::move(defaultStmts)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasSubject() const noexcept { return m_subject != nullptr; }
     [[nodiscard]] const ExpressionNode& getSubject() const noexcept { return *m_subject; }
     [[nodiscard]] const std::vector<SwitchCase>& getCases() const noexcept { return m_cases; }
     [[nodiscard]] const std::vector<StmtPtr>& getDefaultStatements() const noexcept { return m_defaultStmts; }
@@ -246,6 +274,9 @@ public:
         : m_pattern(std::move(pattern)), m_body(std::move(body)) {}
 
     [[nodiscard]] bool isWildcard() const noexcept { return m_pattern == nullptr; }
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const ExpressionNode* getPattern() const noexcept { return m_pattern.get(); }
     [[nodiscard]] const ASTNode& getBody() const noexcept { return *m_body; }
 
@@ -263,6 +294,9 @@ public:
         : StatementNode(ASTNodeKind::MatchStmt, std::move(loc)),
           m_subject(std::move(subject)), m_arms(std::move(arms)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasSubject() const noexcept { return m_subject != nullptr; }
     [[nodiscard]] const ExpressionNode& getSubject() const noexcept { return *m_subject; }
     [[nodiscard]] const std::vector<MatchArm>& getArms() const noexcept { return m_arms; }
 
@@ -353,6 +387,9 @@ public:
         : StatementNode(ASTNodeKind::ThrowStmt, std::move(loc)),
           m_expr(std::move(expr)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasExpr() const noexcept { return m_expr != nullptr; }
     [[nodiscard]] const ExpressionNode& getExpr() const noexcept { return *m_expr; }
     [[nodiscard]] ExprPtr& getExprPtr() noexcept { return m_expr; }
 

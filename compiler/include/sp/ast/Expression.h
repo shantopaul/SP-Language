@@ -61,6 +61,9 @@ public:
         : ExpressionNode(ASTNodeKind::BinaryExpr, std::move(loc)),
           m_left(std::move(left)), m_op(op), m_right(std::move(right)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasRight() const noexcept { return m_right != nullptr; }
     [[nodiscard]] const ExpressionNode& getLeft() const noexcept { return *m_left; }
     [[nodiscard]] lexer::TokenType getOp() const noexcept { return m_op; }
     [[nodiscard]] const ExpressionNode& getRight() const noexcept { return *m_right; }
@@ -82,6 +85,9 @@ public:
         : ExpressionNode(ASTNodeKind::UnaryExpr, std::move(loc)),
           m_op(op), m_operand(std::move(operand)), m_isPrefix(isPrefix) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasOperand() const noexcept { return m_operand != nullptr; }
     [[nodiscard]] lexer::TokenType getOp() const noexcept { return m_op; }
     [[nodiscard]] const ExpressionNode& getOperand() const noexcept { return *m_operand; }
     [[nodiscard]] bool isPrefix() const noexcept { return m_isPrefix; }
@@ -148,6 +154,9 @@ public:
         : ExpressionNode(ASTNodeKind::IndexExpr, std::move(loc)),
           m_object(std::move(object)), m_index(std::move(index)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasIndex() const noexcept { return m_index != nullptr; }
     [[nodiscard]] const ExpressionNode& getObject() const noexcept { return *m_object; }
     [[nodiscard]] const ExpressionNode& getIndex() const noexcept { return *m_index; }
 
@@ -202,6 +211,9 @@ public:
           m_params(std::move(params)), m_returnType(std::move(returnType)), m_body(std::move(body)) {}
 
     [[nodiscard]] const std::vector<Param>& getParams() const noexcept { return m_params; }
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasBody() const noexcept { return m_body != nullptr; }
     [[nodiscard]] const std::string& getReturnType() const noexcept { return m_returnType; }
     [[nodiscard]] const ASTNode& getBody() const noexcept { return *m_body; }
     [[nodiscard]] ASTNodePtr& getBodyPtr() noexcept { return m_body; }
@@ -220,6 +232,10 @@ public:
         : ExpressionNode(ASTNodeKind::TernaryExpr, std::move(loc)),
           m_condition(std::move(condition)), m_thenExpr(std::move(thenExpr)), m_elseExpr(std::move(elseExpr)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasThenExpr() const noexcept { return m_thenExpr != nullptr; }
+    [[nodiscard]] bool hasElseExpr() const noexcept { return m_elseExpr != nullptr; }
     [[nodiscard]] const ExpressionNode& getCondition() const noexcept { return *m_condition; }
     [[nodiscard]] const ExpressionNode& getThenExpr() const noexcept { return *m_thenExpr; }
     [[nodiscard]] const ExpressionNode& getElseExpr() const noexcept { return *m_elseExpr; }
@@ -238,6 +254,9 @@ public:
         : ExpressionNode(ASTNodeKind::AssignExpr, std::move(loc)),
           m_target(std::move(target)), m_op(op), m_value(std::move(value)) {}
 
+    // Phase 4 slice B: the parser's error recovery can build this node
+    // without a child (e.g. `if ;`); hasX() lets a walker skip the null.
+    [[nodiscard]] bool hasValue() const noexcept { return m_value != nullptr; }
     [[nodiscard]] const ExpressionNode& getTarget() const noexcept { return *m_target; }
     [[nodiscard]] lexer::TokenType getOp() const noexcept { return m_op; }
     [[nodiscard]] const ExpressionNode& getValue() const noexcept { return *m_value; }
