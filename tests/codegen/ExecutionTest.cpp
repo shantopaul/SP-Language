@@ -2,6 +2,7 @@
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
 #include "sp/sema/SemanticAnalyzer.h"
+#include "sp/sema/ModuleLoader.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/ir/IRPrinter.h"
@@ -31,6 +32,18 @@ std::string runSPProgram(const std::string& source, const std::string& testName,
     parser::Parser parser(tokens, testName + ".sp", &diags);
     auto program = parser.parseProgram();
     if (diags.hasErrors() || !program) return "PARSER_ERROR";
+
+    // Phase 4 (parent fix): resolve + merge imports exactly like `spc` does
+    // (ModuleLoader::loadAndMergeAll). Without this, `import std.web` (and
+    // any non-builtin stdlib module) silently contributed nothing, so a
+    // program calling App::openApi() failed sema here with "Undefined class
+    // 'App'" while the real compiler accepted it — and, worse, the harness
+    // could not have caught the Phase 3 regression where openApi()'s
+    // capturing lambda broke every std.web program at codegen time.
+    // Pure-builtin modules (std.time, std.io, ...) are still skipped by the
+    // loader itself, so existing builtin-only tests are unaffected.
+    sema::ModuleLoader moduleLoader(diags);
+    if (!moduleLoader.loadAndMergeAll(*program, testName + ".sp")) return "MODULE_ERROR";
 
     sema::SemanticAnalyzer sema(diags);
     if (!sema.analyze(*program) || diags.hasErrors()) return "SEMA_ERROR";
@@ -1623,6 +1636,27 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
     EXPECT_NE(output.find("d_seconds: 3"), std::string::npos);
     EXPECT_NE(output.find("d_min_millis: 60000"), std::string::npos);
     EXPECT_NE(output.find("time_static_gt_0: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdWebOpenApiNoCapturingLambda) {
+    // Phase 4 (parent fix): App::openApi used to register a lambda that
+    // captured `specJson`. Capturing lambdas fail loudly (E1000 since
+    // Phase 3), so importing std.web and calling openApi() broke every
+    // program that used it — and no test covered it. openApi() now serves
+    // the spec through the runtime's static-JSON route (no lambda), so
+    // this program must compile and run.
+    const std::string source = R"sp(
+        import std.web;
+
+        fn main() {
+            let app = new App();
+            app.openApi("/openapi.json", "{\"openapi\":\"3.0.3\"}");
+            println("openapi_registered: true");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdweb_openapi");
+    EXPECT_NE(output.find("openapi_registered: true"), std::string::npos) << output;
 }
 
 TEST(ExecutionTest, StdlibOsNativeExecution) {
