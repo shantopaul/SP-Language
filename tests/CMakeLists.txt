@@ -39,8 +39,10 @@ add_executable(sp_tests
     sema/ModuleLoaderTest.cpp
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
+    ir/TryCatchTest.cpp
     codegen/LLVMGeneratorTest.cpp
     codegen/ExecutionTest.cpp
+    codegen/TryCatchExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
     codegen/ObjectEmitterTest.cpp

@@ -139,6 +139,170 @@ bool IRBuilder::checkStringArgs(const ast::CallExpr& node, const std::vector<siz
     return true;
 }
 
+// --- Phase 3 slice B: try/catch/finally + throw protocol -----------------
+// All slots live in the entry block and are shared by every try in one
+// function: only one throw (and one deferred return) can be in flight at
+// a time, so a single slot each is enough.
+
+IRValuePtr IRBuilder::getOrCreateThrowPayloadSlot() {
+    if (!m_throwPayloadSlot) {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getPointer(IRType::getInt8()),
+                                                   m_currentFunction->nextTempName("throw_payload"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_throwPayloadSlot = alloca;
+    }
+    return m_throwPayloadSlot;
+}
+
+IRValuePtr IRBuilder::getOrCreateThrowPendingSlot() {
+    if (!m_throwPendingSlot) {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getInt1(),
+                                                   m_currentFunction->nextTempName("throw_pending"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_currentFunction->getEntryBlock()->addInstruction(std::make_shared<StoreInst>(
+            std::make_shared<ConstantInt>(IRType::getInt1(), 0), alloca));
+        m_throwPendingSlot = alloca;
+    }
+    return m_throwPendingSlot;
+}
+
+IRValuePtr IRBuilder::getOrCreateReturnPendingSlot() {
+    if (!m_returnPendingSlot) {
+        auto alloca = std::make_shared<AllocaInst>(IRType::getInt1(),
+                                                   m_currentFunction->nextTempName("return_pending"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_currentFunction->getEntryBlock()->addInstruction(std::make_shared<StoreInst>(
+            std::make_shared<ConstantInt>(IRType::getInt1(), 0), alloca));
+        m_returnPendingSlot = alloca;
+    }
+    return m_returnPendingSlot;
+}
+
+IRValuePtr IRBuilder::getOrCreateReturnValueSlot() {
+    if (m_currentFunction->getReturnType()->isVoid()) return nullptr;
+    if (!m_returnValueSlot) {
+        auto alloca = std::make_shared<AllocaInst>(m_currentFunction->getReturnType(),
+                                                   m_currentFunction->nextTempName("return_value"));
+        m_currentFunction->getEntryBlock()->addInstruction(alloca);
+        m_returnValueSlot = alloca;
+    }
+    return m_returnValueSlot;
+}
+
+IRBasicBlock* IRBuilder::getOrCreateDeferredReturnBlock() {
+    if (m_deferredReturnBlock) return m_deferredReturnBlock;
+    auto retBB = createBlock("deferred_return");
+    m_deferredReturnBlock = retBB;
+    // Emit the block body now. NOTE: this block deliberately emits NO
+    // scope drops. It is shared by every deferred return in the
+    // function, so it cannot know which scopes are live at a given
+    // return site; dropping a fixed snapshot would release
+    // uninitialized allocas on a shallower return path. Refcounted
+    // locals on a deferred-return path therefore leak (bounded, one
+    // function's worth of locals per return). The returned value
+    // itself was retained at the return site, so it survives.
+    IRBasicBlock* saved = m_currentBlock;
+    setInsertPoint(retBB);
+    IRTypePtr retType = m_currentFunction->getReturnType();
+    if (retType->isVoid()) {
+        retBB->addInstruction(std::make_shared<ReturnInst>());
+    } else {
+        auto slot = getOrCreateReturnValueSlot();
+        auto loadInst = std::make_shared<LoadInst>(retType, slot, m_currentFunction->nextTempName("deferred_ret"));
+        retBB->addInstruction(loadInst);
+        retBB->addInstruction(std::make_shared<ReturnInst>(loadInst));
+    }
+    setInsertPoint(saved);
+    return retBB;
+}
+
+IRBasicBlock* IRBuilder::getOrCreateUncaughtThrowBlock() {
+    if (m_uncaughtThrowBlock) return m_uncaughtThrowBlock;
+    auto uncaughtBB = createBlock("uncaught_throw");
+    m_uncaughtThrowBlock = uncaughtBB;
+    IRBasicBlock* saved = m_currentBlock;
+    setInsertPoint(uncaughtBB);
+    auto payloadSlot = getOrCreateThrowPayloadSlot();
+    auto payload = std::make_shared<LoadInst>(IRType::getPointer(IRType::getInt8()), payloadSlot,
+                                              m_currentFunction->nextTempName("uncaught_msg"));
+    uncaughtBB->addInstruction(payload);
+    IRTypePtr retType = m_currentFunction->getReturnType();
+    auto structRet = std::dynamic_pointer_cast<IRStructType>(retType);
+    bool isResult = structRet && structRet->getName() == "struct.Result";
+    bool isOption = structRet && structRet->getName() == "struct.Option";
+    if (retType->isStruct() && isResult) {
+        // Uncaught throw in a Result-returning function becomes Err.
+        auto errVal = emitCreateTaggedUnion("Result", 1, payload);
+        auto loadInst = std::make_shared<LoadInst>(retType, errVal, m_currentFunction->nextTempName("uncaught_err"));
+        uncaughtBB->addInstruction(loadInst);
+        uncaughtBB->addInstruction(std::make_shared<ReturnInst>(loadInst));
+    } else if (retType->isStruct() && isOption) {
+        // Uncaught throw in an Option-returning function becomes None
+        // (the thrown value is discarded: Option carries no error).
+        auto noneVal = emitCreateTaggedUnion("Option", 1, nullptr);
+        auto loadInst = std::make_shared<LoadInst>(retType, noneVal, m_currentFunction->nextTempName("uncaught_none"));
+        uncaughtBB->addInstruction(loadInst);
+        uncaughtBB->addInstruction(std::make_shared<ReturnInst>(loadInst));
+    } else {
+        // Otherwise an uncaught throw is unrecoverable: panic with the
+        // thrown message (ADR-002: unrecoverable errors use panic()).
+        auto call = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_panic",
+                                               std::vector<IRValuePtr>{payload});
+        uncaughtBB->addInstruction(call);
+        // Unreachable at runtime (panic aborts); keep the block
+        // terminated for the verifier.
+        uncaughtBB->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(retType)));
+    }
+    setInsertPoint(saved);
+    return uncaughtBB;
+}
+
+IRBasicBlock* IRBuilder::findThrowTarget() {
+    for (auto it = m_tryStack.rbegin(); it != m_tryStack.rend(); ++it) {
+        if (it->catchBlock) return it->catchBlock;
+        if (it->finallyBlock) return it->finallyBlock;
+    }
+    return getOrCreateUncaughtThrowBlock();
+}
+
+IRBasicBlock* IRBuilder::findFinallyTarget() {
+    for (auto it = m_tryStack.rbegin(); it != m_tryStack.rend(); ++it) {
+        if (it->finallyBlock) return it->finallyBlock;
+    }
+    return nullptr;
+}
+
+void IRBuilder::emitThrowValue(IRValuePtr strVal) {
+    auto flagSlot = getOrCreateThrowPendingSlot();
+    auto payloadSlot = getOrCreateThrowPayloadSlot();
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+        std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(strVal, payloadSlot));
+    IRBasicBlock* target = findThrowTarget();
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(target->getName()));
+}
+
+void IRBuilder::emitFinallyDispatch(IRBasicBlock* mergeBlock) {
+    auto throwFlag = getOrCreateThrowPendingSlot();
+    auto loadThrow = std::make_shared<LoadInst>(IRType::getInt1(), throwFlag,
+                                                m_currentFunction->nextTempName("throw_pending"));
+    m_currentBlock->addInstruction(loadThrow);
+    IRBasicBlock* checkReturnBB = createBlock("finally_check_return");
+    IRBasicBlock* propagateBB = findThrowTarget();
+    m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+        loadThrow, propagateBB->getName(), checkReturnBB->getName()));
+
+    setInsertPoint(checkReturnBB);
+    auto retFlag = getOrCreateReturnPendingSlot();
+    auto loadRet = std::make_shared<LoadInst>(IRType::getInt1(), retFlag,
+                                              m_currentFunction->nextTempName("return_pending"));
+    m_currentBlock->addInstruction(loadRet);
+    IRBasicBlock* returnTarget = findFinallyTarget();
+    if (!returnTarget) returnTarget = getOrCreateDeferredReturnBlock();
+    m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+        loadRet, returnTarget->getName(), mergeBlock->getName()));
+}
+
 void IRBuilder::pushScope() {
     m_scopes.emplace_back();
     m_refCountedScopes.emplace_back();
@@ -205,6 +369,19 @@ IRBasicBlock* IRBuilder::createBlock(const std::string& name) {
 
 void IRBuilder::setInsertPoint(IRBasicBlock* block) {
     m_currentBlock = block;
+    ensureTryState();
+}
+
+void IRBuilder::ensureTryState() {
+    if (m_tryStateFunction == m_currentFunction) return;
+    m_tryStateFunction = m_currentFunction;
+    m_tryStack.clear();
+    m_throwPayloadSlot = nullptr;
+    m_throwPendingSlot = nullptr;
+    m_returnPendingSlot = nullptr;
+    m_returnValueSlot = nullptr;
+    m_deferredReturnBlock = nullptr;
+    m_uncaughtThrowBlock = nullptr;
 }
 
 IRValuePtr IRBuilder::emitCastIfNeeded(IRValuePtr val, IRTypePtr targetType) {
@@ -1391,6 +1568,64 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
 }
 
 void IRBuilder::visit(const ast::ReturnStmt& node) {
+    // Phase 3 slice B: a return inside a try with a finally must run
+    // the finally blocks first. Defer it: stash the value, set the
+    // flag, and branch to the innermost finally; that finally's
+    // dispatch completes the return (possibly via outer finallys).
+    // A return inside a try WITHOUT a finally returns normally.
+    IRBasicBlock* finallyTarget = findFinallyTarget();
+    if (finallyTarget) {
+        if (node.hasValue()) {
+            node.getValue()->accept(*this);
+            IRValuePtr retVal = m_lastExprValue;
+            if (m_currentFunction->getReturnType()->isStruct() && retVal && retVal->getType()->isPointer()) {
+                auto loadInst = std::make_shared<LoadInst>(m_currentFunction->getReturnType(), retVal, m_currentFunction->nextTempName("tu_ret"));
+                m_currentBlock->addInstruction(loadInst);
+                retVal = loadInst;
+            }
+            retVal = emitCastIfNeeded(retVal, m_currentFunction->getReturnType());
+
+            // Retain a reference return value first: the deferred
+            // return block releases the function's locals, and the
+            // returned object must survive that.
+            bool isRefRet = false;
+            if (retVal && retVal->getType()->isPointer()) {
+                auto semaType = m_sema.getNodeType(node.getValue());
+                if (semaType && semaType->isReferenceType()) {
+                    isRefRet = true;
+                } else if (dynamic_cast<const ast::NewExpr*>(node.getValue())) {
+                    isRefRet = true;
+                }
+            }
+            if (isRefRet) {
+                auto retainCall = std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{retVal});
+                m_currentBlock->addInstruction(retainCall);
+            }
+
+            auto slot = getOrCreateReturnValueSlot();
+            if (slot && retVal) {
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(retVal, slot));
+            }
+            auto flagSlot = getOrCreateReturnPendingSlot();
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+                std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
+        } else {
+            // Bare return: for main the deferred value is 0.
+            if (m_currentFunction->getName() == "main") {
+                auto slot = getOrCreateReturnValueSlot();
+                if (slot) {
+                    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+                        std::make_shared<ConstantInt>(IRType::getInt32(), 0), slot));
+                }
+            }
+            auto flagSlot = getOrCreateReturnPendingSlot();
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+                std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
+        }
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(finallyTarget->getName()));
+        return;
+    }
     if (node.hasValue()) {
         node.getValue()->accept(*this);
         IRValuePtr retVal = m_lastExprValue;
@@ -1436,6 +1671,18 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
 void IRBuilder::visit(const ast::BreakStmt& node) {
     (void)node;
     if (!m_breakStack.empty()) {
+        // Phase 3 slice B: a break that would leave a try with a
+        // finally must run the finally first, which this lowering does
+        // not support yet. Fail loudly instead of silently skipping
+        // the finally. (A break of a loop entered *inside* the try
+        // does not leave it, so it is allowed.)
+        for (const auto& frame : m_tryStack) {
+            if (frame.finallyBlock && m_breakStack.size() <= frame.breakDepth) {
+                reportUnsupported(node.getLocation(), "break inside try with finally",
+                                  "break out of a try block with a finally clause is not supported yet; restructure the loop or move the finally");
+                return;
+            }
+        }
         if (!m_refCountedScopes.empty()) {
             emitScopeDrops(m_refCountedScopes.size() - 1);
         }
@@ -1446,6 +1693,14 @@ void IRBuilder::visit(const ast::BreakStmt& node) {
 void IRBuilder::visit(const ast::ContinueStmt& node) {
     (void)node;
     if (!m_continueStack.empty()) {
+        // Phase 3 slice B: same rule as break (see above).
+        for (const auto& frame : m_tryStack) {
+            if (frame.finallyBlock && m_continueStack.size() <= frame.continueDepth) {
+                reportUnsupported(node.getLocation(), "continue inside try with finally",
+                                  "continue out of a try block with a finally clause is not supported yet; restructure the loop or move the finally");
+                return;
+            }
+        }
         if (!m_refCountedScopes.empty()) {
             emitScopeDrops(m_refCountedScopes.size() - 1);
         }
@@ -1454,30 +1709,130 @@ void IRBuilder::visit(const ast::ContinueStmt& node) {
 }
 
 void IRBuilder::visit(const ast::TryCatchStmt& node) {
-    if (!node.getCatches().empty()) {
-        // Phase 1 (pro-4.0.0): catch clauses have no lowering. They used
-        // to be silently dropped, so a program that threw would run past
-        // its handler as if the handler did not exist. Fail loudly
-        // instead; Result<T, E> with the '?' operator is the supported
-        // error path until exception handling lands.
-        reportUnsupported(node.getLocation(), "try/catch",
-                          "catch clauses are not implemented yet; use Result<T, E> and the '?' operator for error handling");
-    }
+    // Phase 3 slice B (pro-4.0.0): real try/catch/finally lowering, in
+    // the ADR-002 direction (Result/Option + `?` for cross-function
+    // errors; throw/catch is local control flow inside one function).
+    //
+    // SEMANTICS (see docs/v2/PHASE-32-PRO-4.0.0.md for the full
+    // contract):
+    // - The try body runs. A `throw` inside it stores the stringified
+    //   value in the shared payload slot, sets the pending flag, and
+    //   branches to the FIRST catch block (later catches are dead code:
+    //   there is no `Exception` type in the language, so no runtime
+    //   type filtering is possible). The catch variable is bound to the
+    //   payload string. Statements after the throw do not run.
+    // - The finally block runs on every exit path: normal completion,
+    //   after the catch, and before a deferred return / propagated
+    //   throw leaves the try.
+    // - A `throw` with no enclosing catch propagates outward: to the
+    //   next outer try's catch/finally, else to the uncaught block
+    //   (Err in a Result function, None in an Option function, panic
+    //   otherwise). A `return` inside a try with a finally is deferred
+    //   the same way (value stashed, flag set, finally runs first).
+    // - `break`/`continue` out of a try with a finally is a loud
+    //   error[E1000] (see visit(BreakStmt)/visit(ContinueStmt)); a
+    //   break/continue of a loop entered *inside* the try is fine.
+    bool hasCatch = !node.getCatches().empty();
+    bool hasFinally = node.hasFinally() && node.getFinallyBlock();
+    IRBasicBlock* tryBB = createBlock("try");
+    IRBasicBlock* catchBB = hasCatch ? createBlock("catch") : nullptr;
+    IRBasicBlock* finallyBB = hasFinally ? createBlock("finally") : nullptr;
+    IRBasicBlock* mergeBB = createBlock("try_merge");
+
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(tryBB->getName()));
+
+    TryFrame frame;
+    frame.catchBlock = catchBB;
+    frame.finallyBlock = finallyBB;
+    frame.mergeBlock = mergeBB;
+    frame.breakDepth = m_breakStack.size();
+    frame.continueDepth = m_continueStack.size();
+    m_tryStack.push_back(frame);
+
+    // --- try body ---
+    setInsertPoint(tryBB);
     node.getTryBlock().accept(*this);
-    if (node.hasFinally() && node.getFinallyBlock()) {
-        node.getFinallyBlock()->accept(*this);
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<BranchInst>(
+            finallyBB ? finallyBB->getName() : mergeBB->getName()));
     }
+    m_tryStack.pop_back();
+
+    // --- catch body (first catch wins) ---
+    if (hasCatch) {
+        setInsertPoint(catchBB);
+        // The throw is handled now: clear the pending flag, or the
+        // finally dispatch below would propagate it again.
+        auto flagSlot = getOrCreateThrowPendingSlot();
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+            std::make_shared<ConstantInt>(IRType::getInt1(), 0), flagSlot));
+        // Bind the catch variable to the shared payload slot.
+        const auto& clause = node.getCatches().front();
+        pushScope();
+        declareVariable(clause.getName(), getOrCreateThrowPayloadSlot(),
+                        IRType::getPointer(IRType::getInt8()));
+        // Throws inside the catch run the finally, then propagate
+        // (this frame has no catch of its own).
+        TryFrame catchFrame;
+        catchFrame.catchBlock = nullptr;
+        catchFrame.finallyBlock = finallyBB;
+        catchFrame.mergeBlock = mergeBB;
+        catchFrame.breakDepth = m_breakStack.size();
+        catchFrame.continueDepth = m_continueStack.size();
+        m_tryStack.push_back(catchFrame);
+        clause.getBody().accept(*this);
+        m_tryStack.pop_back();
+        popScope();
+        if (!m_currentBlock->hasTerminator()) {
+            m_currentBlock->addInstruction(std::make_shared<BranchInst>(
+                finallyBB ? finallyBB->getName() : mergeBB->getName()));
+        }
+    }
+
+    // --- finally body (no frame: returns/throws inside it execute
+    // immediately against the outer frames) ---
+    if (hasFinally) {
+        setInsertPoint(finallyBB);
+        node.getFinallyBlock()->accept(*this);
+        if (!m_currentBlock->hasTerminator()) {
+            emitFinallyDispatch(mergeBB);
+        }
+    }
+
+    setInsertPoint(mergeBB);
 }
+
 void IRBuilder::visit(const ast::ThrowStmt& node) {
-    // Phase 1 (pro-4.0.0): 'throw' has no lowering. It used to be silently
-    // dropped, so a program that threw would keep running as if nothing
-    // happened. Fail loudly instead; Result<T, E> with the '?' operator
-    // is the supported error path until exception handling lands.
-    reportUnsupported(node.getLocation(), "throw",
-                      "exceptions are not implemented yet; use Result<T, E> and the '?' operator for error handling");
-    // Still visit the thrown expression so nested unsupported constructs
-    // are reported in the same pass; the module is discarded either way.
+    // Phase 3 slice B: real `throw`. The thrown value is stringified
+    // (strings pass through; int/bool/char/float/double via the existing
+    // conversion helpers) and handed to emitThrowValue, which routes it
+    // to the innermost catch, else the finally, else outward.
+    // Throwing a composite value (object, array, map, Result/Option)
+    // is not supported: there is no runtime representation for it in
+    // the catch binding, so it fails loudly instead of miscompiling.
+    auto semaType = m_sema.getNodeType(&node.getExpr());
+    if (semaType && !semaType->isString() && !semaType->isInteger() && !semaType->isChar() &&
+        !semaType->isBoolean() && !semaType->isFloat() && !semaType->isDouble() &&
+        !semaType->isUnsignedInteger() && !semaType->isError()) {
+        reportUnsupported(node.getLocation(), "throw of '" + semaType->toString() + "'",
+                          "only string, integer, bool, char and floating-point values can be thrown in this phase");
+        m_lastExprValue = nullptr;
+        m_lastExprType = nullptr;
+        return;
+    }
     node.getExpr().accept(*this);
+    IRValuePtr thrownVal = m_lastExprValue;
+    IRTypePtr thrownType = m_lastExprType;
+    if (!thrownVal) {
+        m_lastExprValue = nullptr;
+        m_lastExprType = nullptr;
+        return;
+    }
+    IRValuePtr strVal = thrownVal;
+    if (!thrownType || !thrownType->isPointer()) {
+        strVal = convertToStringValue(thrownVal, thrownType, &node.getExpr());
+    }
+    emitThrowValue(strVal);
     m_lastExprValue = nullptr;
     m_lastExprType = nullptr;
 }
@@ -6602,22 +6957,76 @@ void IRBuilder::visit(const ast::ArrayExpr& node) {
     m_lastExprType = IRType::getPointer();
 }
 void IRBuilder::visit(const ast::MapExpr& node) {
-    // Phase 1 (pro-4.0.0): map literals have no lowering. They used to be
-    // silently dropped, evaluating to nothing. Fail loudly instead.
-    reportUnsupported(node.getLocation(), "map literal",
-                      "map literals are not implemented yet in IR lowering");
-    // Still visit the entries so nested unsupported constructs are
-    // reported in the same pass; the module is discarded either way.
+    // Phase 3 slice B (pro-4.0.0): real map literals. A literal lowers
+    // to sp_rt_map_alloc followed by one sp_rt_map_set_str / set_i64
+    // per entry, matching the existing map index/store lowering.
+    //
+    // TYPING RULES (the runtime stores int64 values only):
+    // - keys: string (set_str) or integer/char/bool (set_i64, cast to
+    //   i64). Any other key type is a loud error[E1000].
+    // - values: integer/char/bool only (cast to i64). String, float,
+    //   struct, array, map or Result/Option values have no runtime
+    //   representation and fail loudly instead of being silently
+    //   dropped or truncated.
+    // - an empty literal allocates an empty map (sema types it
+    //   Map<string, Any>).
+    auto allocCall = std::make_shared<CallInst>(IRType::getPointer(), "sp_rt_map_alloc",
+                                                std::vector<IRValuePtr>{},
+                                                m_currentFunction->nextTempName("map_alloc"));
+    m_currentBlock->addInstruction(allocCall);
+    IRValuePtr mapVal = allocCall;
+
     for (const auto& entry : node.getEntries()) {
-        if (entry.first) {
-            entry.first->accept(*this);
+        if (!entry.first || !entry.second) continue;
+        auto keyType = m_sema.getNodeType(entry.first.get());
+        auto valueType = m_sema.getNodeType(entry.second.get());
+
+        bool keyIsString = keyType && (keyType->isString() || keyType->isPointer());
+        bool keyIsInt = keyType && (keyType->isInteger() || keyType->isChar() || keyType->isBoolean() ||
+                                    keyType->isUnsignedInteger());
+        if (!keyIsString && !keyIsInt && keyType && !keyType->isError()) {
+            reportUnsupported(entry.first->getLocation(), "map literal with '" + keyType->toString() + "' key",
+                              "map keys must be strings or integers in this phase");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
         }
-        if (entry.second) {
-            entry.second->accept(*this);
+        bool valueIsInt = valueType && (valueType->isInteger() || valueType->isChar() || valueType->isBoolean() ||
+                                        valueType->isUnsignedInteger());
+        if (!valueIsInt && valueType && !valueType->isError()) {
+            reportUnsupported(entry.second->getLocation(),
+                              "map literal with '" + valueType->toString() + "' value",
+                              "map values must be integers in this phase; the map runtime stores int64 values only");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+
+        entry.first->accept(*this);
+        IRValuePtr keyVal = m_lastExprValue;
+        entry.second->accept(*this);
+        IRValuePtr valueVal = m_lastExprValue;
+        if (!keyVal || !valueVal) {
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        IRValuePtr valueI64 = emitCastIfNeeded(valueVal, IRType::getInt64());
+        if (keyIsString) {
+            auto setCall = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_map_set_str",
+                                                      std::vector<IRValuePtr>{mapVal, keyVal, valueI64});
+            m_currentBlock->addInstruction(setCall);
+        } else {
+            IRValuePtr keyI64 = emitCastIfNeeded(keyVal, IRType::getInt64());
+            auto setCall = std::make_shared<CallInst>(IRType::getVoid(), "sp_rt_map_set_i64",
+                                                      std::vector<IRValuePtr>{mapVal, keyI64, valueI64});
+            m_currentBlock->addInstruction(setCall);
         }
     }
-    m_lastExprValue = nullptr;
-    m_lastExprType = nullptr;
+
+    m_lastExprValue = mapVal;
+    auto mapSemaType = m_sema.getNodeType(&node);
+    m_lastExprType = mapSemaType ? mapType(mapSemaType.get()) : IRType::getPointer();
 }
 void IRBuilder::visit(const ast::LambdaExpr& node) {
     std::string lambdaName = "__sp_lambda_" + std::to_string(m_lambdaCounter++);

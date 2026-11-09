@@ -176,6 +176,58 @@ private:
     std::vector<std::string> m_breakStack;
     std::vector<std::string> m_continueStack;
 
+    // Phase 3 slice B (pro-4.0.0): try/catch/finally + throw lowering.
+    // A TryFrame records the control-flow targets of one lexically
+    // enclosing `try` statement. A throw branches to the innermost
+    // frame's catch (if any), else its finally (if any), else outward
+    // to the next frame or the uncaught-throw block. A return inside a
+    // try with a finally is deferred the same way: the value is stashed,
+    // a flag is set, the finally blocks run, and the deferred-return
+    // block completes the return.
+    struct TryFrame {
+        IRBasicBlock* catchBlock{nullptr};
+        IRBasicBlock* finallyBlock{nullptr};
+        IRBasicBlock* mergeBlock{nullptr};
+        // Loop-nesting depths at try entry: a break/continue is "inside"
+        // this try only when the loop stack has grown past it (a loop
+        // entered after the try). A break/continue that would exit the
+        // try is rejected loudly when the try has a finally.
+        size_t breakDepth{0};
+        size_t continueDepth{0};
+    };
+    std::vector<TryFrame> m_tryStack;
+
+    // Per-function slots for the throw/return protocol, created lazily
+    // in the entry block. m_tryStateFunction tracks which function they
+    // belong to; ensureTryState() (called from setInsertPoint) resets
+    // them whenever lowering moves to a new function.
+    IRFunction* m_tryStateFunction{nullptr};
+    IRValuePtr m_throwPayloadSlot{nullptr}; // ptr: stringified thrown value
+    IRValuePtr m_throwPendingSlot{nullptr}; // i1: a throw is in flight
+    IRValuePtr m_returnPendingSlot{nullptr}; // i1: a return is deferred
+    IRValuePtr m_returnValueSlot{nullptr}; // function return type (non-void)
+    IRBasicBlock* m_deferredReturnBlock{nullptr};
+    IRBasicBlock* m_uncaughtThrowBlock{nullptr};
+    void ensureTryState();
+
+    IRValuePtr getOrCreateThrowPayloadSlot();
+    IRValuePtr getOrCreateThrowPendingSlot();
+    IRValuePtr getOrCreateReturnPendingSlot();
+    IRValuePtr getOrCreateReturnValueSlot();
+    IRBasicBlock* getOrCreateDeferredReturnBlock();
+    IRBasicBlock* getOrCreateUncaughtThrowBlock();
+    // Walk the try stack outward: first frame with a catch, else first
+    // with a finally, else the uncaught-throw block.
+    IRBasicBlock* findThrowTarget();
+    // First frame (outward) with a finally, or nullptr.
+    IRBasicBlock* findFinallyTarget();
+    // Dispatch at the end of a finally body: pending throw propagates,
+    // else pending return completes, else fall through to mergeBlock.
+    void emitFinallyDispatch(IRBasicBlock* mergeBlock);
+    // Set the throw flags for an already-stringified value and branch
+    // to its handler (findThrowTarget).
+    void emitThrowValue(IRValuePtr strVal);
+
     // Phase 2 slice B2: true while lowering the body of an `async fn`
     // (set in visit(FunctionDecl) / compileMethod). visit(AwaitExpr)
     // only lowers inside an async function; sema normally rejects await
