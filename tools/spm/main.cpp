@@ -210,9 +210,11 @@ int handleAdd(int argc, char* argv[]) {
         "json", "io", "fs", "net", "http", "db", "crypto", "time", "math",
         "collections", "string", "process", "sync", "web", "redis", "queue",
         "log", "metrics", "health", "security", "mem", "test", "ws", "sse",
+        "async",
         "std.json", "std.io", "std.fs", "std.net", "std.http", "std.db", "std.crypto", "std.time", "std.math",
         "std.collections", "std.string", "std.process", "std.sync", "std.web", "std.redis", "std.queue",
-        "std.log", "std.metrics", "std.health", "std.security", "std.mem", "std.test", "std.ws", "std.sse"
+        "std.log", "std.metrics", "std.health", "std.security", "std.mem", "std.test", "std.ws", "std.sse",
+        "std.async"
     };
 
     if (stdlibModules.count(pkgName)) {

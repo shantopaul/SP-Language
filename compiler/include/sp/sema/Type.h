@@ -213,6 +213,7 @@ struct MemberMethod {
     bool isStatic{false};
     bool isAbstract{false};
     bool isOverride{false};
+    bool isAsync{false};
 };
 
 // Class type

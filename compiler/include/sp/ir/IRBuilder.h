@@ -118,6 +118,53 @@ private:
     void reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
                            const std::string& detail);
 
+    // Phase 3 slice C (pro-4.0.0): async spawn / await helpers.
+    // Calling an `async fn` returns a Task instead of running the body:
+    // the body runs as a posted callback on the scheduler, driven by a
+    // compiler-generated thunk that loads its arguments from a heap ctx.
+    // Awaiting pumps the scheduler (B2 design) — the awaiting frame
+    // stays on the stack; this is NOT a heap-frame state machine.
+    // Payload kinds are "void" | "int" | "bool" | "string" (the Task
+    // payload the runtime can carry); anything else fails loudly.
+    std::string asyncThunkName(const std::string& compiledName) const;
+    // Name of the indirect thunk: the function pointer is loaded from
+    // the vtable at the call site and carried in ctx slot 0 (used for
+    // async methods called through a virtual dispatch).
+    std::string asyncThunkIndirectName(const std::string& compiledName) const;
+    // Unwrap Task<T>/Future<T> to its payload kind; false when the type
+    // is not a Task/Future or the payload cannot be carried.
+    bool taskPayloadKind(const sema::TypePtr& taskType, std::string& outKind) const;
+    // Payload kind of an async fn's declared return type (sema type).
+    bool asyncReturnKind(const sema::TypePtr& returnType, std::string& outKind) const;
+    IRValuePtr emitAsyncScheduler();
+    // Spawn `compiledName` as a task: allocate a heap ctx, store the
+    // lowered args in 8-byte slots, post the thunk. Returns the task
+    // handle (ptr), or nullptr when an argument type cannot be carried.
+    // When `fnPtr` is given (virtual dispatch), ctx slot 0 holds the
+    // function pointer and the args shift by one slot, and the indirect
+    // thunk is used instead of the direct one.
+    IRValuePtr emitAsyncSpawn(const std::string& compiledName, const std::string& payloadKind,
+                              const std::vector<IRValuePtr>& argValues,
+                              const std::vector<IRTypePtr>& argTypes,
+                              IRValuePtr fnPtr = nullptr);
+    // Await `task` (a Task handle) on `sched` and return its payload
+    // value (nullptr for void). Does NOT destroy the task.
+    IRValuePtr emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std::string& payloadKind);
+    // Generate `__sp_async_thunk_<compiledName>(ptr %ctx)`: loads the
+    // params from the ctx, calls the body, frees the ctx, returns the
+    // result (cast to i64 for int/bool, as-is for string/void/double).
+    // With `indirect`, the thunk is `__sp_async_thunk_indirect_<name>`
+    // and loads the function pointer from ctx slot 0 (virtual
+    // dispatch) instead of calling a fixed name. No-op when the thunk
+    // already exists.
+    void emitAsyncThunk(const std::string& compiledName,
+                        const std::vector<IRTypePtr>& paramTypes,
+                        IRTypePtr returnType,
+                        bool indirect = false);
+    // Drain timers/queued tasks at the end of main (ignores sockets):
+    // fire-and-forget async tasks finish before the process exits.
+    void emitMainExitPump();
+
     // Phase 3 slice A (pro-4.0.0): function pointers + overload mangling.
     // Canonical param-type strings for a free function decl, taken from
     // its FunctionSymbol (so `int32` and `int` spell the same signature).

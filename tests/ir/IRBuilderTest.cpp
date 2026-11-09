@@ -687,13 +687,326 @@ TEST(IRBuilderTest, AwaitOnIdentifierStillFailsIRGeneration) {
     EXPECT_EQ(compileToIR(source), nullptr);
 }
 
-TEST(IRBuilderTest, AwaitOnUserAsyncFnCallStillFailsIRGeneration) {
+// Phase 3 slice C (pro-4.0.0): `await` on a user async fn now LOWERS
+// (the Phase 2 test below asserted it fails). Calling the async fn
+// spawns its body as a Task (thunk + heap ctx); the await pumps until
+// the task completes and destroys the temporary task.
+TEST(IRBuilderTest, AwaitOnUserAsyncFnCallLowers) {
     const std::string source = R"(
-        async fn inner() {
+        async fn inner() -> int {
+            return 42;
         }
 
-        async fn worker() {
-            await inner();
+        async fn worker() -> int {
+            var v = await inner();
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    // The call spawns (create_task + spawn_i64 with the thunk), the
+    // await pumps and destroys the temporary task.
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_create_task()"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("@__sp_async_thunk_inner"), std::string::npos);
+    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_inner(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_destroy(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
+}
+
+// Phase 3 slice C: calling an async fn WITHOUT awaiting returns the
+// Task handle (no await is emitted); main's exit drains it.
+TEST(IRBuilderTest, CallToAsyncFnReturnsTaskWithoutAwait) {
+    const std::string source = R"(
+        async fn inner() -> int {
+            return 7;
+        }
+
+        fn main() {
+            var t = inner();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_create_task()"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_inner(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call i64 @sp_rt_async_task_await_i64"), std::string::npos);
+    // main drains fire-and-forget tasks before exiting.
+    EXPECT_NE(irStr.find("call void @sp_rt_async_scheduler_run_tasks_until_idle(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: awaiting a Task held in a variable pumps until it
+// completes but does NOT destroy it — the variable owns the task, so
+// awaiting it twice must return the same value.
+TEST(IRBuilderTest, AwaitOnTaskVariableLowersWithoutDestroy) {
+    const std::string source = R"(
+        async fn inner() -> int {
+            return 5;
+        }
+
+        async fn worker() -> int {
+            var t = inner();
+            var v = await t;
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call void @sp_rt_async_task_destroy"), std::string::npos);
+}
+
+// Phase 3 slice C: string payloads — spawn_str / await_str, and the
+// thunk returns the string pointer.
+TEST(IRBuilderTest, AwaitOnUserAsyncFnWithStringPayloadLowers) {
+    const std::string source = R"(
+        async fn greeter() -> string {
+            return "hello";
+        }
+
+        async fn worker() -> string {
+            var s = await greeter();
+            return s;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_await_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define ptr @__sp_async_thunk_greeter(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: bool payloads ride the i64 task with a trunc to i1.
+TEST(IRBuilderTest, AwaitOnUserAsyncFnWithBoolPayloadLowers) {
+    const std::string source = R"(
+        async fn flag() -> bool {
+            return true;
+        }
+
+        async fn worker() -> bool {
+            var b = await flag();
+            return b;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("trunc i64"), std::string::npos);
+}
+
+// Phase 3 slice C: delayed_value string/bool overloads.
+TEST(IRBuilderTest, AwaitDelayedValueStringLowers) {
+    const std::string source = R"(
+        async fn worker() -> string {
+            var s = await delayed_value(10, "hi");
+            return s;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_await_str(ptr"), std::string::npos);
+}
+
+TEST(IRBuilderTest, AwaitDelayedValueBoolLowers) {
+    const std::string source = R"(
+        async fn worker() -> bool {
+            var b = await delayed_value(10, true);
+            return b;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("trunc i64"), std::string::npos);
+}
+
+// Phase 3 slice C: an async method called through a virtual dispatch
+// spawns through the INDIRECT thunk (vtable fn pointer in ctx slot 0).
+TEST(IRBuilderTest, AsyncMethodCallThroughVirtualDispatchLowers) {
+    const std::string source = R"(
+        class Greeter {
+            public async fn greet() -> int {
+                return 3;
+            }
+        }
+
+        async fn worker() -> int {
+            let g = new Greeter();
+            var v = await g.greet();
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("@__sp_async_thunk_indirect_Greeter_greet"), std::string::npos);
+    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_indirect_Greeter_greet(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: an async method can await inside its own body.
+TEST(IRBuilderTest, AwaitInsideAsyncMethodLowers) {
+    const std::string source = R"(
+        class Worker {
+            public async fn run() -> int {
+                var v = await delayed_value(10, 9);
+                return v;
+            }
+        }
+
+        fn main() {
+            let w = new Worker();
+            var t = w.run();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    // The method body itself is compiled (not just the thunk).
+    EXPECT_NE(irStr.find("define i32 @Worker_run("), std::string::npos);
+}
+
+// Phase 3 slice C: generic async fns monomorphize + spawn + await.
+TEST(IRBuilderTest, GenericAsyncFnCallLowers) {
+    const std::string source = R"(
+        async fn identity<T>(item: T) -> T {
+            return item;
+        }
+
+        async fn worker() -> int {
+            var v = await identity<int>(999);
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("@__sp_async_thunk_identity_int"), std::string::npos);
+    EXPECT_NE(irStr.find("define i64 @__sp_async_thunk_identity_int(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: still fails loudly — Task<double> cannot be carried.
+TEST(IRBuilderTest, AwaitOnAsyncFnWithDoublePayloadStillFailsIRGeneration) {
+    const std::string source = R"(
+        async fn dbl() -> double {
+            return 1.5;
+        }
+
+        async fn worker() -> double {
+            var v = await dbl();
+            return v;
         }
 
         fn main() {

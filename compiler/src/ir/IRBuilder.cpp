@@ -865,6 +865,9 @@ void IRBuilder::visit(const ast::Program& node) {
         }
 
         if (!m_currentBlock->hasTerminator()) {
+            // Phase 3 slice C: synthesized main also drains
+            // fire-and-forget async tasks before the process exits.
+            emitMainExitPump();
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
         }
@@ -929,11 +932,25 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         if (returnType->isVoid()) {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else if (node.getName() == "main") {
+            // Phase 3 slice C: main drains fire-and-forget async tasks
+            // before the process exits (timers/queued tasks only;
+            // registered sockets do not keep the drain going).
+            emitMainExitPump();
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
         } else {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
+    }
+
+    // Phase 3 slice C: an async fn gets a thunk so calls to it can
+    // spawn the body as a Task (the thunk loads the args from a heap
+    // ctx, calls the body, frees the ctx). The thunk is named after the
+    // compiled (possibly overload-mangled) function name.
+    if (node.isAsync()) {
+        std::vector<IRTypePtr> paramTypes;
+        for (const auto& p : node.getParams()) paramTypes.push_back(mapType(p.getType()));
+        emitAsyncThunk(llvmFunctionName(node), paramTypes, mapType(node.getReturnType()));
     }
 
     popScope();
@@ -1655,9 +1672,15 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
             m_currentBlock->addInstruction(retainCall);
         }
 
+        // Phase 3 slice C: an explicit `return` from main drains
+        // fire-and-forget async tasks first. (A return deferred by a
+        // try/finally skips this drain — known limitation, see the
+        // Phase 32 doc.)
+        if (m_currentFunction->getName() == "main") emitMainExitPump();
         emitAllFunctionDrops();
         m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
     } else {
+        if (m_currentFunction->getName() == "main") emitMainExitPump();
         emitAllFunctionDrops();
         if (m_currentFunction->getName() == "main") {
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
@@ -1971,6 +1994,10 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
 
     auto func = m_module->createFunction(mangledName, returnType, params);
     m_currentFunction = func;
+    // Phase 3 slice C: await inside an async method lowers like in a
+    // free async fn. Restored at the end of this function.
+    bool prevAsync = m_inAsyncFunction;
+    m_inAsyncFunction = methodDecl.isAsync();
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
@@ -2012,7 +2039,18 @@ void IRBuilder::compileMethod(const ast::ClassDecl& classDecl, const ast::Functi
         }
     }
 
+    // Phase 3 slice C: an async method gets a thunk so calls to it can
+    // spawn the body as a Task. The thunk's first ctx slot is `this`
+    // for non-static methods.
+    if (methodDecl.isAsync()) {
+        std::vector<IRTypePtr> paramTypes;
+        if (!methodDecl.isStatic()) paramTypes.push_back(IRType::getPointer());
+        for (const auto& p : methodDecl.getParams()) paramTypes.push_back(mapType(p.getType()));
+        emitAsyncThunk(mangledName, paramTypes, returnType);
+    }
+
     popScope();
+    m_inAsyncFunction = prevAsync;
     m_currentClass = nullptr;
     m_currentFunction = nullptr;
     m_currentBlock = nullptr;
@@ -2116,6 +2154,10 @@ void IRBuilder::compileSpecializedMethod(
 
     auto func = m_module->createFunction(mangledName, returnType, params);
     m_currentFunction = func;
+    // Phase 3 slice C: await inside an async (specialized) method
+    // lowers like in a free async fn. Restored at the end.
+    bool prevAsync = m_inAsyncFunction;
+    m_inAsyncFunction = methodDecl.isAsync();
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
@@ -2157,7 +2199,17 @@ void IRBuilder::compileSpecializedMethod(
         }
     }
 
+    // Phase 3 slice C: thunk for an async (specialized) method. The
+    // thunk's params are the substituted (specialized) types, matching
+    // the body's compiled params exactly.
+    if (methodDecl.isAsync()) {
+        std::vector<IRTypePtr> paramTypes;
+        for (const auto& pv : params) paramTypes.push_back(pv->getType());
+        emitAsyncThunk(mangledName, paramTypes, returnType);
+    }
+
     popScope();
+    m_inAsyncFunction = prevAsync;
     m_currentClass = nullptr;
     m_currentFunction = nullptr;
     m_currentBlock = nullptr;
@@ -2196,6 +2248,10 @@ void IRBuilder::compileSpecializedFunction(
     m_refCountedScopes.clear();
 
     m_currentFunction = func;
+    // Phase 3 slice C: await inside an async generic specialization
+    // lowers like in a plain async fn. Restored at the end.
+    bool prevAsync = m_inAsyncFunction;
+    m_inAsyncFunction = fnDecl.isAsync();
     auto entryBB = func->createBasicBlock("entry");
     setInsertPoint(entryBB);
     pushScope();
@@ -2229,7 +2285,16 @@ void IRBuilder::compileSpecializedFunction(
         }
     }
 
+    // Phase 3 slice C: thunk for an async generic specialization
+    // (named after the monomorphized name, matching the call site).
+    if (fnDecl.isAsync()) {
+        std::vector<IRTypePtr> paramTypes;
+        for (const auto& pv : params) paramTypes.push_back(pv->getType());
+        emitAsyncThunk(mangledName, paramTypes, returnType);
+    }
+
     popScope();
+    m_inAsyncFunction = prevAsync;
     m_scopes = std::move(prevScopes);
     m_refCountedScopes = std::move(prevRefScopes);
     m_currentFunction = prevFunc;
@@ -3064,6 +3129,41 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                         auto* targetFunc = m_module->getFunction(mangledName);
                         IRTypePtr returnType = targetFunc ? targetFunc->getReturnType() : IRType::getVoid();
                         std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("scall");
+
+                        // Phase 3 slice C: `super.asyncMethod(...)` also
+                        // returns a Task — spawn it, like any async call.
+                        if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
+                            std::string kind;
+                            if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+                                reportUnsupported(node.getLocation(), "call to async method",
+                                                  "the return type of this 'async' method cannot be carried by a Task "
+                                                  "(only void, int, bool and string payloads are supported)");
+                                m_lastExprValue = nullptr;
+                                m_lastExprType = nullptr;
+                                return;
+                            }
+                            std::vector<IRTypePtr> paramTypes;
+                            if (targetFunc) {
+                                for (const auto& p : targetFunc->getParams()) paramTypes.push_back(p->getType());
+                            } else {
+                                paramTypes.push_back(IRType::getPointer());
+                                for (const auto& pt : target->getFunctionType()->getParamTypes()) {
+                                    paramTypes.push_back(mapType(pt.get()));
+                                }
+                            }
+                            IRValuePtr task = emitAsyncSpawn(mangledName, kind, loweredArgs, paramTypes);
+                            if (!task) {
+                                reportUnsupported(node.getLocation(), "call to async method",
+                                                  "an argument of this 'async' method cannot be passed through a Task "
+                                                  "(only int, bool, string and double arguments are supported)");
+                                m_lastExprValue = nullptr;
+                                m_lastExprType = nullptr;
+                                return;
+                            }
+                            m_lastExprValue = task;
+                            m_lastExprType = IRType::getPointer();
+                            return;
+                        }
 
                         auto callInst = std::make_shared<CallInst>(returnType, mangledName, loweredArgs, callReg);
                         m_currentBlock->addInstruction(callInst);
@@ -5557,6 +5657,55 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
+            // Phase 3 slice C: an async method called through a virtual
+            // dispatch is spawned through the INDIRECT thunk: the
+            // function pointer loaded from the vtable goes in ctx slot
+            // 0, the thunk loads it and calls it. (The concrete body
+            // is only known at runtime, so no direct thunk can exist.)
+            if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
+                std::string kind;
+                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "the return type of this 'async' method cannot be carried by a Task "
+                                      "(only void, int, bool and string payloads are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                std::string thunkBase = slotInfo.mangledName.empty()
+                    ? (className.empty() ? methodName : className + "_" + methodName)
+                    : slotInfo.mangledName;
+                std::vector<IRTypePtr> paramTypes;
+                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                    if (auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType)) {
+                        paramTypes = fnType->getParamTypes();
+                    }
+                }
+                if (paramTypes.empty()) {
+                    if (auto* tf = m_module->getFunction(thunkBase)) {
+                        for (const auto& p : tf->getParams()) paramTypes.push_back(p->getType());
+                    } else {
+                        paramTypes.push_back(IRType::getPointer());
+                        for (const auto& pt : target->getFunctionType()->getParamTypes()) {
+                            paramTypes.push_back(mapType(pt.get()));
+                        }
+                    }
+                }
+                emitAsyncThunk(thunkBase, paramTypes, returnType, /*indirect=*/true);
+                IRValuePtr task = emitAsyncSpawn(thunkBase, kind, loweredArgs, paramTypes, loadFnPtr);
+                if (!task) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "an argument of this 'async' method cannot be passed through a Task "
+                                      "(only int, bool, string and double arguments are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                m_lastExprValue = task;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+
             std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
             auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
             m_currentBlock->addInstruction(callInst);
@@ -5601,6 +5750,48 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             for (const auto& arg : node.getArgs()) {
                 arg->accept(*this);
                 loweredArgs.push_back(m_lastExprValue);
+            }
+
+            // Phase 3 slice C: calling an `async` method returns a Task
+            // instead of running the body — spawn it (thunk + heap ctx)
+            // and hand the task to the caller.
+            if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
+                std::string kind;
+                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "the return type of this 'async' method cannot be carried by a Task "
+                                      "(only void, int, bool and string payloads are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                std::vector<IRTypePtr> paramTypes;
+                if (targetFunc) {
+                    for (const auto& p : targetFunc->getParams()) paramTypes.push_back(p->getType());
+                } else {
+                    // Not compiled yet (forward reference): derive from
+                    // sema; `this` is present iff loweredArgs has one
+                    // more value than the declared params.
+                    size_t semaParamCount = target->getFunctionType()->getParamTypes().size();
+                    if (loweredArgs.size() == semaParamCount + 1) {
+                        paramTypes.push_back(IRType::getPointer());
+                    }
+                    for (const auto& pt : target->getFunctionType()->getParamTypes()) {
+                        paramTypes.push_back(mapType(pt.get()));
+                    }
+                }
+                IRValuePtr task = emitAsyncSpawn(mangledName, kind, loweredArgs, paramTypes);
+                if (!task) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "an argument of this 'async' method cannot be passed through a Task "
+                                      "(only int, bool, string and double arguments are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                m_lastExprValue = task;
+                m_lastExprType = IRType::getPointer();
+                return;
             }
 
             std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("c");
@@ -6449,6 +6640,51 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 loweredArgs.push_back(m_lastExprValue);
             }
 
+            // Phase 3 slice C: an async method called unqualified from
+            // inside its class also dispatches virtually — spawn it
+            // through the indirect thunk, like the member-call path.
+            if (auto enclosingTarget = m_sema.getCallTarget(&node); enclosingTarget && enclosingTarget->isAsync()) {
+                std::string kind;
+                if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "the return type of this 'async' method cannot be carried by a Task "
+                                      "(only void, int, bool and string payloads are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                std::string thunkBase = slotInfo.mangledName.empty() ? calleeName : slotInfo.mangledName;
+                std::vector<IRTypePtr> paramTypes;
+                if (slotInfo.functionType && slotInfo.functionType->isFunction()) {
+                    if (auto fnType = std::dynamic_pointer_cast<IRFunctionType>(slotInfo.functionType)) {
+                        paramTypes = fnType->getParamTypes();
+                    }
+                }
+                if (paramTypes.empty()) {
+                    if (auto* tf = m_module->getFunction(thunkBase)) {
+                        for (const auto& p : tf->getParams()) paramTypes.push_back(p->getType());
+                    } else {
+                        paramTypes.push_back(IRType::getPointer());
+                        for (const auto& pt : enclosingTarget->getFunctionType()->getParamTypes()) {
+                            paramTypes.push_back(mapType(pt.get()));
+                        }
+                    }
+                }
+                emitAsyncThunk(thunkBase, paramTypes, returnType, /*indirect=*/true);
+                IRValuePtr task = emitAsyncSpawn(thunkBase, kind, loweredArgs, paramTypes, loadFnPtr);
+                if (!task) {
+                    reportUnsupported(node.getLocation(), "call to async method",
+                                      "an argument of this 'async' method cannot be passed through a Task "
+                                      "(only int, bool, string and double arguments are supported)");
+                    m_lastExprValue = nullptr;
+                    m_lastExprType = nullptr;
+                    return;
+                }
+                m_lastExprValue = task;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+
             std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("vcall");
             auto callInst = std::make_shared<CallInst>(returnType, loadFnPtr, loweredArgs, callReg);
             m_currentBlock->addInstruction(callInst);
@@ -6555,6 +6791,43 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         returnType = targetFunc->getReturnType();
     } else if (m_astFunctions.count(calleeName)) {
         returnType = mapType(m_astFunctions.at(calleeName)->getReturnType());
+    }
+
+    // Phase 3 slice C: calling an `async fn` returns a Task instead of
+    // running the body — spawn it (thunk + heap ctx) and hand the task
+    // to the caller. The callee name is already the monomorphized name
+    // for generic calls (see above).
+    if (auto target = m_sema.getCallTarget(&node); target && target->isAsync()) {
+        std::string kind;
+        if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
+            reportUnsupported(node.getLocation(), "call to async function",
+                              "the return type of this 'async fn' cannot be carried by a Task "
+                              "(only void, int, bool and string payloads are supported)");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        std::vector<IRTypePtr> paramTypes;
+        if (targetFunc) {
+            for (const auto& p : targetFunc->getParams()) paramTypes.push_back(p->getType());
+        } else {
+            // Not compiled yet (forward reference): derive from sema.
+            for (const auto& pt : target->getFunctionType()->getParamTypes()) {
+                paramTypes.push_back(mapType(pt.get()));
+            }
+        }
+        IRValuePtr task = emitAsyncSpawn(calleeName, kind, loweredArgs, paramTypes);
+        if (!task) {
+            reportUnsupported(node.getLocation(), "call to async function",
+                              "an argument of this 'async fn' cannot be passed through a Task "
+                              "(only int, bool, string and double arguments are supported)");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        m_lastExprValue = task;
+        m_lastExprType = IRType::getPointer();
+        return;
     }
 
     std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("c");
@@ -7548,50 +7821,310 @@ void IRBuilder::visit(const ast::TryExpr& node) {
     m_lastExprType = targetType;
 }
 
+// --- Phase 3 slice C: async spawn / await helpers ---------------------------
+// See the header for the contract. The spawn model: calling an async fn
+// returns a Task immediately; the body runs as a posted callback on the
+// scheduler, driven by a compiler-generated thunk that loads its
+// arguments from a heap ctx (8-byte slots, byte-offset GEPs over i8).
+// The awaiting frame stays on the stack while pumping (B2 design) —
+// this is NOT a heap-frame state machine.
+
+std::string IRBuilder::asyncThunkName(const std::string& compiledName) const {
+    return "__sp_async_thunk_" + compiledName;
+}
+
+std::string IRBuilder::asyncThunkIndirectName(const std::string& compiledName) const {
+    return "__sp_async_thunk_indirect_" + compiledName;
+}
+
+bool IRBuilder::taskPayloadKind(const sema::TypePtr& taskType, std::string& outKind) const {
+    if (!taskType) return false;
+    std::string name = taskType->toString();
+    std::string inner;
+    if (name.rfind("Task<", 0) == 0 && name.size() > 6 && name.back() == '>') {
+        inner = name.substr(5, name.size() - 6);
+    } else if (name.rfind("Future<", 0) == 0 && name.size() > 8 && name.back() == '>') {
+        inner = name.substr(7, name.size() - 8);
+    } else {
+        return false;
+    }
+    // Nested Task<...> / parameterized payloads are not carried.
+    if (inner.find('<') != std::string::npos) return false;
+    if (inner == "void") { outKind = "void"; return true; }
+    if (inner == "int" || inner == "int8" || inner == "int16" || inner == "int32" || inner == "int64") {
+        outKind = "int"; return true;
+    }
+    if (inner == "bool") { outKind = "bool"; return true; }
+    if (inner == "string") { outKind = "string"; return true; }
+    return false;
+}
+
+bool IRBuilder::asyncReturnKind(const sema::TypePtr& returnType, std::string& outKind) const {
+    if (!returnType) return false;
+    std::string name = returnType->toString();
+    if (name == "void") { outKind = "void"; return true; }
+    if (name == "int" || name == "int8" || name == "int16" || name == "int32" || name == "int64") {
+        outKind = "int"; return true;
+    }
+    if (name == "bool") { outKind = "bool"; return true; }
+    if (name == "string") { outKind = "string"; return true; }
+    return false;
+}
+
+IRValuePtr IRBuilder::emitAsyncScheduler() {
+    auto schedCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_async_default_scheduler",
+        std::vector<IRValuePtr>{},
+        m_currentFunction->nextTempName("async_sched"));
+    m_currentBlock->addInstruction(schedCall);
+    return schedCall;
+}
+
+IRValuePtr IRBuilder::emitAsyncSpawn(const std::string& compiledName, const std::string& payloadKind,
+                                     const std::vector<IRValuePtr>& argValues,
+                                     const std::vector<IRTypePtr>& argTypes,
+                                     IRValuePtr fnPtr) {
+    // Validate first: no IR is emitted when an argument cannot be carried.
+    if (argValues.size() != argTypes.size()) return nullptr;
+    if (fnPtr && !fnPtr->getType()->isPointer()) return nullptr;
+    std::vector<IRTypePtr> storageTypes;
+    for (size_t i = 0; i < argTypes.size(); ++i) {
+        if (!argValues[i] || !argTypes[i]) return nullptr;
+        if (argTypes[i]->isInteger()) storageTypes.push_back(IRType::getInt64());
+        else if (argTypes[i]->isPointer()) storageTypes.push_back(IRType::getPointer());
+        else if (argTypes[i]->isFloat()) storageTypes.push_back(IRType::getDouble());
+        else return nullptr;
+    }
+    std::string spawnFn;
+    if (payloadKind == "void") spawnFn = "sp_rt_async_spawn_void";
+    else if (payloadKind == "int" || payloadKind == "bool") spawnFn = "sp_rt_async_spawn_i64";
+    else if (payloadKind == "string") spawnFn = "sp_rt_async_spawn_str";
+    else return nullptr;
+
+    auto sched = emitAsyncScheduler();
+    auto taskCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_async_create_task",
+        std::vector<IRValuePtr>{},
+        m_currentFunction->nextTempName("async_task"));
+    m_currentBlock->addInstruction(taskCall);
+
+    // Ctx layout: [fnPtr?, arg0, arg1, ...] in 8-byte slots. The
+    // indirect thunk reads the function pointer from slot 0.
+    const size_t slotOffset = fnPtr ? 1 : 0;
+    int64_t ctxSize = static_cast<int64_t>(argValues.size() + slotOffset) * 8;
+    if (ctxSize < 8) ctxSize = 8;
+    auto allocCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_alloc",
+        std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), ctxSize)},
+        m_currentFunction->nextTempName("async_ctx"));
+    m_currentBlock->addInstruction(allocCall);
+
+    auto storeSlot = [&](size_t slot, IRValuePtr value) {
+        auto gep = std::make_shared<GetElementPtrInst>(
+            IRType::getInt8(), allocCall,
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(slot * 8))},
+            m_currentFunction->nextTempName("ctx_slot"));
+        m_currentBlock->addInstruction(gep);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(value, gep));
+    };
+    if (fnPtr) storeSlot(0, fnPtr);
+    for (size_t i = 0; i < argValues.size(); ++i) {
+        IRValuePtr stored = emitCastIfNeeded(argValues[i], storageTypes[i]);
+        storeSlot(i + slotOffset, stored);
+    }
+
+    std::string thunkName = fnPtr ? asyncThunkIndirectName(compiledName) : asyncThunkName(compiledName);
+    auto thunkAddr = std::make_shared<FunctionAddress>(thunkName);
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), spawnFn,
+        std::vector<IRValuePtr>{sched, taskCall, thunkAddr, allocCall}));
+    return taskCall;
+}
+
+IRValuePtr IRBuilder::emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std::string& payloadKind) {
+    if (payloadKind == "void") {
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_async_task_await_void",
+            std::vector<IRValuePtr>{sched, task}));
+        return nullptr;
+    }
+    if (payloadKind == "int" || payloadKind == "bool") {
+        auto awaitCall = std::make_shared<CallInst>(
+            IRType::getInt64(), "sp_rt_async_task_await_i64",
+            std::vector<IRValuePtr>{sched, task},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(awaitCall);
+        if (payloadKind == "bool") return emitCastIfNeeded(awaitCall, IRType::getInt1());
+        return awaitCall;
+    }
+    if (payloadKind == "string") {
+        auto awaitCall = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_async_task_await_str",
+            std::vector<IRValuePtr>{sched, task},
+            m_currentFunction->nextTempName("awaited"));
+        m_currentBlock->addInstruction(awaitCall);
+        return awaitCall;
+    }
+    return nullptr;
+}
+
+void IRBuilder::emitAsyncThunk(const std::string& compiledName,
+                               const std::vector<IRTypePtr>& paramTypes,
+                               IRTypePtr returnType,
+                               bool indirect) {
+    std::string thunkName = indirect ? asyncThunkIndirectName(compiledName) : asyncThunkName(compiledName);
+    if (m_module->getFunction(thunkName)) return;
+
+    // The body's actual IR return type wins over the declared one
+    // (e.g. `main` is forced to i32 in IR even when declared void).
+    IRTypePtr bodyRet = returnType;
+    if (!indirect) {
+        if (auto* bodyFunc = m_module->getFunction(compiledName)) {
+            bodyRet = bodyFunc->getReturnType();
+        }
+    }
+    IRTypePtr thunkRet;
+    if (!bodyRet || bodyRet->isVoid()) thunkRet = IRType::getVoid();
+    else if (bodyRet->isInteger()) thunkRet = IRType::getInt64();
+    else if (bodyRet->isPointer()) thunkRet = IRType::getPointer();
+    else if (bodyRet->isFloat()) thunkRet = IRType::getDouble();
+    else thunkRet = bodyRet;
+
+    std::vector<std::shared_ptr<ParameterValue>> thunkParams;
+    thunkParams.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%ctx", 0));
+    auto thunkFunc = m_module->createFunction(thunkName, thunkRet, thunkParams);
+
+    auto* prevFunc = m_currentFunction;
+    auto* prevBlock = m_currentBlock;
+    m_currentFunction = thunkFunc;
+    auto entryBB = thunkFunc->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+
+    // Indirect thunks read the function pointer from ctx slot 0
+    // (loaded from the vtable at the call site); args start at slot 1.
+    const size_t slotOffset = indirect ? 1 : 0;
+    std::shared_ptr<LoadInst> fnPtr = nullptr;
+    if (indirect) {
+        auto gep0 = std::make_shared<GetElementPtrInst>(
+            IRType::getInt8(), thunkParams[0],
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), 0)},
+            m_currentFunction->nextTempName("fn_slot"));
+        m_currentBlock->addInstruction(gep0);
+        fnPtr = std::make_shared<LoadInst>(IRType::getPointer(), gep0, m_currentFunction->nextTempName("fn_ptr"));
+        m_currentBlock->addInstruction(fnPtr);
+    }
+
+    std::vector<IRValuePtr> callArgs;
+    for (size_t i = 0; i < paramTypes.size(); ++i) {
+        if (!paramTypes[i]) continue;
+        IRTypePtr storageType;
+        if (paramTypes[i]->isInteger()) storageType = IRType::getInt64();
+        else if (paramTypes[i]->isPointer()) storageType = IRType::getPointer();
+        else if (paramTypes[i]->isFloat()) storageType = IRType::getDouble();
+        else storageType = paramTypes[i];
+        auto gep = std::make_shared<GetElementPtrInst>(
+            IRType::getInt8(), thunkParams[0],
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>((i + slotOffset) * 8))},
+            m_currentFunction->nextTempName("arg_slot"));
+        m_currentBlock->addInstruction(gep);
+        auto load = std::make_shared<LoadInst>(storageType, gep, m_currentFunction->nextTempName("arg"));
+        m_currentBlock->addInstruction(load);
+        callArgs.push_back(emitCastIfNeeded(load, paramTypes[i]));
+    }
+
+    std::string callReg = thunkRet->isVoid() ? "" : m_currentFunction->nextTempName("thunk_res");
+    std::shared_ptr<CallInst> bodyCall;
+    if (indirect) {
+        bodyCall = std::make_shared<CallInst>(bodyRet ? bodyRet : IRType::getVoid(), fnPtr, callArgs, callReg);
+    } else {
+        bodyCall = std::make_shared<CallInst>(bodyRet ? bodyRet : IRType::getVoid(), compiledName, callArgs, callReg);
+    }
+    m_currentBlock->addInstruction(bodyCall);
+
+    // The ctx is heap-owned by the thunk: free it once the body has
+    // loaded its arguments (the body's return value is independent of
+    // the ctx, so freeing here is safe).
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_free",
+        std::vector<IRValuePtr>{thunkParams[0]}));
+
+    if (thunkRet->isVoid()) {
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    } else {
+        IRValuePtr retVal = emitCastIfNeeded(bodyCall, thunkRet);
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>(retVal));
+    }
+
+    m_currentFunction = prevFunc;
+    m_currentBlock = prevBlock;
+}
+
+void IRBuilder::emitMainExitPump() {
+    auto sched = emitAsyncScheduler();
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_async_scheduler_run_tasks_until_idle",
+        std::vector<IRValuePtr>{sched}));
+}
+
 void IRBuilder::visit(const ast::AwaitExpr& node) {
-    // Phase 2 slice B2 (pro-4.0.0): REAL await, for a deliberately small
-    // subset. See the doc section "Slice B2 — Real async" for the full
-    // contract; the short version:
+    // Phase 2 slice B2 (pro-4.0.0) + Phase 3 slice C: REAL await.
     //
-    // SUPPORTED (lowers, no longer errors):
-    //   - `await sleep_async(ms)` inside a free `async fn`
-    //     (ms: int). Yields void.
-    //   - `await delayed_value(ms, value)` inside a free `async fn`
-    //     (ms, value: int). Yields the int `value` after `ms`.
-    //   Both may appear anywhere in the async fn body (statement,
-    //   initializer, inside if/while, ...) because the lowering is
-    //   pump-based, not a state machine (see below).
+    // SUPPORTED (lowers, no longer errors) — all inside an `async fn`
+    // (free fn, method, or generic specialization; m_inAsyncFunction):
+    //   - `await sleep_async(ms)` (ms: int). Yields void.
+    //   - `await delayed_value(ms, value)` (ms: int; value: int, bool
+    //     or string). Yields the value after `ms`.
+    //   - `await worker(...)` where `worker` is a user `async fn`:
+    //     the call spawns the body as a Task (see visit(CallExpr)) and
+    //     this await pumps until it completes, then destroys the
+    //     temporary task. Yields the body's return value.
+    //   - `await <expr of type Task<T>>` (e.g. a variable holding a
+    //     Task, or a call to a non-async fn returning Task<T>): pumps
+    //     until the task completes. The task is NOT destroyed — its
+    //     owner keeps it, so awaiting it twice returns the same value.
+    //   Payloads are void / int / bool / string (the Task payload the
+    //   runtime can carry). All forms may appear anywhere in the async
+    //   fn body (statement, initializer, inside if/while, ...) because
+    //   the lowering is pump-based, not a state machine (see below).
     //
     // LOWERING (pump-based await, NOT a heap state machine):
     //   %sched = call ptr @sp_rt_async_default_scheduler()
     //   %task  = call ptr @sp_rt_async_sleep_ms(ptr %sched, i64 %ms)
     //   call void @sp_rt_async_task_await_void(ptr %sched, ptr %task)
     //   call void @sp_rt_async_task_destroy(ptr %task)
-    //   (value form: %v = call i64 @sp_rt_async_task_await_i64(...))
-    // The runtime call that creates the task returns immediately — the
-    // timer is registered on the scheduler and fires on the loop. The
-    // await call then PUMPS that scheduler until this task completes, so
-    // the awaiting function makes no progress while other timers/tasks
-    // fire in the meantime. That is real suspension of the async fn's
-    // progress with a live loop — not a blocking sleep: no
-    // sp_rt_time_sleep_ms / sp_rt_thread_sleep_ms is emitted anywhere on
-    // this path. Honest limits of this design: the awaiting frame stays
-    // on the stack while pumping, and calling an async fn still runs it
-    // to completion (the caller is not handed a Task). A heap-frame
-    // state machine that returns a Task to the caller is future work.
+    //   (value form: %v = call i64 @sp_rt_async_task_await_i64(...);
+    //    string form: %v = call ptr @sp_rt_async_task_await_str(...);
+    //    bool form: i64 await + trunc to i1)
+    // For `await worker(...)` the %task comes from the spawn lowering
+    // (sp_rt_async_create_task + sp_rt_async_spawn_* with the thunk
+    // for `worker`); for `await <Task>` the task value is evaluated
+    // normally. The runtime call that creates the task returns
+    // immediately — the timer / posted body is registered on the
+    // scheduler and runs on the loop. The await call then PUMPS that
+    // scheduler until this task completes, so the awaiting function
+    // makes no progress while other timers/tasks fire in the meantime.
+    // That is real suspension of the async fn's progress with a live
+    // loop — not a blocking sleep: no sp_rt_time_sleep_ms /
+    // sp_rt_thread_sleep_ms is emitted anywhere on this path. Honest
+    // limits of this design: the awaiting frame stays on the stack
+    // while pumping (a heap-frame state machine is future work, so an
+    // async fn cannot return a Task that outlives its own frame —
+    // `let t = worker();` without await only runs when something
+    // pumps, and a task whose body never returns never completes).
     //
     // NOT SUPPORTED (still error[E1000], never silently miscompiled):
-    //   - await on anything else: literals, identifiers, other calls
-    //     (including calls to user async fns — `await worker()` has no
-    //     Task to wait on), member calls, operators, ...
-    //   - await outside a free `async fn` (sema normally rejects this
-    //     first with E1802; this is the IRBuilder backstop, and it also
-    //     covers async methods / generic async fns, which B2 does not
-    //     lower — see m_inAsyncFunction).
+    //   - await on anything else: literals, other calls (sync fns,
+    //     `await now()`), operators, ...
+    //   - await outside an `async fn` (sema normally rejects this
+    //     first with E1802; this is the IRBuilder backstop).
+    //   - async fns with other payload types (double, arrays, ...),
+    //     and async fns with unsupported argument types.
+    //   Async methods ARE supported, including through a virtual
+    //   dispatch: the indirect thunk carries the vtable function
+    //   pointer in ctx slot 0 (see visit(CallExpr)).
     if (!m_inAsyncFunction) {
         reportUnsupported(node.getLocation(), "await",
-                          "await is only supported inside a free 'async fn' in this phase "
-                          "(async methods and generic async functions are not supported yet)");
+                          "await is only supported inside an 'async fn' in this phase");
         node.getExpr().accept(*this);
         m_lastExprValue = nullptr;
         m_lastExprType = nullptr;

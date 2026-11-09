@@ -252,6 +252,73 @@ void* sp_rt_async_delayed_i64(void* sched, int64_t ms, int64_t value) {
     return new AsyncTaskBox{sp::rt::async::delayedValueTask(*asyncSched(sched), ms, value)};
 }
 
+void* sp_rt_async_delayed_str(void* sched, int64_t ms, const char* value) {
+    return new AsyncTaskBox{sp::rt::async::delayedValueStrTask(*asyncSched(sched), ms, value)};
+}
+
+// Phase 3 slice C: spawn an async function body as a Task.
+//
+// A thunk is a compiler-generated function `int64_t (*)(void*)` (or the
+// string/void variants) that loads its arguments from a heap ctx, calls
+// the async body, frees the ctx, and returns the result. Spawning only
+// posts the thunk call on the scheduler: the body does NOT run here, and
+// the task completes when the posted callback runs (i.e. when something
+// pumps the scheduler). If the task was cancelled before the callback
+// runs, complete() is a no-op and the body still runs — cancellation
+// only marks the task done, it does not un-schedule the callback.
+void* sp_rt_async_create_task() {
+    return new AsyncTaskBox{std::make_shared<sp::rt::async::Task>()};
+}
+
+namespace {
+using AsyncThunkI64 = int64_t (*)(void*);
+using AsyncThunkStr = const char* (*)(void*);
+using AsyncThunkVoid = void (*)(void*);
+} // namespace
+
+void sp_rt_async_spawn_i64(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkI64>(thunk);
+    asyncSched(sched)->post([t, fn, ctx] {
+        int64_t v = fn(ctx);
+        t->complete(v);
+    });
+}
+
+void sp_rt_async_spawn_str(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkStr>(thunk);
+    asyncSched(sched)->post([t, fn, ctx] {
+        // The thunk returns an SP string the thunk owns (one strong ref);
+        // copy it into the task, then release the thunk's reference.
+        const char* result = fn(ctx);
+        t->completeStr(result);
+        sp_rt_release(const_cast<char*>(result));
+    });
+}
+
+void sp_rt_async_spawn_void(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkVoid>(thunk);
+    asyncSched(sched)->post([t, fn, ctx] {
+        fn(ctx);
+        t->complete(0);
+    });
+}
+
+const char* sp_rt_async_task_await_str(void* sched, void* task) {
+    if (!task) return alloc_str("");
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return alloc_str(sp::rt::async::awaitTaskStr(*asyncSched(sched), *box->task));
+}
+
+void sp_rt_async_scheduler_run_tasks_until_idle(void* sched) {
+    asyncSched(sched)->runUntilTasksIdle();
+}
+
 void sp_rt_async_task_await_void(void* sched, void* task) {
     if (!task) return;
     auto* box = static_cast<AsyncTaskBox*>(task);

@@ -91,6 +91,11 @@ private:
     bool hasGuaranteedReturn(const ast::StatementNode& stmt);
     void verifyInterfaceImplementations(const ast::ClassDecl& decl, const std::shared_ptr<ClassType>& clsType);
 
+    // Phase 3 slice C: if `sym` is an `async fn`, a call to it yields
+    // Task<ret> (the caller gets the task, not the value); otherwise
+    // returns `ret` unchanged. `ret` must be non-null.
+    TypePtr wrapAsyncReturn(const std::shared_ptr<FunctionSymbol>& sym, TypePtr ret);
+
     std::shared_ptr<FunctionSymbol> resolveOverload(
         const std::vector<std::shared_ptr<FunctionSymbol>>& candidates,
         const std::vector<TypePtr>& argTypes,

@@ -42,10 +42,11 @@ TaskPtr sleepTask(Scheduler& sched, int64_t delayMs);
 TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
 
 // ---------------------------------------------------------------------------
-// Task: a type-erased future. The payload is an int64 (0 for void tasks);
-// richer payloads are future work. A Task is complete when done() is true;
-// it may also be cancelled, in which case awaiting it returns promptly
-// with value 0 and wasCancelled() true.
+// Task: a type-erased future. The payload is an int64 (0 for void tasks)
+// plus an optional string payload (used by Task<string>); richer payloads
+// are future work. A Task is complete when done() is true; it may also be
+// cancelled, in which case awaiting it returns promptly with value 0 and
+// wasCancelled() true.
 // ---------------------------------------------------------------------------
 class Task {
 public:
@@ -57,6 +58,9 @@ public:
     bool wasCancelled() const;
     // Value of a completed task (0 when cancelled or for void tasks).
     int64_t value() const;
+    // String payload of a completed task (empty when cancelled, for void
+    // tasks, or when the task was completed with an int64 value).
+    std::string strValue() const;
 
     // Block the calling thread until the task completes. Only for tests
     // and for code that is NOT running on the loop thread; generated SP
@@ -71,6 +75,8 @@ public:
 
     // Complete the task with a value. No-op if already complete/cancelled.
     void complete(int64_t v);
+    // Complete the task with a string payload. No-op if already done.
+    void completeStr(const char* v);
     // Cancel the task. Returns false if it was already complete.
     // The scheduler-side timer (if any) is cancelled separately by the
     // code that created the timer; see sleepTask()/delayedValueTask().
@@ -80,11 +86,13 @@ private:
     friend class Scheduler;
     friend TaskPtr sleepTask(Scheduler& sched, int64_t delayMs);
     friend TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
+    friend TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value);
     mutable std::mutex m_mtx;
     mutable std::condition_variable m_cv;
     bool m_done{false};
     bool m_cancelled{false};
     int64_t m_value{0};
+    std::string m_strValue;
     std::vector<std::function<void(Task&)>> m_continuations;
     // Timer id backing this task, if scheduled through a Scheduler.
     uint64_t m_timerId{0};
@@ -130,6 +138,13 @@ public:
     bool runUntil(const std::function<bool()>& done, int64_t timeoutMs = -1);
     // Pump for at most durationMs of wall time.
     void runFor(int64_t durationMs);
+    // Pump until no timers or queued tasks remain, IGNORING watched
+    // sockets. Unlike runUntilIdle() this cannot block forever on a
+    // registered socket: it is the drain the compiler emits at the end
+    // of `main` so fire-and-forget async tasks finish before the
+    // process exits. A task that reschedules itself forever still
+    // never drains; that is a program bug, not a scheduler bug.
+    void runUntilTasksIdle();
 
     bool hasPending() const;
     size_t pendingCount() const;
@@ -174,6 +189,10 @@ Scheduler& defaultScheduler();
 TaskPtr sleepTask(Scheduler& sched, int64_t delayMs);
 // Create a task that completes with `value` after delayMs.
 TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
+// Create a task that completes with a string `value` after delayMs.
+// The value is copied into the Task; the caller's pointer need not
+// outlive the call.
+TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value);
 
 // Pump `sched` until `task` completes or is cancelled, then return its
 // value (0 when cancelled). This is the await primitive the compiler
@@ -182,5 +201,8 @@ TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value);
 int64_t awaitTask(Scheduler& sched, Task& task);
 // As awaitTask(), but returns false when the task was cancelled.
 bool awaitTaskVoid(Scheduler& sched, Task& task);
+// As awaitTask(), returning the task's string payload (empty when
+// cancelled or when the task has no string payload).
+std::string awaitTaskStr(Scheduler& sched, Task& task);
 
 } // namespace sp::rt::async

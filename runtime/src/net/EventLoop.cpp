@@ -123,6 +123,11 @@ int64_t Task::value() const {
     return m_value;
 }
 
+std::string Task::strValue() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_strValue;
+}
+
 void Task::wait() const {
     std::unique_lock<std::mutex> lock(m_mtx);
     m_cv.wait(lock, [this] { return m_done; });
@@ -159,6 +164,21 @@ void Task::complete(int64_t v) {
         if (m_done) return;
         m_done = true;
         m_value = v;
+        cbs = std::move(m_continuations);
+        m_continuations.clear();
+    }
+    m_cv.notify_all();
+    for (auto& cb : cbs) cb(*this);
+}
+
+void Task::completeStr(const char* v) {
+    std::vector<std::function<void(Task&)>> cbs;
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        if (m_done) return;
+        m_done = true;
+        m_value = 0;
+        m_strValue = v ? v : "";
         cbs = std::move(m_continuations);
         m_continuations.clear();
     }
@@ -326,6 +346,31 @@ void Scheduler::runUntilIdle() {
     }
 }
 
+void Scheduler::runUntilTasksIdle() {
+    // Like runUntilIdle() but a registered socket does NOT count as
+    // pending work: only timers and queued callbacks keep the drain
+    // going. runOnce() still blocks until the next timer when there is
+    // nothing ready, so this cannot busy-spin either.
+    for (;;) {
+        if (!m_ready.empty()) {
+            runOnce();
+            continue;
+        }
+        // Any live (non-cancelled) timer?
+        bool timerPending = false;
+        auto copy = m_timers;
+        while (!copy.empty()) {
+            if (m_cancelledTimers.count(copy.top().id) == 0) {
+                timerPending = true;
+                break;
+            }
+            copy.pop();
+        }
+        if (!timerPending) return;
+        runOnce();
+    }
+}
+
 bool Scheduler::runUntil(const std::function<bool()>& done, int64_t timeoutMs) {
     auto deadline = timeoutMs < 0
         ? std::chrono::steady_clock::time_point::max()
@@ -407,6 +452,21 @@ TaskPtr delayedValueTask(Scheduler& sched, int64_t delayMs, int64_t value) {
     return task;
 }
 
+TaskPtr delayedValueStrTask(Scheduler& sched, int64_t delayMs, const char* value) {
+    auto task = std::make_shared<Task>();
+    std::weak_ptr<Task> weak = task;
+    // Copy now: the caller's pointer need not outlive this call.
+    std::string owned = value ? value : "";
+    uint64_t id = sched.scheduleAfter(delayMs, [weak, owned] {
+        if (auto t = weak.lock()) t->completeStr(owned.c_str());
+    });
+    {
+        std::lock_guard<std::mutex> lock(task->m_mtx);
+        task->m_timerId = id;
+    }
+    return task;
+}
+
 int64_t awaitTask(Scheduler& sched, Task& task) {
     // Pump the loop until this task completes. Other timers/tasks fire
     // while this await is outstanding — that is the whole point: the
@@ -422,6 +482,11 @@ int64_t awaitTask(Scheduler& sched, Task& task) {
 bool awaitTaskVoid(Scheduler& sched, Task& task) {
     sched.runUntil([&task] { return task.isReady(); });
     return !task.wasCancelled();
+}
+
+std::string awaitTaskStr(Scheduler& sched, Task& task) {
+    sched.runUntil([&task] { return task.isReady(); });
+    return task.strValue();
 }
 
 } // namespace sp::rt::async

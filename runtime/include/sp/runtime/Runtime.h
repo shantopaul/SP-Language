@@ -392,8 +392,10 @@ extern "C" {
     void*       sp_rt_async_default_scheduler();
     void*       sp_rt_async_sleep_ms(void* sched, int64_t ms);
     void*       sp_rt_async_delayed_i64(void* sched, int64_t ms, int64_t value);
+    void*       sp_rt_async_delayed_str(void* sched, int64_t ms, const char* value);
     void        sp_rt_async_task_await_void(void* sched, void* task);
     int64_t     sp_rt_async_task_await_i64(void* sched, void* task);
+    const char* sp_rt_async_task_await_str(void* sched, void* task);
     bool        sp_rt_async_task_is_ready(void* task);
     bool        sp_rt_async_task_cancel(void* task);
     bool        sp_rt_async_task_was_cancelled(void* task);
@@ -401,6 +403,17 @@ extern "C" {
     void        sp_rt_async_scheduler_run_once(void* sched);
     bool        sp_rt_async_scheduler_has_pending(void* sched);
     void        sp_rt_async_scheduler_run_until_idle(void* sched);
+    // Phase 3 slice C: spawn an async body as a task. `thunk` is a
+    // compiler-generated `int64_t/const char*/void (*)(void*)`; `ctx` is
+    // the heap argument block the thunk loads from and frees. The task
+    // is created by sp_rt_async_create_task and owned by the caller.
+    void*       sp_rt_async_create_task();
+    void        sp_rt_async_spawn_i64(void* sched, void* task, void* thunk, void* ctx);
+    void        sp_rt_async_spawn_str(void* sched, void* task, void* thunk, void* ctx);
+    void        sp_rt_async_spawn_void(void* sched, void* task, void* thunk, void* ctx);
+    // Drain timers/queued tasks only (registered sockets do NOT keep the
+    // drain going): the end-of-main pump for fire-and-forget tasks.
+    void        sp_rt_async_scheduler_run_tasks_until_idle(void* sched);
 
     // Crypto
     const char* sp_rt_crypto_sha256(const char* data);

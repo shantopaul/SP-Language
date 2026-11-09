@@ -300,6 +300,21 @@ void TypeChecker::visit(const ast::UnaryExpr& node) {
     }
 }
 
+TypePtr TypeChecker::wrapAsyncReturn(const std::shared_ptr<FunctionSymbol>& sym, TypePtr ret) {
+    if (!sym || !sym->isAsync() || !ret) return ret;
+    // A call to an `async fn` yields Task<ret>. `Task<void>` is the
+    // type of a void async fn's task. Already-Task returns cannot occur
+    // (an async fn's declared return type is a plain type).
+    std::string taskName = "Task<" + ret->toString() + ">";
+    auto taskT = m_typeCtx.resolveType(taskName);
+    if (!taskT) {
+        m_diagnostics.reportError("E1001", "Cannot form Task type for async function return type '" +
+                                  ret->toString() + "'", sym->getLocation());
+        return ret;
+    }
+    return taskT;
+}
+
 std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
     const std::vector<std::shared_ptr<FunctionSymbol>>& candidates,
     const std::vector<TypePtr>& argTypes,
@@ -397,9 +412,9 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                     const_cast<ast::CallExpr&>(node).setTypeArgs(typeArgs);
                     std::string specRetStr = TypeContext::substituteType(astDecl->getReturnType(), astDecl->getTypeParams(), typeArgs);
                     auto retT = m_typeCtx.resolveType(specRetStr);
-                    m_currentExprType = retT ? retT : resolved->getFunctionType()->getReturnType();
+                    m_currentExprType = wrapAsyncReturn(resolved, retT ? retT : resolved->getFunctionType()->getReturnType());
                 } else {
-                    m_currentExprType = resolved->getFunctionType()->getReturnType();
+                    m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
                 }
             } else {
                 m_currentExprType = m_typeCtx.getError();

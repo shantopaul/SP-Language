@@ -4,8 +4,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <string>
 #include <vector>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 using namespace sp::rt::async;
 using Clock = std::chrono::steady_clock;
@@ -220,5 +226,170 @@ TEST(AsyncTest, CAbiCancelReturnsPromptly) {
     auto start = Clock::now();
     EXPECT_EQ(sp_rt_async_task_await_i64(sched, handle), 0);
     EXPECT_LT(elapsedMs(start), 1000);
+    sp_rt_async_task_destroy(handle);
+}
+
+// --- Phase 3 slice C (pro-4.0.0): spawn an async body as a Task --------
+// The compiler lowers a call to an `async fn` to sp_rt_async_spawn_*
+// with a thunk: the body does NOT run at the call site — it runs when
+// the scheduler pumps, and the task completes with the body's value.
+
+namespace {
+// Thunks for the spawn tests below. The ctx is unused except where noted.
+int64_t thunkReturns42(void*) { return 42; }
+const char* thunkReturnsHello(void*) { return "hello"; }
+void thunkCountsRuns(void* ctx) {
+    if (ctx) static_cast<std::atomic<int>*>(ctx)->fetch_add(1);
+}
+// Thunk that itself awaits an inner delayed task (re-entrant pump):
+// ctx is the Scheduler*.
+int64_t thunkAwaitsInner(void* ctx) {
+    auto* sched = static_cast<Scheduler*>(ctx);
+    auto inner = delayedValueTask(*sched, 150, 7);
+    return awaitTask(*sched, *inner);
+}
+} // namespace
+
+// A spawned body does not run before the scheduler pumps, and completes
+// with the body's value once pumped.
+TEST(AsyncTest, SpawnedTaskRunsOnlyWhenPumped) {
+    Scheduler sched;
+    std::atomic<int> runs{0};
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    // Spawn with a counting thunk (ctx = &runs).
+    sp_rt_async_spawn_i64(&sched, task, reinterpret_cast<void*>(thunkReturns42), nullptr);
+    EXPECT_FALSE(sp_rt_async_task_is_ready(task));
+    // A second spawn carrying the counter proves the body has not run yet.
+    void* countTask = sp_rt_async_create_task();
+    sp_rt_async_spawn_void(&sched, countTask, reinterpret_cast<void*>(thunkCountsRuns), &runs);
+    EXPECT_EQ(runs.load(), 0);
+    EXPECT_FALSE(sp_rt_async_task_is_ready(countTask));
+
+    sched.runUntilIdle();
+
+    EXPECT_TRUE(sp_rt_async_task_is_ready(task));
+    EXPECT_EQ(sp_rt_async_task_await_i64(&sched, task), 42);
+    EXPECT_EQ(runs.load(), 1);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(countTask));
+    sp_rt_async_task_destroy(task);
+    sp_rt_async_task_destroy(countTask);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// A spawned body can complete with a string payload.
+TEST(AsyncTest, SpawnedStringTaskCompletesWithValue) {
+    Scheduler sched;
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    sp_rt_async_spawn_str(&sched, task, reinterpret_cast<void*>(thunkReturnsHello), nullptr);
+    const char* value = sp_rt_async_task_await_str(&sched, task);
+    ASSERT_NE(value, nullptr);
+    EXPECT_STREQ(value, "hello");
+    std::free(const_cast<char*>(value));
+    EXPECT_TRUE(sp_rt_async_task_is_ready(task));
+    sp_rt_async_task_destroy(task);
+}
+
+// A spawned void body completes (value 0) and the await returns.
+TEST(AsyncTest, SpawnedVoidTaskCompletes) {
+    Scheduler sched;
+    std::atomic<int> runs{0};
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    sp_rt_async_spawn_void(&sched, task, reinterpret_cast<void*>(thunkCountsRuns), &runs);
+    sp_rt_async_task_await_void(&sched, task);
+    EXPECT_TRUE(sp_rt_async_task_is_ready(task));
+    EXPECT_EQ(runs.load(), 1);
+    sp_rt_async_task_destroy(task);
+}
+
+// HEADLINE (spawn path): while a spawned task is being awaited — and
+// its body itself awaits an inner task (re-entrant pump) — the loop is
+// NOT blocked: a second, shorter timer fires DURING the await.
+TEST(AsyncTest, LoopNotBlockedWhileAwaitingSpawnedTask) {
+    Scheduler sched;
+    auto start = Clock::now();
+    int64_t earlyFiredAtMs = -1;
+    int64_t awaitReturnedAtMs = -1;
+
+    sched.scheduleAfter(20, [&] { earlyFiredAtMs = elapsedMs(start); });
+
+    void* task = sp_rt_async_create_task();
+    ASSERT_NE(task, nullptr);
+    sp_rt_async_spawn_i64(&sched, task, reinterpret_cast<void*>(thunkAwaitsInner), &sched);
+    // Await via the C ABI (same pump the compiler emits); the body's
+    // inner await returns 7.
+    int64_t value = sp_rt_async_task_await_i64(&sched, task);
+    awaitReturnedAtMs = elapsedMs(start);
+
+    EXPECT_EQ(value, 7);
+    EXPECT_GE(earlyFiredAtMs, 0);
+    EXPECT_GE(awaitReturnedAtMs, 140); // the inner 150ms task ran out
+    EXPECT_LT(earlyFiredAtMs, awaitReturnedAtMs); // early timer fired DURING the await
+    sp_rt_async_task_destroy(task);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// A delayed string task completes with its value (copied at creation).
+TEST(AsyncTest, DelayedStrTaskCompletesWithValue) {
+    Scheduler sched;
+    auto task = delayedValueStrTask(sched, 30, "hello");
+    ASSERT_NE(task, nullptr);
+    EXPECT_FALSE(task->isReady());
+    auto start = Clock::now();
+    std::string value = awaitTaskStr(sched, *task);
+    EXPECT_EQ(value, "hello");
+    EXPECT_TRUE(task->isReady());
+    EXPECT_GE(elapsedMs(start), 20);
+    EXPECT_FALSE(sched.hasPending());
+}
+
+// runUntilTasksIdle drains timers/queued tasks, returns immediately
+// with no work, and is NOT kept going by a registered socket.
+TEST(AsyncTest, RunUntilTasksIdleDrainsTimersAndIgnoresSockets) {
+    Scheduler sched;
+    // No work: returns immediately.
+    auto start = Clock::now();
+    sched.runUntilTasksIdle();
+    EXPECT_LT(elapsedMs(start), 1000);
+
+    // Timers drain.
+    auto task1 = delayedValueTask(sched, 20, 1);
+    auto task2 = delayedValueTask(sched, 40, 2);
+    sched.runUntilTasksIdle();
+    EXPECT_TRUE(task1->isReady());
+    EXPECT_EQ(task1->value(), 1);
+    EXPECT_TRUE(task2->isReady());
+    EXPECT_EQ(task2->value(), 2);
+
+    // A registered socket does NOT keep the drain going (POSIX only).
+#if defined(__unix__) || defined(__APPLE__)
+    int fds[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    bool added = sched.addSocket(fds[0], sp::rt::net::SP_EVENT_READ, [](int64_t) {});
+    ASSERT_TRUE(added);
+    start = Clock::now();
+    sched.runUntilTasksIdle();
+    EXPECT_LT(elapsedMs(start), 1000); // would block forever on the socket if it counted
+    sched.removeSocket(fds[0]);
+    ::close(fds[0]);
+    ::close(fds[1]);
+#endif
+}
+
+// C ABI: delayed string task + string await (returned copy is malloc'd).
+TEST(AsyncTest, CAbiDelayedStrAndAwaitStr) {
+    void* sched = sp_rt_async_default_scheduler();
+    void* handle = sp_rt_async_delayed_str(sched, 30, "hi");
+    ASSERT_NE(handle, nullptr);
+    EXPECT_FALSE(sp_rt_async_task_is_ready(handle));
+    auto start = Clock::now();
+    const char* value = sp_rt_async_task_await_str(sched, handle);
+    ASSERT_NE(value, nullptr);
+    EXPECT_STREQ(value, "hi");
+    EXPECT_GE(elapsedMs(start), 20);
+    std::free(const_cast<char*>(value));
+    EXPECT_TRUE(sp_rt_async_task_is_ready(handle));
     sp_rt_async_task_destroy(handle);
 }

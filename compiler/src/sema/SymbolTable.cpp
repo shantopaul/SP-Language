@@ -351,11 +351,22 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     // after the delay, so `await` can yield a value.
     auto taskVoid = typeCtx.resolveType("Task<void>");
     auto taskInt = typeCtx.resolveType("Task<int>");
+    auto taskString = typeCtx.resolveType("Task<string>");
+    auto taskBool = typeCtx.resolveType("Task<bool>");
     if (taskVoid) {
         define(std::make_shared<FunctionSymbol>("sleep_async", typeCtx.getFunctionType({typeCtx.getInt()}, taskVoid), builtinLoc));
     }
     if (taskInt) {
         define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, taskInt), builtinLoc));
+    }
+    // Phase 3 slice C: delayed_value overloads for the other awaitable
+    // payload kinds (string via sp_rt_async_delayed_str, bool via the
+    // i64 task with a truncating cast at the await site).
+    if (taskString) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getString()}, taskString), builtinLoc));
+    }
+    if (taskBool) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getBool()}, taskBool), builtinLoc));
     }
     define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));

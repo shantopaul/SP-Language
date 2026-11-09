@@ -151,6 +151,7 @@ void NameResolver::resolveFunctionDeclPass1(const ast::FunctionDecl& decl) {
                                                   decl.isStatic(), false, decl.isAbstract(), decl.isOverride());
     fnSym->setTypeParams(decl.getTypeParams());
     fnSym->setASTDecl(&decl);
+    fnSym->setAsync(decl.isAsync());
 
     if (!m_symbolTable.define(fnSym)) {
         m_diagnostics.reportError("E1004", "Duplicate declaration of function '" + name + "' with identical parameter types",
@@ -349,7 +350,8 @@ void NameResolver::resolveClassMembersAndInheritance(const ast::ClassDecl& decl)
                 .visibility = fnDecl.getVisibility().empty() ? "public" : fnDecl.getVisibility(),
                 .isStatic = fnDecl.isStatic(),
                 .isAbstract = fnDecl.isAbstract(),
-                .isOverride = fnDecl.isOverride()
+                .isOverride = fnDecl.isOverride(),
+                .isAsync = fnDecl.isAsync()
             };
             clsType->addMethod(std::move(method));
         }
@@ -387,7 +389,8 @@ void NameResolver::resolveInterfaceMembers(const ast::InterfaceDecl& decl) {
             .visibility = "public",
             .isStatic = false,
             .isAbstract = true,
-            .isOverride = false
+            .isOverride = false,
+            .isAsync = fnDecl.isAsync()
         };
         ifaceType->addMethod(std::move(method));
     }
