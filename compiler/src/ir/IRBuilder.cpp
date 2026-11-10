@@ -2077,6 +2077,340 @@ IRTypePtr IRBuilder::mapType(const std::string& typeName) const {
     return IRType::getPointer();
 }
 
+// Phase 39 slice A: System V ABI coercion for `extern "C"` structs.
+// A struct of <=16 bytes is passed as its eightbyte register values
+// (INTEGER eightbyte -> i64, SSE eightbyte with a single double ->
+// double, single float -> float); larger structs keep the struct
+// type (the backend stack-passes MEMORY-class structs correctly,
+// verified with a 24-byte struct probe). LLVM's backend flattens a
+// struct-typed argument into its fields (two i32s in EDI/ESI for
+// {i32, i32}), while a C callee expects the eightbyte in one
+// register (RDI) — so the struct VALUE type alone is not enough;
+// the declaration and the call must both use the coerced types,
+// exactly as clang's frontend does.
+
+namespace {
+
+struct ExternLeaf {
+    uint32_t offset = 0;
+    uint32_t size = 0;
+    bool isSSE = false; // float/double leaf
+};
+
+// Size/align of an IR type under C layout rules. Named structs
+// resolve through their layout; the layout's objectSize is NOT used
+// (it counts 8 bytes per field, so it overstates structs with
+// sub-8-byte fields).
+bool externTypeSizeAlign(const ir::IRTypePtr& ty, uint32_t& size, uint32_t& align,
+                         const codegen::VTableBuilder* vtables) {
+    if (!ty) return false;
+    if (ty->isVoid()) { size = 0; align = 1; return true; }
+    if (ty->isInt1() || ty->isInt8()) { size = 1; align = 1; return true; }
+    if (ty->isInt16()) { size = 2; align = 2; return true; }
+    if (ty->isInt32()) { size = 4; align = 4; return true; }
+    if (ty->isInt64()) { size = 8; align = 8; return true; }
+    if (ty->isFloat()) { size = 4; align = 4; return true; }
+    if (ty->isDouble()) { size = 8; align = 8; return true; }
+    if (ty->isPointer()) { size = 8; align = 8; return true; }
+    if (ty->isStruct()) {
+        auto st = std::static_pointer_cast<ir::IRStructType>(ty);
+        std::vector<ir::IRTypePtr> els = st->getElementTypes();
+        if (els.empty() && !st->getName().empty() && vtables) {
+            std::string name = st->getName();
+            const std::string prefix = "struct.";
+            if (name.rfind(prefix, 0) == 0) {
+                const auto* layout = vtables->getClassLayout(name.substr(prefix.size()));
+                if (layout && layout->structType) els = layout->structType->getElementTypes();
+            }
+        }
+        uint32_t cur = 0, maxAlign = 1;
+        for (const auto& el : els) {
+            uint32_t es = 0, ea = 1;
+            if (!externTypeSizeAlign(el, es, ea, vtables)) return false;
+            cur = (cur + ea - 1) / ea * ea + es;
+            maxAlign = std::max(maxAlign, ea);
+        }
+        size = (cur + maxAlign - 1) / maxAlign * maxAlign;
+        align = maxAlign;
+        return true;
+    }
+    return false;
+}
+
+// Flatten a struct type into scalar leaves at their byte offsets
+// (C layout rules; nested structs recurse).
+bool collectExternLeaves(const ir::IRTypePtr& ty, uint32_t base,
+                         std::vector<ExternLeaf>& out,
+                         const codegen::VTableBuilder* vtables) {
+    if (!ty) return false;
+    if (ty->isFloat() || ty->isDouble()) {
+        out.push_back({base, ty->isDouble() ? 8u : 4u, true});
+        return true;
+    }
+    if (ty->isStruct()) {
+        auto st = std::static_pointer_cast<ir::IRStructType>(ty);
+        std::vector<ir::IRTypePtr> els = st->getElementTypes();
+        if (els.empty() && !st->getName().empty() && vtables) {
+            std::string name = st->getName();
+            const std::string prefix = "struct.";
+            if (name.rfind(prefix, 0) == 0) {
+                const auto* layout = vtables->getClassLayout(name.substr(prefix.size()));
+                if (layout && layout->structType) els = layout->structType->getElementTypes();
+            }
+        }
+        uint32_t cur = base;
+        for (const auto& el : els) {
+            uint32_t es = 0, ea = 1;
+            if (!externTypeSizeAlign(el, es, ea, vtables)) return false;
+            uint32_t off = (cur + ea - 1) / ea * ea;
+            if (!collectExternLeaves(el, off, out, vtables)) return false;
+            cur = off + es;
+        }
+        return true;
+    }
+    uint32_t sz = 0, al = 1;
+    if (!externTypeSizeAlign(ty, sz, al, vtables)) return false;
+    out.push_back({base, sz, false});
+    return true;
+}
+
+} // namespace
+
+IRBuilder::ExternStructCoercion IRBuilder::classifyExternStruct(const sema::Type* structType) {
+    ExternStructCoercion out;
+    if (!structType || !structType->isStruct()) return out;
+    const auto* layout = m_vtableBuilder ? m_vtableBuilder->getClassLayout(structType->toString()) : nullptr;
+    if (!layout || !layout->structType) return out;
+    uint32_t size = 0, align = 1;
+    if (!externTypeSizeAlign(layout->structType, size, align, m_vtableBuilder.get())) return out;
+    out.byteSize = size;
+    if (size == 0 || size > 16) return out;
+    std::vector<ExternLeaf> leaves;
+    if (!collectExternLeaves(layout->structType, 0, leaves, m_vtableBuilder.get())) return out;
+    size_t nEight = (size + 7) / 8;
+    for (size_t b = 0; b < nEight; ++b) {
+        uint32_t lo = static_cast<uint32_t>(b * 8), hi = lo + 8;
+        bool hasInt = false;
+        uint32_t sseSize = 0;
+        int sseCount = 0;
+        for (const auto& lf : leaves) {
+            if (lf.offset >= hi || lf.offset + lf.size <= lo) continue;
+            if (!lf.isSSE) { hasInt = true; break; }
+            sseSize = lf.size;
+            ++sseCount;
+        }
+        if (hasInt) {
+            out.regTypes.push_back(IRType::getInt64());
+        } else if (sseCount == 1 && sseSize == 8) {
+            out.regTypes.push_back(IRType::getDouble());
+        } else if (sseCount == 1 && sseSize == 4) {
+            out.regTypes.push_back(IRType::getFloat());
+        } else if (sseCount == 0) {
+            out.regTypes.push_back(IRType::getInt64()); // padding-only eightbyte
+        } else {
+            // e.g. two floats in one eightbyte: needs a vector type
+            // SP IR does not have. Not coercible.
+            return ExternStructCoercion{};
+        }
+        out.regOffsets.push_back(lo);
+    }
+    out.coercible = true;
+    return out;
+}
+
+std::vector<std::shared_ptr<ParameterValue>> IRBuilder::externParamValues(const ast::FunctionDecl& decl) {
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    size_t llvmIdx = 0;
+    for (const auto& p : decl.getParams()) {
+        auto userType = m_sema.getTypeContext().findUserType(p.getType());
+        if (userType && userType->isStruct()) {
+            auto c = classifyExternStruct(userType.get());
+            if (c.coercible) {
+                for (size_t r = 0; r < c.regTypes.size(); ++r) {
+                    std::string nm = "%" + p.getName() + (r == 0 ? "" : "_8b" + std::to_string(r));
+                    params.push_back(std::make_shared<ParameterValue>(c.regTypes[r], nm, llvmIdx++));
+                }
+                continue;
+            }
+            // Not coercible: declare the struct type itself. A struct
+            // over 16 bytes stack-passes (MEMORY class); a small
+            // non-coercible one is rejected at the call site, so this
+            // declaration is never used for a real call.
+            if (auto structTy = asyncStructTypeFor(userType)) {
+                params.push_back(std::make_shared<ParameterValue>(structTy, "%" + p.getName(), llvmIdx++));
+                continue;
+            }
+        }
+        params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), llvmIdx++));
+    }
+    return params;
+}
+
+IRTypePtr IRBuilder::externReturnType(const ast::FunctionDecl& decl) {
+    auto userType = m_sema.getTypeContext().findUserType(decl.getReturnType());
+    if (userType && userType->isStruct()) {
+        auto c = classifyExternStruct(userType.get());
+        if (c.coercible) {
+            if (c.regTypes.size() == 1) return c.regTypes[0];
+            return IRType::getStruct("", c.regTypes);
+        }
+        // Not coercible: the struct type itself (see externParamValues).
+        if (auto structTy = asyncStructTypeFor(userType)) {
+            return structTy;
+        }
+    }
+    return mapType(decl.getReturnType());
+}
+
+bool IRBuilder::emitExternStructArg(IRValuePtr argVal, const sema::TypePtr& structType,
+                                    std::vector<IRValuePtr>& out) {
+    if (!argVal || !structType) return false;
+    auto c = classifyExternStruct(structType.get());
+    if (!c.coercible) {
+        if (c.byteSize > 16) {
+            // Large struct: pass by value as the struct itself (the
+            // backend stack-passes MEMORY-class structs correctly).
+            IRValuePtr val = argVal;
+            if (val->getType()->isPointer()) {
+                auto structTy = asyncStructTypeFor(structType);
+                if (!structTy) return false;
+                auto load = std::make_shared<LoadInst>(structTy, val,
+                                                       m_currentFunction->nextTempName("ext_struct"));
+                m_currentBlock->addInstruction(load);
+                val = load;
+            }
+            out.push_back(val);
+            return true;
+        }
+        // Small but not coercible (e.g. two floats in one eightbyte):
+        // no register representation exists in SP IR.
+        return false;
+    }
+    IRValuePtr basePtr = nullptr;
+    if (argVal->getType()->isPointer()) {
+        basePtr = argVal;
+    } else {
+        // A struct value (call result, ternary, ...): spill it to a
+        // temp alloca and load the eightbytes from there.
+        auto structTy = asyncStructTypeFor(structType);
+        if (!structTy) return false;
+        std::string allocaReg = m_currentFunction->nextTempName("ext_arg");
+        auto allocaInst = std::make_shared<AllocaInst>(structTy, allocaReg);
+        m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(argVal, allocaInst));
+        basePtr = allocaInst;
+    }
+    for (size_t j = 0; j < c.regTypes.size(); ++j) {
+        IRValuePtr slotPtr = basePtr;
+        if (c.regOffsets[j] != 0) {
+            auto baseI64 = emitCastIfNeeded(basePtr, IRType::getInt64());
+            auto slotI64 = std::make_shared<BinaryInst>(
+                IROpcode::Add, baseI64,
+                std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(c.regOffsets[j])),
+                m_currentFunction->nextTempName("ext_slot"));
+            m_currentBlock->addInstruction(slotI64);
+            slotPtr = emitCastIfNeeded(slotI64, IRType::getPointer());
+        }
+        auto load = std::make_shared<LoadInst>(c.regTypes[j], slotPtr,
+                                               m_currentFunction->nextTempName("ext_reg"));
+        m_currentBlock->addInstruction(load);
+        out.push_back(load);
+    }
+    return true;
+}
+
+void IRBuilder::emitExternCCall(const ast::CallExpr& node, const std::string& calleeName,
+                                const ast::FunctionDecl& decl) {
+    std::vector<IRValuePtr> loweredArgs;
+    const auto& params = decl.getParams();
+    const auto& args = node.getArgs();
+    for (size_t i = 0; i < params.size(); ++i) {
+        IRValuePtr argVal = nullptr;
+        sema::TypePtr argSemaType = nullptr;
+        if (i < args.size()) {
+            args[i]->accept(*this);
+            argVal = m_lastExprValue;
+            argSemaType = m_sema.getNodeType(args[i].get());
+        } else if (params[i].hasDefaultValue()) {
+            params[i].getDefaultValue()->accept(*this);
+            argVal = m_lastExprValue;
+            argSemaType = m_sema.getNodeType(params[i].getDefaultValue());
+        } else {
+            continue; // sema already rejected a missing non-default arg
+        }
+        if (!argVal) continue;
+        if (!argSemaType) {
+            argSemaType = m_sema.getTypeContext().findUserType(params[i].getType());
+        }
+        if (argSemaType && argSemaType->isStruct()) {
+            if (!emitExternStructArg(argVal, argSemaType, loweredArgs)) {
+                reportUnsupported(node.getLocation(), "call to C function",
+                                  "struct '" + argSemaType->toString() +
+                                  "' cannot be passed to a C function by value yet "
+                                  "(only structs of up to 16 bytes with scalar eightbytes are supported)");
+                m_lastExprValue = nullptr;
+                m_lastExprType = nullptr;
+                return;
+            }
+            continue;
+        }
+        loweredArgs.push_back(argVal);
+    }
+
+    // Return coercion: the declaration returns the coerced type for a
+    // small struct; convert the result back to the struct value.
+    sema::TypePtr retSemaType = m_sema.getNodeType(&node);
+    const sema::Type* retStruct = (retSemaType && retSemaType->isStruct()) ? retSemaType.get() : nullptr;
+    if (retStruct) {
+        auto c = classifyExternStruct(retStruct);
+        if (c.coercible) {
+            // Declared return type is the coerced type (externReturnType).
+        } else if (c.byteSize <= 16) {
+            reportUnsupported(node.getLocation(), "call to C function",
+                              "struct '" + retStruct->toString() +
+                              "' cannot be returned from a C function by value yet "
+                              "(only structs of up to 16 bytes with scalar eightbytes are supported)");
+            m_lastExprValue = nullptr;
+            m_lastExprType = nullptr;
+            return;
+        }
+        // >16 bytes: the declaration returns the struct value directly.
+    }
+
+    IRTypePtr returnType = IRType::getInt32();
+    if (auto* targetFunc = m_module->getFunction(calleeName)) {
+        returnType = targetFunc->getReturnType();
+    } else {
+        returnType = externReturnType(decl);
+    }
+    std::string callReg = returnType->isVoid() ? "" : m_currentFunction->nextTempName("c");
+    auto callInst = std::make_shared<CallInst>(returnType, calleeName, loweredArgs, callReg);
+    m_currentBlock->addInstruction(callInst);
+
+    if (retStruct) {
+        auto c = classifyExternStruct(retStruct);
+        if (c.coercible) {
+            // LLVM bitcast cannot convert between an aggregate and a
+            // scalar, so convert via memory: store the coerced result
+            // into a temp struct alloca and load the struct value.
+            if (auto structTy = asyncStructTypeFor(retSemaType)) {
+                std::string allocaReg = m_currentFunction->nextTempName("ext_ret");
+                auto allocaInst = std::make_shared<AllocaInst>(structTy, allocaReg);
+                m_currentFunction->getEntryBlock()->addInstruction(allocaInst);
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(callInst, allocaInst));
+                auto load = std::make_shared<LoadInst>(structTy, allocaInst,
+                                                       m_currentFunction->nextTempName("ext_ret_val"));
+                m_currentBlock->addInstruction(load);
+                m_lastExprValue = load;
+                m_lastExprType = structTy;
+                return;
+            }
+        }
+    }
+    m_lastExprValue = returnType->isVoid() ? nullptr : callInst;
+    m_lastExprType = returnType;
+}
+
 // --- AST Visitors ---
 
 // Phase 3 slice A: function pointers + overload name mangling.
@@ -2201,11 +2535,20 @@ void IRBuilder::visit(const ast::Program& node) {
             }
             if (!fn->hasBody() && !fn->isShortForm()) {
                 std::vector<std::shared_ptr<ParameterValue>> params;
-                for (size_t i = 0; i < fn->getParams().size(); ++i) {
-                    const auto& p = fn->getParams()[i];
-                    params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+                if (fn->isExternC()) {
+                    // Phase 39 slice A: `extern "C"` structs pass by
+                    // value under the System V ABI coercion (<=16-byte
+                    // structs become their eightbyte register types);
+                    // SP-internal declarations pass them by pointer.
+                    params = externParamValues(*fn);
+                } else {
+                    for (size_t i = 0; i < fn->getParams().size(); ++i) {
+                        const auto& p = fn->getParams()[i];
+                        params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+                    }
                 }
-                m_module->createFunction(fn->getName(), mapType(fn->getReturnType()), params, /*isExternal=*/true);
+                auto retTy = fn->isExternC() ? externReturnType(*fn) : mapType(fn->getReturnType());
+                m_module->createFunction(fn->getName(), retTy, params, /*isExternal=*/true);
             }
         } else if (const auto* block = dynamic_cast<const ast::BlockStmt*>(decl.get())) {
             for (const auto& inner : block->getStatements()) {
@@ -2222,11 +2565,18 @@ void IRBuilder::visit(const ast::Program& node) {
                     m_astFunctions[llvmFunctionName(*fn)] = fn;
                     if (!fn->hasBody() && !fn->isShortForm()) {
                         std::vector<std::shared_ptr<ParameterValue>> params;
-                        for (size_t i = 0; i < fn->getParams().size(); ++i) {
-                            const auto& p = fn->getParams()[i];
-                            params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+                        if (fn->isExternC()) {
+                            // Phase 39 slice A: see the top-level
+                            // declaration site above.
+                            params = externParamValues(*fn);
+                        } else {
+                            for (size_t i = 0; i < fn->getParams().size(); ++i) {
+                                const auto& p = fn->getParams()[i];
+                                params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+                            }
                         }
-                        m_module->createFunction(fn->getName(), mapType(fn->getReturnType()), params, /*isExternal=*/true);
+                        auto retTy = fn->isExternC() ? externReturnType(*fn) : mapType(fn->getReturnType());
+                        m_module->createFunction(fn->getName(), retTy, params, /*isExternal=*/true);
                     }
                 }
             }
@@ -2354,7 +2704,13 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
         params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_task", 0));
         params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%__sp_ctx", 1));
     } else {
-        returnType = (node.getName() == "main") ? IRType::getInt32() : mapType(node.getReturnType());
+        // Phase 39 slice A: an `extern "C"` body-less declaration
+        // uses the System V ABI coercion for structs (<=16-byte
+        // structs become their eightbyte register types); a bodied
+        // function keeps the SP-internal pointer convention.
+        bool externByValue = node.isExternC() && !node.hasBody() && !node.isShortForm();
+        returnType = (node.getName() == "main") ? IRType::getInt32()
+                     : (externByValue ? externReturnType(node) : mapType(node.getReturnType()));
         if (node.getName() == "main") {
             // Phase 6 slice B: the generated `main` is the real C entry
             // point, so it takes (argc, argv) and forwards them to the
@@ -2363,9 +2719,13 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
             params.push_back(std::make_shared<ParameterValue>(IRType::getInt32(), "%argc", 0));
             params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%argv", 1));
         }
-        for (size_t i = 0; i < node.getParams().size(); ++i) {
-            const auto& p = node.getParams()[i];
-            params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+        if (externByValue) {
+            params = externParamValues(node);
+        } else {
+            for (size_t i = 0; i < node.getParams().size(); ++i) {
+                const auto& p = node.getParams()[i];
+                params.push_back(std::make_shared<ParameterValue>(mapType(p.getType()), "%" + p.getName(), i));
+            }
         }
     }
 
@@ -10220,6 +10580,19 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         auto callTarget = m_sema.getCallTarget(&node);
         if (callTarget && !callTarget->isMethod()) {
             calleeName = llvmCallName(calleeName, callTarget);
+        }
+    }
+
+    // Phase 39 slice A: `extern "C"` calls lower struct arguments
+    // to their System V register values (see classifyExternStruct).
+    // The general path below assumes a 1:1 SP-param <-> LLVM-param
+    // mapping, which the coercion breaks (one SP struct param becomes
+    // one or two LLVM params), so extern calls are lowered here.
+    if (auto callTarget = m_sema.getCallTarget(&node);
+        callTarget && !callTarget->isMethod()) {
+        if (const auto* decl = callTarget->getASTDecl(); decl && decl->isExternC() && !decl->hasBody()) {
+            emitExternCCall(node, calleeName, *decl);
+            return;
         }
     }
 

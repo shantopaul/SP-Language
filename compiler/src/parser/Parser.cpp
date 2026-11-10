@@ -1266,6 +1266,12 @@ ast::ASTNodePtr Parser::parseDeclaration() {
         while (!isAtEnd() && !check(lexer::TokenType::CloseBrace)) {
             ast::ASTNodePtr decl = parseDeclaration();
             if (decl) {
+                // Phase 39 slice A: mark functions declared in this
+                // block as extern "C" — the C ABI passes structs by
+                // value, unlike SP-internal calls (by pointer).
+                if (auto* fn = dynamic_cast<ast::FunctionDecl*>(decl.get())) {
+                    fn->setExternC(true);
+                }
                 // Cast ASTNodePtr to StmtPtr since all declarations inherit from StatementNode
                 externDecls.push_back(std::unique_ptr<ast::StatementNode>(static_cast<ast::StatementNode*>(decl.release())));
             }

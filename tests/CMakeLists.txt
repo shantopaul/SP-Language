@@ -40,6 +40,7 @@ add_executable(sp_tests
     sema/BrokenProgramTest.cpp
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
+    ir/ExternStructIRTest.cpp
     ir/TryCatchTest.cpp
     ir/CodegenCrashersIRTest.cpp
     codegen/LLVMGeneratorTest.cpp

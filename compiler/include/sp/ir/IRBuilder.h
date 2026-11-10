@@ -147,6 +147,34 @@ public:
     // Type mapping utility
     IRTypePtr mapType(const sema::Type* type) const;
     IRTypePtr mapType(const std::string& typeName) const;
+    // Phase 39 slice A: System V ABI coercion for `extern "C"`
+    // struct params/returns. A struct of <=16 bytes is passed as its
+    // eightbyte register values (INTEGER eightbyte -> i64, SSE
+    // eightbyte with a single double -> double, single float ->
+    // float); larger structs keep the struct type (the backend
+    // stack-passes MEMORY-class structs correctly). `coercible` is
+    // false for >16-byte structs and for eightbytes SP IR cannot
+    // express (two floats in one eightbyte needs a vector type).
+    struct ExternStructCoercion {
+        bool coercible = false;
+        uint32_t byteSize = 0;
+        std::vector<IRTypePtr> regTypes;   // one per eightbyte
+        std::vector<uint32_t> regOffsets;  // byte offset per eightbyte
+    };
+    ExternStructCoercion classifyExternStruct(const sema::Type* structType);
+    // Expanded LLVM params of an `extern "C"` declaration (struct
+    // params become their coerced register types, named after the SP
+    // param they came from) and its coerced return type. Only for
+    // `extern "C"` declarations; plain declarations keep mapType.
+    std::vector<std::shared_ptr<ParameterValue>> externParamValues(const ast::FunctionDecl& decl);
+    IRTypePtr externReturnType(const ast::FunctionDecl& decl);
+    // Lower one `extern "C"` call: struct arguments become their
+    // System V register values (the general call path assumes a 1:1
+    // SP-param <-> LLVM-param mapping, which the coercion breaks).
+    // Appends the coerced register values of one struct argument;
+    // false when the struct cannot be passed by value yet.
+    void emitExternCCall(const ast::CallExpr& node, const std::string& calleeName, const ast::FunctionDecl& decl);
+    bool emitExternStructArg(IRValuePtr argVal, const sema::TypePtr& structType, std::vector<IRValuePtr>& out);
 
 private:
     void pushScope();
