@@ -1126,14 +1126,20 @@ TEST(TryCatchExecutionTest, ContainerStoresRetainTempElements) {
         }
     )";
     std::string output = runSPProgram(source, "exec_temp_container");
+    // Phase 37 slice B: the counts grew by one live object per
+    // container — List/Map/Array are ARC objects now, so they count
+    // in sp_rt_mem_live_objects() alongside the Foos they hold
+    // (push: list + Foo = 2; store: + Foo = 3; array: + array + Foo
+    // = 5; mapset: + map + Foo = 7). The reads still prove the
+    // retained temporaries stay alive.
     EXPECT_NE(output.find("before 0"), std::string::npos);
-    EXPECT_NE(output.find("after push live 1"), std::string::npos);
+    EXPECT_NE(output.find("after push live 2"), std::string::npos);
     EXPECT_NE(output.find("push n 42"), std::string::npos);
-    EXPECT_NE(output.find("after store live 2"), std::string::npos);
+    EXPECT_NE(output.find("after store live 3"), std::string::npos);
     EXPECT_NE(output.find("store n 42"), std::string::npos);
-    EXPECT_NE(output.find("after array live 3"), std::string::npos);
+    EXPECT_NE(output.find("after array live 5"), std::string::npos);
     EXPECT_NE(output.find("array n 42"), std::string::npos);
-    EXPECT_NE(output.find("after mapset live 4"), std::string::npos);
+    EXPECT_NE(output.find("after mapset live 7"), std::string::npos);
 }
 
 // Phase 7 slice C: a channel stores the sent value as raw i64 bits
@@ -1330,4 +1336,418 @@ TEST(TryCatchExecutionTest, EmptyMapLiteralWorks) {
     std::string output = runSPProgram(source, "exec_map_empty");
     EXPECT_NE(output.find("true"), std::string::npos);
     EXPECT_NE(output.find("0"), std::string::npos);
+}
+
+// Phase 37 slice B: containers are ARC objects now, and a container's
+// destructor releases its retained reference-typed elements. Each
+// test below is the execution-test form of a proof in
+// ~/workspace/p8b-proofs/ (same program shape, same expected counts).
+// Live-object counts include the container itself (it is ARC now),
+// so "inside 2" is the container + the one Foo it holds.
+
+TEST(TryCatchExecutionTest, ContainerListDropReleasesElements) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                let xs = new List<Foo>();
+                xs.push(makeFoo());
+                println("inside " + sp_rt_mem_live_objects());
+                println("n " + xs[0].n);
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_list_drop");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 2"), std::string::npos);
+    EXPECT_NE(output.find("n 42"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerArrayAndMapDropReleaseElements) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                let arr = [makeFoo()];
+                println("arr inside " + sp_rt_mem_live_objects());
+                println("arr n " + arr[0].n);
+            }
+            println("arr after block " + sp_rt_mem_live_objects());
+            {
+                let m = new Map<string, Foo>();
+                m.set("a", makeFoo());
+                println("map inside " + sp_rt_mem_live_objects());
+                println("map n " + m["a"].n);
+            }
+            println("map after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_array_map_drop");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("arr inside 2"), std::string::npos);
+    EXPECT_NE(output.find("arr n 42"), std::string::npos);
+    EXPECT_NE(output.find("arr after block 0"), std::string::npos);
+    EXPECT_NE(output.find("map inside 2"), std::string::npos);
+    EXPECT_NE(output.find("map n 42"), std::string::npos);
+    EXPECT_NE(output.find("map after block 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerSetDropReleasesElements) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                let s = new Set<Foo>();
+                let f = makeFoo();
+                s.add(f);
+                println("inside " + sp_rt_mem_live_objects());
+                println("contains " + s.contains(f));
+                println("f strong " + sp_rt_strong_count(f));
+                for (x in s) {
+                    println("forin n " + x.n);
+                }
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_set_drop");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 2"), std::string::npos);
+    EXPECT_NE(output.find("contains true"), std::string::npos);
+    EXPECT_NE(output.find("f strong 2"), std::string::npos);
+    EXPECT_NE(output.find("forin n 42"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerQueueStackPQDropReleasesElements) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                let q = new Queue<Foo>();
+                q.enqueue(makeFoo());
+                println("q inside " + sp_rt_mem_live_objects());
+            }
+            println("q after block " + sp_rt_mem_live_objects());
+            {
+                let st = new Stack<Foo>();
+                st.push(makeFoo());
+                println("st inside " + sp_rt_mem_live_objects());
+            }
+            println("st after block " + sp_rt_mem_live_objects());
+            {
+                let pq = new PriorityQueue<Foo>();
+                pq.push(makeFoo(), 1);
+                println("pq inside " + sp_rt_mem_live_objects());
+            }
+            println("pq after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_queue_stack_pq_drop");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("q inside 2"), std::string::npos);
+    EXPECT_NE(output.find("q after block 0"), std::string::npos);
+    EXPECT_NE(output.find("st inside 2"), std::string::npos);
+    EXPECT_NE(output.find("st after block 0"), std::string::npos);
+    EXPECT_NE(output.find("pq inside 2"), std::string::npos);
+    EXPECT_NE(output.find("pq after block 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerNestedListReleasesRecursively) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                let outer = new List<List<Foo>>();
+                let inner = new List<Foo>();
+                inner.push(makeFoo());
+                outer.push(inner);
+                println("inside " + sp_rt_mem_live_objects());
+                println("outer n " + outer[0][0].n);
+                let outerArr = new List<Foo[]>();
+                let innerArr = [makeFoo()];
+                outerArr.push(innerArr);
+                println("arr inside " + sp_rt_mem_live_objects());
+                println("inner strong " + sp_rt_strong_count(innerArr));
+                println("arr n " + outerArr[0][0].n);
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_nested");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 3"), std::string::npos);
+    EXPECT_NE(output.find("outer n 42"), std::string::npos);
+    EXPECT_NE(output.find("arr inside 6"), std::string::npos);
+    EXPECT_NE(output.find("inner strong 2"), std::string::npos);
+    EXPECT_NE(output.find("arr n 42"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerBorrowedPassedToFunctionIsNotFreed) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn useList(xs: List<Foo>) {
+            println("held " + sp_rt_mem_live_objects());
+            println("in fn " + xs[0].n);
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let f = makeFoo();
+            println("f strong " + sp_rt_strong_count(f));
+            let xs = new List<Foo>();
+            xs.push(f);
+            println("f strong after push " + sp_rt_strong_count(f));
+            useList(xs);
+            println("f strong after call " + sp_rt_strong_count(f));
+            println("after call " + sp_rt_mem_live_objects());
+            println("n " + f.n);
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_borrowed");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("f strong 1"), std::string::npos);
+    EXPECT_NE(output.find("f strong after push 2"), std::string::npos);
+    EXPECT_NE(output.find("held 2"), std::string::npos);
+    EXPECT_NE(output.find("in fn 42"), std::string::npos);
+    EXPECT_NE(output.find("f strong after call 2"), std::string::npos);
+    EXPECT_NE(output.find("after call 2"), std::string::npos);
+    EXPECT_NE(output.find("n 42"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerReturnedFromFunctionSurvives) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn makeList() -> List<Foo> {
+            let xs = new List<Foo>();
+            xs.push(makeFoo());
+            return xs;
+        }
+        fn makeMap() -> Map<string, Foo> {
+            let m = new Map<string, Foo>();
+            m.set("a", makeFoo());
+            return m;
+        }
+        fn makeArray() -> Foo[] {
+            let ys = [makeFoo()];
+            return ys;
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let ys = makeList();
+            println("list n " + ys[0].n);
+            println("after list " + sp_rt_mem_live_objects());
+            let m = makeMap();
+            println("map n " + m["a"].n);
+            println("after map " + sp_rt_mem_live_objects());
+            let arr = makeArray();
+            println("arr n " + arr[0].n);
+            println("after arr " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_returned");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("list n 42"), std::string::npos);
+    EXPECT_NE(output.find("after list 2"), std::string::npos);
+    EXPECT_NE(output.find("map n 42"), std::string::npos);
+    EXPECT_NE(output.find("after map 4"), std::string::npos);
+    EXPECT_NE(output.find("arr n 42"), std::string::npos);
+    EXPECT_NE(output.find("after arr 6"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerRemoveAndClearReleaseElements) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            let f1 = makeFoo();
+            let f2 = makeFoo();
+            let xs = new List<Foo>();
+            xs.push(f1);
+            xs.push(f2);
+            println("f1 strong " + sp_rt_strong_count(f1));
+            println("f2 strong " + sp_rt_strong_count(f2));
+            xs.removeAt(0);
+            println("f1 strong after removeAt " + sp_rt_strong_count(f1));
+            println("f2 strong after removeAt " + sp_rt_strong_count(f2));
+            println("n " + xs[0].n);
+            xs.clear();
+            println("f2 strong after clear " + sp_rt_strong_count(f2));
+            println("size " + xs.size());
+            let m = new Map<string, Foo>();
+            m.set("a", f1);
+            m.set("b", f2);
+            println("f1 strong after mapset " + sp_rt_strong_count(f1));
+            m.set("a", f2);
+            println("f1 strong after overwrite " + sp_rt_strong_count(f1));
+            println("f2 strong after overwrite " + sp_rt_strong_count(f2));
+            m.remove("a");
+            println("f2 strong after mapremove " + sp_rt_strong_count(f2));
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_remove_clear");
+    EXPECT_NE(output.find("f1 strong 2"), std::string::npos);
+    EXPECT_NE(output.find("f2 strong 2"), std::string::npos);
+    EXPECT_NE(output.find("f1 strong after removeAt 1"), std::string::npos);
+    EXPECT_NE(output.find("f2 strong after removeAt 2"), std::string::npos);
+    EXPECT_NE(output.find("n 42"), std::string::npos);
+    EXPECT_NE(output.find("f2 strong after clear 1"), std::string::npos);
+    EXPECT_NE(output.find("size 0"), std::string::npos);
+    EXPECT_NE(output.find("f1 strong after mapset 2"), std::string::npos);
+    EXPECT_NE(output.find("f1 strong after overwrite 1"), std::string::npos);
+    EXPECT_NE(output.find("f2 strong after overwrite 3"), std::string::npos);
+    EXPECT_NE(output.find("f2 strong after mapremove 2"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerReassignReleasesOldContainer) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let xs = new List<Foo>();
+            xs.push(makeFoo());
+            xs.push(makeFoo());
+            println("before reassign " + sp_rt_mem_live_objects());
+            xs = new List<Foo>();
+            println("after reassign " + sp_rt_mem_live_objects());
+            println("size " + xs.size());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_reassign");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("before reassign 3"), std::string::npos);
+    EXPECT_NE(output.find("after reassign 1"), std::string::npos);
+    EXPECT_NE(output.find("size 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerChannelDestroyDrainsQueuedItems) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let ch = new Channel<Foo>(4);
+            ch.send(makeFoo());
+            println("after send " + sp_rt_mem_live_objects());
+            ch.destroy();
+            println("after destroy " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_channel_destroy");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after send 1"), std::string::npos);
+    EXPECT_NE(output.find("after destroy 0"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerPeekDoesNotStealShare) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn takeFoo(f: Foo) { println("take " + f.n); }
+        fn main() {
+            let f = makeFoo();
+            let q = new Queue<Foo>();
+            q.enqueue(f);
+            println("strong after enqueue " + sp_rt_strong_count(f));
+            takeFoo(q.peek());
+            println("strong after peek temp " + sp_rt_strong_count(f));
+            println("q n " + f.n);
+            println("live " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_peek_retain");
+    EXPECT_NE(output.find("strong after enqueue 2"), std::string::npos);
+    EXPECT_NE(output.find("take 42"), std::string::npos);
+    EXPECT_NE(output.find("strong after peek temp 2"), std::string::npos);
+    EXPECT_NE(output.find("q n 42"), std::string::npos);
+    EXPECT_NE(output.find("live 2"), std::string::npos);
+}
+
+TEST(TryCatchExecutionTest, ContainerReduceBorrowedResultIsRetainedOnAssign) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+            fn sp_rt_strong_count(p: ptr) -> int;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                let f = makeFoo();
+                let xs = new List<Foo>();
+                xs.push(f);
+                println("strong after push " + sp_rt_strong_count(f));
+                let r = xs.reduce((Foo a, Foo b) => a, f);
+                println("strong after reduce assign " + sp_rt_strong_count(f));
+                let r2: Foo = xs.reduce((Foo a, Foo b) => a, f);
+                println("strong after typed reduce assign " + sp_rt_strong_count(f));
+                println("f n " + f.n);
+                println("r2 n " + r2.n);
+                println("live " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_reduce_borrowed");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("strong after push 2"), std::string::npos);
+    EXPECT_NE(output.find("strong after reduce assign 2"), std::string::npos);
+    EXPECT_NE(output.find("strong after typed reduce assign 3"), std::string::npos);
+    EXPECT_NE(output.find("f n 42"), std::string::npos);
+    EXPECT_NE(output.find("r2 n 42"), std::string::npos);
+    EXPECT_NE(output.find("live 2"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
 }

@@ -1038,6 +1038,29 @@ void IRModule::initRuntimeDeclarations() {
                     std::make_shared<ParameterValue>(IRType::getInt64(), "init_cap", 1)},
                    true);
 
+    // Phase 37 slice B: element-kind flags — void
+    // sp_rt_<kind>_mark_ref_elements(ptr). Emitted by the compiler
+    // right after a container alloc, only when the static element
+    // type is an owned type.
+    createFunction("sp_rt_array_mark_ref_elements", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "arr", 0)},
+                   true);
+    createFunction("sp_rt_list_mark_ref_elements", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)},
+                   true);
+    createFunction("sp_rt_map_mark_ref_elements", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "map", 0)},
+                   true);
+    createFunction("sp_rt_set_mark_ref_elements", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "set", 0)},
+                   true);
+    createFunction("sp_rt_queue_mark_ref_elements", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "queue", 0)},
+                   true);
+    createFunction("sp_rt_pq_mark_ref_elements", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "pq", 0)},
+                   true);
+
     // i64 sp_rt_list_size(ptr)
     createFunction("sp_rt_list_size", IRType::getInt64(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "list", 0)},
@@ -1433,6 +1456,11 @@ void IRModule::initRuntimeDeclarations() {
     createFunction("sp_rt_channel_capacity", IRType::getInt64(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
     createFunction("sp_rt_channel_destroy", IRType::getVoid(),
+                   {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
+    // Phase 37 slice B: void sp_rt_channel_mark_ref_items(ptr).
+    // Emitted by the compiler at the Channel.send / trySend retain
+    // site; destroy() then drains and releases the still-queued items.
+    createFunction("sp_rt_channel_mark_ref_items", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(), "chan", 0)}, true);
 
     // ThreadPool

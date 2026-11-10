@@ -279,6 +279,15 @@ private:
     // emitRefReturnRetain: emits sp_rt_retain for a ref-typed return
     // value unless it is already +1 (borrowed values are retained on
     // the way out so the caller receives a +1 share).
+    // Phase 37 slice B: isOwnedValueType — the widened ownership
+    // predicate. Containers (List/Set/Stack/Queue/PriorityQueue are
+    // ClassTypes, so they were already covered) plus ArrayType and
+    // MapType own a share exactly like a class object, so every
+    // ownership rule keyed on isReferenceType() must use this
+    // predicate instead. Nullable types are deliberately NOT owned:
+    // a nullable variable is never registered or retained (it leaks
+    // its share, as today — the safe direction).
+    bool isOwnedValueType(const sema::TypePtr& t) const;
     bool isFreshPlusOneExpr(const ast::ExpressionNode& expr);
     void emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal);
 
@@ -299,6 +308,10 @@ private:
     void popTempScope();
     void recordTempCallResult(const ast::CallExpr& node);
     void recordTempNewResult(const ast::NewExpr& node);
+    // Phase 37 slice B: record an array/map literal's fresh container
+    // as a pending temporary (a literal is a +1 producer, like `new`;
+    // the hook runs at the tails of visit(ArrayExpr)/visit(MapExpr)).
+    void recordTempLiteralResult(const ast::ExpressionNode& node);
     void adoptTempValue(IRValuePtr v);
     // Phase 7 slice C: containers (List/Set/Stack/Queue/
     // PriorityQueue, Map, arrays, channels) store their elements as
@@ -311,6 +324,13 @@ private:
     // container is the only owner). sp_rt_retain is magic-checked, so
     // the isReferenceType check keeps it off scalars and strings.
     void emitContainerElementRetain(const ast::ExpressionNode* expr, IRValuePtr v);
+    // Phase 37 slice B: emit the container's `sp_rt_<kind>_mark_ref_
+    // elements` call right after its alloc, but only when the static
+    // element type is an owned type (class/interface, array, map).
+    // The flag tells the runtime destructor / remove / clear paths
+    // that the stored elements are retained references.
+    void emitContainerMarkRefElements(const char* markFn, IRValuePtr container,
+                                      const sema::TypePtr& elemType);
     // TempCallRecorder: RAII guard for visit(CallExpr). Its destructor
     // runs on EVERY exit path of the ~4000-line visitor (241 early
     // returns make a single-exit hook impossible) and records the

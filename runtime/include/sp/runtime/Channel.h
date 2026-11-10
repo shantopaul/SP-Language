@@ -38,6 +38,16 @@ public:
     // Close channel: wakes all waiting senders and receivers
     void close();
 
+    // Phase 37 slice B: mark queued items as retained references
+    // (called from sp_rt_channel_mark_ref_items, emitted by the
+    // compiler at the Channel.send retain site) and drain the
+    // still-queued items (called from sp_rt_channel_destroy).
+    // drain_items() takes the lock, moves every buffered item out,
+    // and returns them; the caller releases them outside the lock.
+    void mark_ref_items();
+    bool ref_items() const;
+    std::vector<void*> drain_items();
+
     // Check if channel is closed
     bool is_closed() const;
 
@@ -53,6 +63,10 @@ private:
     std::condition_variable m_cv_not_empty;
     std::condition_variable m_cv_not_full;
     bool m_closed{false};
+
+    // Phase 37 slice B: whether the queued items are retained
+    // references (see mark_ref_items / drain_items above).
+    bool m_ref_items{false};
 
     // For bounded channel: pre-allocated circular ring buffer
     std::vector<void*> m_ring_buffer;

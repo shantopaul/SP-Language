@@ -731,11 +731,67 @@ void IRBuilder::emitAllFunctionDrops() {
 // by the spawn/await machinery, not by this convention) keep the old
 // behaviour: the receiver retains. That may leak one share for such
 // a call; it can never free a value the callee still owns.
+// Phase 37 slice B: the widened ownership predicate. A container
+// value (List/Set/Stack/Queue/PriorityQueue are ClassTypes, so they
+// were already reference types; ArrayType and MapType are not) owns
+// a share exactly like a class object, so every ownership rule keyed
+// on isReferenceType() uses this instead. Nullable types are NOT
+// owned: a nullable variable is never registered or retained (it
+// leaks its share, as today — the safe direction).
+bool IRBuilder::isOwnedValueType(const sema::TypePtr& t) const {
+    if (!t) return false;
+    return t->isReferenceType() || t->isArray() || t->isMap();
+}
+
 bool IRBuilder::isFreshPlusOneExpr(const ast::ExpressionNode& expr) {
     if (dynamic_cast<const ast::NewExpr*>(&expr)) return true;
+    // Phase 37 slice B: array/map literals allocate a fresh container
+    // with count 1, exactly like `new` — they are +1 producers, or a
+    // VarDecl would retain them and the scope pop would leave count 1
+    // forever.
+    if (dynamic_cast<const ast::ArrayExpr*>(&expr)) return true;
+    if (dynamic_cast<const ast::MapExpr*>(&expr)) return true;
     if (const auto* call = dynamic_cast<const ast::CallExpr*>(&expr)) {
+        // Phase 37 slice B: `List.reduce` / array `reduce` returns
+        // the BORROWED accumulator (or the fold's output), not a +1
+        // share — `let r = xs.reduce((a, b) => a, f)` adopts `f`
+        // without retaining, so `r`'s scope pop steals the container's
+        // (or the caller's) share. Excluding it makes every adopter
+        // retain the result (a real share) and keeps the temp pass
+        // from releasing it. The receiver check keeps a user class's
+        // own `reduce()` method — which returns +1 by the convention
+        // — unaffected.
+        if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&call->getCallee())) {
+            if (mem->getMember() == "reduce" && mem->hasObject()) {
+                auto recvType = m_sema.getNodeType(&mem->getObject());
+                if (recvType && (recvType->isArray() ||
+                                 (recvType->isClass() &&
+                                  recvType->toString().rfind("List<", 0) == 0))) {
+                    return false;
+                }
+            }
+        }
         auto target = m_sema.getCallTarget(call);
-        return target != nullptr && !target->isAsync();
+        if (target != nullptr && !target->isAsync()) return true;
+        // Phase 37 slice B: the builtin fresh-array producers have
+        // no resolved call target (the TypeChecker types them without
+        // recording one), so they fall through the rule above — but
+        // they DO allocate a fresh container with count 1. Without
+        // this, a VarDecl would retain the fresh array and the scope
+        // pop would leave count 1 forever (and `emitRefReturnRetain`
+        // would retain a fresh return, leaking the same share).
+        if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&call->getCallee())) {
+            if (!mem->hasObject()) return false;
+            auto recvType = m_sema.getNodeType(&mem->getObject());
+            if (recvType) {
+                if (mem->getMember() == "split" && recvType->isString()) return true;
+                if ((mem->getMember() == "map" || mem->getMember() == "filter") &&
+                    recvType->isArray()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     return false;
 }
@@ -744,7 +800,12 @@ void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr 
     if (!retVal || !retVal->getType()->isPointer()) return;
     if (isFreshPlusOneExpr(expr)) return;
     auto semaType = m_sema.getNodeType(&expr);
-    bool isRefRet = (semaType && semaType->isReferenceType()) ||
+    // Phase 37 slice B: widened from isReferenceType() to the owned
+    // predicate — a borrowed Map/Array return must be retained so it
+    // survives emitAllFunctionDrops (this is the load-bearing
+    // widening: `fn makeMap() { let m = new Map<..>(); return m; }`
+    // would otherwise hand the caller a dangling pointer).
+    bool isRefRet = (semaType && isOwnedValueType(semaType)) ||
                     dynamic_cast<const ast::NewExpr*>(&expr) != nullptr;
     if (!isRefRet) return;
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
@@ -803,7 +864,10 @@ void IRBuilder::recordTempCallResult(const ast::CallExpr& node) {
     if (m_tempScopeFunction != m_currentFunction) return;
     if (!isFreshPlusOneExpr(node)) return;
     auto semaType = m_sema.getNodeType(&node);
-    if (!semaType || !semaType->isReferenceType()) return;
+    // Phase 37 slice B: widened from isReferenceType() to the owned
+    // predicate, so a resolved user call returning a Map/Array used
+    // as a pure temporary is released like a class temporary.
+    if (!semaType || !isOwnedValueType(semaType)) return;
     IRValuePtr v = m_lastExprValue;
     if (!v || !v->getType() || !v->getType()->isPointer()) return;
     auto& scope = m_tempScopes.back();
@@ -817,7 +881,28 @@ void IRBuilder::recordTempNewResult(const ast::NewExpr& node) {
     if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
     if (m_tempScopeFunction != m_currentFunction) return;
     auto semaType = m_sema.getNodeType(&node);
-    if (!semaType || !semaType->isReferenceType()) return;
+    // Phase 37 slice B: widened from isReferenceType() to the owned
+    // predicate (a `new` of a container type is recorded the same way
+    // as a `new` of a class).
+    if (!semaType || !isOwnedValueType(semaType)) return;
+    IRValuePtr v = m_lastExprValue;
+    if (!v || !v->getType() || !v->getType()->isPointer()) return;
+    auto& scope = m_tempScopes.back();
+    for (const auto& e : scope) {
+        if (e == v) return;
+    }
+    scope.push_back(v);
+}
+
+// Phase 37 slice B: an array/map literal is a +1 producer (its fresh
+// container has count 1), so a literal no adopter takes is released
+// at the statement pop — exactly like a `new`. Same guards as the
+// other recorders (async, short-circuit/ternary, stale function).
+void IRBuilder::recordTempLiteralResult(const ast::ExpressionNode& node) {
+    if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
+    if (m_tempScopeFunction != m_currentFunction) return;
+    auto semaType = m_sema.getNodeType(&node);
+    if (!semaType || !isOwnedValueType(semaType)) return;
     IRValuePtr v = m_lastExprValue;
     if (!v || !v->getType() || !v->getType()->isPointer()) return;
     auto& scope = m_tempScopes.back();
@@ -847,9 +932,29 @@ IRBuilder::TempCallRecorder::~TempCallRecorder() {
 void IRBuilder::emitContainerElementRetain(const ast::ExpressionNode* expr, IRValuePtr v) {
     if (!expr || !v) return;
     auto semaType = m_sema.getNodeType(expr);
-    if (!semaType || !semaType->isReferenceType()) return;
+    // Phase 37 slice B: widened from isReferenceType() to the owned
+    // predicate — an array or map stored as a container element (e.g.
+    // `List<Foo[]>` / `List<Map<..>>`) must also be retained into the
+    // outer container, or the outer destructor's release would hit a
+    // value whose only share the source's scope pop already freed.
+    // (List/Set/... elements were already covered: they are
+    // ClassTypes.)
+    if (!semaType || !isOwnedValueType(semaType)) return;
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
         IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{v}));
+}
+
+// Phase 37 slice B: flag a freshly allocated container's elements as
+// retained references. The alloc signatures are unchanged, so this
+// setter call is emitted by the compiler right after the alloc —
+// before any element can be stored — and only when the static
+// element type is an owned type. An unmarked container degrades to
+// today's leak, never to a wrong free.
+void IRBuilder::emitContainerMarkRefElements(const char* markFn, IRValuePtr container,
+                                             const sema::TypePtr& elemType) {
+    if (!markFn || !container || !isOwnedValueType(elemType)) return;
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), markFn, std::vector<IRValuePtr>{container}));
 }
 
 void IRBuilder::popScope() {
@@ -1663,7 +1768,12 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
         }
         if (!isRefCounted && node.hasInitializer()) {
             auto semaType = m_sema.getNodeType(node.getInitializer());
-            if (semaType && semaType->isReferenceType()) {
+            // Phase 37 slice B: widened from isReferenceType() to the
+            // owned predicate — a Map/Array variable must be
+            // registered for scope-drop (or the container leaks) and
+            // must retain a borrowed initializer (or the pop frees a
+            // share the variable never owned).
+            if (semaType && isOwnedValueType(semaType)) {
                 isRefCounted = true;
             } else if (dynamic_cast<const ast::NewExpr*>(node.getInitializer())) {
                 isRefCounted = true;
@@ -2015,6 +2125,11 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
 
     // 3. Determine loop element variable IR type and allocate stack slot
     IRTypePtr itemIRType = IRType::getInt32();
+    // Phase 37 slice B: whether a Set's element type is a string
+    // (only then does the for-in fetch use sp_rt_set_get_str; a
+    // class/array/map element is fetched as an int key — see the
+    // Set.add fix).
+    bool setElemIsString = false;
     if (!node.getType().empty() && node.getType() != "var" && node.getType() != "let" && node.getType() != "auto") {
         itemIRType = mapType(node.getType());
     } else if (semaIterType && semaIterType->isArray()) {
@@ -2037,7 +2152,10 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
         size_t lt = s.find('<');
         size_t gt = s.rfind('>');
         if (lt != std::string::npos && gt != std::string::npos && gt > lt) {
-            itemIRType = mapType(s.substr(lt + 1, gt - lt - 1));
+            std::string elemStr = s.substr(lt + 1, gt - lt - 1);
+            itemIRType = mapType(elemStr);
+            auto elemType = asyncResolveType(elemStr);
+            setElemIsString = elemType && elemType->isString();
         }
     }
     if (!itemIRType) itemIRType = IRType::getInt32();
@@ -2110,7 +2228,10 @@ void IRBuilder::visit(const ast::ForInStmt& node) {
     } else if (isSet) {
         // Phase 6 slice B: sets fetch by index (sp_rt_set_get_i64 for
         // scalar elements, sp_rt_set_get_str for strings).
-        if (itemIRType->isPointer()) {
+        // Phase 37 slice B: the discriminator is the element's sema
+        // type, not the IR type — a class element is a pointer too,
+        // but it is stored as an int key, not a string key.
+        if (setElemIsString) {
             auto getCall = std::make_shared<CallInst>(
                 IRType::getPointer(IRType::getInt8()), "sp_rt_set_get_str",
                 std::vector<IRValuePtr>{collVal, curIdx},
@@ -2949,12 +3070,12 @@ void IRBuilder::visit(const ast::ThrowStmt& node) {
         } else {
             strVal = m_module->getOrCreateStringLiteral("[" + canonical + "]");
         }
-        if (semaType && semaType->isReferenceType()) {
-            // Class object: the payload must hold an owning
-            // reference, because the unwinding scope drops below
-            // release the try body's locals (which may alias this
-            // object). A directly-thrown `new` transfers its fresh
-            // count-1 to the payload; any other class value is
+        if (semaType && isOwnedValueType(semaType)) {
+            // Class object (or container): the payload must hold an
+            // owning reference, because the unwinding scope drops
+            // below release the try body's locals (which may alias
+            // this object). A directly-thrown `new` transfers its
+            // fresh count-1 to the payload; any other class value is
             // retained into the payload here.
             owns = true;
             // Phase 6 slice C: the +1 return convention — a factory
@@ -3033,7 +3154,9 @@ void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const 
             }
             if (!isRefCounted) {
                 auto semaType = m_sema.getNodeType(field->getInitializer());
-                if (semaType && semaType->isReferenceType()) {
+                // Phase 37 slice B: widened to the owned predicate
+                // (see visit(VarDeclStmt)).
+                if (semaType && isOwnedValueType(semaType)) {
                     isRefCounted = true;
                 } else if (dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
                     isRefCounted = true;
@@ -3155,7 +3278,9 @@ void IRBuilder::emitFieldInitializers(const ast::ClassDecl& classDecl, const cod
             }
             if (!isRefCounted) {
                 auto semaType = m_sema.getNodeType(field.getInitializer());
-                if (semaType && semaType->isReferenceType()) {
+                // Phase 37 slice B: widened to the owned predicate
+                // (see visit(VarDeclStmt)).
+                if (semaType && isOwnedValueType(semaType)) {
                     isRefCounted = true;
                 } else if (dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
                     isRefCounted = true;
@@ -4233,7 +4358,10 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
     bool isRefAssignment = false;
     if (valType && valType->isPointer()) {
         auto semaType = m_sema.getNodeType(&node.getValue());
-        if (semaType && semaType->isReferenceType()) {
+        // Phase 37 slice B: widened from isReferenceType() to the
+        // owned predicate — `m = otherMap` must retain the new value
+        // and release the old one, exactly like a class reassignment.
+        if (semaType && isOwnedValueType(semaType)) {
             isRefAssignment = true;
         } else if (dynamic_cast<const ast::NewExpr*>(&node.getValue())) {
             isRefAssignment = true;
@@ -6404,6 +6532,17 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     // emitContainerElementRetain); the receiver may
                     // outlive the sender's scope.
                     emitContainerElementRetain(node.getArgs()[0].get(), m_lastExprValue);
+                    // Phase 37 slice B: flag the channel's queued
+                    // items as retained references, so destroy()
+                    // drains and releases the still-queued ones.
+                    {
+                        auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+                        if (isOwnedValueType(argType)) {
+                            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                                IRType::getVoid(), "sp_rt_channel_mark_ref_items",
+                                std::vector<IRValuePtr>{objVal}));
+                        }
+                    }
                     auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
                     std::string reg = m_currentFunction->nextTempName("chan_send");
                     auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_channel_send_i64", std::vector<IRValuePtr>{objVal, val}, reg);
@@ -6422,6 +6561,23 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 }
                 if (methodName == "trySend" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
+                    // Phase 37 slice B: trySend stores the value like
+                    // send does, but Phase 7-C never retained into it
+                    // — a reference sent via trySend was borrowed, so
+                    // the sender's scope drop could free it while the
+                    // channel still held it. Retain (and flag) exactly
+                    // like send: destroy() releases every queued item
+                    // when flagged, so a trySend'd item without a
+                    // retain would be double-released there.
+                    emitContainerElementRetain(node.getArgs()[0].get(), m_lastExprValue);
+                    {
+                        auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+                        if (isOwnedValueType(argType)) {
+                            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                                IRType::getVoid(), "sp_rt_channel_mark_ref_items",
+                                std::vector<IRValuePtr>{objVal}));
+                        }
+                    }
                     auto val = emitCastIfNeeded(m_lastExprValue, IRType::getInt64());
                     std::string reg = m_currentFunction->nextTempName("chan_tsend");
                     auto callInst = std::make_shared<CallInst>(IRType::getInt1(), "sp_rt_channel_try_send_i64", std::vector<IRValuePtr>{objVal, val}, reg);
@@ -6888,7 +7044,22 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     // emitContainerElementRetain).
                     emitContainerElementRetain(node.getArgs()[0].get(), m_lastExprValue);
                     if (isSet) {
-                        if (m_lastExprType && m_lastExprType->isPointer()) {
+                        // Phase 37 slice B: only a STRING element uses
+                        // the _str accessor. The old dispatch keyed on
+                        // the IR type being a pointer, so a class /
+                        // array / map element (also a pointer) was
+                        // stored as a bogus string key — the Foo's
+                        // bytes read as a C string — instead of as an
+                        // int key holding the pointer bits. That made
+                        // Set<Foo> unreleasable (the destructor frees
+                        // str keys, it never releases int keys) and
+                        // made `for (x in s)` yield garbage. The
+                        // discriminator is the argument's sema type.
+                        auto argSemaType = m_sema.getNodeType(node.getArgs()[0].get());
+                        bool argIsString = argSemaType
+                            ? argSemaType->isString()
+                            : (m_lastExprType && m_lastExprType->isPointer());
+                        if (argIsString) {
                             auto callInst = std::make_shared<CallInst>(
                                 IRType::getVoid(),
                                 "sp_rt_set_add_str",
@@ -6938,7 +7109,13 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     node.getArgs()[0]->accept(*this);
                     std::string hasReg = m_currentFunction->nextTempName("has_item");
                     if (isSet) {
-                        if (m_lastExprType && m_lastExprType->isPointer()) {
+                        // Phase 37 slice B: same _str/_i64 discriminator
+                        // fix as Set.add above (sema type, not IR type).
+                        auto argSemaType = m_sema.getNodeType(node.getArgs()[0].get());
+                        bool argIsString = argSemaType
+                            ? argSemaType->isString()
+                            : (m_lastExprType && m_lastExprType->isPointer());
+                        if (argIsString) {
                             auto callInst = std::make_shared<CallInst>(
                                 IRType::getInt1(),
                                 "sp_rt_set_contains_str",
@@ -6993,7 +7170,13 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 if (!node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
                     if (isSet) {
-                        if (m_lastExprType && m_lastExprType->isPointer()) {
+                        // Phase 37 slice B: same _str/_i64 discriminator
+                        // fix as Set.add above (sema type, not IR type).
+                        auto argSemaType = m_sema.getNodeType(node.getArgs()[0].get());
+                        bool argIsString = argSemaType
+                            ? argSemaType->isString()
+                            : (m_lastExprType && m_lastExprType->isPointer());
+                        if (argIsString) {
                             auto callInst = std::make_shared<CallInst>(
                                 IRType::getVoid(),
                                 "sp_rt_set_remove_str",
@@ -7065,6 +7248,25 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 IRTypePtr retIRType = semaCallType ? mapType(semaCallType->toString()) : IRType::getInt64();
                 m_lastExprValue = emitCastIfNeeded(callInst, retIRType);
                 m_lastExprType = retIRType;
+                // Phase 37 slice B: peek's result IS recorded as a
+                // +1 temporary (it resolves via the synthetic method)
+                // and released at the statement pop — but peek only
+                // returns a BORROWED element, so that release steals
+                // the container's share (proven: `q.peek().n` drops
+                // the element's strong count 2 -> 1). Retain the
+                // returned element when it is an owned type, making
+                // peek a genuine +1 producer: the temp release
+                // consumes exactly this fresh retain, and an adopting
+                // VarDecl/Return owns a real share. The condition
+                // mirrors recordTempCallResult's check exactly. Do
+                // NOT retain on get/pop/dequeue/recv: get is never
+                // recorded (a retain would leak) and pop/dequeue are
+                // transfers (the temp release IS the transfer).
+                if (semaCallType && isOwnedValueType(semaCallType)) {
+                    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                        IRType::getVoid(), "sp_rt_retain",
+                        std::vector<IRValuePtr>{m_lastExprValue}));
+                }
                 return;
             } else if (methodName == "peekPriority") {
                 std::string prioReg = m_currentFunction->nextTempName("prio_val");
@@ -9135,6 +9337,18 @@ void IRBuilder::visit(const ast::ArrayExpr& node) {
     );
     m_currentBlock->addInstruction(allocCall);
 
+    // Phase 37 slice B: flag the array's elements as retained
+    // references when the static element type is an owned type, so
+    // the destructor releases them. The flag is set here — before
+    // any element store below — from the literal's sema type.
+    {
+        auto litType = m_sema.getNodeType(&node);
+        if (litType && litType->isArray()) {
+            auto elemType = static_cast<const sema::ArrayType&>(*litType).getElementType();
+            emitContainerMarkRefElements("sp_rt_array_mark_ref_elements", allocCall, elemType);
+        }
+    }
+
     for (size_t i = 0; i < count; ++i) {
         node.getElements()[i]->accept(*this);
         IRValuePtr elemVal = m_lastExprValue;
@@ -9171,6 +9385,9 @@ void IRBuilder::visit(const ast::ArrayExpr& node) {
 
     m_lastExprValue = allocCall;
     m_lastExprType = IRType::getPointer();
+    // Phase 37 slice B: an array literal is a +1 producer — a
+    // literal no adopter takes is released at the statement pop.
+    recordTempLiteralResult(node);
 }
 void IRBuilder::visit(const ast::MapExpr& node) {
     // Phase 3 slice B (pro-4.0.0): real map literals. A literal lowers
@@ -9243,6 +9460,11 @@ void IRBuilder::visit(const ast::MapExpr& node) {
     m_lastExprValue = mapVal;
     auto mapSemaType = m_sema.getNodeType(&node);
     m_lastExprType = mapSemaType ? mapType(mapSemaType.get()) : IRType::getPointer();
+    // Phase 37 slice B: a map literal is a +1 producer — a literal
+    // no adopter takes is released at the statement pop. (Map
+    // literals are never flagged: sema restricts their values to
+    // integers, so there are no retained elements to release.)
+    recordTempLiteralResult(node);
 }
 void IRBuilder::visit(const ast::LambdaExpr& node) {
     std::string lambdaName = "__sp_lambda_" + std::to_string(m_lambdaCounter++);
@@ -9396,6 +9618,13 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             listReg
         );
         m_currentBlock->addInstruction(allocCall);
+        // Phase 37 slice B: flag the elements as retained references
+        // when the static element type is an owned type (the flag is
+        // what lets the destructor release them).
+        if (!node.getTypeArgs().empty()) {
+            emitContainerMarkRefElements("sp_rt_list_mark_ref_elements", allocCall,
+                                         asyncResolveType(node.getTypeArgs()[0]));
+        }
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();
         return;
@@ -9410,6 +9639,12 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             mapReg
         );
         m_currentBlock->addInstruction(allocCall);
+        // Phase 37 slice B: the flag follows the VALUE type (type
+        // arg 1) — keys are strings/ints and are never released.
+        if (node.getTypeArgs().size() > 1) {
+            emitContainerMarkRefElements("sp_rt_map_mark_ref_elements", allocCall,
+                                         asyncResolveType(node.getTypeArgs()[1]));
+        }
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();
         return;
@@ -9424,6 +9659,11 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             setReg
         );
         m_currentBlock->addInstruction(allocCall);
+        // Phase 37 slice B: a set's elements are its int-table keys.
+        if (!node.getTypeArgs().empty()) {
+            emitContainerMarkRefElements("sp_rt_set_mark_ref_elements", allocCall,
+                                         asyncResolveType(node.getTypeArgs()[0]));
+        }
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();
         return;
@@ -9438,6 +9678,12 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             reg
         );
         m_currentBlock->addInstruction(allocCall);
+        // Phase 37 slice B: Stack shares the List impl (and its
+        // destructor) via sp_rt_stack_alloc.
+        if (!node.getTypeArgs().empty()) {
+            emitContainerMarkRefElements("sp_rt_list_mark_ref_elements", allocCall,
+                                         asyncResolveType(node.getTypeArgs()[0]));
+        }
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();
         return;
@@ -9452,6 +9698,10 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             reg
         );
         m_currentBlock->addInstruction(allocCall);
+        if (!node.getTypeArgs().empty()) {
+            emitContainerMarkRefElements("sp_rt_queue_mark_ref_elements", allocCall,
+                                         asyncResolveType(node.getTypeArgs()[0]));
+        }
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();
         return;
@@ -9466,6 +9716,10 @@ void IRBuilder::visit(const ast::NewExpr& node) {
             reg
         );
         m_currentBlock->addInstruction(allocCall);
+        if (!node.getTypeArgs().empty()) {
+            emitContainerMarkRefElements("sp_rt_pq_mark_ref_elements", allocCall,
+                                         asyncResolveType(node.getTypeArgs()[0]));
+        }
         m_lastExprValue = allocCall;
         m_lastExprType = IRType::getPointer();
         return;

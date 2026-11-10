@@ -643,8 +643,11 @@ void* makeTaskHandleArray(const std::vector<void*>& handles) {
 } // namespace
 
 // all (int): collects results in input order (C ABI). The combined
-// task's payload is the results array (completePtr — plain malloc, not
-// owned by the task), so the caller frees it.
+// task's payload is the results array (completePtr — not owned by
+// the task), so the caller frees it. Phase 37 slice B: the arrays
+// are ARC objects now, so the caller frees them with sp_rt_free
+// (ARC-aware) — std::free on the payload pointer aborts, because
+// the payload sits 16 bytes past the malloc base.
 TEST(AsyncTest, CAbiAllIntCollectsResultsInOrder) {
     void* sched = sp_rt_async_default_scheduler();
     void* t1 = sp_rt_async_delayed_i64(sched, 30, 1);
@@ -667,8 +670,8 @@ TEST(AsyncTest, CAbiAllIntCollectsResultsInOrder) {
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(t3);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
-    std::free(results);
+    sp_rt_free(arr);
+    sp_rt_free(results);
 }
 
 // all (int): an empty input completes immediately with an empty array.
@@ -682,7 +685,7 @@ TEST(AsyncTest, CAbiAllIntEmptyCompletesImmediately) {
     ASSERT_NE(results, nullptr);
     EXPECT_EQ(sp_rt_array_length(results), 0);
     sp_rt_async_task_destroy(combined);
-    std::free(results);
+    sp_rt_free(results);
 }
 
 // all (int): cancelled when any input was cancelled.
@@ -704,7 +707,7 @@ TEST(AsyncTest, CAbiAllIntCancelledWhenAnyCancelled) {
     sp_rt_async_task_destroy(t1);
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
 }
 
 // Phase 6 slice C (fix 4c): a cancelled all() frees its results array
@@ -734,7 +737,7 @@ TEST(AsyncTest, CAbiAllStrCancelledFreesResults) {
     sp_rt_async_task_destroy(t1);
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
 }
 
 // race (int): the first finisher wins (C ABI). Losers keep running
@@ -756,7 +759,7 @@ TEST(AsyncTest, CAbiRaceIntFirstFinisherWins) {
     sp_rt_async_task_destroy(fast);
     sp_rt_async_task_destroy(slow);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
 }
 
 // race (int): an empty input completes cancelled (no winner can arrive).
@@ -787,7 +790,7 @@ TEST(AsyncTest, CAbiRaceIntCancelledWhenFirstFinisherCancelled) {
     sp_rt_async_task_destroy(fast);
     sp_rt_async_task_destroy(slow);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
 }
 
 // all (double): collects results in input order.
@@ -808,8 +811,8 @@ TEST(AsyncTest, CAbiAllDblCollectsResults) {
     sp_rt_async_task_destroy(t1);
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
-    std::free(results);
+    sp_rt_free(arr);
+    sp_rt_free(results);
 }
 
 // all (string): collects results in input order. Each string slot is
@@ -836,10 +839,10 @@ TEST(AsyncTest, CAbiAllStrCollectsResults) {
     sp_rt_async_task_destroy(t1);
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
     std::free(const_cast<char*>(s0));
     std::free(const_cast<char*>(s1));
-    std::free(results);
+    sp_rt_free(results);
 }
 
 // all (void): completes when every input completes.
@@ -858,7 +861,7 @@ TEST(AsyncTest, CAbiAllVoidCompletesWhenAllComplete) {
     sp_rt_async_task_destroy(t1);
     sp_rt_async_task_destroy(t2);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
 }
 
 // race (double): the first finisher wins.
@@ -877,5 +880,5 @@ TEST(AsyncTest, CAbiRaceDblFirstFinisherWins) {
     sp_rt_async_task_destroy(fast);
     sp_rt_async_task_destroy(slow);
     sp_rt_async_task_destroy(combined);
-    std::free(arr);
+    sp_rt_free(arr);
 }

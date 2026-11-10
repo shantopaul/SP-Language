@@ -1,6 +1,7 @@
 #include "sp/runtime/Concurrency.h"
 #include "sp/runtime/Channel.h"
 #include "sp/runtime/ThreadPool.h"
+#include "sp/runtime/Runtime.h"
 #include <chrono>
 
 using namespace sp::rt;
@@ -412,7 +413,26 @@ int64_t sp_rt_channel_capacity(void* chan) {
 }
 
 void sp_rt_channel_destroy(void* chan) {
-    delete static_cast<Channel*>(chan);
+    if (!chan) return;
+    auto* channel = static_cast<Channel*>(chan);
+    // Phase 37 slice B: a destroyed channel gives up the shares of
+    // its still-queued items (only when flagged as reference items
+    // by sp_rt_channel_mark_ref_items). Items already received keep
+    // their shares — recv never releases. The drain happens before
+    // the delete, and the releases happen outside the channel lock.
+    if (channel->ref_items()) {
+        std::vector<void*> items = channel->drain_items();
+        for (void* item : items) {
+            sp_rt_release(item);
+        }
+    }
+    delete channel;
+}
+
+void sp_rt_channel_mark_ref_items(void* chan) {
+    if (chan) {
+        static_cast<Channel*>(chan)->mark_ref_items();
+    }
 }
 
 // ============================================================================

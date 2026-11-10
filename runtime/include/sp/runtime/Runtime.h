@@ -101,6 +101,16 @@ extern "C" {
 
     // Native Array primitives
     void* sp_rt_array_alloc(int64_t length, int64_t element_size);
+    // Phase 37 slice B: mark a container's elements as retained
+    // references, so its destructor / remove / clear paths release
+    // them. Emitted by the compiler right after the alloc, only when
+    // the static element type is an owned type. Null-safe no-ops.
+    void sp_rt_array_mark_ref_elements(void* arr);
+    void sp_rt_list_mark_ref_elements(void* list);
+    void sp_rt_map_mark_ref_elements(void* map);
+    void sp_rt_set_mark_ref_elements(void* set);
+    void sp_rt_queue_mark_ref_elements(void* queue);
+    void sp_rt_pq_mark_ref_elements(void* pq);
     int64_t sp_rt_array_length(void* arr);
     void* sp_rt_array_data(void* arr);
     void* sp_rt_array_get_ptr(void* arr, int64_t index, int64_t element_size);
@@ -348,6 +358,11 @@ extern "C" {
     int64_t     sp_rt_channel_size(void* chan);
     int64_t     sp_rt_channel_capacity(void* chan);
     void        sp_rt_channel_destroy(void* chan);
+    // Phase 37 slice B: mark a channel's queued items as retained
+    // references (emitted by the compiler at the Channel.send retain
+    // site); destroy() then drains and releases the still-queued
+    // items. Null-safe no-op.
+    void        sp_rt_channel_mark_ref_items(void* chan);
 
     // ThreadPool
     void*       sp_rt_threadpool_create(int64_t num_threads);
