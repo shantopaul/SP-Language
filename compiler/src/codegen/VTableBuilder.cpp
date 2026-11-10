@@ -484,6 +484,7 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
                 info.irType = mapType(varDecl.getType());
                 info.globalName = "@" + className + "_" + varDecl.getName();
                 info.isConst = varDecl.isConst();
+                info.isWeak = varDecl.isWeak();
                 layout.staticFields[info.name] = info;
                 irModule.addGlobalVariable(info.globalName, info.irType, /*isConstant=*/false, "zeroinitializer");
                 continue;
@@ -495,6 +496,7 @@ void VTableBuilder::buildClassLayout(const ast::ClassDecl& classDecl, ir::IRModu
             fieldInfo.irType = mapType(varDecl.getType());
             fieldInfo.index = currentFieldIndex++;
             fieldInfo.className = className;
+            fieldInfo.isWeak = varDecl.isWeak();
 
             layout.fields.push_back(fieldInfo);
             layout.fieldIndexMap[fieldInfo.name] = fieldInfo.index;
@@ -697,7 +699,8 @@ void VTableBuilder::buildSpecializedClassLayout(const std::shared_ptr<sema::Clas
             .typeName = field.type->toString(),
             .irType = fIrType,
             .index = currentFieldIndex++,
-            .className = className
+            .className = className,
+            .isWeak = field.isWeak
         };
         layout.fields.push_back(fInfo);
         layout.fieldIndexMap[fname] = fInfo.index;

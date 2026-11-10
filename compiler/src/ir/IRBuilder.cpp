@@ -694,9 +694,14 @@ void IRBuilder::emitScopeDrops(size_t scopeIndex) {
         auto loadInst = std::make_shared<LoadInst>(IRType::getPointer(), allocaPtr, dropReg);
         m_currentBlock->addInstruction(loadInst);
 
+        // Phase 8 slice C: a `weak` local's slot holds a header
+        // pointer, not a strong share — release it with
+        // sp_rt_weak_release, or the dead target's header block
+        // would never be freed.
+        const char* releaseFn = isWeakLocalSlot(allocaPtr) ? "sp_rt_weak_release" : "sp_rt_release";
         auto releaseCall = std::make_shared<CallInst>(
             IRType::getVoid(),
-            "sp_rt_release",
+            releaseFn,
             std::vector<IRValuePtr>{loadInst}
         );
         m_currentBlock->addInstruction(releaseCall);
@@ -741,6 +746,88 @@ void IRBuilder::emitAllFunctionDrops() {
 bool IRBuilder::isOwnedValueType(const sema::TypePtr& t) const {
     if (!t) return false;
     return t->isReferenceType() || t->isArray() || t->isMap();
+}
+
+// Phase 8 slice C: a weak-reference load is also a +1 producer —
+// sp_rt_weak_upgrade CAS-increments the strong count — so
+// isFreshPlusOneExpr is true for a MemberExpr on a weak field and
+// for an IdentifierExpr on a weak local / bare weak field (see
+// isWeakLoadExpr). Without this, return / throw / var-init would
+// retain an already-+1 upgrade a second time and leak one share
+// per load. (The task brief's "a weak load must be BORROWED, never
+// recorded" does not hold for the runtime that exists: the upgrade
+// RETURNS +1, and treating it as borrowed would leak one strong
+// share per read — the target could never die. See the slice doc
+// §0.3.)
+bool IRBuilder::isWeakField(const std::string& className, const std::string& fieldName) const {
+    if (!m_vtableBuilder || className.empty()) return false;
+    const auto* layout = m_vtableBuilder->getClassLayout(className);
+    if (!layout) return false;
+    auto it = layout->fieldIndexMap.find(fieldName);
+    if (it != layout->fieldIndexMap.end()) {
+        size_t fVecIdx = layout->hasVTable ? (it->second - 1) : it->second;
+        if (fVecIdx >= layout->fields.size()) return false;
+        return layout->fields[fVecIdx].isWeak;
+    }
+    // Static fields live in module globals, not in the instance
+    // layout — check there too, so a static weak load upgrades.
+    auto sit = layout->staticFields.find(fieldName);
+    if (sit != layout->staticFields.end()) return sit->second.isWeak;
+    return false;
+}
+
+bool IRBuilder::isWeakLocalSlot(IRValuePtr slot) const {
+    if (!slot) return false;
+    return m_weakLocalAllocas.find(slot) != m_weakLocalAllocas.end();
+}
+
+bool IRBuilder::isWeakLoadExpr(const ast::ExpressionNode& expr) {
+    if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&expr)) {
+        // Resolve the object's class the same way emitMemberPointer
+        // does: `this`, a variable's sema type, else the enclosing
+        // class (a bare field read inside a method).
+        std::string className;
+        if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject())) {
+            if (ident->getName() == "this" && m_currentClass) {
+                className = m_currentClass->name;
+            }
+        }
+        if (className.empty()) {
+            auto semaType = m_sema.getNodeType(&mem->getObject());
+            if (semaType && semaType->isNullable()) {
+                const auto* nullT = static_cast<const sema::NullableType*>(semaType.get());
+                if (nullT && nullT->getUnderlyingType()) {
+                    semaType = nullT->getUnderlyingType();
+                }
+            }
+            if (semaType && (semaType->isClass() || semaType->isStruct())) {
+                className = semaType->toString();
+            }
+        }
+        if (className.empty() && m_currentClass) {
+            className = m_currentClass->name;
+        }
+        if (!className.empty()) return isWeakField(className, mem->getMember());
+        return false;
+    }
+    if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&expr)) {
+        auto [allocaPtr, valType] = lookupVariable(ident->getName());
+        if (allocaPtr && isWeakLocalSlot(allocaPtr)) return true;
+        // Bare weak field of the enclosing class (implicit `this`).
+        if (m_currentClass) {
+            auto it = m_currentClass->fieldIndexMap.find(ident->getName());
+            if (it != m_currentClass->fieldIndexMap.end()) {
+                size_t fVecIdx = m_currentClass->hasVTable ? (it->second - 1) : it->second;
+                if (fVecIdx < m_currentClass->fields.size()) {
+                    return m_currentClass->fields[fVecIdx].isWeak;
+                }
+            }
+            auto sit = m_currentClass->staticFields.find(ident->getName());
+            if (sit != m_currentClass->staticFields.end()) return sit->second.isWeak;
+        }
+        return false;
+    }
+    return false;
 }
 
 bool IRBuilder::isFreshPlusOneExpr(const ast::ExpressionNode& expr) {
@@ -793,7 +880,45 @@ bool IRBuilder::isFreshPlusOneExpr(const ast::ExpressionNode& expr) {
         }
         return false;
     }
+    // Phase 8 slice C: a weak load produces a fresh +1 share via
+    // sp_rt_weak_upgrade (see isWeakLoadExpr).
+    if (isWeakLoadExpr(expr)) return true;
     return false;
+}
+
+// Phase 8 slice C: sp_rt_weak_create(value) — null-safe, returns the
+// header pointer (or null). The caller stores the header in the weak
+// slot; it must NOT retain the value (the slot holds no strong
+// share) and must NOT adopt a +1 value (the statement temp-scope
+// pop releases it — that is what lets `weak Node q = makeNode();`
+// read null: the node has no strong owner and dies at once).
+IRValuePtr IRBuilder::emitWeakCreate(IRValuePtr strongVal) {
+    if (!strongVal || !m_currentBlock) return strongVal;
+    auto createCall = std::make_shared<CallInst>(
+        IRType::getPointer(),
+        "sp_rt_weak_create",
+        std::vector<IRValuePtr>{strongVal},
+        m_currentFunction->nextTempName("weak_slot"));
+    m_currentBlock->addInstruction(createCall);
+    return createCall;
+}
+
+// Phase 8 slice C: sp_rt_weak_upgrade(slot) — returns the payload
+// at +1, or null when the target is already dead (zeroing weak
+// refs). The +1 is recorded as a pending temp so adopters can take
+// it and the statement scope pop releases it otherwise; without
+// the recording, every weak read would leak one strong share and
+// the target could never die (see the slice doc §0.3).
+IRValuePtr IRBuilder::emitWeakUpgrade(IRValuePtr weakSlotVal) {
+    if (!weakSlotVal || !m_currentBlock) return weakSlotVal;
+    auto upgradeCall = std::make_shared<CallInst>(
+        IRType::getPointer(),
+        "sp_rt_weak_upgrade",
+        std::vector<IRValuePtr>{weakSlotVal},
+        m_currentFunction->nextTempName("weak_up"));
+    m_currentBlock->addInstruction(upgradeCall);
+    recordTempOwnedValue(upgradeCall);
+    return upgradeCall;
 }
 
 void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal) {
@@ -859,16 +984,9 @@ void IRBuilder::popTempScope() {
     }
 }
 
-void IRBuilder::recordTempCallResult(const ast::CallExpr& node) {
+void IRBuilder::recordTempOwnedValue(IRValuePtr v) {
     if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
     if (m_tempScopeFunction != m_currentFunction) return;
-    if (!isFreshPlusOneExpr(node)) return;
-    auto semaType = m_sema.getNodeType(&node);
-    // Phase 37 slice B: widened from isReferenceType() to the owned
-    // predicate, so a resolved user call returning a Map/Array used
-    // as a pure temporary is released like a class temporary.
-    if (!semaType || !isOwnedValueType(semaType)) return;
-    IRValuePtr v = m_lastExprValue;
     if (!v || !v->getType() || !v->getType()->isPointer()) return;
     auto& scope = m_tempScopes.back();
     for (const auto& e : scope) {
@@ -877,39 +995,36 @@ void IRBuilder::recordTempCallResult(const ast::CallExpr& node) {
     scope.push_back(v);
 }
 
+void IRBuilder::recordTempCallResult(const ast::CallExpr& node) {
+    if (!isFreshPlusOneExpr(node)) return;
+    auto semaType = m_sema.getNodeType(&node);
+    // Phase 37 slice B (kept through the slice C merge): widened
+    // from isReferenceType() to the owned predicate, so a resolved
+    // user call returning a Map/Array used as a pure temporary is
+    // released like a class temporary.
+    if (!semaType || !isOwnedValueType(semaType)) return;
+    recordTempOwnedValue(m_lastExprValue);
+}
+
 void IRBuilder::recordTempNewResult(const ast::NewExpr& node) {
-    if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
-    if (m_tempScopeFunction != m_currentFunction) return;
     auto semaType = m_sema.getNodeType(&node);
     // Phase 37 slice B: widened from isReferenceType() to the owned
     // predicate (a `new` of a container type is recorded the same way
-    // as a `new` of a class).
+    // as a `new` of a class). Delegates to the shared recorder
+    // (Phase 8 slice C) — the merge kept B's predicate and C's shape.
     if (!semaType || !isOwnedValueType(semaType)) return;
-    IRValuePtr v = m_lastExprValue;
-    if (!v || !v->getType() || !v->getType()->isPointer()) return;
-    auto& scope = m_tempScopes.back();
-    for (const auto& e : scope) {
-        if (e == v) return;
-    }
-    scope.push_back(v);
+    recordTempOwnedValue(m_lastExprValue);
 }
 
 // Phase 37 slice B: an array/map literal is a +1 producer (its fresh
 // container has count 1), so a literal no adopter takes is released
-// at the statement pop — exactly like a `new`. Same guards as the
-// other recorders (async, short-circuit/ternary, stale function).
+// at the statement pop — exactly like a `new`. Delegates to the
+// shared recorder (Phase 8 slice C), which carries the async /
+// short-circuit / stale-function guards.
 void IRBuilder::recordTempLiteralResult(const ast::ExpressionNode& node) {
-    if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
-    if (m_tempScopeFunction != m_currentFunction) return;
     auto semaType = m_sema.getNodeType(&node);
     if (!semaType || !isOwnedValueType(semaType)) return;
-    IRValuePtr v = m_lastExprValue;
-    if (!v || !v->getType() || !v->getType()->isPointer()) return;
-    auto& scope = m_tempScopes.back();
-    for (const auto& e : scope) {
-        if (e == v) return;
-    }
-    scope.push_back(v);
+    recordTempOwnedValue(m_lastExprValue);
 }
 
 void IRBuilder::adoptTempValue(IRValuePtr v) {
@@ -1783,19 +1898,35 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
 
     if (isRefCounted && !m_refCountedScopes.empty()) {
         m_refCountedScopes.back().push_back({node.getName(), varAddr});
-        // Phase 6 slice C: the +1 return convention — a fresh +1
-        // initializer (new, or a factory call result) is adopted
-        // without an extra retain; borrowed values are retained.
-        // Phase 7 slice C: adopt the stored value so the scope pop
-        // below does not release it (no-op unless it is +1).
-        adoptTempValue(initVal);
-        if (initVal && !isFreshPlusOneExpr(*node.getInitializer())) {
-            auto retainCall = std::make_shared<CallInst>(
-                IRType::getVoid(),
-                "sp_rt_retain",
-                std::vector<IRValuePtr>{initVal}
-            );
-            m_currentBlock->addInstruction(retainCall);
+        if (node.isWeak()) {
+            // Phase 8 slice C: a `weak` local's slot holds a header
+            // pointer, not a strong share. Mark the slot so scope
+            // drops release it with sp_rt_weak_release, and store
+            // sp_rt_weak_create(init) instead of retaining. Do NOT
+            // adopt a +1 initializer and do NOT retain: the slot
+            // holds no strong share, so the +1 stays pending and the
+            // popTempScope below releases it (that is what makes
+            // `weak Node q = makeNode();` read null — the node has
+            // no strong owner and dies at once).
+            m_weakLocalAllocas.insert(varAddr);
+            if (initVal) {
+                initVal = emitWeakCreate(initVal);
+            }
+        } else {
+            // Phase 6 slice C: the +1 return convention — a fresh +1
+            // initializer (new, or a factory call result) is adopted
+            // without an extra retain; borrowed values are retained.
+            // Phase 7 slice C: adopt the stored value so the scope pop
+            // below does not release it (no-op unless it is +1).
+            adoptTempValue(initVal);
+            if (initVal && !isFreshPlusOneExpr(*node.getInitializer())) {
+                auto retainCall = std::make_shared<CallInst>(
+                    IRType::getVoid(),
+                    "sp_rt_retain",
+                    std::vector<IRValuePtr>{initVal}
+                );
+                m_currentBlock->addInstruction(retainCall);
+            }
         }
     }
 
@@ -3163,14 +3294,24 @@ void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const 
                 }
             }
         }
-        if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
-            auto retainCall = std::make_shared<CallInst>(
-                IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
-            m_currentBlock->addInstruction(retainCall);
-        }
-        // Phase 7 slice C: see emitFieldInitializers.
-        if (dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
-            adoptTempValue(initVal);
+        // Phase 8 slice C: a `weak static` slot holds a header
+        // pointer — store sp_rt_weak_create(init) instead of
+        // retaining, and do NOT adopt a +1 `new` initializer (the
+        // popTempScope below releases it; the global itself is
+        // never dropped, so the weak slot lives for the program's
+        // lifetime).
+        if (field->isWeak()) {
+            initVal = emitWeakCreate(initVal);
+        } else {
+            if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
+                auto retainCall = std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
+                m_currentBlock->addInstruction(retainCall);
+            }
+            // Phase 7 slice C: see emitFieldInitializers.
+            if (dynamic_cast<const ast::NewExpr*>(field->getInitializer())) {
+                adoptTempValue(initVal);
+            }
         }
         if (info.irType && info.irType->isStruct() && initVal->getType()->isPointer()) {
             auto loadInst = std::make_shared<LoadInst>(info.irType, initVal, m_currentFunction->nextTempName("st_init"));
@@ -3287,20 +3428,31 @@ void IRBuilder::emitFieldInitializers(const ast::ClassDecl& classDecl, const cod
                 }
             }
         }
-        if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
-            auto retainCall = std::make_shared<CallInst>(
-                IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
-            m_currentBlock->addInstruction(retainCall);
-        }
-        // Phase 7 slice C: the field code retains UNLESS the
-        // initializer is `new` — so a `new` initializer transfers its
-        // fresh +1 to the field (adopt it: the scope pop must not
-        // release it), while a factory-call initializer is retained
-        // above (the field takes its own share) and its +1 stays
-        // pending, so the pop below releases it. That is the
-        // `box strong 2` → `1` fix (see the slice doc §2.5).
-        if (dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
-            adoptTempValue(initVal);
+        // Phase 8 slice C: a `weak` field's slot holds a header
+        // pointer, not a strong share — store
+        // sp_rt_weak_create(init) instead of retaining, and do NOT
+        // adopt a +1 `new` initializer (the slot holds no strong
+        // share, so the +1 stays pending and the popTempScope below
+        // releases it — a `weak` field initialized with `new` reads
+        // null, correctly: the object has no strong owner).
+        if (field.isWeak()) {
+            initVal = emitWeakCreate(initVal);
+        } else {
+            if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
+                auto retainCall = std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
+                m_currentBlock->addInstruction(retainCall);
+            }
+            // Phase 7 slice C: the field code retains UNLESS the
+            // initializer is `new` — so a `new` initializer transfers its
+            // fresh +1 to the field (adopt it: the scope pop must not
+            // release it), while a factory-call initializer is retained
+            // above (the field takes its own share) and its +1 stays
+            // pending, so the pop below releases it. That is the
+            // `box strong 2` → `1` fix (see the slice doc §2.5).
+            if (dynamic_cast<const ast::NewExpr*>(field.getInitializer())) {
+                adoptTempValue(initVal);
+            }
         }
 
         if (fieldIRType && fieldIRType->isStruct() && initVal->getType()->isPointer()) {
@@ -4009,7 +4161,14 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
         std::string reg = m_currentFunction->nextTempName("v");
         auto loadInst = std::make_shared<LoadInst>(valType, allocaPtr, reg);
         m_currentBlock->addInstruction(loadInst);
-        m_lastExprValue = loadInst;
+        IRValuePtr value = loadInst;
+        // Phase 8 slice C: a `weak` local's slot holds a header
+        // pointer — upgrade it to the payload (+1, recorded as a
+        // pending temp) or null when the target is dead.
+        if (isWeakLocalSlot(allocaPtr)) {
+            value = emitWeakUpgrade(loadInst);
+        }
+        m_lastExprValue = value;
         m_lastExprType = valType;
         return;
     }
@@ -4031,7 +4190,13 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
             auto gvar = std::make_shared<GlobalVariable>(sit->second.irType, sit->second.globalName);
             auto loadInst = std::make_shared<LoadInst>(sit->second.irType, gvar, m_currentFunction->nextTempName("sval"));
             m_currentBlock->addInstruction(loadInst);
-            m_lastExprValue = loadInst;
+            IRValuePtr value = loadInst;
+            // Phase 8 slice C: a `weak static` slot holds a header
+            // pointer — upgrade it like any weak load.
+            if (sit->second.isWeak) {
+                value = emitWeakUpgrade(loadInst);
+            }
+            m_lastExprValue = value;
             m_lastExprType = sit->second.irType;
             return;
         }
@@ -4077,7 +4242,13 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
 
                 auto loadInst = std::make_shared<LoadInst>(valType, gep, m_currentFunction->nextTempName("val"));
                 m_currentBlock->addInstruction(loadInst);
-                m_lastExprValue = loadInst;
+                IRValuePtr value = loadInst;
+                // Phase 8 slice C: a bare `weak` field (implicit
+                // `this`) holds a header pointer — upgrade it.
+                if (m_currentClass->fields[fVecIdx].isWeak) {
+                    value = emitWeakUpgrade(loadInst);
+                }
+                m_lastExprValue = value;
                 m_lastExprType = valType;
                 return;
             }
@@ -4354,6 +4525,36 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
         rhsVal = loadInst;
     }
     rhsVal = emitCastIfNeeded(rhsVal, valType);
+
+    // Phase 8 slice C: assigning to a `weak` field or `weak` local
+    // stores a header pointer, not a strong share. weak_create
+    // bumps the weak count and returns the header (null-safe); the
+    // old slot is released with sp_rt_weak_release. Do NOT adopt a
+    // +1 RHS — the slot holds no strong share, so the +1 stays
+    // pending and the statement temp-scope pop releases it. Do NOT
+    // retain. (Compound assignment on a weak field is meaningless
+    // for a pointer and is rejected by sema, so this only handles
+    // plain `=`.)
+    bool targetIsWeak = false;
+    if (node.getOp() == lexer::TokenType::Equal && valType && valType->isPointer()) {
+        targetIsWeak = isWeakLoadExpr(node.getTarget());
+    }
+    if (targetIsWeak) {
+        IRValuePtr weakSlot = emitWeakCreate(rhsVal);
+        std::string oldValReg = m_currentFunction->nextTempName("old_weak");
+        auto loadOld = std::make_shared<LoadInst>(IRType::getPointer(), targetPtr, oldValReg);
+        m_currentBlock->addInstruction(loadOld);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(weakSlot, targetPtr));
+        auto weakReleaseCall = std::make_shared<CallInst>(
+            IRType::getVoid(),
+            "sp_rt_weak_release",
+            std::vector<IRValuePtr>{loadOld}
+        );
+        m_currentBlock->addInstruction(weakReleaseCall);
+        m_lastExprValue = rhsVal;
+        m_lastExprType = valType;
+        return;
+    }
 
     bool isRefAssignment = false;
     if (valType && valType->isPointer()) {
@@ -9172,7 +9373,16 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
             auto loadVal = std::make_shared<LoadInst>(
                 fieldType, fieldPtr, m_currentFunction->nextTempName("mem_val"));
             accessBB->addInstruction(loadVal);
-            accessBB->addInstruction(std::make_shared<StoreInst>(loadVal, resAlloca));
+            // Phase 8 slice C: a weak field's slot holds a header
+            // pointer — upgrade it here, in the access block (the
+            // merge block then yields the upgraded +1, which
+            // dominates it). The null branch above already yields
+            // null with no upgrade.
+            IRValuePtr storedVal = loadVal;
+            if (isWeakLoadExpr(node)) {
+                storedVal = emitWeakUpgrade(loadVal);
+            }
+            accessBB->addInstruction(std::make_shared<StoreInst>(storedVal, resAlloca));
             accessBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
 
             setInsertPoint(mergeBB);
@@ -9188,7 +9398,14 @@ void IRBuilder::visit(const ast::MemberExpr& node) {
                 m_currentFunction->nextTempName("mem_val")
             );
             m_currentBlock->addInstruction(loadVal);
-            m_lastExprValue = loadVal;
+            // Phase 8 slice C: a weak field's slot holds a header
+            // pointer — upgrade it to the payload (+1, recorded as
+            // a pending temp) or null when the target is dead.
+            IRValuePtr value = loadVal;
+            if (isWeakLoadExpr(node)) {
+                value = emitWeakUpgrade(loadVal);
+            }
+            m_lastExprValue = value;
             m_lastExprType = fieldType;
         }
     } else {

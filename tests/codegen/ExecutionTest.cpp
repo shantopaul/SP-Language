@@ -1890,6 +1890,204 @@ TEST(ExecutionTest, WeakReferenceCycleBreakingNativeExecution) {
     EXPECT_NE(output.find("tree_total: 300"), std::string::npos);
 }
 
+// Phase 8 slice C (ADR-001 weak refs): a `weak` back-pointer must
+// not keep its target alive. A self-referential cycle through a
+// weak field dies when the last strong owner drops (baseline:
+// "after block 1" — the cycle kept itself alive).
+TEST(ExecutionTest, WeakFieldSelfCycleBreaks) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node {
+            weak Node weakSelf;
+            int n;
+        }
+
+        fn makeNode() -> Node {
+            let nd = new Node();
+            nd.n = 3;
+            nd.weakSelf = nd;
+            return nd;
+        }
+
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var x = makeNode();
+                println("self n " + x.weakSelf.n);
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_self_cycle_breaks");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("self n 3"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+// Phase 8 slice C: a weak field reads null after its target dies
+// (zeroing weak refs) — never a dangling pointer. A strong owner
+// keeps the target readable (see WeakFieldStrongOwnerKeepsAlive).
+TEST(ExecutionTest, WeakFieldReadsNullAfterTargetDies) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node { int n; }
+        class Holder { weak Node? target; }
+
+        fn main() {
+            var h = new Holder();
+            {
+                var t = new Node();
+                t.n = 42;
+                h.target = t;
+                println("alive n " + h.target?.n);
+                if (h.target == null) { println("alive? no"); } else { println("alive? yes"); }
+            }
+            println("after " + sp_rt_mem_live_objects());
+            if (h.target == null) { println("target is null"); } else { println("target alive " + h.target?.n); }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_null_after_death");
+    EXPECT_NE(output.find("alive n 42"), std::string::npos);
+    EXPECT_NE(output.find("alive? yes"), std::string::npos);
+    EXPECT_NE(output.find("after 1"), std::string::npos);
+    EXPECT_NE(output.find("target is null"), std::string::npos);
+}
+
+// Phase 8 slice C: repeated weak reads must not leak — each
+// sp_rt_weak_upgrade returns a +1 share that the statement scope
+// pop releases. Without the recording, each read would leak one
+// strong share and "live" would grow by one per read.
+TEST(ExecutionTest, WeakFieldReadsDoNotLeak) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node { int n; }
+        class Holder { weak Node? target; }
+
+        fn main() {
+            var t = new Node();
+            t.n = 7;
+            var h = new Holder();
+            h.target = t;
+            println("r1 " + h.target?.n);
+            println("r2 " + h.target?.n);
+            println("r3 " + h.target?.n);
+            println("live " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_reads_do_not_leak");
+    EXPECT_NE(output.find("r1 7"), std::string::npos);
+    EXPECT_NE(output.find("r2 7"), std::string::npos);
+    EXPECT_NE(output.find("r3 7"), std::string::npos);
+    EXPECT_NE(output.find("live 2"), std::string::npos);
+}
+
+// Phase 8 slice C: a `weak` local holds no strong share —
+// `weak Node q = makeNode();` reads null because the node has no
+// strong owner and dies at the declaration's scope pop, while a
+// weak local over a live target reads through normally.
+TEST(ExecutionTest, WeakLocalDoesNotRetain) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node { int n; }
+        fn makeNode() -> Node {
+            let nd = new Node();
+            nd.n = 5;
+            return nd;
+        }
+
+        fn main() {
+            var t = new Node();
+            t.n = 9;
+            {
+                weak Node p = t;
+                println("p n " + p.n);
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            {
+                weak Node? q = makeNode();
+                if (q == null) { println("q is null"); } else { println("q n " + q?.n); }
+                println("after q " + sp_rt_mem_live_objects());
+            }
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_local_no_retain");
+    EXPECT_NE(output.find("p n 9"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("q is null"), std::string::npos);
+    EXPECT_NE(output.find("after q 1"), std::string::npos);
+    EXPECT_NE(output.find("after 1"), std::string::npos);
+}
+
+// Phase 8 slice C: parent -> child (strong) + child -> parent
+// (weak). The weak back-pointer breaks the cycle, so the parent
+// dies on schedule — and (parent update, Phase 37 merge) slice A's
+// Node_destructor releases the strong `child` field on the parent's
+// death, so the child dies too: 2 -> 0. Renamed from
+// WeakParentChildCyclePartiallyBreaks (that name and its `after
+// block 1` expectation pinned slice C's standalone behaviour, where
+// no destructor existed yet to release the dead parent's field).
+TEST(ExecutionTest, WeakParentChildCycleFullyBreaks) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node {
+            Node child;
+            weak Node parent;
+            int n;
+        }
+
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var root = new Node();
+                root.n = 1;
+                var ch = new Node();
+                ch.n = 2;
+                root.child = ch;
+                ch.parent = root;
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_parent_child");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 2"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
 TEST(ExecutionTest, MemoryArenaNativeExecution) {
     const std::string source = R"sp(
         import std.io;

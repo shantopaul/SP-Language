@@ -276,6 +276,13 @@ private:
     // function returns ref-typed values as +1). Callers that adopt
     // such a value (variable init, assignment, return, throw payload)
     // must NOT retain it again.
+    // Phase 8 slice C (ADR-001 weak refs): a weak-reference load is
+    // also a +1 producer — sp_rt_weak_upgrade CAS-increments the
+    // strong count — so isFreshPlusOneExpr is true for a MemberExpr
+    // on a weak field and for an IdentifierExpr on a weak local /
+    // bare weak field (see isWeakLoadExpr). Without this, return /
+    // throw / var-init would retain an already-+1 upgrade a second
+    // time and leak one share per load.
     // emitRefReturnRetain: emits sp_rt_retain for a ref-typed return
     // value unless it is already +1 (borrowed values are retained on
     // the way out so the caller receives a +1 share).
@@ -289,6 +296,7 @@ private:
     // its share, as today — the safe direction).
     bool isOwnedValueType(const sema::TypePtr& t) const;
     bool isFreshPlusOneExpr(const ast::ExpressionNode& expr);
+    bool isWeakLoadExpr(const ast::ExpressionNode& expr);
     void emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal);
 
     // Phase 7 slice C: call-result temporary release (see IRBuilder.cpp
@@ -312,7 +320,29 @@ private:
     // as a pending temporary (a literal is a +1 producer, like `new`;
     // the hook runs at the tails of visit(ArrayExpr)/visit(MapExpr)).
     void recordTempLiteralResult(const ast::ExpressionNode& node);
+    // Phase 8 slice C: generic +1 recording. A weak-reference upgrade
+    // is a +1 value produced by a load, not by a call/new, so it
+    // cannot go through recordTempCallResult/recordTempNewResult;
+    // this is the shared implementation both of those delegate to.
+    void recordTempOwnedValue(IRValuePtr v);
     void adoptTempValue(IRValuePtr v);
+    // Phase 8 slice C (ADR-001 weak refs): a weak slot stores the
+    // object HEADER pointer (sp_rt_weak_create's return), not the
+    // payload. m_weakLocalAllocas is the set of local slots (alloca
+    // or async heap-frame slot) declared `weak`, keyed by slot
+    // identity — so shadowing is safe and stale entries from earlier
+    // functions can never match a fresh slot. emitScopeDrops releases
+    // these with sp_rt_weak_release instead of sp_rt_release.
+    std::unordered_set<IRValuePtr> m_weakLocalAllocas;
+    bool isWeakField(const std::string& className, const std::string& fieldName) const;
+    bool isWeakLocalSlot(IRValuePtr slot) const;
+    // emitWeakCreate: sp_rt_weak_create(value) — null-safe, returns
+    // the header pointer (or null). emitWeakUpgrade: loads are never
+    // raw — a weak slot must be upgraded, which returns the payload
+    // at +1 (or null when the target is dead); the +1 is recorded as
+    // a pending temp (see recordTempOwnedValue).
+    IRValuePtr emitWeakCreate(IRValuePtr strongVal);
+    IRValuePtr emitWeakUpgrade(IRValuePtr weakSlotVal);
     // Phase 7 slice C: containers (List/Set/Stack/Queue/
     // PriorityQueue, Map, arrays, channels) store their elements as
     // raw i64 bits with no share. A reference-typed element must be

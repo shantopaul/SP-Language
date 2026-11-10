@@ -17,6 +17,12 @@ struct FieldLayoutInfo {
     ir::IRTypePtr irType;
     uint32_t index;       // Struct element index
     std::string className;
+    // Phase 8 slice C (ADR-001 weak refs): true when the field was
+    // declared `weak`. Codegen stores a header pointer in the slot
+    // (via sp_rt_weak_create) and loads via sp_rt_weak_upgrade; a
+    // future destructor generator needs the same flag to release the
+    // slot with sp_rt_weak_release instead of sp_rt_release.
+    bool isWeak{false};
 };
 
 // Phase 6 slice B: a static field lives in a module-level global, not
@@ -28,6 +34,9 @@ struct StaticFieldInfo {
     ir::IRTypePtr irType;
     std::string globalName; // e.g. "@MathUtils_PI"
     bool isConst = false;
+    // Phase 8 slice C: see FieldLayoutInfo.isWeak — a `weak static`
+    // field stores a header pointer in its module global.
+    bool isWeak = false;
 };
 
 struct VTableSlotInfo {
