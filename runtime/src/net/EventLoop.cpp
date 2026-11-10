@@ -6,20 +6,69 @@
 #include <thread>
 #include <utility>
 
+#if defined(__linux__)
+#include <unistd.h>
+#endif
+
 namespace sp::rt::net {
+
+#if defined(__linux__)
+namespace {
+// SP_EVENT_* interest mask -> epoll event mask. Level-triggered (no
+// EPOLLET): readiness semantics are identical to poll().
+uint32_t toEpollEvents(int64_t events) {
+    uint32_t ev = 0;
+    if (events & SP_EVENT_READ) ev |= EPOLLIN;
+    if (events & SP_EVENT_WRITE) ev |= EPOLLOUT;
+    return ev;
+}
+} // namespace
+#endif
 
 EventLoop::EventLoop() {
     initNetwork();
+#if defined(__linux__)
+    // EPOLL_CLOEXEC: a child process exec'ing must not inherit the set.
+    // On failure m_epollFd stays -1 and poll() uses the poll() path.
+    m_epollFd = ::epoll_create1(EPOLL_CLOEXEC);
+#endif
 }
 
 EventLoop::~EventLoop() {
+#if defined(__linux__)
+    if (m_epollFd >= 0) ::close(m_epollFd);
+    m_epollFd = -1;
+    m_epollEvents.clear();
+#endif
     m_watched.clear();
     m_readyEvents.clear();
 }
 
 bool EventLoop::addSocket(sp_socket_handle_t sock, int64_t events, void* userData) {
     if (sock == SP_INVALID_SOCKET) return false;
+    bool existed = m_watched.find(sock) != m_watched.end();
     m_watched[sock] = WatchedSocket{sock, events, userData};
+#if defined(__linux__)
+    if (m_epollFd >= 0) {
+        struct epoll_event ev{};
+        ev.events = toEpollEvents(events);
+        ev.data.fd = sock;
+        // A re-add overwrites the old interest (same as the map overwrite
+        // above): MOD when the fd is already registered, ADD otherwise.
+        // ADD can still fail EEXIST if the fd number was recycled without
+        // a removeSocket; MOD is the correct recovery in that case.
+        int op = existed ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
+        if (::epoll_ctl(m_epollFd, op, sock, &ev) != 0) {
+            // ADD can fail EEXIST when the fd number was recycled without
+            // a removeSocket; MOD is the correct recovery in that case.
+            if (op != EPOLL_CTL_ADD ||
+                ::epoll_ctl(m_epollFd, EPOLL_CTL_MOD, sock, &ev) != 0) {
+                m_watched.erase(sock);
+                return false;
+            }
+        }
+    }
+#endif
     return true;
 }
 
@@ -27,16 +76,72 @@ bool EventLoop::modifySocket(sp_socket_handle_t sock, int64_t events) {
     auto it = m_watched.find(sock);
     if (it == m_watched.end()) return false;
     it->second.events = events;
+#if defined(__linux__)
+    if (m_epollFd >= 0) {
+        struct epoll_event ev{};
+        ev.events = toEpollEvents(events);
+        ev.data.fd = sock;
+        // A MOD failure means the kernel no longer knows this fd (closed
+        // behind our back). The map keeps the new interest — the same
+        // intent the poll() path would record — but the call reports the
+        // failure instead of claiming the watch is live.
+        if (::epoll_ctl(m_epollFd, EPOLL_CTL_MOD, sock, &ev) != 0) return false;
+    }
+#endif
     return true;
 }
 
 bool EventLoop::removeSocket(sp_socket_handle_t sock) {
-    return m_watched.erase(sock) > 0;
+    bool had = m_watched.erase(sock) > 0;
+#if defined(__linux__)
+    if (had && m_epollFd >= 0) {
+        // DEL may fail ENOENT when the fd was already closed (closing a
+        // fd removes it from the epoll set automatically); the map erase
+        // above is the authoritative state, so the error is ignored.
+        ::epoll_ctl(m_epollFd, EPOLL_CTL_DEL, sock, nullptr);
+    }
+#endif
+    return had;
 }
 
 int64_t EventLoop::poll(int timeoutMs) {
     m_readyEvents.clear();
     if (m_watched.empty()) return 0;
+
+#if defined(__linux__)
+    if (m_epollFd >= 0) {
+        // The output buffer is a member: it grows with the watched set
+        // and is reused, so this path allocates nothing per call. At most
+        // one event per watched fd can be ready, so the watched count is
+        // the right maxevents.
+        if (m_epollEvents.size() < m_watched.size()) {
+            m_epollEvents.resize(m_watched.size());
+        }
+        int ret = ::epoll_wait(m_epollFd, m_epollEvents.data(),
+                               static_cast<int>(m_watched.size()), timeoutMs);
+        if (ret <= 0) {
+            return ret; // 0 for timeout, <0 for error (incl. EINTR)
+        }
+        for (int i = 0; i < ret; ++i) {
+            const struct epoll_event& ev = m_epollEvents[i];
+            auto it = m_watched.find(ev.data.fd);
+            if (it == m_watched.end()) continue;
+            int64_t revents = 0;
+            if (ev.events & EPOLLIN) revents |= SP_EVENT_READ;
+            if (ev.events & EPOLLOUT) revents |= SP_EVENT_WRITE;
+            // EPOLLERR/EPOLLHUP arrive together with EPOLLIN when data
+            // is still readable; reporting READ|ERROR matches poll()'s
+            // POLLIN|POLLHUP behaviour.
+            if (ev.events & (EPOLLERR | EPOLLHUP)) revents |= SP_EVENT_ERROR;
+            m_readyEvents.push_back(ReadyEvent{
+                it->first,
+                revents,
+                it->second.userData
+            });
+        }
+        return static_cast<int64_t>(m_readyEvents.size());
+    }
+#endif
 
     std::vector<struct pollfd> pollfds;
     pollfds.reserve(m_watched.size());
