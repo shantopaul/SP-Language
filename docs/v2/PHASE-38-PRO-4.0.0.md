@@ -3,7 +3,9 @@
 - **Branch:** `feature/pro-4.0.0` (branch only; remote `main` still `d10e1c2`)
 - **Base:** `a17f702` (Phase 37, ADR-001 ARC completion)
 - **Version:** 3.1.0, unchanged (no bump, no `.github/` changes, nothing pushed)
-- **Status:** IN PROGRESS — investigation done, design below; slices to follow.
+- **Status:** DONE 2026-11-10 — all five slices implemented, verified,
+  committed on `feature/pro-4.0.0` (see §0.5); pushed once at the end
+  of the phase (single push; remote `main` still `d10e1c2`).
 - **ADR:** `docs/v2/DECISIONS/ADR-002-error-handling.md` (Accepted 2026-11-10):
   recoverable errors return `Result<T, E>`, `?` propagates, panic
   only for unrecoverable logic errors. Consequence: "requires
@@ -82,11 +84,15 @@ follows the ARC +1 rule from Phase 7-C, extended to enum payloads:
   destructors — the drop site must release the payload field
   directly, keyed on the value's sema type, not on a generated
   destructor.
-- **Unwrap** returns the payload as +1 (the Result keeps its own
-  share until it dies; unwrap retains a second share for the
-  caller — to be confirmed in slice A; the alternative, borrowed
-  unwrap, is only safe if the Result provably outlives the use,
-  which the temp machinery cannot prove).
+- **Unwrap (settled in slice A — BORROWED, not +1).** `?` and
+  `unwrap*` yield **borrowed** values (no retain at extraction;
+  adopters retain by the copy rule). The +1 alternative was
+  rejected: it would double-retain every `unwrap()` used as a
+  temporary and leak the extra share on the common
+  `println(r.unwrap())` path. The borrowed rule is safe because
+  the temp machinery releases a TU temp only after its last use,
+  and `?`'s err block flushes pending temps except the operand's
+  payload (which moves into the early return).
 - **Boxed payloads (slice D):** the box is an ARC object; construction
   allocates + retains, drop releases the box (which releases its
   contents). One mechanism, two payload shapes.
@@ -101,39 +107,98 @@ out. `panic()` stays for unrecoverable logic errors. This is the
 conservative reading of the ADR; if Shanto wants `throw` deprecated
 or removed, that is a one-line override.
 
-### 0.5 Slices
+### 0.5 Slices (all DONE — commits on `feature/pro-4.0.0`)
 
-- **A — Payload ownership (the UAF fix).** Retain on Ok/Some/variant
+- **A — Payload ownership (the UAF fix).** Commit `665252c`
+  (`docs/v2/PHASE-38-SLICE-A.md`). Retain on Ok/Some/variant
   construction; release on Result/Option/enum drop (scope drops +
-  temp release + reassignment); settle unwrap ownership (+1).
-  Proofs: p3/p3b → live counts correct, unwrap reads 7 after
-  allocating 99; `temp_chain`-style proof for Result temps.
-- **B — Match payload binding.** Sema + IRBuilder: `Result.Ok(v)`,
-  `Shape.Circle(r)` arms bind the payload (with the tag check);
-  fix the E1001 confusion; `_` and multi-arm fallthrough unchanged.
-  Proofs: p1/p4 → `circle 5`, `ok 5` / `err division by zero`.
-- **C — Async + Result.** Task payloads carry Result/Option
-  (extend `taskInnerType` + the async return machinery); `?` inside
-  async fns (early return through the state machine — the err block
-  must release the frame's temps, cf. Phase 8-D's cancel path).
-  Proofs: p2 → async work returns `Ok(43)` through await + `?`.
-- **D — Payload width (boxing).** Struct payloads, multi-payload
-  variants, nested tagged unions → heap-boxed payloads under the
-  slice-A ownership rule; loud E1000 for anything still
-  unrepresentable. Proofs: struct payload round-trips; `Rect(3,4)`
-  binds both fields.
-- **E — Stdlib migration audit + docs.** Audit which fallible stdlib
-  fns still return bool/null instead of Result/Option (fs has `try*`
-  variants already; io/db/crypto partially); migrate the bounded
-  set (fs/io first), document the error model in the Syntax Guide +
-  STDLIB_REFERENCE, re-run the doc gate.
+  temp release + reassignment); `?`/`unwrap*` settled as
+  **borrowed**. Proofs: p3/p3b → `live after make 1`,
+  `r unwrap n 7 / g n 99` (UAF gone). 4 new tests. ctest 841/842.
+- **B — Match payload binding.** Commit `3100474`
+  (`docs/v2/PHASE-38-SLICE-B.md`). Sema + IR: `Result.Ok(v)`,
+  `Shape.Circle(r)` arms bind the payload (tag check + payload
+  extraction into a fresh alloca); one clear E1001 for invalid
+  patterns; subject-temp release fixed (was adopted and never
+  released). Found a real sema bug: enum names are `EnumSymbol`s
+  in the same table as variables, so the shadowing check rejected
+  every user-enum pattern — fixed to check symbol kinds. Proofs:
+  p1/p4 → `circle 5`, `ok 5` / `err division by zero`. 4 new tests.
+  ctest 845/846.
+- **C — Async + Result.** Commit `64a53ee`
+  (`docs/v2/PHASE-38-SLICE-C.md`). New Task payload kind
+  `"taggedunion"`: `taskInnerType` accepts a TU inner type, the
+  async return boxes the struct, `?` inside an async fn boxes the
+  operand into the frame and branches to the finish block. Await
+  ownership: form 2 (`await worker()`) transfers the box's share
+  (+1 result); form 3 (`await t`) is borrowed. Proofs: p2/p2b →
+  `ok 43` / `err boom`, no hang. 4 new tests. ctest 849/850.
+- **D — Payload width (boxing).** Commit `bf0d505`
+  (`docs/v2/PHASE-38-SLICE-D.md`). Wide payloads are heap-boxed
+  (`sp_rt_arc_alloc` + shared destructors): struct payloads (null
+  dtor), nested TUs (`__sp_tu_box_dtor_nested`), multi-payload
+  variants (one shared `__sp_tu_box_dtor_multi_<N>`, unused slots
+  zeroed). Struct payloads are snapshot-copied at every yield
+  point (fixed a struct-payload UAF found by the proofs). Sema
+  multi-payload match rejection lifted. Proofs: p6/p7/p8/p8b/p8c/
+  p8d → `x 3 y 4`, `rect 3 4`, `v 42`, live counts to 0. 7 new
+  tests. ctest 856/857.
+- **E — Stdlib migration audit + docs.** Commit `cd3d546`
+  (`docs/v2/PHASE-38-SLICE-E.md`). Audit of all 24 stdlib modules:
+  only fs/io use Result/Option (15 functions). Bounded migration:
+  `FS.tryListDir` / `tryListDir` → `Result<string[], IOError>`
+  (NotFound / InvalidInput) and a real `tryReadLine` (EOF →
+  `Err(UnexpectedEOF)` via new runtime `sp_rt_stdin_eof()`). Found
+  that the stdlib `.sp` files are reference only — the fs/io API
+  is compiler builtins (sema registration + IR lowering) — and
+  fixed a latent infinite loop: `try*` lowerings used fixed block
+  names, so a second call in one function branched back to the
+  first call's blocks; all 43 `try*` block creations now use
+  `createBlock()` (unique suffix). STDLIB_REFERENCE `std/fs`
+  rewritten to the real API + `try*` variants; Syntax Guide §28
+  stale "match does not work" note replaced with a verified
+  match-binding example + payload-ownership paragraph. 2 new tests.
+  ctest 858/859. Doc gate 121/129.
 
-### 0.6 Expected outcomes
+### 0.6 Actual outcomes
 
-- ctest 838 → 838 + new tests (only UDP EPERM; PG skipped).
-- All Phase 37 live proofs byte-identical (no ARC regression).
-- Doc gate 119/128 genuine (unchanged).
-- `docs/v2/PHASE-38-PRO-4.0.0.md` + slice docs A–E at the end.
+- ctest **858/859** (only the standing `NetTest.UdpSocketSendRecv`
+  EPERM failure; PG skipped without a server). Phase 37 base was
+  838; +21 tests across slices A–E (4 + 4 + 4 + 7 + 2).
+- All Phase 37 live proofs byte-identical (no ARC regression);
+  slices A–D proofs re-run byte-identical after each later slice
+  (except `p1b_multi_reject`, superseded by slice D's multi-payload
+  support).
+- Doc gate **121/129 RUN-OK** (was 119/128 — one new block, the
+  §28 match example, passes). 8 non-OK are the same known
+  categories (numbering shifted +1 after §28).
+- `docs/v2/PHASE-38-PRO-4.0.0.md` + slice docs A–E complete.
+- Total diff `a17f702..cd3d546`: 6 commits; see `git diff --stat`
+  at push time (files below in §0.8).
+
+### 0.8 Follow-ups (open, not this phase)
+
+- Class **fields** holding a `Result`/`Option` leak the payload
+  when the object dies (slice A gap; same class as Phase 8-A's
+  struct-field gap). Globals/statics likewise.
+- Match-subject share leaks when an arm body **returns**
+  (fallthrough path only releases it — slice B gap).
+- Nested patterns (`Result.Ok(Some(x))`), literal-argument
+  patterns (`Result.Ok(5)`) — clear E1001s today; exhaustiveness
+  checking not implemented.
+- `Result`/`Option` as an async fn **argument**; `Task<Task<...>>`,
+  `Task<Map<...>>`, plain-enum Task payloads (loud E1000).
+- The `?` operand-vs-enclosing-return type mismatch (pre-existing
+  sema hole, sync fns too).
+- `unwrap` on the wrong variant returns a zero value instead of
+  panicking (pre-existing; guarded unbox for wide payloads).
+- Per-module stdlib `Result`/`Option` migration beyond fs/io
+  (db/json/crypto/net/redis/http/os/process/collections — audit
+  table in slice E §0 is the record; each needs its own error enum
+  and call-site migration).
+- `tryListDir` TOCTOU (needs a runtime error channel to fix).
+- Retain/release elision + stack allocation (needs the
+  escape-analysis soundness re-audit first — Phase 8-E note).
 
 ### 0.7 Graphify protocol (repo AGENTS.md)
 
