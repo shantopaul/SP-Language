@@ -852,11 +852,12 @@ TEST(TryCatchExecutionTest, BorrowedGetterTempDoesNotFreeEarly) {
     EXPECT_NE(output.find("after 2"), std::string::npos);
 }
 
-// Phase 7 slice C: a chain of temporaries drops the outer objects
-// but the inner objects stay alive — there are no destructors, so a
-// field's share is never released when its parent dies. The inner
-// objects therefore keep one (leaked) share each.
-TEST(TryCatchExecutionTest, TempChainDropsOuterKeepsFieldShare) {
+// Phase 8 slice A: a chain of temporaries now drops the outer objects
+// AND their fields — the generated <Class>_destructor releases each
+// owned reference field when the parent dies (Phase 7-C left the inner
+// objects alive because no destructor existed: after chain 1 /
+// after arg 2). Renamed from TempChainDropsOuterKeepsFieldShare.
+TEST(TryCatchExecutionTest, DestructorReleasesFieldShare) {
     const std::string source = R"(
         extern "C" {
             fn sp_rt_mem_live_objects() -> int64;
@@ -877,9 +878,159 @@ TEST(TryCatchExecutionTest, TempChainDropsOuterKeepsFieldShare) {
     std::string output = runSPProgram(source, "exec_temp_chain");
     EXPECT_NE(output.find("before 0"), std::string::npos);
     EXPECT_NE(output.find("chain 9"), std::string::npos);
-    EXPECT_NE(output.find("after chain 1"), std::string::npos);
+    EXPECT_NE(output.find("after chain 0"), std::string::npos);
     EXPECT_NE(output.find("arg 9"), std::string::npos);
-    EXPECT_NE(output.find("after arg 2"), std::string::npos);
+    EXPECT_NE(output.find("after arg 0"), std::string::npos);
+}
+
+// Phase 8 slice A: a three-level nesting (outer -> inner -> leaf) is
+// fully freed when the outermost object dies — destructors cascade.
+TEST(TryCatchExecutionTest, DestructorReleasesNestedFields) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Leaf { public int n; }
+        class Inner { public Leaf leaf; }
+        class Outer { public Inner inner; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var o = new Outer();
+                o.inner = new Inner();
+                o.inner.leaf = new Leaf();
+                o.inner.leaf.n = 5;
+                println("inside " + sp_rt_mem_live_objects());
+                println("leaf " + o.inner.leaf.n);
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_dtor_nested");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 3"), std::string::npos);
+    EXPECT_NE(output.find("leaf 5"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+// Phase 8 slice A: a parent holding a strong child frees the child
+// when the parent dies at block end (Phase 7-C / slice C left this at
+// `after block 1` — the parent's death never released its field).
+TEST(TryCatchExecutionTest, DestructorReleasesParentChild) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Child { public int n; }
+        class Parent { public Child child; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var p = new Parent();
+                p.child = new Child();
+                p.child.n = 7;
+                println("inside " + sp_rt_mem_live_objects());
+                println("n " + p.child.n);
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_dtor_parent_child");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 2"), std::string::npos);
+    EXPECT_NE(output.find("n 7"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+// Phase 8 slice A: reassigning a field releases the old child (that
+// already worked), and the new child is freed when the holder dies.
+TEST(TryCatchExecutionTest, DestructorReleasesReassignedField) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Box { public int n; }
+        class Holder { public Box box; }
+        fn makeBox(n: int) -> Box { let b = new Box(); b.n = n; return b; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var h = new Holder();
+                h.box = makeBox(1);
+                println("first " + sp_rt_mem_live_objects());
+                h.box = makeBox(2);
+                println("after reassign " + sp_rt_mem_live_objects());
+                println("n " + h.box.n);
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_dtor_reassign");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("first 2"), std::string::npos);
+    EXPECT_NE(output.find("after reassign 2"), std::string::npos);
+    EXPECT_NE(output.find("n 2"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+// Phase 8 slice A: a void function that falls through without an
+// explicit return must still drop its locals — the implicit-return
+// path used to add the ReturnInst before popScope(), so the drops
+// were silently skipped (terminated block).
+TEST(TryCatchExecutionTest, ImplicitReturnDropsLocals) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn helper() {
+            var x = makeFoo();
+            println("helper inside " + sp_rt_mem_live_objects());
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            helper();
+            println("after helper " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_dtor_fallthrough");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("helper inside 1"), std::string::npos);
+    EXPECT_NE(output.find("after helper 0"), std::string::npos);
+}
+
+// Phase 8 slice A: the same implicit-return drop must work when the
+// function body ends after a try/catch/finally — the finally runs on
+// the normal path, then the fall-through drops the locals.
+TEST(TryCatchExecutionTest, FallThroughTryFinallyDropsLocals) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Foo { public int n; }
+        fn makeFoo() -> Foo { let f = new Foo(); f.n = 42; return f; }
+        fn helper() {
+            try {
+                var x = makeFoo();
+                println("try inside " + sp_rt_mem_live_objects());
+            } catch (Exception e) {
+                println("caught " + e);
+            } finally {
+                println("finally ran");
+            }
+        }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            helper();
+            println("after helper " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_dtor_try_finally");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("try inside 1"), std::string::npos);
+    EXPECT_NE(output.find("finally ran"), std::string::npos);
+    EXPECT_NE(output.find("after helper 0"), std::string::npos);
 }
 
 // Phase 7 slice C: a self-referential temporary (a field pointing at
