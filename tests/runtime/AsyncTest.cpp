@@ -882,3 +882,43 @@ TEST(AsyncTest, CAbiRaceDblFirstFinisherWins) {
     sp_rt_async_task_destroy(combined);
     sp_rt_free(arr);
 }
+
+// Phase 40 slice B (pro-4.0.0): pendingCount() tracks live timers exactly
+// at scale, and cancelling updates it. Before slice B this was O(n) per
+// call (whole-heap copy); the counts are the same, the cost is not —
+// the cost half is measured by the probe in ~/workspace/p11-probes/.
+TEST(AsyncTest, PendingCountTracksLiveTimersAtScale) {
+    Scheduler sched;
+    constexpr int kTimers = 5000;
+    std::vector<uint64_t> ids;
+    ids.reserve(kTimers);
+    for (int i = 0; i < kTimers; ++i) {
+        ids.push_back(sched.scheduleAfter(60000, [] {}));
+    }
+    EXPECT_EQ(sched.pendingCount(), static_cast<size_t>(kTimers));
+    EXPECT_TRUE(sched.hasPending());
+
+    // Cancel half: each first cancel returns true, and the count drops.
+    for (int i = 0; i < kTimers / 2; ++i) {
+        EXPECT_TRUE(sched.cancel(ids[i]));
+    }
+    EXPECT_EQ(sched.pendingCount(), static_cast<size_t>(kTimers / 2));
+    EXPECT_TRUE(sched.hasPending());
+
+    // A repeat cancel returns false and changes nothing.
+    EXPECT_FALSE(sched.cancel(ids[0]));
+    EXPECT_EQ(sched.pendingCount(), static_cast<size_t>(kTimers / 2));
+
+    // Cancel the rest: the count drains to zero and hasPending clears.
+    for (int i = kTimers / 2; i < kTimers; ++i) {
+        EXPECT_TRUE(sched.cancel(ids[i]));
+    }
+    EXPECT_EQ(sched.pendingCount(), 0u);
+    EXPECT_FALSE(sched.hasPending());
+
+    // Cancelling an unknown id returns true (first call for that id, as
+    // before) but must not resurrect a pending timer.
+    EXPECT_TRUE(sched.cancel(999999999ull));
+    EXPECT_EQ(sched.pendingCount(), 0u);
+    EXPECT_FALSE(sched.hasPending());
+}
