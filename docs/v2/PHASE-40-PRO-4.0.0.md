@@ -1,7 +1,7 @@
 # Phase 40 (pro-4.0.0): ADR-003 epoll event loop
 
 ## Status
-IN PROGRESS — 2026-11-10. Slices A–E planned; slice A in progress.
+DONE — 2026-11-10. Slices A–E all done; see §1.
 
 ## §0. Investigation (2026-11-10, base `d578d9e`, Phase 39 complete)
 
@@ -162,4 +162,41 @@ same as Phases 1–10.
   runnable example; doc gate; completion.
 
 ## §1. Completion
-*To be written at phase end: slice outcomes, ctest, doc gate, proofs.*
+
+**Status: DONE 2026-11-10.** Range `d578d9e..76712b5` (Phase 39 head to
+slice E) = 5 slice commits, 14 files, +1,086/−48. Branch
+`feature/pro-4.0.0` only; `main` still `d10e1c2`.
+
+- **A — epoll backend:** Linux waits with `epoll` (level-triggered,
+  same interface + ABI, `poll()`/`WSAPoll` fallback preserved,
+  `usesEpoll()` accessor). N=2000 idle fds: `poll(0)` 0.404 ms/call →
+  0.001 ms/call (~400x).
+- **B — scheduler per-iteration cost:** live-timer set +
+  prune-cancelled-heads; no heap copies in `hasPending()` /
+  `pendingCount()` / `msUntilNextTimer()` / `runUntilTasksIdle()`.
+  N=20,000 timers: query pair 2828 us → 0.06 us; `runOnce` 127 us →
+  1.44 us. A loop iteration now costs O(ready) for sockets and timers.
+- **C — tests:** 6 new (5 NetTest EventLoop + 1 AsyncTest pending-count);
+  NetTest+AsyncTest 50/51 (only standing UDP EPERM).
+- **D — SP scale proof + `select()` fix:** SP program, 1,000 idle
+  connections: `poll(0)` 200-call total ~99 us (~0.5 us/call) vs the
+  poll backend's ~12.7 ms at N=500 (N=1000 aborts there). Proof exposed
+  the pre-existing `select()` FD_SETSIZE abort in `connect()` /
+  `acceptTimeout` — both now use `poll()` on POSIX (Windows unchanged).
+  Also documented, not fixed: `List<T>.get()` on a class element fails
+  IR verification; stdlib free functions do not bind through import.
+- **E — docs + gate:** STDLIB_REFERENCE §8 `std/net`; Syntax Guide §83
+  event-loop subsection with a verified runnable example. Gate
+  **123/131 RUN-OK** (was 123/130; the new block passes, the 8 non-OK
+  are the known baseline classes with the +1 shift).
+
+**Final verification (fresh build):** ctest **890/891** (only standing
+UDP EPERM; PG skipped). All live proofs re-run with the fresh binary
+(see the completion log).
+
+**Follow-ups (not this phase):** HTTP server migration onto the loop
+(accept thread + worker pool today); zero-alloc tasks = **Phase 41**
+(needs its own allocation census + design — see §0.4); generic
+`List`/`Map` method IR lowering; stdlib free-function import binding;
+`unwrap` panic on the wrong variant and the other Phase 38/39 follow-ups
+(listed in the Phase 38/39 docs) are unchanged.
