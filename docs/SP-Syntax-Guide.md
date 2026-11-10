@@ -5254,6 +5254,45 @@ Connection accepted from 127.0.0.1:54210
 Echoed 17 bytes back to client.
 ```
 
+### Event loop: many connections, one thread
+
+Register server-side streams with an `EventLoop` and poll for readiness
+instead of blocking on each socket. Interest is `1` for read, `2` for
+write (combine with `|`); a ready event carries the same bits, plus `4`
+for error. Readiness is **level-triggered**: a socket with unread data
+keeps being reported until it is drained.
+
+```sp
+import std.net;
+
+fn main() {
+    let listener = TcpListener.bind("127.0.0.1", 0);
+    let port = listener.port();
+    let loop = EventLoop.create();
+    let client = TcpStream.connect("127.0.0.1", port);
+    let server = listener.accept();
+    loop.add(server, 1);
+    println("idle ${loop.poll(0)}");
+    client.write("hi");
+    println("ready ${loop.poll(1000)}");
+    println("data ${server.read(16)}");
+}
+```
+
+**Output:**
+```
+idle 0
+ready 1
+data hi
+```
+
+On Linux the loop waits with `epoll` (Phase 40, ADR-003), so a `poll()`
+call costs O(ready), not O(registered): 1,000 idle connections cost
+~0.5 us per `poll(0)`, against ~180 us for the old `poll()` backend
+(measured). Other platforms use `poll()`/`WSAPoll` with the same
+interface. The HTTP server is not driven by this loop yet — it still
+uses an accept thread plus a worker pool.
+
 ---
 
 ## 84. HTTP Client Requests (GET & POST) ✅

@@ -194,3 +194,57 @@ let args: string[] = OS.args();
 let exitCode: int = Process.run("git --version");
 println("Process exit status: ${exitCode}");
 ```
+
+## 8. `std/net` — TCP Sockets & Event Loop
+
+```sp
+import std.net;
+
+// Client: connect returns a stream (handle null when refused).
+let stream = TcpStream.connect("127.0.0.1", 9000);
+stream.write("hello");
+let reply: string = stream.read(1024);
+stream.close();
+
+// Server: bind(..., 0) picks an ephemeral port; port() reads it back.
+let listener = TcpListener.bind("127.0.0.1", 0);
+let conn = listener.accept();
+listener.close();
+```
+
+### Event loop (`EventLoop`)
+
+One thread watches many sockets; `poll(timeoutMs)` returns the number of
+sockets that became ready (0 on timeout). Interest is `1` for read,
+`2` for write (combine with `|`); a ready event is reported with the
+same bits, plus `4` for error (peer reset, socket error — a graceful
+FIN close reports read/EOF only, not error).
+
+```sp
+import std.net;
+
+fn main() {
+    let listener = TcpListener.bind("127.0.0.1", 0);
+    let port = listener.port();
+    let loop = EventLoop.create();
+    let client = TcpStream.connect("127.0.0.1", port);
+    let server = listener.accept();
+    loop.add(server, 1);
+    println("idle ${loop.poll(0)}");
+    client.write("hi");
+    println("ready ${loop.poll(1000)}");
+    println("data ${server.read(16)}");
+}
+```
+
+Readiness is **level-triggered**: a socket with unread data keeps being
+reported until it is drained. `remove(stream)` stops watching a socket;
+`destroy()` frees the loop.
+
+**Scaling (Phase 40):** on Linux the loop waits with `epoll`, so a
+`poll()` call costs O(ready), not O(registered) — 1,000 idle connections
+cost ~0.5 us per `poll(0)` (measured; the old `poll()` backend cost
+~180 us). Other platforms use `poll()`/`WSAPoll` with the same
+interface. The per-iteration timer cost is O(1) too (no timer-heap copy).
+What the loop does *not* do: the HTTP server still uses an accept thread
+plus a worker pool — it is not driven by this loop (a follow-up).
