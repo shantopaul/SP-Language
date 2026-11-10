@@ -962,6 +962,24 @@ bool IRBuilder::isFreshPlusOneExpr(const ast::ExpressionNode& expr) {
     // forever.
     if (dynamic_cast<const ast::ArrayExpr*>(&expr)) return true;
     if (dynamic_cast<const ast::MapExpr*>(&expr)) return true;
+    // Phase 9 slice C: `await worker()` on a direct call to an async
+    // fn yields a +1 tagged-union value — the temporary task is
+    // destroyed after the await, so the box's payload share transfers
+    // to this result. `await t` on an EXISTING Task value is
+    // BORROWED instead: the task persists and can be awaited twice,
+    // so the same share must not be owned twice (adopters retain by
+    // the copy rule).
+    if (const auto* awaitExpr = dynamic_cast<const ast::AwaitExpr*>(&expr)) {
+        if (awaitExpr->hasExpr()) {
+            if (const auto* call = dynamic_cast<const ast::CallExpr*>(&awaitExpr->getExpr())) {
+                if (auto target = m_sema.getCallTarget(call); target && target->isAsync()) {
+                    auto awaitType = m_sema.getNodeType(awaitExpr);
+                    if (awaitType && taggedUnionHasOwnedPayload(awaitType)) return true;
+                }
+            }
+        }
+        return false;
+    }
     if (const auto* call = dynamic_cast<const ast::CallExpr*>(&expr)) {
         // Phase 37 slice B: `List.reduce` / array `reduce` returns
         // the BORROWED accumulator (or the fold's output), not a +1
@@ -1249,13 +1267,16 @@ void IRBuilder::recordTempLiteralResult(const ast::ExpressionNode& node) {
 }
 
 void IRBuilder::recordTempTaggedUnion(const ast::CallExpr& node) {
+    recordTempTaggedUnionForType(m_sema.getNodeType(&node));
+}
+
+void IRBuilder::recordTempTaggedUnionForType(const sema::TypePtr& semaType) {
     // Phase 9 slice A: record the PAYLOAD pointer (the releasable
     // share), keyed by the struct value it was loaded from — see
     // adoptTempValue. The payload is loaded eagerly: the struct is a
-    // fresh call result, immutable within the statement, so the
+    // fresh call/await result, immutable within the statement, so the
     // loaded bits are the payload for the whole statement.
     if (m_tempScopes.empty() && m_tempBranchScopes.empty()) return;
-    auto semaType = m_sema.getNodeType(&node);
     if (!taggedUnionHasOwnedPayload(semaType)) return;
     IRValuePtr structVal = m_lastExprValue;
     if (!structVal || !m_currentBlock) return;
@@ -3101,13 +3122,14 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
             IRValuePtr rawRetVal = m_lastExprValue;
             IRValuePtr retVal = m_lastExprValue;
             const std::string& kind = m_asyncSM->payloadKind;
-            if (kind == "struct") {
-                if (retVal && retVal->getType()->isPointer()) {
+            if (kind == "struct" || kind == "taggedunion") {
+                IRValuePtr structVal = retVal;
+                if (structVal && structVal->getType()->isPointer()) {
                     auto loadInst = std::make_shared<LoadInst>(
-                        m_asyncSM->structType, retVal,
+                        m_asyncSM->structType, structVal,
                         m_currentFunction->nextTempName("tu_ret"));
                     m_currentBlock->addInstruction(loadInst);
-                    retVal = loadInst;
+                    structVal = loadInst;
                 }
                 int64_t boxSize = asyncStructSizeBytes(m_asyncSM->structType);
                 auto box = std::make_shared<CallInst>(
@@ -3115,10 +3137,34 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
                     std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), boxSize)},
                     m_currentFunction->nextTempName("async_ret_box"));
                 m_currentBlock->addInstruction(box);
-                if (retVal) {
-                    m_currentBlock->addInstruction(std::make_shared<StoreInst>(retVal, box));
+                if (structVal) {
+                    m_currentBlock->addInstruction(std::make_shared<StoreInst>(structVal, box));
                 }
                 retVal = box;
+                // Phase 9 slice C: the box holds the payload share —
+                // retain it when borrowed so it survives the scope
+                // drops below (a fresh +1 return is adopted into the
+                // box instead — see adoptTempValue below). The finish
+                // block does NOT release it: the share transfers to
+                // the task's result.
+                if (kind == "taggedunion" && structVal) {
+                    auto retSemaType = m_sema.getNodeType(node.getValue());
+                    if (retSemaType && taggedUnionHasOwnedPayload(retSemaType) &&
+                        !isFreshPlusOneExpr(*node.getValue())) {
+                        IRValuePtr payloadPtr = taggedUnionFieldPtr(
+                            structVal, tuStructBaseName(retSemaType->toString()), 1);
+                        if (payloadPtr) {
+                            auto loadPayload = std::make_shared<LoadInst>(
+                                IRType::getInt64(), payloadPtr,
+                                m_currentFunction->nextTempName("async_ret_payload"));
+                            m_currentBlock->addInstruction(loadPayload);
+                            IRValuePtr payloadAsPtr = emitCastIfNeeded(loadPayload, IRType::getPointer());
+                            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                                IRType::getVoid(), "sp_rt_retain",
+                                std::vector<IRValuePtr>{payloadAsPtr}));
+                        }
+                    }
+                }
             } else if (kind == "int" || kind == "bool") {
                 if (retVal) retVal = emitCastIfNeeded(retVal, IRType::getInt64());
             } else if (kind == "string" || kind == "array") {
@@ -5626,7 +5672,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                             if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                                 reportUnsupported(node.getLocation(), "call to async method",
                                                   "the return type of this 'async' method cannot be carried by a Task "
-                                                  "(only void, int, bool, string, double, array and struct payloads are supported)");
+                                                  "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
                                 m_lastExprValue = nullptr;
                                 m_lastExprType = nullptr;
                                 return;
@@ -8398,7 +8444,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
+                                      "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
                     m_lastExprValue = nullptr;
                     m_lastExprType = nullptr;
                     return;
@@ -8489,7 +8535,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
+                                      "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
                     m_lastExprValue = nullptr;
                     m_lastExprType = nullptr;
                     return;
@@ -8695,7 +8741,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
                     reportUnsupported(node.getLocation(), "call to async method",
                                       "the return type of this 'async' method cannot be carried by a Task "
-                                      "(only void, int, bool, string, double, array and struct payloads are supported)");
+                                      "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
                     m_lastExprValue = nullptr;
                     m_lastExprType = nullptr;
                     return;
@@ -9568,7 +9614,7 @@ void IRBuilder::visit(const ast::CallExpr& node) {
         if (!taskPayloadKind(m_sema.getNodeType(&node), kind)) {
             reportUnsupported(node.getLocation(), "call to async function",
                               "the return type of this 'async fn' cannot be carried by a Task "
-                              "(only void, int, bool, string, double, array and struct payloads are supported)");
+                              "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
             m_lastExprValue = nullptr;
             m_lastExprType = nullptr;
             return;
@@ -10760,6 +10806,33 @@ void IRBuilder::visit(const ast::TryExpr& node) {
 
     // 4. Error block: early return!
     setInsertPoint(errBB);
+    // Phase 9 slice C: inside an async fn, the early return must
+    // COMPLETE the task with the Err/None Result — a plain
+    // ReturnInst would return void from the resume fn and leave the
+    // task hanging forever. Box the operand (like an async return)
+    // BEFORE the drops below: a borrowed operand's payload must be
+    // retained into the box before its local's scope drop releases
+    // it. (The box's share transfers to the task's result — the
+    // finish block does not release it.)
+    std::shared_ptr<CallInst> asyncRetBox = nullptr;
+    if (inAsyncSM() && m_asyncSM && m_asyncSM->payloadKind == "taggedunion") {
+        auto earlyRetVal = std::make_shared<LoadInst>(
+            structType, objPtr, m_currentFunction->nextTempName("try_err_ret"));
+        errBB->addInstruction(earlyRetVal);
+        if (semaOpType && taggedUnionHasOwnedPayload(semaOpType) &&
+            !isFreshPlusOneExpr(node.getExpr())) {
+            IRValuePtr payloadAsPtr = emitCastIfNeeded(loadPayload, IRType::getPointer());
+            errBB->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{payloadAsPtr}));
+        }
+        int64_t boxSize = asyncStructSizeBytes(m_asyncSM->structType);
+        asyncRetBox = std::make_shared<CallInst>(
+            IRType::getPointer(), "sp_rt_alloc",
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(IRType::getInt64(), boxSize)},
+            m_currentFunction->nextTempName("try_err_box"));
+        errBB->addInstruction(asyncRetBox);
+        errBB->addInstruction(std::make_shared<StoreInst>(earlyRetVal, asyncRetBox));
+    }
     emitAllFunctionDrops();
     // Phase 9 slice A: the early return abandons the statement, so
     // its pending temporaries must be released here (the statement
@@ -10772,7 +10845,11 @@ void IRBuilder::visit(const ast::TryExpr& node) {
     if (payloadIt != m_tempPayloadOwners.end()) operandPayload = payloadIt->second;
     emitPendingTempReleasesExcept(operandPayload);
     IRTypePtr retType = m_currentFunction->getReturnType();
-    if (retType->isStruct()) {
+    if (asyncRetBox) {
+        auto slot = getOrCreateReturnValueSlot();
+        if (slot) errBB->addInstruction(std::make_shared<StoreInst>(asyncRetBox, slot));
+        errBB->addInstruction(std::make_shared<BranchInst>(m_asyncSM->finishBB->getName()));
+    } else if (retType->isStruct()) {
         auto earlyRetVal = std::make_shared<LoadInst>(
             retType,
             objPtr,
@@ -10816,7 +10893,7 @@ std::string IRBuilder::asyncResumeName(const std::string& compiledName) const {
 
 // Inner type string of Task<T>/Future<T> (e.g. "int" for Task<int>),
 // or "" when the type is not a Task/Future or is nested.
-static std::string taskInnerType(const sema::TypePtr& taskType) {
+std::string IRBuilder::taskInnerType(const sema::TypePtr& taskType) const {
     if (!taskType) return "";
     std::string name = taskType->toString();
     std::string inner;
@@ -10827,8 +10904,19 @@ static std::string taskInnerType(const sema::TypePtr& taskType) {
     } else {
         return "";
     }
-    // Nested Task<...> / parameterized payloads are not carried.
-    if (inner.find('<') != std::string::npos) return "";
+    // Nested Task<...> / parameterized payloads are not carried —
+    // EXCEPT a tagged union (Phase 9 slice C): Result/Option and
+    // user payload enums lower to a {i32, i64} struct value, and the
+    // box carries those bits. The base name decides: a parameterized
+    // type whose base resolves to a tagged-union enum is carried;
+    // anything else with '<' (Task<...>, Map<...>) still returns "".
+    if (inner.find('<') != std::string::npos) {
+        std::string base = inner.substr(0, inner.find('<'));
+        auto baseType = m_sema.getTypeContext().findUserType(base);
+        if (!baseType || !baseType->isEnum()) return "";
+        const auto* en = dynamic_cast<const sema::EnumType*>(baseType.get());
+        if (!en || !en->isTaggedUnion()) return "";
+    }
     return inner;
 }
 
@@ -10854,6 +10942,20 @@ bool IRBuilder::taskPayloadKind(const sema::TypePtr& taskType, std::string& outK
     if (auto userType = m_sema.getTypeContext().findUserType(inner)) {
         if (userType->isStruct()) { outKind = "struct"; return true; }
     }
+    // Phase 9 slice C: a tagged-union payload (Result/Option/user
+    // payload enum) — carried like a struct (the box holds the
+    // {i32, i64} bits), with payload ownership handled at the
+    // return/await sites (see the "taggedunion" branches there).
+    // An inner with '<' reaches here only when taskInnerType
+    // verified its base is a tagged-union enum; a bare enum name is
+    // checked directly (findUserType is const-safe).
+    if (inner.find('<') != std::string::npos) { outKind = "taggedunion"; return true; }
+    if (auto innerType = m_sema.getTypeContext().findUserType(inner)) {
+        if (innerType->isEnum()) {
+            const auto* en = dynamic_cast<const sema::EnumType*>(innerType.get());
+            if (en && en->isTaggedUnion()) { outKind = "taggedunion"; return true; }
+        }
+    }
     return false;
 }
 
@@ -10878,6 +10980,16 @@ bool IRBuilder::asyncReturnKind(const sema::TypePtr& returnType, std::string& ou
     // class return is NOT carried (fails loudly at the declaration).
     if (auto userType = m_sema.getTypeContext().findUserType(name)) {
         if (userType->isStruct()) { outKind = "struct"; return true; }
+    }
+    // Phase 9 slice C: a tagged-union return (Result/Option/user
+    // payload enum) — carried like a struct, with payload ownership
+    // handled at the return/await sites.
+    std::string base = name.substr(0, name.find('<'));
+    if (auto baseType = m_sema.getTypeContext().findUserType(base)) {
+        if (baseType->isEnum()) {
+            const auto* en = dynamic_cast<const sema::EnumType*>(baseType.get());
+            if (en && en->isTaggedUnion()) { outKind = "taggedunion"; return true; }
+        }
     }
     return false;
 }
@@ -11042,7 +11154,8 @@ IRValuePtr IRBuilder::emitAwaitTask(IRValuePtr sched, IRValuePtr task, const std
         m_currentBlock->addInstruction(awaitCall);
         return awaitCall;
     }
-    if (payloadKind == "struct" && structTy) {
+    if (payloadKind == "struct" || payloadKind == "taggedunion") {
+        if (!structTy) return nullptr;
         auto awaitCall = std::make_shared<CallInst>(
             IRType::getPointer(), "sp_rt_async_task_await_ptr",
             std::vector<IRValuePtr>{sched, task},
@@ -11192,7 +11305,7 @@ IRTypePtr IRBuilder::asyncAwaitedIRType(const std::string& kind, IRTypePtr struc
     if (kind == "bool") return IRType::getInt1();
     if (kind == "double") return IRType::getDouble();
     if (kind == "array") return IRType::getPointer();
-    if (kind == "struct") return structTy;
+    if (kind == "struct" || kind == "taggedunion") return structTy;
     return IRType::getInt64();
 }
 
@@ -11645,7 +11758,7 @@ int64_t IRBuilder::asyncPrepareBody(ast::FunctionDecl& decl, const std::string& 
     if (!asyncReturnKind(returnType, kind)) {
         reportUnsupported(decl.getLocation(), "async fn",
             "the return type of this 'async fn' cannot be carried by a Task "
-            "(only void, int, bool, string, double, array and struct payloads are supported)");
+            "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
         m_asyncSM.reset();
         return -1;
     }
@@ -11660,6 +11773,17 @@ int64_t IRBuilder::asyncPrepareBody(ast::FunctionDecl& decl, const std::string& 
             return -1;
         }
         m_asyncSM->structType = layout->structType;
+    } else if (kind == "taggedunion") {
+        // Phase 9 slice C: the TU struct type ({i32, i64}) — the
+        // return box and the awaiter both use it, like "struct".
+        auto tuStruct = asyncStructTypeFor(returnType);
+        if (!tuStruct) {
+            reportUnsupported(decl.getLocation(), "async fn",
+                "the tagged-union return type of this 'async fn' has no lowered struct type");
+            m_asyncSM.reset();
+            return -1;
+        }
+        m_asyncSM->structType = tuStruct;
     }
     // Validate + record the params (`this` first for methods). A
     // struct parameter cannot be carried in an 8-byte ctx slot.
@@ -11782,7 +11906,11 @@ void IRBuilder::asyncSMEnd() {
         m_currentBlock->addInstruction(std::make_shared<CallInst>(
             IRType::getVoid(), "sp_rt_async_task_complete_ptr",
             std::vector<IRValuePtr>{task, v}));
-    } else if (kind == "struct") {
+    } else if (kind == "struct" || kind == "taggedunion") {
+        // Phase 9 slice C: a tagged-union return completes like a
+        // struct (the box is transferred to the task) — and, unlike
+        // "string", its payload is NOT released here: the share
+        // transfers to the task's result (the awaiter owns it).
         auto v = asyncFrameLoad(AsyncSM::kRetValSlot, IRType::getPointer(), "async_ret");
         m_currentBlock->addInstruction(std::make_shared<CallInst>(
             IRType::getVoid(), "sp_rt_async_task_complete_ptr_owned",
@@ -12071,7 +12199,7 @@ IRValuePtr IRBuilder::asyncSuspendAndLoad(IRValuePtr task, const std::string& ki
             std::vector<IRValuePtr>{awaitTask},
             m_currentFunction->nextTempName("awaited"));
         m_currentBlock->addInstruction(std::dynamic_pointer_cast<IRInstruction>(value));
-    } else if (kind == "struct" && structTy) {
+    } else if ((kind == "struct" || kind == "taggedunion") && structTy) {
         auto box = std::make_shared<CallInst>(
             IRType::getPointer(), "sp_rt_async_task_value_ptr",
             std::vector<IRValuePtr>{awaitTask},
@@ -12269,14 +12397,14 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
             if (!taskPayloadKind(m_sema.getNodeType(call), kind)) {
                 reportUnsupported(node.getLocation(), "await",
                                   "the return type of this 'async fn' cannot be carried by a Task "
-                                  "(only void, int, bool, string, double, array and struct payloads are supported)");
+                                  "(only void, int, bool, string, double, array, struct and tagged-union (Result/Option) payloads are supported)");
                 node.getExpr().accept(*this);
                 m_lastExprValue = nullptr;
                 m_lastExprType = nullptr;
                 return;
             }
             IRTypePtr structTy = nullptr;
-            if (kind == "struct") {
+            if (kind == "struct" || kind == "taggedunion") {
                 structTy = asyncStructTypeForTask(m_sema.getNodeType(call));
                 if (!structTy) {
                     reportUnsupported(node.getLocation(), "await",
@@ -12303,6 +12431,14 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
             }
             m_lastExprValue = awaited;
             m_lastExprType = asyncAwaitedIRType(kind, structTy);
+            // Phase 9 slice C: the temporary task is destroyed after
+            // the await, so the box's payload share transfers to this
+            // await result — record it as a temp (released at the
+            // statement pop when no adopter takes it; adopted by
+            // VarDecl/return/assign via isFreshPlusOneExpr).
+            if (kind == "taggedunion") {
+                recordTempTaggedUnionForType(m_sema.getNodeType(&node));
+            }
             return;
         }
     }
@@ -12313,7 +12449,7 @@ void IRBuilder::visit(const ast::AwaitExpr& node) {
         std::string kind;
         if (taskPayloadKind(m_sema.getNodeType(&node.getExpr()), kind)) {
             IRTypePtr structTy = nullptr;
-            if (kind == "struct") {
+            if (kind == "struct" || kind == "taggedunion") {
                 structTy = asyncStructTypeForTask(m_sema.getNodeType(&node.getExpr()));
                 if (!structTy) {
                     reportUnsupported(node.getLocation(), "await",

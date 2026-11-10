@@ -2696,6 +2696,128 @@ TEST(ExecutionTest, MatchOnTempResultReleasesPayload) {
     EXPECT_NE(output.find("live 0"), std::string::npos);
 }
 
+// Phase 9 slice C (ADR-002): async fns return Result/Option, await
+// yields them, and `?` inside an async fn completes the task with
+// the Err/None instead of hanging.
+TEST(ExecutionTest, AsyncResultPayload) {
+    const std::string source = R"sp(
+        fn fetch() -> Result<int, string> {
+            return Result.Ok(42);
+        }
+
+        async fn work() -> Result<int, string> {
+            var v = fetch()?;
+            return Result.Ok(v + 1);
+        }
+
+        async fn run() {
+            var r = await work();
+            match r {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_result");
+    EXPECT_NE(output.find("ok 43"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncResultTryOperator) {
+    const std::string source = R"sp(
+        fn fetchFail() -> Result<int, string> {
+            return Result.Err("boom");
+        }
+
+        async fn workErr() -> Result<int, string> {
+            var v = fetchFail()?;
+            return Result.Ok(v + 1);
+        }
+
+        async fn run() {
+            var r = await workErr();
+            match r {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_result_try");
+    EXPECT_NE(output.find("err boom"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncResultClassPayloadLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        async fn make() -> Result<Foo, string> {
+            return Result.Ok(new Foo(7));
+        }
+
+        async fn run() {
+            {
+                var r = await make();
+                println("ok n ${r.unwrap().n}");
+                println("live in scope ${sp_rt_mem_live_objects()}");
+            }
+            println("live after scope ${sp_rt_mem_live_objects()}");
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_result_class");
+    EXPECT_NE(output.find("ok n 7"), std::string::npos);
+    EXPECT_NE(output.find("live in scope 1"), std::string::npos);
+    EXPECT_NE(output.find("live after scope 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncOptionPayload) {
+    const std::string source = R"sp(
+        async fn findIt(int n) -> Option<int> {
+            if (n > 0) {
+                return Option.Some(n * 2);
+            }
+            return Option.None();
+        }
+
+        async fn run() {
+            var a = await findIt(5);
+            println("some ${a.unwrapOr(-1)}");
+            var b = await findIt(-3);
+            println("none ${b.unwrapOr(-1)}");
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_option");
+    EXPECT_NE(output.find("some 10"), std::string::npos);
+    EXPECT_NE(output.find("none -1"), std::string::npos);
+}
+
 TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
     const std::string source = R"sp(
         fn stepOk(x: int): Result<int, string> {

@@ -186,6 +186,14 @@ private:
     // (e.g. a class return) fails loudly at the declaration.
     // Name of the resume function for an async body.
     std::string asyncResumeName(const std::string& compiledName) const;
+    // Inner type name of Task<T>/Future<T> (e.g. "int" for Task<int>),
+    // or "" when the type is not a Task/Future or its payload is not
+    // carried. Phase 9 slice C: an inner type containing '<' is
+    // allowed when its base name resolves to a tagged-union enum
+    // (Result/Option/user payload enum) — the box carries the
+    // {i32, i64} bits. Nested Task<...> and other parameterized
+    // payloads (Map, ...) still return "".
+    std::string taskInnerType(const sema::TypePtr& taskType) const;
     // Unwrap Task<T>/Future<T> to its payload kind; false when the type
     // is not a Task/Future or the payload cannot be carried.
     bool taskPayloadKind(const sema::TypePtr& taskType, std::string& outKind) const;
@@ -392,8 +400,11 @@ private:
                                            IRValuePtr payloadVal);
     // Record a tagged-union call result's payload as a pending temp
     // (called from recordTempCallResult when the call returns a
-    // tagged union with an owned payload).
+    // tagged union with an owned payload). The type form is shared
+    // by visit(AwaitExpr): an awaited Result is a +1 value produced
+    // by the task box, not by a call (see Phase 38 slice C).
     void recordTempTaggedUnion(const ast::CallExpr& node);
+    void recordTempTaggedUnionForType(const sema::TypePtr& semaType);
     void pushTempScope();
     void popTempScope();
     void pushTempBranchScope();
