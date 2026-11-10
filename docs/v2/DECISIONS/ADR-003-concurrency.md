@@ -1,7 +1,7 @@
 # ADR-003: Concurrency & Async Architecture
 
 ## Status
-Proposed (Requires Shanto Review & Approval)
+Accepted (Approved by Shanto Paul, 2026-11-10)
 
 ## Context
 High-scale backend applications demand high-throughput concurrent I/O. SP currently supports OS threads via C wrappers, which do not scale to tens of thousands of idle network connections.

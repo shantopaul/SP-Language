@@ -1,7 +1,7 @@
 # ADR-005: Package Registry & Supply Chain Security
 
 ## Status
-Proposed (Requires Shanto Review & Approval)
+Accepted (Approved by Shanto Paul, 2026-11-10)
 
 ## Context
 The SP Package Manager (`spm`) currently supports local package scaffolding, dependency resolution, and lockfile verification. The ecosystem requires a production-ready publishing and distribution model that guarantees supply chain integrity and build reproducibility.

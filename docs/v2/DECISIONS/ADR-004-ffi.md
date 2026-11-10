@@ -1,7 +1,7 @@
 # ADR-004: Foreign Function Interface (FFI) & C Interoperability
 
 ## Status
-Proposed (Requires Shanto Review & Approval)
+Accepted (Approved by Shanto Paul, 2026-11-10)
 
 ## Context
 A new programming language cannot thrive in isolation without access to mature native C libraries (OpenSSL, SQLite, zlib, raylib, OS syscalls).
