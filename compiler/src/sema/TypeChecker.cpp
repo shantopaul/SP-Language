@@ -2267,6 +2267,19 @@ void TypeChecker::visit(const ast::ImportDecl& /*node*/) {
 }
 
 void TypeChecker::visit(const ast::Program& node) {
+    // Phase 39 slice D: top-level `const`/`let`/`var` declarations are
+    // program-lifetime globals — visit them before anything else so
+    // their symbols exist in the global scope when function bodies
+    // (including short-form bodies, checked in the pre-pass below) are
+    // checked. The main loop deliberately has no VarDeclStmt case:
+    // each declaration is visited exactly once here (a second visit
+    // would report a false E1004 duplicate).
+    for (const auto& decl : node.getDeclarations()) {
+        if (decl && decl->getKind() == ast::ASTNodeKind::VarDeclStmt) {
+            visit(static_cast<const ast::VarDeclStmt&>(*decl));
+        }
+    }
+
     // Pre-pass: Infer return types of short-form functions
     for (const auto& decl : node.getDeclarations()) {
         if (decl && decl->getKind() == ast::ASTNodeKind::FunctionDecl) {

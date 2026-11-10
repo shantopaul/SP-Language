@@ -1342,6 +1342,9 @@ bool IRBuilder::isWeakLoadExpr(const ast::ExpressionNode& expr) {
             auto sit = m_currentClass->staticFields.find(ident->getName());
             if (sit != m_currentClass->staticFields.end()) return sit->second.isWeak;
         }
+        // Phase 39 slice D: a `weak` top-level global is a weak slot.
+        auto git = m_globalVars.find(ident->getName());
+        if (git != m_globalVars.end()) return git->second.isWeak;
         return false;
     }
     return false;
@@ -2494,7 +2497,12 @@ void IRBuilder::visit(const ast::Program& node) {
                 dynamic_cast<const ast::StructDecl*>(stmt) ||
                 dynamic_cast<const ast::EnumDecl*>(stmt) ||
                 dynamic_cast<const ast::ModuleDecl*>(stmt) ||
-                dynamic_cast<const ast::ImportDecl*>(stmt)) {
+                dynamic_cast<const ast::ImportDecl*>(stmt) ||
+                // Phase 39 slice D: a top-level `const`/`let`/`var` is
+                // a global declaration, not a statement to execute —
+                // it is emitted as a module global + `__sp_global_init`
+                // below, never as a synthesized-main local.
+                dynamic_cast<const ast::VarDeclStmt*>(stmt)) {
                 continue;
             }
             if (const auto* block = dynamic_cast<const ast::BlockStmt*>(stmt)) {
@@ -2581,6 +2589,36 @@ void IRBuilder::visit(const ast::Program& node) {
                 }
             }
         }
+    }
+
+    // Phase 39 slice D: top-level `const`/`let`/`var` declarations are
+    // program-lifetime globals. Register each as a zero-initialized
+    // module global (`@__sp_global_<name>`) and emit one init function
+    // that stores the initializers in declaration order. The init
+    // function runs from `main` before any user code (see
+    // emitStaticInitCalls), ahead of the class static inits — a static
+    // initializer may reference a top-level const.
+    {
+        std::vector<const ast::VarDeclStmt*> globalDecls;
+        for (const auto& decl : node.getDeclarations()) {
+            if (const auto* varDecl = dynamic_cast<const ast::VarDeclStmt*>(decl.get())) {
+                globalDecls.push_back(varDecl);
+            }
+        }
+        for (const auto* varDecl : globalDecls) {
+            IRTypePtr irType;
+            if (!varDecl->getType().empty()) {
+                irType = mapType(varDecl->getType());
+            } else if (varDecl->hasInitializer()) {
+                auto semaType = m_sema.getNodeType(varDecl->getInitializer());
+                if (semaType) irType = mapType(semaType.get());
+            }
+            if (!irType) continue;
+            std::string globalName = "@__sp_global_" + varDecl->getName();
+            m_module->addGlobalVariable(globalName, irType, /*isConstant=*/false, "zeroinitializer");
+            m_globalVars[varDecl->getName()] = GlobalVarInfo{irType, globalName, varDecl->isWeak(), varDecl->isConst()};
+        }
+        emitGlobalInitializer(globalDecls);
     }
 
     // First visit class declarations (generates constructors & methods)
@@ -4617,6 +4655,81 @@ void IRBuilder::compileStaticInitializer(const ast::ClassDecl& classDecl, const 
     m_staticInitFunctions.push_back(initName);
 }
 
+void IRBuilder::emitGlobalInitializer(const std::vector<const ast::VarDeclStmt*>& decls) {
+    // Phase 39 slice D: mirror compileStaticInitializer for top-level
+    // `const`/`let`/`var` globals. The initializers run in declaration
+    // order, so a const may reference an earlier const; the global
+    // itself is never dropped, so the +1 share stored here lives for
+    // the program's lifetime.
+    std::vector<const ast::VarDeclStmt*> inits;
+    for (const auto* varDecl : decls) {
+        if (varDecl && varDecl->hasInitializer()) inits.push_back(varDecl);
+    }
+    if (inits.empty()) return;
+
+    std::string initName = "__sp_global_init";
+    auto func = m_module->createFunction(initName, IRType::getVoid(), {});
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+    pushScope();
+    pushTempScope();
+
+    for (const auto* varDecl : inits) {
+        auto git = m_globalVars.find(varDecl->getName());
+        if (git == m_globalVars.end()) continue;
+        const auto& info = git->second;
+        varDecl->getInitializer()->accept(*this);
+        IRValuePtr initVal = m_lastExprValue;
+        if (!initVal) continue;
+        // Same retain rule as static field initializers: a `new`
+        // transfers its owning reference; anything else is retained.
+        bool isRefCounted = false;
+        if (info.irType && info.irType->isPointer()) {
+            auto semaType = m_sema.getNodeType(varDecl->getInitializer());
+            if (semaType && isOwnedValueType(semaType)) {
+                isRefCounted = true;
+            } else if (dynamic_cast<const ast::NewExpr*>(varDecl->getInitializer())) {
+                isRefCounted = true;
+            }
+        }
+        // Phase 8 slice C: a `weak` global slot holds a header
+        // pointer — same rule as a `weak static` field.
+        if (varDecl->isWeak()) {
+            initVal = emitWeakCreate(initVal);
+        } else {
+            if (isRefCounted && !dynamic_cast<const ast::NewExpr*>(varDecl->getInitializer())) {
+                auto retainCall = std::make_shared<CallInst>(
+                    IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{initVal});
+                m_currentBlock->addInstruction(retainCall);
+            }
+            if (dynamic_cast<const ast::NewExpr*>(varDecl->getInitializer())) {
+                adoptTempValue(initVal);
+            }
+        }
+        if (info.irType && info.irType->isStruct() && initVal->getType()->isPointer()) {
+            auto loadInst = std::make_shared<LoadInst>(info.irType, initVal, m_currentFunction->nextTempName("g_init"));
+            m_currentBlock->addInstruction(loadInst);
+            initVal = loadInst;
+        }
+        initVal = emitCastIfNeeded(initVal, info.irType);
+        auto gvar = std::make_shared<GlobalVariable>(info.irType, info.globalName);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(initVal, gvar));
+    }
+    popTempScope();
+
+    if (!m_currentBlock->hasTerminator()) {
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    }
+    popScope();
+    m_currentClass = nullptr;
+    m_currentFunction = nullptr;
+    m_currentBlock = nullptr;
+    // Globals initialize before class statics: a static initializer
+    // may reference a top-level const.
+    m_staticInitFunctions.insert(m_staticInitFunctions.begin(), initName);
+}
+
 void IRBuilder::emitStaticInitCalls() {
     if (!m_currentFunction || !m_currentBlock) return;
     for (const auto& name : m_staticInitFunctions) {
@@ -5485,6 +5598,32 @@ void IRBuilder::visit(const ast::IdentifierExpr& node) {
         }
     }
 
+    // Phase 39 slice D: a top-level `const`/`let`/`var` global reads
+    // its module global. A user global wins over the builtin constants
+    // below, same rule as a class's own static. A struct-typed global
+    // yields the global pointer itself (mirrors the local-struct
+    // branch above); a `weak` slot upgrades like any weak load.
+    if (m_currentFunction && m_currentBlock) {
+        auto git = m_globalVars.find(node.getName());
+        if (git != m_globalVars.end()) {
+            auto gvar = std::make_shared<GlobalVariable>(git->second.irType, git->second.globalName);
+            if (git->second.irType->isStruct()) {
+                m_lastExprValue = gvar;
+                m_lastExprType = IRType::getPointer();
+                return;
+            }
+            auto loadInst = std::make_shared<LoadInst>(git->second.irType, gvar, m_currentFunction->nextTempName("gval"));
+            m_currentBlock->addInstruction(loadInst);
+            IRValuePtr value = loadInst;
+            if (git->second.isWeak) {
+                value = emitWeakUpgrade(loadInst);
+            }
+            m_lastExprValue = value;
+            m_lastExprType = git->second.irType;
+            return;
+        }
+    }
+
     if (node.getName() == "PI") {
         m_lastExprValue = std::make_shared<ConstantFloat>(IRType::getDouble(), 3.141592653589793);
         m_lastExprType = IRType::getDouble();
@@ -5751,6 +5890,13 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
             auto sit = m_currentClass->staticFields.find(ident->getName());
             valType = sit->second.irType;
             targetPtr = std::make_shared<GlobalVariable>(sit->second.irType, sit->second.globalName);
+        } else if (m_globalVars.count(ident->getName())) {
+            // Phase 39 slice D: assigning to a top-level `let`/`var`
+            // global stores into its module global. (`const` targets
+            // never reach here — sema rejects the assignment.)
+            auto git = m_globalVars.find(ident->getName());
+            valType = git->second.irType;
+            targetPtr = std::make_shared<GlobalVariable>(git->second.irType, git->second.globalName);
         }
     } else if (const auto* un = dynamic_cast<const ast::UnaryExpr*>(&node.getTarget())) {
         if (un->getOp() == lexer::TokenType::Star) {

@@ -926,6 +926,19 @@ private:
     // Phase 6 slice B: per-class static-init functions, in class
     // declaration order; called from `main` before any user code runs.
     std::vector<std::string> m_staticInitFunctions;
+
+    // Phase 39 slice D: top-level `const`/`let`/`var` globals — mirrors
+    // codegen::StaticFieldInfo. The LLVM global is
+    // `@__sp_global_<name>`, zero-initialized; `__sp_global_init`
+    // stores the initializers before `main` runs.
+    struct GlobalVarInfo {
+        ir::IRTypePtr irType;
+        std::string globalName;
+        bool isWeak{false};
+        bool isConst{false};
+    };
+    std::unordered_map<std::string, GlobalVarInfo> m_globalVars;
+    void emitGlobalInitializer(const std::vector<const ast::VarDeclStmt*>& decls);
 };
 
 } // namespace sp::ir

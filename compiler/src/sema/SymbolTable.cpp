@@ -47,6 +47,23 @@ bool Scope::define(SymbolPtr symbol) {
             return true;
         }
 
+        // Phase 39 slice D: a variable/constant restating a built-in
+        // with an identical type is a no-op — mirrors the function
+        // branch above, where a concrete implementation overriding a
+        // built-in stub returns true and the built-in stays. This is
+        // what lets stdlib/math/math.sp redeclare `PI`/`E`/`TAU`: the
+        // built-ins live in the global scope, and the file's identical
+        // `public const double` declarations must not be E1004
+        // duplicates. A conflicting type is still a duplicate error.
+        if (it->second->isVariable() && symbol->isVariable() &&
+            it->second->getLocation().filename == "<built-in>") {
+            const auto& existingType = it->second->getType();
+            const auto& newType = symbol->getType();
+            if (existingType && newType && existingType->equals(*newType)) {
+                return true;
+            }
+        }
+
         // Duplicate name in same scope
         return false;
     }

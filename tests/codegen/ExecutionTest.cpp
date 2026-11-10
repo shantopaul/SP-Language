@@ -23,7 +23,8 @@ fs::path getOutputDir() {
     return fs::temp_directory_path();
 }
 
-std::string runSPProgram(const std::string& source, const std::string& testName, const std::string& input = "") {
+std::string runSPProgram(const std::string& source, const std::string& testName, const std::string& input = "",
+                         const std::string& searchPath = "") {
     diagnostics::DiagnosticEngine diags(std::cerr);
     lexer::Lexer lexer(source, testName + ".sp", &diags);
     auto tokens = lexer.tokenizeAll();
@@ -43,6 +44,9 @@ std::string runSPProgram(const std::string& source, const std::string& testName,
     // Pure-builtin modules (std.time, std.io, ...) are still skipped by the
     // loader itself, so existing builtin-only tests are unaffected.
     sema::ModuleLoader moduleLoader(diags);
+    // Phase 39 slice D: an import test can point the loader at a
+    // directory holding a generated module file.
+    if (!searchPath.empty()) moduleLoader.addSearchPath(searchPath);
     if (!moduleLoader.loadAndMergeAll(*program, testName + ".sp")) return "MODULE_ERROR";
 
     sema::SemanticAnalyzer sema(diags);
@@ -3787,4 +3791,126 @@ TEST(ExecutionTest, IoTryReadLineEof) {
     EXPECT_NE(output2.find("r1 ok true"), std::string::npos);
     EXPECT_NE(output2.find("r1 line "), std::string::npos);
     EXPECT_NE(output2.find("r2 err true"), std::string::npos);
+}
+
+// Phase 39 slice D: top-level `const`/`let`/`var` are program-lifetime
+// globals. Before this slice a top-level const failed sema with E1002
+// ("Undefined variable or symbol") even in the same file, because no
+// pass registered, checked, or emitted it.
+TEST(ExecutionTest, TopLevelConstValues) {
+    const std::string source = R"sp(
+        const ANSWER: int32 = 42;
+        const RATIO: double = 2.5;
+        const GREETING: string = "hi";
+        const FLAG: bool = true;
+        const INFERRED = 7;
+
+        fn getAnswer() -> int32 {
+            return ANSWER;
+        }
+
+        fn main() {
+            println("answer ${ANSWER}");
+            println("ratio ok ${RATIO == 2.5}");
+            println("greet ${GREETING}");
+            println("flag ${FLAG}");
+            println("inferred ${INFERRED}");
+            println("fn ${getAnswer()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_values");
+    EXPECT_NE(output.find("answer 42"), std::string::npos) << output;
+    EXPECT_NE(output.find("ratio ok true"), std::string::npos) << output;
+    EXPECT_NE(output.find("greet hi"), std::string::npos) << output;
+    EXPECT_NE(output.find("flag true"), std::string::npos) << output;
+    EXPECT_NE(output.find("inferred 7"), std::string::npos) << output;
+    EXPECT_NE(output.find("fn 42"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: a `let` global can be assigned from any function
+// (plain `=` and compound `+=` both store into the module global).
+TEST(ExecutionTest, TopLevelLetGlobalReassigned) {
+    const std::string source = R"sp(
+        let counter: int32 = 0;
+
+        fn bump() {
+            counter = counter + 1;
+        }
+
+        fn main() {
+            bump();
+            bump();
+            println("counter ${counter}");
+            counter += 10;
+            println("counter2 ${counter}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_let");
+    EXPECT_NE(output.find("counter 2"), std::string::npos) << output;
+    EXPECT_NE(output.find("counter2 12"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: a const initializer may reference an earlier
+// const (declaration order inside the global init function).
+TEST(ExecutionTest, TopLevelConstChained) {
+    const std::string source = R"sp(
+        const BASE: int32 = 10;
+        const DOUBLED: int32 = BASE * 2;
+
+        fn main() {
+            println("doubled ${DOUBLED}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_chained");
+    EXPECT_NE(output.find("doubled 20"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: a function declared BEFORE the const it uses still
+// resolves it — the TypeChecker pre-pass defines all top-level consts
+// before any function body is checked.
+TEST(ExecutionTest, TopLevelConstForwardRef) {
+    const std::string source = R"sp(
+        fn early() -> int32 {
+            return LATE_CONST;
+        }
+
+        const LATE_CONST: int32 = 99;
+
+        fn main() {
+            println("late ${early()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_forward");
+    EXPECT_NE(output.find("late 99"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: the reported bug — a module-level const resolves
+// through `import`. The module file is written to the test output dir
+// and found via the loader search path (same shape as a bindgen
+// module: `module mini_topconst;` + top-level consts).
+TEST(ExecutionTest, TopLevelConstFromImport) {
+    fs::path modulePath = getOutputDir() / "mini_topconst.sp";
+    {
+        std::ofstream moduleFile(modulePath);
+        moduleFile << "module mini_topconst;\n\n";
+        moduleFile << "const MINI_VERSION: int32 = 3;\n";
+        moduleFile << "const MINI_SCALE: double = 2.5;\n";
+    }
+
+    const std::string source = R"sp(
+        import mini_topconst;
+
+        fn main() {
+            println("version ${MINI_VERSION}");
+            println("scale ok ${MINI_SCALE == 2.5}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_import", "", getOutputDir().string());
+    EXPECT_NE(output.find("version 3"), std::string::npos) << output;
+    EXPECT_NE(output.find("scale ok true"), std::string::npos) << output;
 }
