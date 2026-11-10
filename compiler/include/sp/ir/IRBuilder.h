@@ -278,6 +278,17 @@ private:
     std::vector<std::unordered_map<std::string, std::pair<IRValuePtr, IRTypePtr>>> m_scopes;
     // Scoped reference-counted variables: (name, allocaPtr) in declaration order for RAII drop emission
     std::vector<std::vector<std::pair<std::string, IRValuePtr>>> m_refCountedScopes;
+    // Phase 9 slice A (ADR-002): scoped tagged-union locals — same
+    // per-scope shape as m_refCountedScopes, but each entry also
+    // carries the tagged union's struct base name ("Result",
+    // "Option", or the user enum's name) so the drop can build the
+    // payload GEP. The slot holds a {i32 tag, i64 payload} struct,
+    // so the drop releases the PAYLOAD (see emitScopeDrops), not the
+    // slot. Populated in visit(VarDeclStmt) when the variable's sema
+    // type is a tagged union with an owned payload. A tagged-union
+    // local is never in m_refCountedScopes (its IR type is a struct,
+    // not a pointer), so no double drop.
+    std::vector<std::vector<std::tuple<std::string, IRValuePtr, std::string>>> m_taggedUnionScopes;
 
     void emitScopeDrops(size_t scopeIndex);
     void emitAllFunctionDrops();
@@ -333,6 +344,40 @@ private:
     std::vector<std::vector<IRValuePtr>> m_tempScopes;
     IRFunction* m_tempScopeFunction{nullptr};
     std::vector<std::vector<IRValuePtr>> m_tempBranchScopes;
+    // Phase 9 slice A (ADR-002): tagged-union temp ownership. A
+    // recorded tagged-union temp is stored in the temp scopes as its
+    // PAYLOAD pointer (the releasable share), keyed here by the
+    // struct value it was loaded from. adoptTempValue looks a struct
+    // up in this map and removes its payload from the pending scopes
+    // (all adoption sites pass the struct). The map is cleared per
+    // function with the temp scopes; stale entries are harmless (a
+    // popped payload simply is not found at adopt time, and struct
+    // identities are never reused within a function).
+    std::unordered_map<IRValuePtr, IRValuePtr> m_tempPayloadOwners;
+    // Phase 9 slice A: tagged-union payload ownership helpers (see
+    // IRBuilder.cpp §0.3 / docs/v2/PHASE-38-SLICE-A.md §0.1).
+    // taggedUnionHasOwnedPayload: the sema type is a tagged union and
+    // at least one variant's payload type is owned (isOwnedValueType).
+    bool taggedUnionHasOwnedPayload(const sema::TypePtr& t) const;
+    // taggedUnionPayloadPtr: pointer to the payload slot of a tagged
+    // union value — GEP {0,1} directly for a struct pointer, spilling
+    // a struct SSA value to an entry-block alloca first.
+    IRValuePtr taggedUnionPayloadPtr(IRValuePtr v, const std::string& tuBaseName);
+    // Retain / release the payload of a tagged-union value (no-op
+    // unless taggedUnionHasOwnedPayload(t)).
+    void emitRetainTaggedUnionPayload(IRValuePtr v, const sema::TypePtr& t);
+    void emitReleaseTaggedUnionPayload(IRValuePtr v, const sema::TypePtr& t);
+    // Construction retain: a tagged-union construction adopts a +1
+    // payload argument and retains a borrowed one (same discriminator
+    // as VarDecl). Call at every Ok/Err/Some/variant construction
+    // site with the argument AST node, its sema type, and its IR value.
+    void emitTaggedUnionConstructionRetain(const ast::ExpressionNode& argNode,
+                                           const sema::TypePtr& payloadType,
+                                           IRValuePtr payloadVal);
+    // Record a tagged-union call result's payload as a pending temp
+    // (called from recordTempCallResult when the call returns a
+    // tagged union with an owned payload).
+    void recordTempTaggedUnion(const ast::CallExpr& node);
     void pushTempScope();
     void popTempScope();
     void pushTempBranchScope();
@@ -342,6 +387,12 @@ private:
     // missing or already terminated (the scope is still discarded
     // by the caller — a leak, never a crash or invalid IR).
     void emitTempScopeReleases(const std::vector<IRValuePtr>& pending);
+    // Phase 9 slice A: release every currently-pending temporary
+    // EXCEPT `exceptVal` (used by the TryExpr `?` early-return block,
+    // where the operand's payload moves into the returned Result).
+    // The compile-time stacks are NOT modified — the ok path pops
+    // them normally. A no-op when the block is missing or terminated.
+    void emitPendingTempReleasesExcept(IRValuePtr exceptVal);
     void recordTempCallResult(const ast::CallExpr& node);
     void recordTempNewResult(const ast::NewExpr& node);
     // Phase 37 slice B: record an array/map literal's fresh container

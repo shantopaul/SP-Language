@@ -2458,6 +2458,139 @@ TEST(ExecutionTest, ResultAndOptionZeroAllocTaggedUnionExecution) {
     EXPECT_NE(output.find("directSome.unwrap: 77"), std::string::npos);
 }
 
+// Phase 9 slice A (ADR-002): a tagged union OWNS its payload — the
+// construction retains it, the scope drop releases it. Before this
+// slice, `Result.Ok(new Foo(7))` died in make() and unwrap read a
+// dangling pointer (p3b: unwrap printed 99 after a Foo(99) reuse).
+TEST(ExecutionTest, ResultClassPayloadLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            var f = new Foo(7);
+            return Result.Ok(f);
+        }
+
+        fn main() {
+            println("before ${sp_rt_mem_live_objects()}");
+            var r = make();
+            println("after make ${sp_rt_mem_live_objects()}");
+            println("unwrap n ${r.unwrap().n}");
+            println("after unwrap ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_class_payload");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after make 1"), std::string::npos);
+    EXPECT_NE(output.find("unwrap n 7"), std::string::npos);
+    EXPECT_NE(output.find("after unwrap 1"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultClassPayloadSurvivesReuse) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            var f = new Foo(7);
+            return Result.Ok(f);
+        }
+
+        fn main() {
+            var r = make();
+            println("live after make ${sp_rt_mem_live_objects()}");
+            var g = new Foo(99);
+            println("live after g ${sp_rt_mem_live_objects()}");
+            println("r unwrap n ${r.unwrap().n}");
+            println("g n ${g.n}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_class_reuse");
+    EXPECT_NE(output.find("live after make 1"), std::string::npos);
+    EXPECT_NE(output.find("live after g 2"), std::string::npos);
+    EXPECT_NE(output.find("r unwrap n 7"), std::string::npos);
+    EXPECT_NE(output.find("g n 99"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultTempPayloadReleased) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            return Result.Ok(new Foo(7));
+        }
+
+        fn main() {
+            println("temp ok ${make().isOk()}");
+            println("live ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_temp_payload");
+    EXPECT_NE(output.find("temp ok true"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultReassignReleasesOldPayload) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make(int n) -> Result<Foo, string> {
+            return Result.Ok(new Foo(n));
+        }
+
+        fn main() {
+            var r = make(1);
+            println("live1 ${sp_rt_mem_live_objects()}");
+            r = make(2);
+            println("live2 ${sp_rt_mem_live_objects()}");
+            println("n ${r.unwrap().n}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_reassign");
+    EXPECT_NE(output.find("live1 1"), std::string::npos);
+    EXPECT_NE(output.find("live2 1"), std::string::npos);
+    EXPECT_NE(output.find("n 2"), std::string::npos);
+}
+
 TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
     const std::string source = R"sp(
         fn stepOk(x: int): Result<int, string> {

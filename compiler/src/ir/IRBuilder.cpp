@@ -688,6 +688,7 @@ void IRBuilder::emitFinallyDispatch(IRBasicBlock* mergeBlock) {
 void IRBuilder::pushScope() {
     m_scopes.emplace_back();
     m_refCountedScopes.emplace_back();
+    m_taggedUnionScopes.emplace_back();
 }
 
 void IRBuilder::emitScopeDrops(size_t scopeIndex) {
@@ -712,6 +713,26 @@ void IRBuilder::emitScopeDrops(size_t scopeIndex) {
             std::vector<IRValuePtr>{loadInst}
         );
         m_currentBlock->addInstruction(releaseCall);
+    }
+
+    // Phase 9 slice A: tagged-union locals — release the PAYLOAD, not
+    // the struct. The slot holds exactly one payload (tag 0 or tag 1);
+    // releasing the slot contents covers either, and a null / scalar /
+    // non-ARC payload is a registry no-op (see the §0.1 note).
+    if (scopeIndex < m_taggedUnionScopes.size()) {
+        const auto& tuVars = m_taggedUnionScopes[scopeIndex];
+        for (auto it = tuVars.rbegin(); it != tuVars.rend(); ++it) {
+            const auto& [name, allocaPtr, tuBaseName] = *it;
+            (void)name;
+            IRValuePtr payloadPtr = taggedUnionPayloadPtr(allocaPtr, tuBaseName);
+            if (!payloadPtr) continue;
+            auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                          m_currentFunction->nextTempName("tu_drop_payload"));
+            m_currentBlock->addInstruction(loadPayload);
+            IRValuePtr payloadAsPtr = emitCastIfNeeded(loadPayload, IRType::getPointer());
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{payloadAsPtr}));
+        }
     }
 }
 
@@ -753,6 +774,98 @@ void IRBuilder::emitAllFunctionDrops() {
 bool IRBuilder::isOwnedValueType(const sema::TypePtr& t) const {
     if (!t) return false;
     return t->isReferenceType() || t->isArray() || t->isMap();
+}
+
+// Phase 9 slice A (ADR-002): tagged-union payload ownership.
+//
+// A tagged union ({i32 tag, i64 payload}) OWNS its payload: exactly
+// one share. Construction retains an owned payload, copying the
+// value retains it when the source is borrowed, and dropping the
+// value releases it. `?` and `unwrap*` yield BORROWED payloads —
+// adopters retain by the copy rule, and the operand's recorded
+// payload is released at the statement pop (the use always precedes
+// the pop). The Phase 8 parent fix makes unconditional payload
+// release SAFE: sp_rt_release on a non-ARC pointer / small integer /
+// null is a registry miss (no-op), so the helpers release the slot
+// contents whenever ANY variant's payload type is owned — the slot
+// holds exactly one payload and the tag tells which, but the release
+// does not need to know.
+static std::string tuStructBaseName(const std::string& typeName) {
+    if (typeName.rfind("Result", 0) == 0) return "Result";
+    if (typeName.rfind("Option", 0) == 0) return "Option";
+    auto lt = typeName.find('<');
+    return lt == std::string::npos ? typeName : typeName.substr(0, lt);
+}
+
+bool IRBuilder::taggedUnionHasOwnedPayload(const sema::TypePtr& t) const {
+    if (!t || !t->isEnum()) return false;
+    const auto* en = dynamic_cast<const sema::EnumType*>(t.get());
+    if (!en || !en->isTaggedUnion()) return false;
+    for (const auto& variant : en->getVariants()) {
+        for (const auto& payloadType : en->getVariantPayload(variant)) {
+            if (isOwnedValueType(payloadType)) return true;
+        }
+    }
+    return false;
+}
+
+IRValuePtr IRBuilder::taggedUnionPayloadPtr(IRValuePtr v, const std::string& tuBaseName) {
+    if (!v || !m_currentBlock) return nullptr;
+    auto structType = ir::IRType::getStruct("struct." + tuBaseName,
+                                             {IRType::getInt32(), IRType::getInt64()});
+    IRValuePtr slotPtr = v;
+    if (v->getType()->isStruct()) {
+        auto tempAlloca = std::make_shared<AllocaInst>(v->getType(),
+                                                       m_currentFunction->nextTempName("tu_tmp"));
+        m_currentFunction->getEntryBlock()->addInstruction(tempAlloca);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(v, tempAlloca));
+        slotPtr = tempAlloca;
+    }
+    auto gepPayload = std::make_shared<GetElementPtrInst>(
+        structType, slotPtr,
+        std::vector<IRValuePtr>{
+            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+            std::make_shared<ConstantInt>(IRType::getInt32(), 1)},
+        m_currentFunction->nextTempName("tu_payload_ptr"));
+    m_currentBlock->addInstruction(gepPayload);
+    return gepPayload;
+}
+
+void IRBuilder::emitRetainTaggedUnionPayload(IRValuePtr v, const sema::TypePtr& t) {
+    if (!v || !taggedUnionHasOwnedPayload(t) || !m_currentBlock) return;
+    IRValuePtr payloadPtr = taggedUnionPayloadPtr(v, tuStructBaseName(t->toString()));
+    if (!payloadPtr) return;
+    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                  m_currentFunction->nextTempName("tu_payload"));
+    m_currentBlock->addInstruction(loadPayload);
+    IRValuePtr payloadAsPtr = emitCastIfNeeded(loadPayload, IRType::getPointer());
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{payloadAsPtr}));
+}
+
+void IRBuilder::emitReleaseTaggedUnionPayload(IRValuePtr v, const sema::TypePtr& t) {
+    if (!v || !taggedUnionHasOwnedPayload(t) || !m_currentBlock) return;
+    IRValuePtr payloadPtr = taggedUnionPayloadPtr(v, tuStructBaseName(t->toString()));
+    if (!payloadPtr) return;
+    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                  m_currentFunction->nextTempName("tu_payload"));
+    m_currentBlock->addInstruction(loadPayload);
+    IRValuePtr payloadAsPtr = emitCastIfNeeded(loadPayload, IRType::getPointer());
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{payloadAsPtr}));
+}
+
+void IRBuilder::emitTaggedUnionConstructionRetain(const ast::ExpressionNode& argNode,
+                                                   const sema::TypePtr& payloadType,
+                                                   IRValuePtr payloadVal) {
+    if (!payloadType || !isOwnedValueType(payloadType) || !payloadVal) return;
+    // A +1 argument is adopted (its temp record is removed — the
+    // Result now owns that share); a borrowed argument is retained.
+    adoptTempValue(payloadVal);
+    if (isFreshPlusOneExpr(argNode)) return;
+    if (!m_currentBlock) return;
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{payloadVal}));
 }
 
 // Phase 8 slice C: a weak-reference load is also a +1 producer —
@@ -865,6 +978,16 @@ bool IRBuilder::isFreshPlusOneExpr(const ast::ExpressionNode& expr) {
                 }
             }
         }
+        // Phase 9 slice A: a call returning a tagged union with an
+        // owned payload is a fresh +1 producer of that Result/Option
+        // value — the construction (or the callee's return) already
+        // retained the payload, so adopters must not retain again.
+        // (Unwrap calls do not fire this: their return type is the
+        // payload type, not a tagged union. The reduce exclusion
+        // above still wins: a reduce returning a Result yields the
+        // borrowed accumulator, not a fresh share.)
+        auto callRetType = m_sema.getNodeType(call);
+        if (callRetType && taggedUnionHasOwnedPayload(callRetType)) return true;
         auto target = m_sema.getCallTarget(call);
         if (target != nullptr && !target->isAsync()) return true;
         // Phase 37 slice B: the builtin fresh-array producers have
@@ -929,9 +1052,18 @@ IRValuePtr IRBuilder::emitWeakUpgrade(IRValuePtr weakSlotVal) {
 }
 
 void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr retVal) {
-    if (!retVal || !retVal->getType()->isPointer()) return;
-    if (isFreshPlusOneExpr(expr)) return;
+    if (!retVal) return;
     auto semaType = m_sema.getNodeType(&expr);
+    // Phase 9 slice A: a borrowed tagged-union return retains its
+    // payload so the caller receives a +1 share; a fresh +1 return
+    // already owns one.
+    if (semaType && taggedUnionHasOwnedPayload(semaType)) {
+        if (isFreshPlusOneExpr(expr)) return;
+        emitRetainTaggedUnionPayload(retVal, semaType);
+        return;
+    }
+    if (!retVal->getType()->isPointer()) return;
+    if (isFreshPlusOneExpr(expr)) return;
     // Phase 37 slice B: widened from isReferenceType() to the owned
     // predicate — a borrowed Map/Array return must be retained so it
     // survives emitAllFunctionDrops (this is the load-bearing
@@ -982,11 +1114,35 @@ void IRBuilder::emitTempScopeReleases(const std::vector<IRValuePtr>& pending) {
     }
 }
 
+void IRBuilder::emitPendingTempReleasesExcept(IRValuePtr exceptVal) {
+    // Phase 9 slice A: used by the TryExpr `?` early-return block.
+    // The pending temporaries are released here because the statement
+    // pop never runs on the early-return path; `exceptVal` is the
+    // operand's payload, which moves into the returned Result and
+    // must survive. The compile-time stacks are NOT modified — the ok
+    // path pops them normally, and each runtime path releases once.
+    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+    auto emitFor = [&](const std::vector<IRValuePtr>& pending) {
+        for (auto it = pending.rbegin(); it != pending.rend(); ++it) {
+            if (!*it || *it == exceptVal) continue;
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{*it}));
+        }
+    };
+    for (auto it = m_tempBranchScopes.rbegin(); it != m_tempBranchScopes.rend(); ++it) {
+        emitFor(*it);
+    }
+    for (auto it = m_tempScopes.rbegin(); it != m_tempScopes.rend(); ++it) {
+        emitFor(*it);
+    }
+}
+
 void IRBuilder::pushTempScope() {
     if (!m_tempScopes.empty() && m_tempScopeFunction != m_currentFunction) {
         // Defensive: a stale stack must never leak across functions
         // (instrumentation is balanced, so this should not happen).
         m_tempScopes.clear();
+        m_tempPayloadOwners.clear();
     }
     if (m_tempScopes.empty()) m_tempScopeFunction = m_currentFunction;
     m_tempScopes.emplace_back();
@@ -996,6 +1152,7 @@ void IRBuilder::popTempScope() {
     if (m_tempScopes.empty()) return;
     if (m_tempScopeFunction != m_currentFunction) {
         m_tempScopes.clear();
+        m_tempPayloadOwners.clear();
         m_tempScopeFunction = nullptr;
         return;
     }
@@ -1044,6 +1201,18 @@ void IRBuilder::recordTempOwnedValue(IRValuePtr v) {
 }
 
 void IRBuilder::recordTempCallResult(const ast::CallExpr& node) {
+    // Phase 9 slice A: a call returning a tagged union with an owned
+    // payload owns that payload (construction retained it); record
+    // the payload so the statement pop releases it when no adopter
+    // takes the Result. Independent of isFreshPlusOneExpr — builtin
+    // Ok/Err/Some and user-enum constructions have no resolved call
+    // target, and a user fn returning a Result is +1 of the Result
+    // value either way.
+    auto semaRetType = m_sema.getNodeType(&node);
+    if (semaRetType && taggedUnionHasOwnedPayload(semaRetType)) {
+        recordTempTaggedUnion(node);
+        return;
+    }
     if (!isFreshPlusOneExpr(node)) return;
     auto semaType = m_sema.getNodeType(&node);
     // Phase 37 slice B (kept through the slice C merge): widened
@@ -1075,30 +1244,67 @@ void IRBuilder::recordTempLiteralResult(const ast::ExpressionNode& node) {
     recordTempOwnedValue(m_lastExprValue);
 }
 
+void IRBuilder::recordTempTaggedUnion(const ast::CallExpr& node) {
+    // Phase 9 slice A: record the PAYLOAD pointer (the releasable
+    // share), keyed by the struct value it was loaded from — see
+    // adoptTempValue. The payload is loaded eagerly: the struct is a
+    // fresh call result, immutable within the statement, so the
+    // loaded bits are the payload for the whole statement.
+    if (m_tempScopes.empty() && m_tempBranchScopes.empty()) return;
+    auto semaType = m_sema.getNodeType(&node);
+    if (!taggedUnionHasOwnedPayload(semaType)) return;
+    IRValuePtr structVal = m_lastExprValue;
+    if (!structVal || !m_currentBlock) return;
+    IRValuePtr payloadPtr = taggedUnionPayloadPtr(structVal, tuStructBaseName(semaType->toString()));
+    if (!payloadPtr) return;
+    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                  m_currentFunction->nextTempName("tu_temp_payload"));
+    m_currentBlock->addInstruction(loadPayload);
+    IRValuePtr payload = emitCastIfNeeded(loadPayload, IRType::getPointer());
+    recordTempOwnedValue(payload);
+    m_tempPayloadOwners[structVal] = payload;
+}
+
 void IRBuilder::adoptTempValue(IRValuePtr v) {
     if (!v) return;
     // Phase 8 slice D: an adopted value may live in a branch scope
     // (e.g. an assignment inside a short-circuit RHS) — scan those
     // innermost-outward first, then the statement scopes.
-    for (auto it = m_tempBranchScopes.rbegin(); it != m_tempBranchScopes.rend(); ++it) {
-        auto& scope = *it;
-        for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
-            if (*sit == v) {
-                scope.erase(sit);
-                return;
+    auto eraseFromScopes = [&](IRValuePtr x) -> bool {
+        for (auto it = m_tempBranchScopes.rbegin(); it != m_tempBranchScopes.rend(); ++it) {
+            auto& scope = *it;
+            for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
+                if (*sit == x) {
+                    scope.erase(sit);
+                    return true;
+                }
             }
         }
-    }
-    if (m_tempScopes.empty()) return;
-    for (auto it = m_tempScopes.rbegin(); it != m_tempScopes.rend(); ++it) {
-        auto& scope = *it;
-        for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
-            if (*sit == v) {
-                scope.erase(sit);
-                return;
+        if (m_tempScopes.empty()) return false;
+        for (auto it = m_tempScopes.rbegin(); it != m_tempScopes.rend(); ++it) {
+            auto& scope = *it;
+            for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
+                if (*sit == x) {
+                    scope.erase(sit);
+                    return true;
+                }
             }
         }
+        return false;
+    };
+    // Phase 9 slice A: adopting a tagged-union value adopts its
+    // payload — the payload (not the struct) is what was recorded,
+    // so remove it by the struct->payload mapping. All adoption
+    // sites pass the struct, so this one change covers VarDecl,
+    // return, assignment, and construction arguments.
+    auto mapIt = m_tempPayloadOwners.find(v);
+    if (mapIt != m_tempPayloadOwners.end()) {
+        IRValuePtr payload = mapIt->second;
+        m_tempPayloadOwners.erase(mapIt);
+        eraseFromScopes(payload);
+        return;
     }
+    eraseFromScopes(v);
 }
 
 IRBuilder::TempCallRecorder::~TempCallRecorder() {
@@ -1137,6 +1343,11 @@ void IRBuilder::popScope() {
     if (!m_refCountedScopes.empty()) {
         emitScopeDrops(m_refCountedScopes.size() - 1);
         m_refCountedScopes.pop_back();
+    }
+    // Phase 9 slice A: emitScopeDrops already dropped this index's
+    // tagged-union locals (same index, same call) — just pop the list.
+    if (!m_taggedUnionScopes.empty()) {
+        m_taggedUnionScopes.pop_back();
     }
     if (!m_scopes.empty()) {
         m_scopes.pop_back();
@@ -1987,6 +2198,28 @@ void IRBuilder::visit(const ast::VarDeclStmt& node) {
                     std::vector<IRValuePtr>{initVal}
                 );
                 m_currentBlock->addInstruction(retainCall);
+            }
+        }
+    }
+
+    // Phase 9 slice A: a tagged-union local owns its payload — the
+    // scope drop releases it (see emitScopeDrops). A fresh +1
+    // initializer is adopted without a second retain; a borrowed one
+    // is retained into the variable. (No-init locals are NOT
+    // registered: the alloca is uninitialized, and dropping it would
+    // release garbage bits. The first assignment then owns the
+    // release of the old value via AssignExpr, and the final value
+    // leaks one share — a known, leak-only gap, see the slice doc.)
+    if (!isRefCounted && node.hasInitializer()) {
+        auto initSemaType = m_sema.getNodeType(node.getInitializer());
+        if (initSemaType && taggedUnionHasOwnedPayload(initSemaType)) {
+            if (!m_taggedUnionScopes.empty()) {
+                m_taggedUnionScopes.back().push_back(
+                    {node.getName(), varAddr, tuStructBaseName(initSemaType->toString())});
+            }
+            adoptTempValue(initVal);
+            if (initVal && !isFreshPlusOneExpr(*node.getInitializer())) {
+                emitRetainTaggedUnionPayload(initVal, initSemaType);
             }
         }
     }
@@ -4595,6 +4828,10 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
         rhsVal = binInst;
     }
 
+    // Phase 9 slice A: the struct load below replaces a pointer RHS
+    // with the loaded struct value — but the temp record is keyed by
+    // the pointer, so keep it for adopt/retain.
+    IRValuePtr rhsPreLoad = rhsVal;
     if (valType && valType->isStruct() && rhsVal && rhsVal->getType()->isPointer()) {
         auto loadInst = std::make_shared<LoadInst>(valType, rhsVal, m_currentFunction->nextTempName("tu_assign"));
         m_currentBlock->addInstruction(loadInst);
@@ -4645,6 +4882,23 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
         }
     }
 
+    // Phase 9 slice A: assigning a tagged-union value mirrors the
+    // class path, but the payload (not the struct) is retained and
+    // the OLD value's payload is released before the store. (The
+    // target may be a local or a field; a field's payload leaks
+    // when its object dies — the Phase 8-A "struct fields holding
+    // refs" gap, noted in the slice doc — but the assignment itself
+    // must still transfer ownership correctly.)
+    bool isTaggedUnionAssignment = false;
+    sema::TypePtr tuAssignType = nullptr;
+    if (node.getOp() == lexer::TokenType::Equal && valType && valType->isStruct()) {
+        auto rhsSemaType = m_sema.getNodeType(&node.getValue());
+        if (rhsSemaType && taggedUnionHasOwnedPayload(rhsSemaType)) {
+            isTaggedUnionAssignment = true;
+            tuAssignType = rhsSemaType;
+        }
+    }
+
     if (isRefAssignment) {
         // Phase 6 slice C: the +1 return convention (see VarDecl).
         // Phase 7 slice C: adopt the assigned value — the field /
@@ -4677,6 +4931,22 @@ void IRBuilder::visit(const ast::AssignExpr& node) {
             std::vector<IRValuePtr>{loadOld}
         );
         m_currentBlock->addInstruction(releaseCall);
+    } else if (isTaggedUnionAssignment) {
+        // Phase 9 slice A: adopt the new value's payload (the temp
+        // record is keyed by the pre-load pointer), retain it when
+        // borrowed, release the OLD payload, then store. The old
+        // struct is loaded from the slot first — a no-init local's
+        // first assignment releases whatever bits the slot held
+        // (same pre-existing assumption as the class path).
+        adoptTempValue(rhsPreLoad);
+        if (!isFreshPlusOneExpr(node.getValue())) {
+            emitRetainTaggedUnionPayload(rhsPreLoad, tuAssignType);
+        }
+        auto loadOldStruct = std::make_shared<LoadInst>(valType, targetPtr,
+                                                        m_currentFunction->nextTempName("tu_old"));
+        m_currentBlock->addInstruction(loadOldStruct);
+        emitReleaseTaggedUnionPayload(loadOldStruct, tuAssignType);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, targetPtr));
     } else {
         m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhsVal, targetPtr));
     }
@@ -6138,12 +6408,18 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (targetName == "Result" || targetName.rfind("Result<", 0) == 0) {
                 if (methodName == "Ok" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
+                    emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                                      m_sema.getNodeType(node.getArgs()[0].get()),
+                                                      m_lastExprValue);
                     m_lastExprValue = emitCreateTaggedUnion("Result", 0, m_lastExprValue);
                     m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
                     return;
                 }
                 if (methodName == "Err" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
+                    emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                                      m_sema.getNodeType(node.getArgs()[0].get()),
+                                                      m_lastExprValue);
                     m_lastExprValue = emitCreateTaggedUnion("Result", 1, m_lastExprValue);
                     m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
                     return;
@@ -6152,6 +6428,9 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (targetName == "Option" || targetName.rfind("Option<", 0) == 0) {
                 if (methodName == "Some" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
+                    emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                                      m_sema.getNodeType(node.getArgs()[0].get()),
+                                                      m_lastExprValue);
                     m_lastExprValue = emitCreateTaggedUnion("Option", 0, m_lastExprValue);
                     m_lastExprType = ir::IRType::getStruct("struct.Option", {IRType::getInt32(), IRType::getInt64()});
                     return;
@@ -6172,6 +6451,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     if (!node.getArgs().empty()) {
                         node.getArgs()[0]->accept(*this);
                         payloadVal = m_lastExprValue;
+                        // Phase 9 slice A: a user-enum variant owns
+                        // its payload exactly like Result.Ok does.
+                        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                                          m_sema.getNodeType(node.getArgs()[0].get()),
+                                                          payloadVal);
                     }
                     m_lastExprValue = emitCreateTaggedUnion(targetName, static_cast<int32_t>(variantVal), payloadVal);
                     m_lastExprType = ir::IRType::getStruct("struct." + targetName, {IRType::getInt32(), IRType::getInt64()});
@@ -8297,18 +8581,27 @@ void IRBuilder::visit(const ast::CallExpr& node) {
 
     if (calleeName == "Ok" && node.getArgs().size() == 1) {
         node.getArgs()[0]->accept(*this);
+        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                          m_sema.getNodeType(node.getArgs()[0].get()),
+                                          m_lastExprValue);
         m_lastExprValue = emitCreateTaggedUnion("Result", 0, m_lastExprValue);
         m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
         return;
     }
     if (calleeName == "Err" && node.getArgs().size() == 1) {
         node.getArgs()[0]->accept(*this);
+        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                          m_sema.getNodeType(node.getArgs()[0].get()),
+                                          m_lastExprValue);
         m_lastExprValue = emitCreateTaggedUnion("Result", 1, m_lastExprValue);
         m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
         return;
     }
     if (calleeName == "Some" && node.getArgs().size() == 1) {
         node.getArgs()[0]->accept(*this);
+        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
+                                          m_sema.getNodeType(node.getArgs()[0].get()),
+                                          m_lastExprValue);
         m_lastExprValue = emitCreateTaggedUnion("Option", 0, m_lastExprValue);
         m_lastExprType = ir::IRType::getStruct("struct.Option", {IRType::getInt32(), IRType::getInt64()});
         return;
@@ -10317,6 +10610,16 @@ void IRBuilder::visit(const ast::TryExpr& node) {
     // 4. Error block: early return!
     setInsertPoint(errBB);
     emitAllFunctionDrops();
+    // Phase 9 slice A: the early return abandons the statement, so
+    // its pending temporaries must be released here (the statement
+    // pop never runs on this path) — except the operand's own
+    // payload, which MOVES into the returned Result. This also
+    // flushes class temporaries produced earlier in the same
+    // statement (a pre-existing leak class, Phase 7-C §6).
+    IRValuePtr operandPayload = nullptr;
+    auto payloadIt = m_tempPayloadOwners.find(operandVal);
+    if (payloadIt != m_tempPayloadOwners.end()) operandPayload = payloadIt->second;
+    emitPendingTempReleasesExcept(operandPayload);
     IRTypePtr retType = m_currentFunction->getReturnType();
     if (retType->isStruct()) {
         auto earlyRetVal = std::make_shared<LoadInst>(
