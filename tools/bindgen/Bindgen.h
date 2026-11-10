@@ -95,10 +95,43 @@ private:
     std::unordered_set<std::string> m_knownEnumNames;
     std::unordered_set<std::string> m_knownFunctionNames;
     std::unordered_map<std::string, CType> m_typedefAliases;
+    // Phase 39 slice C: `#define NAME <type>` aliases (zlib's
+    // z_off64_t). Kept SEPARATE from real typedefs: a header's
+    // inactive-#ifdef renames (`#ifdef Z_PREFIX`: Byte -> z_Byte,
+    // voidpf -> z_voidpf) must never clobber a real typedef from an
+    // earlier file, and a macro name (FAR) must never count as a
+    // known type in parseCType's pre-scan. resolveTypedef consults
+    // real typedefs first, then these.
+    std::unordered_map<std::string, CType> m_defineTypeAliases;
+    // Phase 39 slice C: files already parsed via #include following.
+    std::unordered_set<std::string> m_visitedFiles;
+
+    // Phase 39 slice C: tokenize + parse one header's content
+    // WITHOUT clearing the accumulated results (shared by
+    // parseHeader and the recursive #include path).
+    bool parseContent(const std::string& headerContent);
+    bool parseFileRecursive(const std::string& filePath);
 
     void parseTokens(const std::vector<std::string>& tokens);
     CType parseCType(size_t& idx, const std::vector<std::string>& tokens);
     void skipAttributes(size_t& idx, const std::vector<std::string>& tokens);
+    // Phase 39 slice C: resolve a parsed type through the typedef
+    // alias map (chained, cycle-guarded), merging pointer depth
+    // and const/unsigned flags.
+    CType resolveTypedef(CType type) const;
+    // Phase 39 slice C: parse a `(*name)(params)` function-pointer
+    // declarator at tokens[idx] == "(". On success idx is past the
+    // closing paren and outName holds the declarator name. The
+    // signature is discarded: SP has no function-type syntax, so a
+    // fn pointer is `ptr<void>` at every use site.
+    bool parseFnPointerDeclarator(size_t& idx, const std::vector<std::string>& tokens,
+                                  std::string& outName);
+    // Phase 39 slice C: parse the fields of a struct body at
+    // tokens[idx] == "{" (idx ends past "}"). `outerName` is the
+    // enclosing struct's name, used to synthesize names for named
+    // anonymous struct/union fields.
+    void parseStructFields(size_t& idx, const std::vector<std::string>& tokens,
+                           CStruct& out, const std::string& outerName);
 };
 
 } // namespace sp::bindgen

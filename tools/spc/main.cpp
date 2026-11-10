@@ -1428,6 +1428,8 @@ int main(int argc, char* argv[]) {
         std::string headerFile;
         std::string outputFile;
         std::string moduleName;
+        // Phase 39 slice C: include dirs for #include following.
+        std::vector<std::string> includeDirs;
 
         for (int i = 2; i < argc; ++i) {
             std::string_view arg = argv[i];
@@ -1435,6 +1437,14 @@ int main(int argc, char* argv[]) {
                 outputFile = argv[++i];
             } else if (arg == "--module" && i + 1 < argc) {
                 moduleName = argv[++i];
+            } else if (arg == "-I" && i + 1 < argc) {
+                includeDirs.push_back(argv[++i]);
+            } else if (arg.starts_with("-I")) {
+                includeDirs.push_back(std::string(arg.substr(2)));
+            } else if (arg == "--include-dir" && i + 1 < argc) {
+                includeDirs.push_back(argv[++i]);
+            } else if (arg.starts_with("--include-dir=")) {
+                includeDirs.push_back(std::string(arg.substr(14)));
             } else if (!arg.starts_with("-")) {
                 if (headerFile.empty()) {
                     headerFile = arg;
@@ -1444,12 +1454,13 @@ int main(int argc, char* argv[]) {
 
         if (headerFile.empty()) {
             std::cerr << "error: no input C header file specified\n"
-                      << "Usage: spc bindgen <header.h> [-o <out.sp>] [--module <name>]\n";
+                      << "Usage: spc bindgen <header.h> [-o <out.sp>] [--module <name>] [-I <dir>]...\n";
             return 1;
         }
 
         sp::bindgen::BindgenOptions opts;
         opts.moduleName = moduleName;
+        opts.includeDirs = includeDirs;
         sp::bindgen::Bindgen bg(opts);
 
         if (!bg.parseFile(headerFile)) {

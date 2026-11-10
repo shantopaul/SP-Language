@@ -1434,7 +1434,9 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
         consume(lexer::TokenType::Greater, "Expected '>' after generic type parameters");
     }
 
-    std::vector<ast::Parameter> params = parseParameters();
+    // Phase 39 slice C: record a trailing `...` (C variadic).
+    bool isVariadic = false;
+    std::vector<ast::Parameter> params = parseParameters(&isVariadic);
 
     std::string returnType = "void";
     if (match(lexer::TokenType::Arrow) || match(lexer::TokenType::Colon)) {
@@ -1462,6 +1464,7 @@ ast::ASTNodePtr Parser::parseFunctionDecl(std::string visibility, bool isStatic,
         visibility, isStatic, isOverride, isAbstract, isAsync, loc);
     fnDecl->setUnsafe(isUnsafe);
     fnDecl->setComptime(isComptime);
+    fnDecl->setVariadic(isVariadic);
     return fnDecl;
 }
 
@@ -1807,12 +1810,31 @@ std::string Parser::parseType() {
     return type;
 }
 
-std::vector<ast::Parameter> Parser::parseParameters() {
+std::vector<ast::Parameter> Parser::parseParameters(bool* isVariadic) {
     consume(lexer::TokenType::OpenParen, "Expected '(' to begin parameter list");
     std::vector<ast::Parameter> params;
 
     if (!check(lexer::TokenType::CloseParen)) {
         do {
+            // Phase 39 slice C: C variadic marker `...` (lexed as
+            // DotDot + Dot) as the last parameter of a declaration
+            // (e.g. `fn printf(fmt: ptr<char>, ...)`). Recorded on
+            // the FunctionDecl; the IR declares the fixed params
+            // only, so calls with extra args are a loud sema arity
+            // error until variadic calls land.
+            if (check(lexer::TokenType::DotDot) && checkNext(lexer::TokenType::Dot)) {
+                advance(); // ..
+                advance(); // .
+                if (!isVariadic) {
+                    errorAt(peek(), "variadic '...' is only allowed in a function declaration");
+                } else {
+                    *isVariadic = true;
+                }
+                if (!check(lexer::TokenType::CloseParen)) {
+                    errorAt(peek(), "variadic '...' must be the last parameter");
+                }
+                break;
+            }
             std::string type;
             std::string paramName;
 
