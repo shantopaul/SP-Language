@@ -161,6 +161,14 @@ bool TcpSocket::connect(const std::string& host, int port, int timeoutMs) {
         return true;
     }
 
+    // Phase 40 slice D: wait for writability without select(). select()
+    // takes an fd_set capped at FD_SETSIZE (1024) — FD_SET on a larger
+    // fd aborts the whole process via __fdelt_chk. poll() takes the fd
+    // directly, so it has no such cap; every SP program opening more
+    // than ~512 connections hit the abort in connect() before this fix.
+    // Windows keeps select() (unchanged behaviour there).
+    bool writable = false;
+#if defined(_WIN32)
     fd_set writeSet;
     FD_ZERO(&writeSet);
     FD_SET(m_handle, &writeSet);
@@ -170,7 +178,18 @@ bool TcpSocket::connect(const std::string& host, int port, int timeoutMs) {
     tv.tv_usec = (timeoutMs % 1000) * 1000;
 
     int selRes = select(static_cast<int>(m_handle + 1), nullptr, &writeSet, nullptr, &tv);
-    if (selRes > 0 && FD_ISSET(m_handle, &writeSet)) {
+    writable = selRes > 0 && FD_ISSET(m_handle, &writeSet);
+#else
+    struct pollfd pfd{};
+    pfd.fd = m_handle;
+    pfd.events = POLLOUT;
+    pfd.revents = 0;
+    int pollRes = ::poll(&pfd, 1, timeoutMs);
+    // A failed connect reports POLLERR (with POLLOUT); SO_ERROR below
+    // distinguishes it from a successful one, exactly as select() did.
+    writable = pollRes > 0 && (pfd.revents & (POLLOUT | POLLERR)) != 0;
+#endif
+    if (writable) {
         int so_error = 0;
         socklen_t len = sizeof(so_error);
         getsockopt(m_handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &len);
@@ -331,16 +350,40 @@ std::unique_ptr<TcpSocket> TcpListener::accept() {
 std::unique_ptr<TcpSocket> TcpListener::acceptTimeout(int timeoutMs) {
     if (m_handle == SP_INVALID_SOCKET) return nullptr;
 
+    // Snapshot the handle: another thread may close the listener (e.g.
+    // HttpServer::stop()) while the wait blocks. Reading m_handle again
+    // after the wait could see SP_INVALID_SOCKET (-1); the snapshot
+    // keeps every wait operation on the fd actually waited on; if the
+    // listener was closed meanwhile, accept() fails and we return
+    // nullptr. (Phase 31: this race aborted every HttpServer test that
+    // called stop() while the accept thread was mid-select — the same
+    // abort the fortified FD_ISSET(-1) caused.)
+    sp_socket_handle_t fd = m_handle;
+    // Phase 40 slice D: poll() instead of select() — select() aborts
+    // via __fdelt_chk for fds >= FD_SETSIZE (1024), which capped every
+    // SP program (and the HTTP accept thread) at ~512 connections.
+    // Windows keeps select() (unchanged behaviour there).
+    bool readable = false;
+#if defined(_WIN32)
     fd_set readSet;
     FD_ZERO(&readSet);
-    FD_SET(m_handle, &readSet);
+    FD_SET(fd, &readSet);
 
     struct timeval tv{};
     tv.tv_sec = timeoutMs / 1000;
     tv.tv_usec = (timeoutMs % 1000) * 1000;
 
-    int selRes = select(static_cast<int>(m_handle + 1), &readSet, nullptr, nullptr, &tv);
-    if (selRes > 0 && FD_ISSET(m_handle, &readSet)) {
+    int selRes = select(static_cast<int>(fd + 1), &readSet, nullptr, nullptr, &tv);
+    readable = selRes > 0 && FD_ISSET(fd, &readSet);
+#else
+    struct pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    int pollRes = ::poll(&pfd, 1, timeoutMs);
+    readable = pollRes > 0 && (pfd.revents & (POLLIN | POLLERR | POLLHUP)) != 0;
+#endif
+    if (readable) {
         return accept();
     }
     return nullptr;
@@ -397,6 +440,30 @@ bool UdpSocket::setNonBlocking(bool nonBlocking) {
     flags = nonBlocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
     return fcntl(m_handle, F_SETFL, flags) == 0;
 #endif
+}
+
+// Phase 4 slice D: same SO_RCVTIMEO/SO_SNDTIMEO semantics as
+// TcpSocket::setTimeouts. Without a receive timeout, recvFrom blocked
+// forever on a lost datagram and the test suite hung until ctest killed it.
+bool UdpSocket::setTimeouts(int recvTimeoutMs, int sendTimeoutMs) {
+    if (m_handle == SP_INVALID_SOCKET) return false;
+#if defined(_WIN32)
+    DWORD rTimeout = static_cast<DWORD>(recvTimeoutMs);
+    DWORD sTimeout = static_cast<DWORD>(sendTimeoutMs);
+    setsockopt(m_handle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rTimeout), sizeof(rTimeout));
+    setsockopt(m_handle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sTimeout), sizeof(sTimeout));
+#else
+    struct timeval tvR;
+    tvR.tv_sec = recvTimeoutMs / 1000;
+    tvR.tv_usec = (recvTimeoutMs % 1000) * 1000;
+    setsockopt(m_handle, SOL_SOCKET, SO_RCVTIMEO, &tvR, sizeof(tvR));
+
+    struct timeval tvS;
+    tvS.tv_sec = sendTimeoutMs / 1000;
+    tvS.tv_usec = (sendTimeoutMs % 1000) * 1000;
+    setsockopt(m_handle, SOL_SOCKET, SO_SNDTIMEO, &tvS, sizeof(tvS));
+#endif
+    return true;
 }
 
 bool UdpSocket::bind(const std::string& host, int port) {

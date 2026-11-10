@@ -17,6 +17,31 @@ extern "C" {
     fn sp_rt_ws_hub_leave(ptr hub, int conn_id, string room);
     fn sp_rt_ws_hub_size(ptr hub) -> int;
     fn sp_rt_ws_hub_room_size(ptr hub, string room) -> int;
+    // Phase 3 slice A: route registration + send. The handler is a bare
+    // SP fn passed as `ptr` (its real address is lowered by the
+    // compiler); the runtime bridge calls it with the C ABI below.
+    //   handler: fn onMessage(int64 connId, string msg)
+    // `int64` matches the C `int64_t conn_id` exactly.
+    fn sp_rt_ws_route(string path, ptr handlerFnPtr);
+    fn sp_rt_ws_send(int64 conn_id, string msg) -> bool;
+    fn sp_rt_ws_broadcast(string msg);
+}
+
+// Phase 3 slice A: route text messages on `path` to an SP handler fn:
+//   fn onChat(int64 connId, string msg) { wsSend(connId, "echo: " + msg); }
+//   wsRoute("/chat", onChat);
+// The handler runs on the connection's worker thread and may call
+// wsSend. The route registry is process-wide.
+public fn wsRoute(string path, ptr handlerFnPtr) {
+    sp_rt_ws_route(path, handlerFnPtr);
+}
+
+public fn wsSend(int64 connId, string msg) -> bool {
+    return sp_rt_ws_send(connId, msg);
+}
+
+public fn wsBroadcast(string msg) {
+    sp_rt_ws_broadcast(msg);
 }
 
 public class WebSocket {

@@ -103,7 +103,7 @@ private:
     ast::ASTNodePtr parseTestDecl();
 
     std::string parseType();
-    std::vector<ast::Parameter> parseParameters();
+    std::vector<ast::Parameter> parseParameters(bool* isVariadic = nullptr);
 
     static bool isTypeKeyword(lexer::TokenType type) noexcept;
     static bool isModulePathSegment(lexer::TokenType type) noexcept;

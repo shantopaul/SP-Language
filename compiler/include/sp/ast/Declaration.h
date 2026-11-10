@@ -87,6 +87,18 @@ public:
     [[nodiscard]] bool isAsync() const noexcept { return m_isAsync; }
     [[nodiscard]] bool isUnsafe() const noexcept { return m_isUnsafe; }
     void setUnsafe(bool unsafe) noexcept { m_isUnsafe = unsafe; }
+    // Phase 39 slice A: set by the parser for functions declared
+    // inside an `extern "C" { ... }` block. The C ABI passes structs
+    // by value; SP-internal calls pass them by pointer, so the
+    // distinction must survive to IRBuilder's declaration sites.
+    [[nodiscard]] bool isExternC() const noexcept { return m_isExternC; }
+    void setExternC(bool externC) noexcept { m_isExternC = externC; }
+    // Phase 39 slice C: `...` as the last parameter (C variadic,
+    // e.g. `fn printf(fmt: ptr<char>, ...)`). Recorded only — the IR
+    // declares the fixed params, so calls with extra args are a loud
+    // sema arity error until variadic calls land.
+    [[nodiscard]] bool isVariadic() const noexcept { return m_isVariadic; }
+    void setVariadic(bool variadic) noexcept { m_isVariadic = variadic; }
     [[nodiscard]] bool isComptime() const noexcept { return m_isComptime; }
     void setComptime(bool comptime) noexcept { m_isComptime = comptime; }
 
@@ -114,7 +126,9 @@ private:
     bool m_isAbstract;
     bool m_isAsync;
     bool m_isUnsafe{false};
+    bool m_isExternC{false};
     bool m_isComptime{false};
+    bool m_isVariadic{false};
     std::vector<Annotation> m_annotations;
 };
 

@@ -57,6 +57,14 @@ public:
         m_workspaceMembers.push_back(member);
     }
 
+    // Phase 39 slice B: [native] section — native libraries to link
+    // (bare names, e.g. "mini" -> -lmini) and extra library search
+    // paths. Used by the spm build path (BuildOrchestrator).
+    const std::vector<std::string>& getNativeLibs() const { return m_nativeLibs; }
+    const std::vector<std::string>& getNativeLibPaths() const { return m_nativeLibPaths; }
+    void setNativeLibs(std::vector<std::string> libs) { m_nativeLibs = std::move(libs); }
+    void setNativeLibPaths(std::vector<std::string> paths) { m_nativeLibPaths = std::move(paths); }
+
     const std::string& getLastError() const { return m_lastError; }
 
 private:
@@ -65,10 +73,14 @@ private:
     std::vector<Dependency> m_devDependencies;
     bool m_isWorkspace{false};
     std::vector<std::string> m_workspaceMembers;
+    std::vector<std::string> m_nativeLibs;
+    std::vector<std::string> m_nativeLibPaths;
     mutable std::string m_lastError;
 
     static std::string trim(const std::string& s);
     static std::string stripQuotes(const std::string& s);
+    // Phase 39 slice B: split a TOML string-array body into values.
+    static void parseStringArrayItems(const std::string& items, std::vector<std::string>& out);
     static Dependency parseDependencyValue(const std::string& name, const std::string& val);
 };
 

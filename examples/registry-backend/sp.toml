@@ -1,0 +1,17 @@
+[package]
+name = "registry-backend"
+version = "3.1.0"
+description = "SP Registry backend dogfooded in SP: package publish, verify, info and download over SQLite"
+edition = "2026"
+entry = "src/main.sp"
+type = "bin"
+
+[dependencies]
+std.http = ">=2.3.0"
+std.web = ">=2.7.0"
+std.json = ">=2.4.0"
+std.db = ">=2.5.0"
+std.crypto = ">=1.6.0"
+std.os = ">=1.0.0"
+std.fs = ">=1.0.0"
+std.string = ">=1.0.0"

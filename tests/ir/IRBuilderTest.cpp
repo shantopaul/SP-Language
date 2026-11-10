@@ -4,6 +4,7 @@
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/ir/IRPrinter.h"
+#include "sp/ir/IRVerifier.h"
 
 using namespace sp;
 
@@ -41,7 +42,10 @@ TEST(IRBuilderTest, HelloSPGeneratesMainAndPrintlnCall) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("define i32 @main() {"), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @main(i32 %argc, ptr %argv) {"), std::string::npos);
+    // Phase 6 slice B: main forwards (argc, argv) to the runtime so
+    // OS.args() sees the real arguments.
+    EXPECT_NE(irStr.find("call void @sp_rt_set_args(i32 %argc, ptr %argv)"), std::string::npos);
     EXPECT_NE(irStr.find("call void @sp_rt_println_string(ptr @.str.0)"), std::string::npos);
     EXPECT_NE(irStr.find("ret i32 0"), std::string::npos);
 }
@@ -62,7 +66,9 @@ TEST(IRBuilderTest, ArithmeticAndVariables) {
     ir::IRPrinter printer;
     std::string irStr = printer.print(*module);
 
-    EXPECT_NE(irStr.find("define i32 @main() {"), std::string::npos);
+    // Phase 6 slice B: main now takes (argc, argv) so OS.args() can
+    // return the real arguments.
+    EXPECT_NE(irStr.find("define i32 @main(i32 %argc, ptr %argv) {"), std::string::npos);
     EXPECT_NE(irStr.find("alloca i32"), std::string::npos);
     EXPECT_NE(irStr.find("mul i32"), std::string::npos);
     EXPECT_NE(irStr.find("add i32"), std::string::npos);
@@ -184,4 +190,1249 @@ TEST(IRBuilderTest, ARCClassAssignmentEmitsRetainAndRelease) {
     EXPECT_NE(irStr.find("sp_rt_arc_alloc"), std::string::npos);
     EXPECT_NE(irStr.find("sp_rt_retain"), std::string::npos);
     EXPECT_NE(irStr.find("sp_rt_release"), std::string::npos);
+}
+
+// Phase 1 (pro-4.0.0): && must short-circuit. The RHS lives in its own
+// block, reached only when the LHS is true, and no eager "and i1" is
+// emitted. The finished module must also pass IR verification.
+TEST(IRBuilderTest, ShortCircuitAndSkipsRHS) {
+    const std::string source = R"(
+        fn check(a: bool, b: bool) -> bool {
+            return a && b;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("and_rhs_"), std::string::npos);
+    EXPECT_NE(irStr.find("and_merge_"), std::string::npos);
+    EXPECT_NE(irStr.find("br i1"), std::string::npos);
+    EXPECT_EQ(irStr.find("and i1"), std::string::npos);
+}
+
+// Phase 1 (pro-4.0.0): || must short-circuit the same way: the RHS block
+// is reached only when the LHS is false.
+TEST(IRBuilderTest, ShortCircuitOrSkipsRHS) {
+    const std::string source = R"(
+        fn check(a: bool, b: bool) -> bool {
+            return a || b;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("or_rhs_"), std::string::npos);
+    EXPECT_NE(irStr.find("or_merge_"), std::string::npos);
+    EXPECT_NE(irStr.find("br i1"), std::string::npos);
+    EXPECT_EQ(irStr.find("or i1"), std::string::npos);
+}
+
+// Phase 1 (pro-4.0.0): constructs with no lowering must fail compilation
+// loudly (nullptr from build()) instead of being silently dropped. These
+// programs all pass lexing/parsing/semantic analysis; the rejection comes
+// from IRBuilder.
+// Parent fix (Phase 3): throw/try-catch/map literals now HAVE real
+// lowering (slice B), so the three tests below assert they COMPILE
+// instead of failing. The `AwaitExpressionFailsIRGeneration` test is
+// unchanged — `await 1` still fails loudly.
+TEST(IRBuilderTest, ThrowStatementLowersIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            throw "boom";
+        }
+    )";
+
+    EXPECT_NE(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, TryCatchStatementLowersIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            try {
+                println("try");
+            } catch (Exception e) {
+                println("caught");
+            }
+        }
+    )";
+
+    EXPECT_NE(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, MapLiteralLowersIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            var m = {"a": 1};
+        }
+    )";
+
+    EXPECT_NE(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, AwaitExpressionFailsIRGeneration) {
+    const std::string source = R"(
+        async fn worker() {
+            await 1;
+        }
+
+        fn main() {
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A (pro-4.0.0): a bare free function used as a value now
+// lowers to its real address (this replaces the Phase 2 loud error, which
+// fired because function pointers were not lowered yet). The IR must pass
+// `@handler` itself, not a null constant, to the extern registration
+// function — a null callback is what silently sent queue jobs to the DLQ.
+TEST(IRBuilderTest, BareFunctionNameAsValueLowersToRealAddress) {
+    const std::string source = R"(
+        extern "C" {
+            fn fake_register(ptr handler);
+        }
+
+        fn handler() {
+            println("hi");
+        }
+
+        fn main() {
+            fake_register(handler);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define void @handler()"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @fake_register(ptr @handler)"), std::string::npos);
+}
+
+// Phase 3 slice A: a bare function assigned to a `ptr` variable also
+// lowers to its address, and calling through the variable works.
+TEST(IRBuilderTest, FunctionPointerAssignedToPtrVariable) {
+    const std::string source = R"(
+        fn doubleIt(int x) -> int {
+            return x * 2;
+        }
+
+        fn main() -> int {
+            let f = doubleIt;
+            return f(21);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @doubleIt(i32 %x)"), std::string::npos);
+    // The variable holds the address, not a null constant.
+    EXPECT_NE(irStr.find("@doubleIt"), std::string::npos);
+}
+
+// Phase 3 slice A: same-name free functions with different signatures
+// coexist (mangled by signature) and each call site resolves to the
+// right one. Single-definition functions keep their plain names (see
+// the fib test above), so only overloaded names gain a suffix.
+TEST(IRBuilderTest, OverloadedFreeFunctionsBothCompileAndResolve) {
+    const std::string source = R"(
+        fn add(int a, int b) -> int {
+            return a + b;
+        }
+
+        fn add(int a, int b, int c) -> int {
+            return a + b + c;
+        }
+
+        fn main() -> int {
+            let x = add(1, 2);
+            let y = add(1, 2, 3);
+            return x + y;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @add__int_int(i32 %a, i32 %b)"), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @add__int_int_int(i32 %a, i32 %b, i32 %c)"), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @add__int_int("), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @add__int_int_int("), std::string::npos);
+    // No plain-`@add(` definition or call may remain.
+    EXPECT_EQ(irStr.find("define i32 @add("), std::string::npos);
+    EXPECT_EQ(irStr.find("call i32 @add("), std::string::npos);
+}
+
+// Phase 3 slice A: same-name overloads differing by parameter TYPE
+// (not just arity) also mangle and resolve correctly.
+TEST(IRBuilderTest, OverloadedFreeFunctionsByParamType) {
+    const std::string source = R"(
+        fn describe(int x) -> int {
+            return x;
+        }
+
+        fn describe(string s) -> int {
+            return 42;
+        }
+
+        fn main() -> int {
+            let a = describe(7);
+            let b = describe("hi");
+            return a + b;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @describe__int(i32 %x)"), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @describe__string(ptr %s)"), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @describe__int("), std::string::npos);
+    EXPECT_NE(irStr.find("call i32 @describe__string("), std::string::npos);
+}
+
+// Phase 3 slice A: same-name methods with different signatures coexist
+// on one class and virtual dispatch picks the right slot.
+TEST(IRBuilderTest, OverloadedMethodsBothCompileAndResolve) {
+    const std::string source = R"(
+        class Greeter {
+            public fn greet(int times) -> int {
+                return times;
+            }
+
+            public fn greet(string name) -> int {
+                return 1;
+            }
+        }
+
+        fn main() -> int {
+            let g = new Greeter();
+            let a = g.greet(3);
+            let b = g.greet("shanto");
+            return a + b;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define i32 @Greeter_greet__int("), std::string::npos);
+    EXPECT_NE(irStr.find("define i32 @Greeter_greet__string("), std::string::npos);
+    // Both overloads occupy vtable slots (two distinct function pointers).
+    EXPECT_NE(irStr.find("@Greeter_greet__int"), std::string::npos);
+    EXPECT_NE(irStr.find("@Greeter_greet__string"), std::string::npos);
+}
+
+// Phase 3 slice A: a bare OVERLOADED name as a value is still ambiguous
+// (SP has only untyped `ptr`, so no overload can be picked) and must
+// fail loudly instead of silently becoming null.
+TEST(IRBuilderTest, OverloadedBareNameAsValueStillFailsIRGeneration) {
+    const std::string source = R"(
+        extern "C" {
+            fn fake_register(ptr handler);
+        }
+
+        fn handler(int x) -> int {
+            return x;
+        }
+
+        fn handler(string s) -> int {
+            return 0;
+        }
+
+        fn main() {
+            fake_register(handler);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A: a bare method name as a value (needs an instance)
+// still fails loudly.
+TEST(IRBuilderTest, BareMethodNameAsValueStillFailsIRGeneration) {
+    const std::string source = R"(
+        extern "C" {
+            fn fake_register(ptr handler);
+        }
+
+        class Worker {
+            public fn run() {
+                fake_register(run);
+            }
+        }
+
+        fn main() {
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A: a lambda that captures an outer variable still fails
+// loudly (capturing lambdas are not lowered; previously the captured
+// variable silently became 0 inside the lambda body).
+TEST(IRBuilderTest, CapturingLambdaAsValueStillFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() -> int {
+            let base = 10;
+            let f = (int x) -> int { return x + base; };
+            return f(5);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice A: a non-capturing lambda still compiles (control case
+// for the capture check above).
+TEST(IRBuilderTest, NonCapturingLambdaStillCompiles) {
+    // Parent fix (Phase 3): slice A wrote the lambda with `-> int`
+    // syntax, which the parser rejects — lambdas use a fat arrow:
+    // `(int x) => { ... }` (see Parser::parseGroupedOrLambda).
+    const std::string source = R"(
+        fn main() -> int {
+            let f = (int x) => { return x * 2; };
+            return f(21);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+}
+
+// Phase 2 (pro-4.0.0, parent fix): a `char` passed where a string method
+// expects a string must fail loudly. The old lowering passed the raw char
+// value as a `ptr` to strstr etc. — `"abc".indexOf('b')` segfaulted the
+// compiled program (char value 0x62 used as a needle pointer). Sema does
+// not check these intrinsic string-method arguments, so IRBuilder guards
+// them with error[E1000].
+TEST(IRBuilderTest, StringIndexOfWithCharArgFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            let s = "abc";
+            let i = s.indexOf('b');
+            println(i);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, StringContainsWithCharArgFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            let s = "abc";
+            if (s.contains('b')) {
+                println("yes");
+            }
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Positive control for the guard above: the same calls with real strings
+// must still compile.
+TEST(IRBuilderTest, StringIndexOfWithStringArgStillCompiles) {
+    const std::string source = R"(
+        fn main() {
+            let s = "abc";
+            let i = s.indexOf("b");
+            println(i);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+}
+
+// Phase 2 slice B2 (pro-4.0.0) + Phase 5 slice A: `await sleep_async(ms)`
+// inside an async fn lowers through the heap-frame state machine (see
+// asyncSuspendAndLoad): the await registers the resume fn as the
+// task's continuation and suspends (no pump-await call), and the
+// temporary task is destroyed after the resume. It must NOT call the
+// blocking sleep.
+TEST(IRBuilderTest, AwaitSleepAsyncLowersToAsyncRuntime) {
+    const std::string source = R"(
+        async fn worker() {
+            await sleep_async(50);
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_default_scheduler()"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_sleep_ms(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @__sp_async_resume_worker(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_destroy(ptr"), std::string::npos);
+    // The pump path is gone in the state machine: no await_* call.
+    EXPECT_EQ(irStr.find("call void @sp_rt_async_task_await_void(ptr"), std::string::npos);
+    // The module still *declares* the blocking sleeps (they are part of
+    // the runtime declarations), but the await path must not *call* them.
+    EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
+    EXPECT_EQ(irStr.find("call void @sp_rt_thread_sleep_ms"), std::string::npos);
+}
+
+// Phase 2 slice B2: `await delayed_value(ms, value)` lowers and yields
+// the int value, so it can initialize a variable and be returned.
+TEST(IRBuilderTest, AwaitDelayedValueLowersAndYieldsInt) {
+    const std::string source = R"(
+        async fn worker() -> int {
+            var x = await delayed_value(50, 42);
+            return x;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    // The body is the state-machine entry `void (ptr, ptr)`; the
+    // finish block completes the task with the int payload.
+    EXPECT_NE(irStr.find("define void @worker(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_i64(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call i64 @sp_rt_async_task_await_i64(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
+}
+
+// Phase 2 slice B2: pump-based lowering works inside control flow too —
+// an await in a loop body is still just calls in the loop's block.
+TEST(IRBuilderTest, AwaitSleepAsyncInsideLoopLowers) {
+    const std::string source = R"(
+        async fn worker() {
+            var i = 0;
+            while (i < 3) {
+                await sleep_async(10);
+                i = i + 1;
+            }
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+    EXPECT_NE(irStr.find("sp_rt_async_sleep_ms"), std::string::npos);
+    EXPECT_NE(irStr.find("while_body_"), std::string::npos);
+}
+
+// Phase 2 slice B2: awaiting anything outside the supported subset still
+// fails loudly (nullptr) instead of miscompiling: a sync call, an
+// identifier, and a call to another (user) async fn.
+TEST(IRBuilderTest, AwaitOnSyncCallStillFailsIRGeneration) {
+    const std::string source = R"(
+        async fn worker() {
+            await now();
+        }
+
+        fn main() {
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, AwaitOnIdentifierStillFailsIRGeneration) {
+    const std::string source = R"(
+        async fn worker() {
+            var x = 1;
+            await x;
+        }
+
+        fn main() {
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 3 slice C (pro-4.0.0): `await` on a user async fn now LOWERS
+// (the Phase 2 test below asserted it fails). Calling the async fn
+// spawns its body as a Task (thunk + heap ctx); the await pumps until
+// the task completes and destroys the temporary task.
+TEST(IRBuilderTest, AwaitOnUserAsyncFnCallLowers) {
+    const std::string source = R"(
+        async fn inner() -> int {
+            return 42;
+        }
+
+        async fn worker() -> int {
+            var v = await inner();
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    // The call spawns (create_task + spawn_sm with the body address
+    // as the thunk); the await suspends through the state machine
+    // (on_complete_resume + value getter) and destroys the temporary
+    // task after the resume.
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_create_task()"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("ptr @inner, ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @inner(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_destroy(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call void @sp_rt_time_sleep_ms"), std::string::npos);
+}
+
+// Phase 3 slice C: calling an async fn WITHOUT awaiting returns the
+// Task handle (no await is emitted); main's exit drains it.
+TEST(IRBuilderTest, CallToAsyncFnReturnsTaskWithoutAwait) {
+    const std::string source = R"(
+        async fn inner() -> int {
+            return 7;
+        }
+
+        fn main() {
+            var t = inner();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_create_task()"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @inner(ptr"), std::string::npos);
+    // No await here, so no suspend and no value getter.
+    EXPECT_EQ(irStr.find("call void @sp_rt_async_task_on_complete_resume"), std::string::npos);
+    EXPECT_EQ(irStr.find("call i64 @sp_rt_async_task_value_i64"), std::string::npos);
+    // main drains fire-and-forget tasks before exiting.
+    EXPECT_NE(irStr.find("call void @sp_rt_async_scheduler_run_tasks_until_idle(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: awaiting a Task held in a variable pumps until it
+// completes but does NOT destroy it — the variable owns the task, so
+// awaiting it twice must return the same value.
+TEST(IRBuilderTest, AwaitOnTaskVariableLowersWithoutDestroy) {
+    const std::string source = R"(
+        async fn inner() -> int {
+            return 5;
+        }
+
+        async fn worker() -> int {
+            var t = inner();
+            var v = await t;
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    EXPECT_EQ(irStr.find("call void @sp_rt_async_task_destroy"), std::string::npos);
+}
+
+// Phase 3 slice C + Phase 5 slice A: string payloads — spawn_sm with
+// the body address, suspend via on_complete_resume, value_str getter,
+// and the finish block completes with the string pointer.
+TEST(IRBuilderTest, AwaitOnUserAsyncFnWithStringPayloadLowers) {
+    const std::string source = R"(
+        async fn greeter() -> string {
+            return "hello";
+        }
+
+        async fn worker() -> string {
+            var s = await greeter();
+            return s;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @greeter(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_str(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: bool payloads ride the i64 task with a trunc to i1.
+TEST(IRBuilderTest, AwaitOnUserAsyncFnWithBoolPayloadLowers) {
+    const std::string source = R"(
+        async fn flag() -> bool {
+            return true;
+        }
+
+        async fn worker() -> bool {
+            var b = await flag();
+            return b;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("trunc i64"), std::string::npos);
+}
+
+// Phase 3 slice C: delayed_value string/bool overloads.
+TEST(IRBuilderTest, AwaitDelayedValueStringLowers) {
+    const std::string source = R"(
+        async fn worker() -> string {
+            var s = await delayed_value(10, "hi");
+            return s;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_str(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_str(ptr"), std::string::npos);
+}
+
+TEST(IRBuilderTest, AwaitDelayedValueBoolLowers) {
+    const std::string source = R"(
+        async fn worker() -> bool {
+            var b = await delayed_value(10, true);
+            return b;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("trunc i64"), std::string::npos);
+}
+
+// Phase 3 slice C + Phase 5 slice A: an async method called through a
+// virtual dispatch spawns with the vtable-loaded body address passed
+// directly as the thunk to sp_rt_async_spawn_sm (no indirect thunk —
+// the body itself is the entry `void (ptr, ptr)`).
+TEST(IRBuilderTest, AsyncMethodCallThroughVirtualDispatchLowers) {
+    const std::string source = R"(
+        class Greeter {
+            public async fn greet() -> int {
+                return 3;
+            }
+        }
+
+        async fn worker() -> int {
+            let g = new Greeter();
+            var v = await g.greet();
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    // No indirect thunk exists any more (Design 2 in the slice doc).
+    EXPECT_EQ(irStr.find("__sp_async_thunk_indirect"), std::string::npos);
+}
+
+// Phase 3 slice C: an async method can await inside its own body.
+TEST(IRBuilderTest, AwaitInsideAsyncMethodLowers) {
+    const std::string source = R"(
+        class Worker {
+            public async fn run() -> int {
+                var v = await delayed_value(10, 9);
+                return v;
+            }
+        }
+
+        fn main() {
+            let w = new Worker();
+            var t = w.run();
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_delayed_i64(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+    // The method body itself is compiled as the state-machine entry
+    // `void (ptr, ptr)` (not the old `i32 @Worker_run(...)`).
+    EXPECT_NE(irStr.find("define void @Worker_run(ptr"), std::string::npos);
+}
+
+// Phase 3 slice C: generic async fns monomorphize + spawn + await.
+TEST(IRBuilderTest, GenericAsyncFnCallLowers) {
+    const std::string source = R"(
+        async fn identity<T>(item: T) -> T {
+            return item;
+        }
+
+        async fn worker() -> int {
+            var v = await identity<int>(999);
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("ptr @identity_int, ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @identity_int(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call i64 @sp_rt_async_task_value_i64(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: Task<double> now lowers — the double payload is
+// carried through the state machine (spawn_sm, on_complete_resume,
+// value_dbl getter, complete_dbl in the finish block).
+TEST(IRBuilderTest, AwaitOnAsyncFnWithDoublePayloadLowers) {
+    const std::string source = R"(
+        async fn dbl() -> double {
+            return 1.5;
+        }
+
+        async fn worker() -> double {
+            var v = await dbl();
+            return v;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @dbl(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call double @sp_rt_async_task_value_dbl(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_dbl(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: Task<int[]> lowers — the array pointer is carried
+// through the state machine (value_ptr getter, complete_ptr in the
+// finish block; the array is NOT owned by the task).
+TEST(IRBuilderTest, AwaitOnAsyncFnWithArrayPayloadLowers) {
+    const std::string source = R"(
+        async fn nums() -> int[] {
+            return [1, 2, 3];
+        }
+
+        async fn worker() -> int {
+            var a = await nums();
+            return a[0];
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @nums(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_ptr(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_ptr(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: Task<Point> (user struct) lowers — the struct value
+// is boxed into a heap allocation (complete_ptr_owned in the finish
+// block; the task owns the box and frees it on destroy).
+TEST(IRBuilderTest, AwaitOnAsyncFnWithStructPayloadLowers) {
+    const std::string source = R"(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        async fn mkpt() -> Point {
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            return p;
+        }
+
+        async fn worker() -> int {
+            var p = await mkpt();
+            return p.x;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("call void @sp_rt_async_spawn_sm(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("define void @mkpt(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_async_task_value_ptr(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_complete_ptr_owned(ptr"), std::string::npos);
+}
+
+// Phase 5 slice A: locals live in the heap frame, so they survive
+// across an await — the body lowers to a resume function with a
+// dispatcher (state 0 -> segment 0) and a continuation, and the frame
+// is heap-allocated (sp_rt_alloc) and freed in the finish block.
+TEST(IRBuilderTest, AsyncFnLocalsSurviveAcrossAwait) {
+    const std::string source = R"(
+        async fn worker() -> int {
+            var a = 10;
+            var b = 20;
+            await sleep_async(30);
+            return a + b;
+        }
+
+        fn main() {
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("define void @__sp_async_resume_worker(ptr"), std::string::npos);
+    EXPECT_NE(irStr.find("call ptr @sp_rt_alloc(i64"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_async_task_on_complete_resume(ptr"), std::string::npos);
+    // The dispatcher branches on the frame state (state 0 -> segment 0).
+    EXPECT_NE(irStr.find("async_state"), std::string::npos);
+    EXPECT_NE(irStr.find("call void @sp_rt_free(ptr"), std::string::npos);
+}
+
+// Phase 3 slice D (pro-4.0.0): comptime is now REALLY evaluated at
+// compile time and folded to a constant — the Phase 1 test below (which
+// asserted that every comptime fails) is replaced by this suite.
+// `var x = comptime 1 + 2` must lower to the constant 3 with no runtime
+// add instruction left in the IR.
+// `comptime` binds its operand at unary precedence (like `await` in
+// Parser.cpp), so a binary expression must be parenthesized:
+// `comptime 1 + 2` would parse as `(comptime 1) + 2` at runtime.
+// The parens below put the whole arithmetic inside the comptime expr.
+TEST(IRBuilderTest, ComptimeArithmeticFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            var x = comptime (1 + 2);
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 3"), std::string::npos);
+    EXPECT_EQ(irStr.find("add i32"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimePrecedenceFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            var x = comptime (2 + 3 * 4);
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 14"), std::string::npos);
+    EXPECT_EQ(irStr.find("add i32"), std::string::npos);
+    EXPECT_EQ(irStr.find("mul i32"), std::string::npos);
+}
+
+// The spec example (docs/SP-Syntax-Guide.md §101): a recursive
+// `comptime fn` called from `comptime` folds factorial(10) = 3628800.
+TEST(IRBuilderTest, ComptimeRecursiveFunctionFoldsToConstant) {
+    const std::string source = R"(
+        comptime fn factorial(int n) -> int {
+            if (n <= 1) {
+                return 1;
+            }
+            return n * factorial(n - 1);
+        }
+
+        fn main() {
+            let result = comptime factorial(10);
+            println(result);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("3628800"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeStringConcatFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let s = comptime ("SP " + "2.0");
+            println(s);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("SP 2.0"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeBlockFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let x = comptime {
+                let a = 6;
+                let b = 7;
+                a * b;
+            };
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 42"), std::string::npos);
+    EXPECT_EQ(irStr.find("mul i32"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeTernaryAndLengthFoldToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let a = comptime ((2 > 1) ? 10 : 20);
+            let b = comptime "hello".length;
+            println(a);
+            println(b);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 10"), std::string::npos);
+    EXPECT_NE(irStr.find("i32 5"), std::string::npos);
+}
+
+TEST(IRBuilderTest, ComptimeArrayIndexFoldsToConstant) {
+    const std::string source = R"(
+        fn main() {
+            let x = comptime [10, 20, 30][1];
+            println(x);
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRPrinter printer;
+    std::string irStr = printer.print(*module);
+
+    EXPECT_NE(irStr.find("i32 20"), std::string::npos);
+}
+
+// Phase 3 slice D: the loud errors are KEPT for everything comptime
+// cannot compute. A runtime value (here: a function parameter) inside
+// `comptime` must fail the build, never silently become runtime code.
+TEST(IRBuilderTest, ComptimeWithRuntimeValueFailsIRGeneration) {
+    const std::string source = R"(
+        fn f(int n) -> int {
+            return comptime n + 1;
+        }
+
+        fn main() {
+            println(f(1));
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, ComptimeCallingNonComptimeFunctionFailsIRGeneration) {
+    const std::string source = R"(
+        fn double(int n) -> int {
+            return n * 2;
+        }
+
+        fn main() {
+            let x = comptime double(21);
+            println(x);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, ComptimeDivisionByZeroFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            var x = comptime (1 / 0);
+            println(x);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+TEST(IRBuilderTest, ComptimeWithMethodCallFailsIRGeneration) {
+    const std::string source = R"(
+        fn main() {
+            let x = comptime "abc".indexOf("b");
+            println(x);
+        }
+    )";
+
+    EXPECT_EQ(compileToIR(source), nullptr);
+}
+
+// Phase 1 (pro-4.0.0): two free functions with the same name but different
+// signatures used to collapse onto the first definition silently.
+// Parent fix (Phase 3): slice A implemented overload name mangling, so
+// same-name overloads now COMPILE instead of failing.
+TEST(IRBuilderTest, OverloadedFunctionSignatureClashLowersIRGeneration) {
+    const std::string source = R"(
+        fn add(a: int) -> int {
+            return a;
+        }
+
+        fn add(a: string) -> string {
+            return a;
+        }
+
+        fn main() {
+        }
+    )";
+
+    EXPECT_NE(compileToIR(source), nullptr);
+}
+
+// Phase 1 (pro-4.0.0): the verifier rejects a block with no terminator.
+TEST(IRVerifierTest, UnterminatedBlockIsRejected) {
+    ir::IRModule module("test");
+    auto* func = module.createFunction("f", ir::IRType::getVoid(), {});
+    auto* entry = func->createBasicBlock("entry");
+    entry->addInstruction(std::make_shared<ir::AllocaInst>(ir::IRType::getInt32(), "%x"));
+
+    ir::IRVerifier verifier;
+    EXPECT_FALSE(verifier.verify(module));
+    EXPECT_FALSE(verifier.getErrors().empty());
+}
+
+// Phase 1 (pro-4.0.0): the verifier accepts a well-formed module produced
+// by the real pipeline.
+TEST(IRVerifierTest, WellFormedModulePasses) {
+    const std::string source = R"(
+        fn main() -> int {
+            var a = 10;
+            return a + 1;
+        }
+    )";
+
+    auto module = compileToIR(source);
+    ASSERT_NE(module, nullptr);
+
+    ir::IRVerifier verifier;
+    EXPECT_TRUE(verifier.verify(*module));
+    EXPECT_TRUE(verifier.getErrors().empty());
 }

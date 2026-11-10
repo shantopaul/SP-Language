@@ -1,7 +1,7 @@
 # ADR-002: Error Handling Model
 
 ## Status
-Proposed (Requires Shanto Review & Approval)
+Accepted (Approved by Shanto Paul, 2026-11-10)
 
 ## Context
 SP currently parses `try`/`catch`/`throw` statements but lacks native stack unwinding tables. Runtime assertion failures call `sp_rt_panic()`, aborting the program. A production language requires a clear distinction between recoverable operational errors and unrecoverable bugs.

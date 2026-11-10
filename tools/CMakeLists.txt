@@ -57,6 +57,8 @@ add_library(spm_core
     spm/Cache.cpp
     spm/Publish.cpp
     spm/DependencyTree.cpp
+    spm/RegistryClient.cpp
+    spm/PackageArchive.cpp
 )
 target_include_directories(spm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(spm_core PUBLIC sp_compiler sp_runtime)
@@ -72,6 +74,7 @@ target_compile_features(spm PRIVATE cxx_std_20)
 # SP Language Server Library (sp_lsp_server)
 add_library(sp_lsp_server
     spls/LspServer.cpp
+    spls/SymbolIndex.cpp
 )
 target_include_directories(sp_lsp_server PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_lsp_server PUBLIC sp_compiler sp_fmt sp_doc_generator)
@@ -88,6 +91,7 @@ target_compile_features(spls PRIVATE cxx_std_20)
 add_library(sp_debugger
     debugger/DebugSession.cpp
     debugger/DapServer.cpp
+    debugger/Interpreter.cpp # Phase 4 slice C: tree-walking interpreter
 )
 target_include_directories(sp_debugger PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sp_debugger PUBLIC sp_compiler)

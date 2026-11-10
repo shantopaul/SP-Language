@@ -9,6 +9,7 @@
 namespace sp::ast {
 class ClassDecl;
 class EnumDecl;
+class FunctionDecl;
 }
 
 namespace sp::sema {
@@ -213,6 +214,11 @@ struct MemberMethod {
     bool isStatic{false};
     bool isAbstract{false};
     bool isOverride{false};
+    bool isAsync{false};
+    // Phase 6 slice B: the source declaration, so overload resolution
+    // can see default parameter values (builtin methods leave this
+    // null and keep exact-arity matching).
+    const ast::FunctionDecl* astDecl{nullptr};
 };
 
 // Class type

@@ -171,12 +171,30 @@ public:
     }
 };
 
+struct HttpClientOptions {
+    int timeoutMs{5000};
+    // TLS (Phase 2): set automatically by HttpClient::get/post for https:// URLs.
+    bool useTls{false};
+    // Trust this extra CA bundle (PEM file) or CA directory in addition to the
+    // system CA store. Used by tests with a locally generated CA.
+    std::string caFile;
+    std::string caPath;
+    // DANGER: skips certificate-chain AND hostname verification. Opt-in only,
+    // never the default. Intended for local development against self-signed
+    // test servers only; must never be enabled in production.
+    bool insecureSkipVerify{false};
+};
+
 class HttpClient {
 public:
     static HttpResponse send(const HttpRequest& req, const std::string& host, int port, int timeoutMs = 5000);
+    static HttpResponse send(const HttpRequest& req, const std::string& host, int port, const HttpClientOptions& options);
     static HttpResponse get(const std::string& url, int timeoutMs = 5000);
-    static HttpResponse post(const std::string& url, const std::string& body, 
+    static HttpResponse get(const std::string& url, const HttpClientOptions& options);
+    static HttpResponse post(const std::string& url, const std::string& body,
                              const std::string& contentType = "application/json", int timeoutMs = 5000);
+    static HttpResponse post(const std::string& url, const std::string& body,
+                             const std::string& contentType, const HttpClientOptions& options);
 };
 
 using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
@@ -290,6 +308,16 @@ struct HttpServerConfig {
     int idleTimeoutMs{15000};                // 15 seconds keep-alive timeout
     int requestTimeoutMs{30000};             // 30 seconds
     int maxKeepAliveRequests{1000};          // Requests before closing connection
+
+    // TLS (Phase 2): when tlsEnabled is true the server speaks HTTPS.
+    // tlsCertFile is a PEM certificate chain file, tlsKeyFile the matching PEM
+    // private key. Plain HTTP keeps working unchanged when tlsEnabled is false.
+    // listen() FAILS (returns false, see getLastError()) if TLS is enabled but
+    // the files are missing, unreadable, or the key does not match the cert —
+    // the server never silently falls back to plaintext.
+    bool tlsEnabled{false};
+    std::string tlsCertFile;
+    std::string tlsKeyFile;
 };
 
 struct CorsOptions {
@@ -336,6 +364,9 @@ public:
 
     void setConfig(const HttpServerConfig& config) { m_config = config; }
     [[nodiscard]] const HttpServerConfig& getConfig() const noexcept { return m_config; }
+    // Last fatal error from listen() (e.g. TLS misconfiguration). Empty if none.
+    [[nodiscard]] const std::string& getLastError() const noexcept { return m_lastError; }
+    [[nodiscard]] bool isTlsEnabled() const noexcept { return m_tlsCtx != nullptr; }
 
     [[nodiscard]] RadixRouter& getRouter() noexcept { return m_router; }
     [[nodiscard]] const RadixRouter& getRouter() const noexcept { return m_router; }
@@ -364,11 +395,26 @@ private:
     int m_port{0};
 
     std::unique_ptr<std::thread> m_acceptThread;
+    // Phase 6 slice C: guards the accept-thread join. wait() and
+    // stop() may both join it (wait() blocks in it while another
+    // thread calls stop()) — joining the same std::thread twice is
+    // undefined behaviour and hung in practice, so exactly one of
+    // them joins and the other sees a non-joinable thread. The mutex
+    // is held across the join: that cannot deadlock, because stop()
+    // clears m_running (which is what lets the accept thread exit)
+    // BEFORE taking this mutex.
+    std::mutex m_acceptJoinMtx;
     std::vector<std::thread> m_workerThreads;
     std::deque<std::unique_ptr<net::TcpSocket>> m_connectionQueue;
     std::mutex m_queueMtx;
     std::condition_variable m_queueCv;
     std::atomic<int> m_activeRequests{0};
+
+    // TLS server context (SSL_CTX*, opaque here so this header does not need
+    // OpenSSL includes). Non-null only when TLS is enabled and listen()
+    // succeeded. Owned by the server; freed in stop().
+    void* m_tlsCtx{nullptr};
+    std::string m_lastError;
 };
 
 } // namespace sp::rt::http

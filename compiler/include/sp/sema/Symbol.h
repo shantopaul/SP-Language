@@ -120,6 +120,15 @@ public:
     [[nodiscard]] bool isMethod() const noexcept { return m_isMethod; }
     [[nodiscard]] bool isAbstract() const noexcept { return m_isAbstract; }
     [[nodiscard]] bool isOverride() const noexcept { return m_isOverride; }
+    // Phase 3 slice C: whether the function is declared `async`. This
+    // is a plain bool (set from the ASTDecl by NameResolver, or copied
+    // from the MemberMethod at resolution time for methods, because
+    // method symbols are rebuilt without an ASTDecl). It must NOT call
+    // through m_astDecl here: FunctionDecl is only forward-declared in
+    // this header, so m_astDecl->isAsync() would be an incomplete-type
+    // error in every TU that includes this header.
+    void setAsync(bool value) noexcept { m_isAsync = value; }
+    [[nodiscard]] bool isAsync() const noexcept { return m_isAsync; }
 
     void setTypeParams(std::vector<std::string> params) { m_typeParams = std::move(params); }
     [[nodiscard]] const std::vector<std::string>& getTypeParams() const noexcept { return m_typeParams; }
@@ -140,6 +149,7 @@ private:
     bool m_isMethod{false};
     bool m_isAbstract{false};
     bool m_isOverride{false};
+    bool m_isAsync{false};
     std::vector<std::shared_ptr<FunctionSymbol>> m_overloads;
 };
 

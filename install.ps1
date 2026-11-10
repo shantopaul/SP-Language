@@ -320,7 +320,7 @@ if ($isLocalRepo) {
     $ZipNames = @(
         "sp-$Version-windows-x64.zip",
         "sp-windows-x64.zip",
-        "sp-1.0.0-windows-x64.zip"
+        "sp-3.1.0-windows-x64.zip"
     )
     $TempZip = Join-Path $env:TEMP "sp_download_$([Guid]::NewGuid().ToString('N')).zip"
     

@@ -146,6 +146,37 @@ TEST(HttpTest, HttpServerAndClientEndToEnd) {
     server.stop();
 }
 
+// Phase 6 slice C (fix 7): wait() blocks until stop() is called —
+// it is the intended way to keep a server up after the non-blocking
+// listen() (the Syntax Guide §85/§100 used to teach a manual
+// `while (true) { Time.sleep(1000); }` loop instead). stop() from
+// another thread must release wait() promptly.
+TEST(HttpTest, WaitReturnsAfterStopFromAnotherThread) {
+    HttpServer server;
+    server.get("/ping", [](const HttpRequest&) {
+        return HttpResponse::ok("pong");
+    });
+    ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    int port = server.getPort();
+    ASSERT_GT(port, 0);
+
+    std::atomic<bool> waitReturned{false};
+    std::thread waiter([&server, &waitReturned]() {
+        server.wait();
+        waitReturned.store(true);
+    });
+    // The server still serves while wait() is blocked.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    auto pingResp = HttpClient::get("http://127.0.0.1:" + std::to_string(port) + "/ping");
+    EXPECT_EQ(pingResp.statusCode, 200);
+    EXPECT_EQ(pingResp.body, "pong");
+    EXPECT_FALSE(waitReturned.load());
+
+    server.stop();
+    waiter.join();
+    EXPECT_TRUE(waitReturned.load());
+}
+
 TEST(HttpTest, KeepAlivePersistentConnectionReuse) {
     HttpServer server;
     std::atomic<int> counter{0};

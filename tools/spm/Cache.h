@@ -33,7 +33,33 @@ public:
                              const std::string& checksum,
                              std::string& errorMsg);
 
-    // Verify stored package against an expected SHA-256 checksum
+    // Store downloaded archive bytes into the cache
+    // (~/.sp/cache/packages/<name>/<version>/target/packages/<name>-<version>.tar.gz),
+    // record `checksum` in .sp-checksum, and extract the archive's files
+    // (sp.toml + src/) into the cache dir so getPackageConfig can read
+    // the manifest without a network round-trip. `checksum` must be the
+    // SHA-256 of `archiveBytes` (verified by the caller).
+    static bool storeArchive(const std::string& name,
+                             const std::string& version,
+                             const std::string& archiveBytes,
+                             const std::string& checksum,
+                             std::string& errorMsg);
+
+    // Path of the cached archive file for a package version (may not exist).
+    static fs::path getCachedArchivePath(const std::string& name, const std::string& version);
+
+    // Read the cached archive bytes. Returns false when no archive is cached.
+    static bool readCachedArchive(const std::string& name, const std::string& version,
+                                  std::string& outBytes);
+
+    // Verify stored package against an expected SHA-256 checksum.
+    // Phase 4 slice A: when an archive file is cached, its bytes are
+    // hashed and compared (content check). Only when no archive exists
+    // (legacy cache populated by a plain directory copy) does it fall
+    // back to comparing the recorded .sp-checksum string — that fallback
+    // detects a changed record, NOT tampered files, and callers that
+    // need content assurance (verify/install) treat a missing archive
+    // as unverifiable rather than verified.
     static bool verifyChecksum(const std::string& name,
                                const std::string& version,
                                const std::string& expectedChecksum);

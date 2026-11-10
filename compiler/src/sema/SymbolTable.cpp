@@ -47,6 +47,23 @@ bool Scope::define(SymbolPtr symbol) {
             return true;
         }
 
+        // Phase 39 slice D: a variable/constant restating a built-in
+        // with an identical type is a no-op — mirrors the function
+        // branch above, where a concrete implementation overriding a
+        // built-in stub returns true and the built-in stays. This is
+        // what lets stdlib/math/math.sp redeclare `PI`/`E`/`TAU`: the
+        // built-ins live in the global scope, and the file's identical
+        // `public const double` declarations must not be E1004
+        // duplicates. A conflicting type is still a duplicate error.
+        if (it->second->isVariable() && symbol->isVariable() &&
+            it->second->getLocation().filename == "<built-in>") {
+            const auto& existingType = it->second->getType();
+            const auto& newType = symbol->getType();
+            if (existingType && newType && existingType->equals(*newType)) {
+                return true;
+            }
+        }
+
         // Duplicate name in same scope
         return false;
     }
@@ -326,9 +343,15 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
 
     auto resultStrIO = typeCtx.resolveType("Result<string, IOError>");
     auto resultBoolIO = typeCtx.resolveType("Result<bool, IOError>");
+    auto resultStrArrIO = typeCtx.resolveType("Result<string[], IOError>");
     if (resultStrIO) {
         define(std::make_shared<FunctionSymbol>("tryReadText", typeCtx.getFunctionType({typeCtx.getString()}, resultStrIO), builtinLoc));
         define(std::make_shared<FunctionSymbol>("tryReadLine", typeCtx.getFunctionType({}, resultStrIO), builtinLoc));
+    }
+    if (resultStrArrIO) {
+        // Phase 38 slice E: tryListDir — listDir's [] is ambiguous
+        // (empty dir vs error), so the try* variant reports it.
+        define(std::make_shared<FunctionSymbol>("tryListDir", typeCtx.getFunctionType({typeCtx.getString()}, resultStrArrIO), builtinLoc));
     }
     if (resultBoolIO) {
         define(std::make_shared<FunctionSymbol>("tryWriteText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, resultBoolIO), builtinLoc));
@@ -338,12 +361,52 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
     }
 
     // Built-in time functions (std.time)
-    define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
-    define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt()), builtinLoc));
+    // Phase 4 slice D: now/nowSeconds return epoch milliseconds/seconds as
+    // int64. The runtime returns int64 (sp_rt_time_now_ms ~1.7e12); declaring
+    // them int (32-bit) truncated the value to a negative number, so
+    // `now() > 0` was false and the stdlib-time tests failed.
+    define(std::make_shared<FunctionSymbol>("now", typeCtx.getFunctionType({}, typeCtx.getInt64()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("nowSeconds", typeCtx.getFunctionType({}, typeCtx.getInt64()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("sleep", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
     define(std::make_shared<FunctionSymbol>("sleepSeconds", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getVoid()), builtinLoc));
-    define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt()}, typeCtx.getString()), builtinLoc));
-    define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt()), builtinLoc));
+
+    // Built-in async functions (Phase 2 slice B2). These return Task<T>
+    // and are the ONLY expressions `await` can lower (see
+    // IRBuilder::visit(AwaitExpr)). sleep_async is the non-blocking
+    // counterpart of sleep: it returns immediately and completes after
+    // the delay on the event loop. delayed_value completes with `value`
+    // after the delay, so `await` can yield a value.
+    auto taskVoid = typeCtx.resolveType("Task<void>");
+    auto taskInt = typeCtx.resolveType("Task<int>");
+    auto taskString = typeCtx.resolveType("Task<string>");
+    auto taskBool = typeCtx.resolveType("Task<bool>");
+    if (taskVoid) {
+        define(std::make_shared<FunctionSymbol>("sleep_async", typeCtx.getFunctionType({typeCtx.getInt()}, taskVoid), builtinLoc));
+    }
+    if (taskInt) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getInt()}, taskInt), builtinLoc));
+    }
+    // Phase 3 slice C: delayed_value overloads for the other awaitable
+    // payload kinds (string via sp_rt_async_delayed_str, bool via the
+    // i64 task with a truncating cast at the await site).
+    if (taskString) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getString()}, taskString), builtinLoc));
+    }
+    if (taskBool) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getBool()}, taskBool), builtinLoc));
+    }
+    // Phase 5 slice A: delayed_value overload for double payloads
+    // (Task<double> via sp_rt_async_delayed_dbl).
+    auto taskDouble = typeCtx.resolveType("Task<double>");
+    if (taskDouble) {
+        define(std::make_shared<FunctionSymbol>("delayed_value", typeCtx.getFunctionType({typeCtx.getInt(), typeCtx.getDouble()}, taskDouble), builtinLoc));
+    }
+    // Phase 4 slice D: formatTime takes an int64 epoch-ms (the runtime
+    // sp_rt_time_format_iso takes int64) and parseTime returns int64 epoch-ms
+    // (sp_rt_time_parse_iso returns int64). Declaring them int truncated
+    // 2023-era epoch-ms to a negative value.
+    define(std::make_shared<FunctionSymbol>("formatTime", typeCtx.getFunctionType({typeCtx.getInt64()}, typeCtx.getString()), builtinLoc));
+    define(std::make_shared<FunctionSymbol>("parseTime", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getInt64()), builtinLoc));
 
     // Built-in OS functions (std.os)
     define(std::make_shared<FunctionSymbol>("getEnv", typeCtx.getFunctionType({typeCtx.getString()}, typeCtx.getString()), builtinLoc));

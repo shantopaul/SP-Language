@@ -14,6 +14,8 @@
 #include <thread>
 #include <ctime>
 #include <atomic>
+#include <mutex>
+#include <unordered_set>
 #include <cassert>
 #if defined(_WIN32) || defined(_WIN64)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -139,6 +141,14 @@ const char* sp_rt_readln() {
     return sp_rt_read_line();
 }
 
+// Phase 38 slice E (ADR-002): stdin EOF state for
+// std.io.tryReadLine. std::getline sets eofbit when it reaches EOF,
+// so after sp_rt_read_line returns "", eof() tells an empty line
+// (eof clear) from EOF (eof set).
+bool sp_rt_stdin_eof() {
+    return std::cin.eof();
+}
+
 void sp_rt_eprint_string(const char* str) {
     if (str) {
         std::cerr << str;
@@ -166,29 +176,84 @@ void sp_rt_eflush() {
 }
 
 int64_t sp_rt_str_to_int(const char* s) {
-    if (!s) return 0;
+    // Phase 6 slice B: strict parsing — the old code returned 0 for any
+    // invalid input (and silently parsed "0x.." as hex / "0.." as octal
+    // via base 0, and ignored trailing junk like "42abc"). A plain `int`
+    // cannot express failure, so invalid input is a loud panic naming
+    // the input instead of a silent wrong value. Leading/trailing
+    // whitespace is trimmed (readLine() already strips the newline).
+    if (!s) sp_rt_panic("int.parse: null input");
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    if (*s == '\0') sp_rt_panic("int.parse: empty input");
     try {
-        return std::stoll(s, nullptr, 0);
+        size_t pos = 0;
+        int64_t v = std::stoll(s, &pos, 10);
+        while (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') ++pos;
+        if (s[pos] != '\0') {
+            std::string msg = "int.parse: invalid integer '";
+            msg += s;
+            msg += "'";
+            sp_rt_panic(msg.c_str());
+        }
+        return v;
+    } catch (const std::out_of_range&) {
+        std::string msg = "int.parse: integer out of range '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     } catch (...) {
-        return 0;
+        std::string msg = "int.parse: invalid integer '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     }
 }
 
 double sp_rt_str_to_double(const char* s) {
-    if (!s) return 0.0;
+    // Phase 6 slice B: strict like sp_rt_str_to_int (was: silent 0.0).
+    if (!s) sp_rt_panic("double.parse: null input");
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    if (*s == '\0') sp_rt_panic("double.parse: empty input");
     try {
-        return std::stod(s);
+        size_t pos = 0;
+        double v = std::stod(s, &pos);
+        while (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') ++pos;
+        if (s[pos] != '\0') {
+            std::string msg = "double.parse: invalid number '";
+            msg += s;
+            msg += "'";
+            sp_rt_panic(msg.c_str());
+        }
+        return v;
     } catch (...) {
-        return 0.0;
+        std::string msg = "double.parse: invalid number '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     }
 }
 
 float sp_rt_str_to_float(const char* s) {
-    if (!s) return 0.0f;
+    // Phase 6 slice B: strict like sp_rt_str_to_int (was: silent 0.0f).
+    if (!s) sp_rt_panic("float.parse: null input");
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    if (*s == '\0') sp_rt_panic("float.parse: empty input");
     try {
-        return std::stof(s);
+        size_t pos = 0;
+        float v = std::stof(s, &pos);
+        while (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') ++pos;
+        if (s[pos] != '\0') {
+            std::string msg = "float.parse: invalid number '";
+            msg += s;
+            msg += "'";
+            sp_rt_panic(msg.c_str());
+        }
+        return v;
     } catch (...) {
-        return 0.0f;
+        std::string msg = "float.parse: invalid number '";
+        msg += s;
+        msg += "'";
+        sp_rt_panic(msg.c_str());
     }
 }
 
@@ -476,11 +541,8 @@ void* sp_rt_alloc(uint64_t size) {
     return ptr;
 }
 
-void sp_rt_free(void* ptr) {
-    if (ptr) {
-        std::free(ptr);
-    }
-}
+// Phase 37 slice B: sp_rt_free is ARC-aware — see the definition
+// after sp_rt_release (it must live below get_arc_header).
 
 // ---------------------------------------------------------------------------
 // Phase 11: Deterministic ARC and Object Lifecycle Management
@@ -495,6 +557,34 @@ struct SPObjectHeader {
     uint32_t allocated_size;
     SPDestructorFn destructor;
 };
+
+// Parent fix (Phase 37 merge): live ARC payload registry.
+//
+// get_arc_header used to decide "is this an ARC payload?" by reading
+// the 4-byte magic 24 bytes BEFORE the pointer. That read is only
+// safe when those bytes are mapped — and a plain malloc'd buffer of
+// >=128 KiB is an mmap'd region whose base has NO mapped bytes
+// before it, so the probe segfaults. Slice B made sp_rt_free (which
+// probes) the free path for every container's internal buffer, and
+// slice A made scope drops actually run container destructors —
+// together they crashed CollectionStressAndScalingNativeExecution:
+// a List<int> grown past 8192 elements (items = 128 KiB mmap'd)
+// segfaulted in sp_list_destructor -> sp_rt_free -> get_arc_header.
+// Small lists never crashed (heap chunk headers are mapped, the
+// magic simply mismatched), which is why slice B's own proofs and
+// ctest passed: its tree never dropped a large container at all
+// (main's locals were never dropped before slice A).
+//
+// The registry is the discriminator now: only pointers returned by
+// sp_rt_arc_alloc are members, and membership is checked BEFORE any
+// memory is read, so a plain (even mmap'd) pointer is a safe
+// miss. The entry is erased when the header block is actually freed
+// (sp_rt_weak_release, last weak ref). Cost: one mutex + hash lookup
+// per retain/release/free — the lock is uncontended in
+// single-threaded execution and is never held across a destructor
+// call, so no nesting or deadlock is possible.
+static std::mutex g_arc_registry_mutex;
+static std::unordered_set<void*> g_arc_payloads;
 
 void* sp_rt_arc_alloc(uint64_t size, SPDestructorFn dtor) {
     if (size == 0) size = 1;
@@ -515,12 +605,22 @@ void* sp_rt_arc_alloc(uint64_t size, SPDestructorFn dtor) {
     g_active_arc_objects.fetch_add(1, std::memory_order_relaxed);
 
     void* payload = reinterpret_cast<uint8_t*>(header) + sizeof(SPObjectHeader);
+    // Parent fix (Phase 37 merge): register the live payload — see
+    // get_arc_header above.
+    {
+        std::lock_guard<std::mutex> lock(g_arc_registry_mutex);
+        g_arc_payloads.insert(payload);
+    }
     std::memset(payload, 0, static_cast<size_t>(size));
     return payload;
 }
 
 static inline SPObjectHeader* get_arc_header(void* ptr) {
     if (!ptr) return nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_arc_registry_mutex);
+        if (g_arc_payloads.find(ptr) == g_arc_payloads.end()) return nullptr;
+    }
     auto* header = reinterpret_cast<SPObjectHeader*>(reinterpret_cast<uint8_t*>(ptr) - sizeof(SPObjectHeader));
     return (header->magic == SP_ARC_MAGIC) ? header : nullptr;
 }
@@ -547,6 +647,26 @@ void sp_rt_release(void* ptr) {
         // Release the weak reference held on behalf of all strong references
         sp_rt_weak_release(header);
     }
+}
+
+// Phase 37 slice B: sp_rt_free is the runtime's universal free —
+// it must accept any pointer the runtime handed out. Containers
+// are ARC objects now (sp_rt_arc_alloc), so their payload pointer
+// is 16 bytes past the malloc base and std::free on it aborts
+// ("free(): invalid pointer"). Route ARC pointers through
+// sp_rt_release instead: at count 1 that frees (header +
+// payload, destructor first); at count > 1 it only decrements,
+// which is the safe direction — never freeing under live shares.
+// Plain pointers (strings, buffers, frames) keep the old
+// std::free path. C/C++ callers that used to std::free a runtime
+// array must use sp_rt_free (see AsyncTest CAbi tests).
+void sp_rt_free(void* ptr) {
+    if (!ptr) return;
+    if (get_arc_header(ptr)) {
+        sp_rt_release(ptr);
+        return;
+    }
+    std::free(ptr);
 }
 
 uint32_t sp_rt_strong_count(void* ptr) {
@@ -590,6 +710,12 @@ void sp_rt_weak_release(void* weak_ptr) {
         size_t total_size = sizeof(SPObjectHeader) + header->allocated_size;
         g_allocated_bytes.fetch_sub(total_size, std::memory_order_relaxed);
         header->magic = 0; // invalidate
+        // Parent fix (Phase 37 merge): unregister the payload before
+        // freeing the header (see get_arc_header).
+        {
+            std::lock_guard<std::mutex> lock(g_arc_registry_mutex);
+            g_arc_payloads.erase(reinterpret_cast<uint8_t*>(header) + sizeof(SPObjectHeader));
+        }
         std::free(header);
     }
 }
@@ -731,7 +857,33 @@ uint64_t sp_rt_mem_live_objects() {
 struct SPArrayHeader {
     int64_t length;
     int64_t capacity;
+    // Phase 37 slice B: element stride for the destructor, and
+    // whether the stored elements are retained references (set by
+    // sp_rt_array_mark_ref_elements). The data is inline after the
+    // header, so sizeof() is the only layout dependency.
+    int64_t element_size;
+    bool elements_are_refs;
 };
+
+// Phase 37 slice B: ARC destructors for the containers. A destructor
+// frees the container's INTERNAL buffers only — never the impl struct
+// itself (the ARC machinery frees the payload). It releases stored
+// elements only when the container's flag is set; an unflagged
+// container degrades to the old behaviour (storage freed, elements
+// untouched). sp_rt_release is null-safe and magic-checked, so
+// releasing a null or non-ARC element is a no-op.
+static void sp_array_destructor(void* ptr) {
+    auto* header = static_cast<SPArrayHeader*>(ptr);
+    if (header->elements_are_refs) {
+        int64_t es = header->element_size > 0 ? header->element_size : 8;
+        auto* data = reinterpret_cast<uint8_t*>(ptr) + sizeof(SPArrayHeader);
+        for (int64_t i = 0; i < header->length; ++i) {
+            void* elem = nullptr;
+            std::memcpy(&elem, data + i * es, sizeof(void*));
+            sp_rt_release(elem);
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Phase 13: Pure Native Collection Primitives (Zero C++ STL)
@@ -742,7 +894,20 @@ struct SPListImpl {
     int64_t length;
     int64_t capacity;
     int64_t* items;
+    // Phase 37 slice B: whether the stored elements are retained
+    // references (set by sp_rt_list_mark_ref_elements).
+    bool elements_are_refs;
 };
+
+static void sp_list_destructor(void* ptr) {
+    auto* impl = static_cast<SPListImpl*>(ptr);
+    if (impl->elements_are_refs && impl->items) {
+        for (int64_t i = 0; i < impl->length; ++i) {
+            sp_rt_release(reinterpret_cast<void*>(impl->items[i]));
+        }
+    }
+    sp_rt_free(impl->items);
+}
 
 static inline uint32_t sp_fnv1a(const char* s) {
     uint32_t h = 2166136261u;
@@ -780,20 +945,87 @@ struct SPMapImpl {
     SPMapIntEntry* int_entries;
     int64_t int_capacity;
     int64_t int_count;
+
+    // Phase 37 slice B: whether the stored VALUES are retained
+    // references (Map semantics, set by
+    // sp_rt_map_mark_ref_elements), and whether the stored elements
+    // are the INT-TABLE KEYS (Set semantics, set by
+    // sp_rt_set_mark_ref_elements — a set stores its element as the
+    // key with a dummy value 1). The two are mutually exclusive.
+    bool elements_are_refs;
+    bool ref_elements_are_keys;
 };
+
+static void sp_map_destructor(void* ptr) {
+    auto* impl = static_cast<SPMapImpl*>(ptr);
+    if (impl->elements_are_refs) {
+        if (impl->str_entries) {
+            for (int64_t i = 0; i < impl->str_capacity; ++i) {
+                if (impl->str_entries[i].occupied) {
+                    sp_rt_release(reinterpret_cast<void*>(impl->str_entries[i].val));
+                }
+            }
+        }
+        if (impl->int_entries) {
+            for (int64_t i = 0; i < impl->int_capacity; ++i) {
+                if (impl->int_entries[i].occupied) {
+                    sp_rt_release(reinterpret_cast<void*>(impl->int_entries[i].val));
+                }
+            }
+        }
+    }
+    if (impl->str_entries) {
+        for (int64_t i = 0; i < impl->str_capacity; ++i) {
+            if (impl->str_entries[i].occupied) {
+                sp_rt_free(impl->str_entries[i].key);
+            }
+        }
+        sp_rt_free(impl->str_entries);
+    }
+    sp_rt_free(impl->int_entries);
+}
 
 struct SPSetImpl {
     SPMapImpl map;
 };
 
+// Phase 37 slice B: a set's elements are the int-table keys (and the
+// str-table keys are strdup'd string copies). The destructor releases
+// the int keys when flagged and frees the str keys; it never releases
+// the dummy values (always 1).
+static void sp_set_destructor(void* ptr) {
+    auto* impl = &static_cast<SPSetImpl*>(ptr)->map;
+    if (impl->ref_elements_are_keys && impl->int_entries) {
+        for (int64_t i = 0; i < impl->int_capacity; ++i) {
+            if (impl->int_entries[i].occupied) {
+                sp_rt_release(reinterpret_cast<void*>(impl->int_entries[i].key));
+            }
+        }
+    }
+    if (impl->str_entries) {
+        for (int64_t i = 0; i < impl->str_capacity; ++i) {
+            if (impl->str_entries[i].occupied) {
+                sp_rt_free(impl->str_entries[i].key);
+            }
+        }
+        sp_rt_free(impl->str_entries);
+    }
+    sp_rt_free(impl->int_entries);
+}
+
 // Native Array primitives
+// Phase 37 slice B: ARC-allocated (sp_rt_arc_alloc) so a scope drop
+// frees the array and, when flagged, releases its elements. The
+// payload is the header + inline data; sp_rt_arc_alloc memsets it,
+// so elements_are_refs starts false.
 void* sp_rt_array_alloc(int64_t length, int64_t element_size) {
     if (length < 0) length = 0;
     if (element_size <= 0) element_size = 8;
     size_t total_size = sizeof(SPArrayHeader) + static_cast<size_t>(length * element_size);
-    auto* header = static_cast<SPArrayHeader*>(sp_rt_alloc(total_size));
+    auto* header = static_cast<SPArrayHeader*>(sp_rt_arc_alloc(total_size, sp_array_destructor));
     header->length = length;
     header->capacity = length;
+    header->element_size = element_size;
     return header;
 }
 
@@ -827,7 +1059,15 @@ int64_t sp_rt_array_get_i64(void* arr, int64_t index) {
 
 void sp_rt_array_set_i64(void* arr, int64_t index, int64_t val) {
     void* ptr = sp_rt_array_get_ptr(arr, index, sizeof(int64_t));
+    // Phase 37 slice B: the overwritten element's share is released
+    // (the compiler retained the new value before this call, so
+    // overwriting a slot with the same object nets to no change).
+    auto* header = static_cast<SPArrayHeader*>(arr);
+    int64_t old = *reinterpret_cast<int64_t*>(ptr);
     *reinterpret_cast<int64_t*>(ptr) = val;
+    if (header->elements_are_refs) {
+        sp_rt_release(reinterpret_cast<void*>(old));
+    }
 }
 
 double sp_rt_array_get_f64(void* arr, int64_t index) {
@@ -841,8 +1081,12 @@ void sp_rt_array_set_f64(void* arr, int64_t index, double val) {
 }
 
 // Native List<T> primitives
+// Phase 37 slice B: ARC-allocated; the impl struct is POD, so the
+// arc_alloc memset is a correct initialization (elements_are_refs
+// starts false). sp_rt_stack_alloc delegates here, so Stack gets the
+// List destructor for free.
 void* sp_rt_list_alloc(int64_t element_size, int64_t initial_capacity) {
-    auto* list = new SPListImpl();
+    auto* list = static_cast<SPListImpl*>(sp_rt_arc_alloc(sizeof(SPListImpl), sp_list_destructor));
     list->element_size = element_size > 0 ? element_size : 8;
     list->capacity = initial_capacity > 0 ? initial_capacity : 8;
     list->length = 0;
@@ -886,7 +1130,13 @@ void sp_rt_list_set_i64(void* list, int64_t index, int64_t val) {
     if (index < 0 || index >= impl->length) {
         sp_rt_panic("IndexOutOfBoundsException: index out of bounds in list.set");
     }
+    // Phase 37 slice B: release the overwritten element's share (see
+    // sp_rt_array_set_i64 for the retain-first ordering note).
+    int64_t old = impl->items[index];
     impl->items[index] = val;
+    if (impl->elements_are_refs) {
+        sp_rt_release(reinterpret_cast<void*>(old));
+    }
 }
 
 int64_t sp_rt_list_pop_i64(void* list) {
@@ -900,7 +1150,14 @@ int64_t sp_rt_list_pop_i64(void* list) {
 
 void sp_rt_list_clear(void* list) {
     if (!list) return;
-    static_cast<SPListImpl*>(list)->length = 0;
+    // Phase 37 slice B: a cleared list gives up every element share.
+    auto* impl = static_cast<SPListImpl*>(list);
+    if (impl->elements_are_refs && impl->items) {
+        for (int64_t i = 0; i < impl->length; ++i) {
+            sp_rt_release(reinterpret_cast<void*>(impl->items[i]));
+        }
+    }
+    impl->length = 0;
 }
 
 bool sp_rt_list_contains_i64(void* list, int64_t val) {
@@ -916,11 +1173,17 @@ void sp_rt_list_remove_at(void* list, int64_t index) {
     if (!list) return;
     auto* impl = static_cast<SPListImpl*>(list);
     if (index >= 0 && index < impl->length) {
+        // Phase 37 slice B: the removed element's share is released.
+        // (pop is a TRANSFER and must not release — see sp_rt_list_pop_i64.)
+        int64_t removed = impl->items[index];
         if (index < impl->length - 1) {
             std::memmove(&impl->items[index], &impl->items[index + 1],
                          (impl->length - index - 1) * sizeof(int64_t));
         }
         impl->length--;
+        if (impl->elements_are_refs) {
+            sp_rt_release(reinterpret_cast<void*>(removed));
+        }
     }
 }
 
@@ -930,8 +1193,9 @@ bool sp_rt_list_is_empty(void* list) {
 }
 
 // Native Map<K, V> primitives
+// Phase 37 slice B: ARC-allocated (see sp_rt_list_alloc).
 void* sp_rt_map_alloc() {
-    auto* map = new SPMapImpl();
+    auto* map = static_cast<SPMapImpl*>(sp_rt_arc_alloc(sizeof(SPMapImpl), sp_map_destructor));
     map->str_capacity = 16;
     map->str_count = 0;
     map->str_entries = static_cast<SPMapStrEntry*>(sp_rt_alloc(16 * sizeof(SPMapStrEntry)));
@@ -946,6 +1210,39 @@ int64_t sp_rt_map_size(void* map) {
     if (!map) return 0;
     auto* impl = static_cast<SPMapImpl*>(map);
     return impl->str_count + impl->int_count;
+}
+
+// Phase 6 slice A: key access by ordinal for `for (key in map)`.
+// Returns the key of the idx-th occupied entry in table order. The
+// order is unspecified and changes if the table rehashes, so the map
+// must not be mutated while it is being iterated. Out of range (or a
+// null map) returns null / 0.
+const char* sp_rt_map_str_key_at(void* map, int64_t index) {
+    if (!map || index < 0) return nullptr;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->str_entries || impl->str_capacity == 0) return nullptr;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            if (seen == index) return impl->str_entries[i].key;
+            ++seen;
+        }
+    }
+    return nullptr;
+}
+
+int64_t sp_rt_map_int_key_at(void* map, int64_t index) {
+    if (!map || index < 0) return 0;
+    auto* impl = static_cast<SPMapImpl*>(map);
+    if (!impl->int_entries || impl->int_capacity == 0) return 0;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->int_capacity; ++i) {
+        if (impl->int_entries[i].occupied) {
+            if (seen == index) return impl->int_entries[i].key;
+            ++seen;
+        }
+    }
+    return 0;
 }
 
 static void sp_map_rehash_str(SPMapImpl* impl, int64_t new_cap) {
@@ -983,7 +1280,15 @@ void sp_rt_map_set_str(void* map, const char* key, int64_t val) {
     int64_t idx = h & (impl->str_capacity - 1);
     while (impl->str_entries[idx].occupied) {
         if (impl->str_entries[idx].hash == h && std::strcmp(impl->str_entries[idx].key, key) == 0) {
+            // Phase 37 slice B: overwriting a value releases the old
+            // value's share (the compiler retained the new value
+            // before this call; same object nets to no change). The
+            // key copy is untouched — the key is not the element.
+            int64_t old = impl->str_entries[idx].val;
             impl->str_entries[idx].val = val;
+            if (impl->elements_are_refs) {
+                sp_rt_release(reinterpret_cast<void*>(old));
+            }
             return;
         }
         idx = (idx + 1) & (impl->str_capacity - 1);
@@ -1042,6 +1347,11 @@ void sp_rt_map_remove_str(void* map, const char* key) {
     int64_t idx = h & (impl->str_capacity - 1);
     while (impl->str_entries[idx].occupied) {
         if (impl->str_entries[idx].hash == h && std::strcmp(impl->str_entries[idx].key, key) == 0) {
+            // Phase 37 slice B: the removed value's share is released
+            // (captured before the backward-shift deletion moves the
+            // entry). The key copy is freed as before; a set's str key
+            // is a string copy, never a reference.
+            int64_t removed_val = impl->str_entries[idx].val;
             sp_rt_free(impl->str_entries[idx].key);
             impl->str_count--;
 
@@ -1060,6 +1370,9 @@ void sp_rt_map_remove_str(void* map, const char* key) {
             impl->str_entries[i].key = nullptr;
             impl->str_entries[i].val = 0;
             impl->str_entries[i].hash = 0;
+            if (impl->elements_are_refs) {
+                sp_rt_release(reinterpret_cast<void*>(removed_val));
+            }
             return;
         }
         idx = (idx + 1) & (impl->str_capacity - 1);
@@ -1100,7 +1413,16 @@ void sp_rt_map_set_i64(void* map, int64_t key, int64_t val) {
     int64_t idx = h & (impl->int_capacity - 1);
     while (impl->int_entries[idx].occupied) {
         if (impl->int_entries[idx].hash == h && impl->int_entries[idx].key == key) {
+            // Phase 37 slice B: overwriting a value releases the old
+            // value's share (see sp_rt_map_set_str). For a Set's
+            // backing map the value is the dummy 1 and
+            // elements_are_refs is false, so a duplicate add releases
+            // nothing; the element (the key) is untouched.
+            int64_t old = impl->int_entries[idx].val;
             impl->int_entries[idx].val = val;
+            if (impl->elements_are_refs) {
+                sp_rt_release(reinterpret_cast<void*>(old));
+            }
             return;
         }
         idx = (idx + 1) & (impl->int_capacity - 1);
@@ -1154,6 +1476,13 @@ void sp_rt_map_remove_i64(void* map, int64_t key) {
     int64_t idx = h & (impl->int_capacity - 1);
     while (impl->int_entries[idx].occupied) {
         if (impl->int_entries[idx].hash == h && impl->int_entries[idx].key == key) {
+            // Phase 37 slice B: the removed entry's share is released
+            // (captured before the backward-shift deletion moves the
+            // entry). For a Map the share is the VALUE; for a Set's
+            // backing map the share is the KEY (the element) and the
+            // value is the dummy 1, never released.
+            int64_t removed_val = impl->int_entries[idx].val;
+            int64_t removed_key = impl->int_entries[idx].key;
             impl->int_count--;
 
             int64_t i = idx;
@@ -1171,6 +1500,12 @@ void sp_rt_map_remove_i64(void* map, int64_t key) {
             impl->int_entries[i].key = 0;
             impl->int_entries[i].val = 0;
             impl->int_entries[i].hash = 0;
+            if (impl->elements_are_refs) {
+                sp_rt_release(reinterpret_cast<void*>(removed_val));
+            }
+            if (impl->ref_elements_are_keys) {
+                sp_rt_release(reinterpret_cast<void*>(removed_key));
+            }
             return;
         }
         idx = (idx + 1) & (impl->int_capacity - 1);
@@ -1180,6 +1515,28 @@ void sp_rt_map_remove_i64(void* map, int64_t key) {
 void sp_rt_map_clear(void* map) {
     if (!map) return;
     auto* impl = static_cast<SPMapImpl*>(map);
+    // Phase 37 slice B: a cleared map gives up every element share
+    // (values for a Map; int keys for a Set's backing map) before the
+    // tables are zeroed.
+    if (impl->elements_are_refs) {
+        for (int64_t i = 0; i < impl->str_capacity; ++i) {
+            if (impl->str_entries[i].occupied) {
+                sp_rt_release(reinterpret_cast<void*>(impl->str_entries[i].val));
+            }
+        }
+        for (int64_t i = 0; i < impl->int_capacity; ++i) {
+            if (impl->int_entries[i].occupied) {
+                sp_rt_release(reinterpret_cast<void*>(impl->int_entries[i].val));
+            }
+        }
+    }
+    if (impl->ref_elements_are_keys) {
+        for (int64_t i = 0; i < impl->int_capacity; ++i) {
+            if (impl->int_entries[i].occupied) {
+                sp_rt_release(reinterpret_cast<void*>(impl->int_entries[i].key));
+            }
+        }
+    }
     for (int64_t i = 0; i < impl->str_capacity; ++i) {
         if (impl->str_entries[i].occupied) {
             sp_rt_free(impl->str_entries[i].key);
@@ -1199,8 +1556,9 @@ bool sp_rt_map_is_empty(void* map) {
 }
 
 // Native Set<T> primitives
+// Phase 37 slice B: ARC-allocated (see sp_rt_list_alloc).
 void* sp_rt_set_alloc() {
-    auto* set = new SPSetImpl();
+    auto* set = static_cast<SPSetImpl*>(sp_rt_arc_alloc(sizeof(SPSetImpl), sp_set_destructor));
     set->map.str_capacity = 16;
     set->map.str_count = 0;
     set->map.str_entries = static_cast<SPMapStrEntry*>(sp_rt_alloc(16 * sizeof(SPMapStrEntry)));
@@ -1256,6 +1614,68 @@ bool sp_rt_set_is_empty(void* set) {
     return sp_rt_map_is_empty(&static_cast<SPSetImpl*>(set)->map);
 }
 
+// Phase 6 slice B: indexed access into a set, for `for (x in set)`.
+// A set is backed by the map's entry arrays; entries are visited in
+// table order (hash order — iteration order is unspecified, and a set
+// must not be mutated during iteration). Out-of-range indices panic:
+// the for-in loop only ever asks for indices below sp_rt_set_size().
+int64_t sp_rt_set_get_i64(void* set, int64_t index) {
+    if (!set) sp_rt_panic("NullPointerException: set is null");
+    auto* impl = &static_cast<SPSetImpl*>(set)->map;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->int_capacity; ++i) {
+        if (impl->int_entries[i].occupied) {
+            if (seen == index) return impl->int_entries[i].key;
+            ++seen;
+        }
+    }
+    sp_rt_panic("Set index out of range");
+    return 0;
+}
+
+const char* sp_rt_set_get_str(void* set, int64_t index) {
+    if (!set) sp_rt_panic("NullPointerException: set is null");
+    auto* impl = &static_cast<SPSetImpl*>(set)->map;
+    int64_t seen = 0;
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            if (seen == index) return impl->str_entries[i].key;
+            ++seen;
+        }
+    }
+    sp_rt_panic("Set index out of range");
+    return "";
+}
+
+// Phase 6 slice B: printable form of a set, for string interpolation
+// ("${s}" used to print raw pointer bytes — any pointer value was
+// assumed to be a C string). Integer entries first, then string
+// entries, both in table order: {1, 2, 3} / {a, b} / {} when empty.
+const char* sp_rt_set_to_string(void* set) {
+    if (!set) return "{}";
+    auto* impl = &static_cast<SPSetImpl*>(set)->map;
+    std::string out = "{";
+    bool first = true;
+    for (int64_t i = 0; i < impl->int_capacity; ++i) {
+        if (impl->int_entries[i].occupied) {
+            if (!first) out += ", ";
+            out += std::to_string(impl->int_entries[i].key);
+            first = false;
+        }
+    }
+    for (int64_t i = 0; i < impl->str_capacity; ++i) {
+        if (impl->str_entries[i].occupied) {
+            if (!first) out += ", ";
+            out += impl->str_entries[i].key ? impl->str_entries[i].key : "";
+            first = false;
+        }
+    }
+    out += "}";
+    char* res = static_cast<char*>(malloc(out.size() + 1));
+    if (res) std::memcpy(res, out.c_str(), out.size() + 1);
+    return res;
+}
+
 bool sp_rt_array_is_empty(void* arr) {
     if (!arr) return true;
     return sp_rt_array_length(arr) == 0;
@@ -1302,10 +1722,26 @@ struct SPQueueImpl {
     int64_t head;
     int64_t count;
     int64_t capacity;
+    // Phase 37 slice B: whether the queued items are retained
+    // references (set by sp_rt_queue_mark_ref_elements).
+    bool elements_are_refs;
 };
 
+// Phase 37 slice B: release the queued items (ring-buffer order)
+// when flagged, then free the ring buffer. The impl struct itself is
+// freed by the ARC machinery, never here.
+static void sp_queue_destructor(void* ptr) {
+    auto* q = static_cast<SPQueueImpl*>(ptr);
+    if (q->elements_are_refs && q->items && q->capacity > 0) {
+        for (int64_t i = 0; i < q->count; ++i) {
+            sp_rt_release(reinterpret_cast<void*>(q->items[(q->head + i) % q->capacity]));
+        }
+    }
+    sp_rt_free(q->items);
+}
+
 void* sp_rt_queue_alloc() {
-    auto* q = new SPQueueImpl();
+    auto* q = static_cast<SPQueueImpl*>(sp_rt_arc_alloc(sizeof(SPQueueImpl), sp_queue_destructor));
     q->capacity = 16;
     q->head = 0;
     q->count = 0;
@@ -1367,6 +1803,13 @@ bool sp_rt_queue_is_empty(void* queue) {
 void sp_rt_queue_clear(void* queue) {
     if (!queue) return;
     auto* q = static_cast<SPQueueImpl*>(queue);
+    // Phase 37 slice B: a cleared queue gives up every queued item's
+    // share.
+    if (q->elements_are_refs && q->items && q->capacity > 0) {
+        for (int64_t i = 0; i < q->count; ++i) {
+            sp_rt_release(reinterpret_cast<void*>(q->items[(q->head + i) % q->capacity]));
+        }
+    }
     q->head = 0;
     q->count = 0;
 }
@@ -1377,10 +1820,27 @@ struct SPPQImpl {
     int64_t* priorities;
     int64_t count;
     int64_t capacity;
+    // Phase 37 slice B: whether the stored items are retained
+    // references (set by sp_rt_pq_mark_ref_elements).
+    bool elements_are_refs;
 };
 
+// Phase 37 slice B: release the stored items when flagged, then free
+// both buffers. The impl struct itself is freed by the ARC
+// machinery, never here.
+static void sp_pq_destructor(void* ptr) {
+    auto* pq = static_cast<SPPQImpl*>(ptr);
+    if (pq->elements_are_refs && pq->items) {
+        for (int64_t i = 0; i < pq->count; ++i) {
+            sp_rt_release(reinterpret_cast<void*>(pq->items[i]));
+        }
+    }
+    sp_rt_free(pq->items);
+    sp_rt_free(pq->priorities);
+}
+
 void* sp_rt_pq_alloc() {
-    auto* pq = new SPPQImpl();
+    auto* pq = static_cast<SPPQImpl*>(sp_rt_arc_alloc(sizeof(SPPQImpl), sp_pq_destructor));
     pq->capacity = 16;
     pq->count = 0;
     pq->items = static_cast<int64_t*>(sp_rt_alloc(pq->capacity * sizeof(int64_t)));
@@ -1496,7 +1956,44 @@ bool sp_rt_pq_is_empty(void* pq_ptr) {
 
 void sp_rt_pq_clear(void* pq_ptr) {
     if (!pq_ptr) return;
-    static_cast<SPPQImpl*>(pq_ptr)->count = 0;
+    auto* pq = static_cast<SPPQImpl*>(pq_ptr);
+    if (pq->elements_are_refs && pq->items) {
+        for (int64_t i = 0; i < pq->count; ++i) {
+            sp_rt_release(reinterpret_cast<void*>(pq->items[i]));
+        }
+    }
+    pq->count = 0;
+}
+
+// Phase 37 slice B: element-kind flags. The compiler emits exactly
+// one of these right after a container alloc, only when the static
+// element type is an owned type (class/interface, array, or map).
+// The alloc signatures are unchanged, so the ~20 runtime-internal
+// callers and the C++ tests are untouched — and an unmarked container
+// simply never releases elements (today's leak, never a wrong free).
+// A setter on a null container is a no-op.
+void sp_rt_array_mark_ref_elements(void* arr) {
+    if (arr) static_cast<SPArrayHeader*>(arr)->elements_are_refs = true;
+}
+
+void sp_rt_list_mark_ref_elements(void* list) {
+    if (list) static_cast<SPListImpl*>(list)->elements_are_refs = true;
+}
+
+void sp_rt_map_mark_ref_elements(void* map) {
+    if (map) static_cast<SPMapImpl*>(map)->elements_are_refs = true;
+}
+
+void sp_rt_set_mark_ref_elements(void* set) {
+    if (set) static_cast<SPSetImpl*>(set)->map.ref_elements_are_keys = true;
+}
+
+void sp_rt_queue_mark_ref_elements(void* queue) {
+    if (queue) static_cast<SPQueueImpl*>(queue)->elements_are_refs = true;
+}
+
+void sp_rt_pq_mark_ref_elements(void* pq) {
+    if (pq) static_cast<SPPQImpl*>(pq)->elements_are_refs = true;
 }
 
 // Higher-order collection functions
@@ -1912,6 +2409,12 @@ const char* sp_rt_os_arch() {
 #endif
 }
 
+// Phase 6 slice B: captured program arguments (deep-copied, owned by the
+// runtime for the process lifetime; argv[0] — the program name — is kept
+// so callers can inspect it, but sp_rt_os_args() returns argv[1..]).
+static int g_sp_argc = 0;
+static char** g_sp_argv = nullptr;
+
 void* sp_rt_os_args() {
 #if defined(_WIN32)
     int count = __argc > 0 ? __argc : 0;
@@ -1925,8 +2428,40 @@ void* sp_rt_os_args() {
     }
     return arr;
 #else
-    return sp_rt_array_alloc(0, sizeof(int64_t));
+    // Phase 6 slice B: the non-Windows branch used to return an empty
+    // array unconditionally (argv was never captured — the generated
+    // `main` took no parameters). The generated `main` now forwards
+    // argc/argv via sp_rt_set_args() before any user code runs.
+    int count = g_sp_argc > 1 ? g_sp_argc - 1 : 0; // argv[0] is the program name
+    void* arr = sp_rt_array_alloc(static_cast<int64_t>(count), sizeof(int64_t));
+    for (int i = 0; i < count; ++i) {
+        const char* arg_str = (g_sp_argv && g_sp_argv[i + 1]) ? g_sp_argv[i + 1] : "";
+        size_t len = std::strlen(arg_str);
+        char* copy = static_cast<char*>(malloc(len + 1));
+        std::memcpy(copy, arg_str, len + 1);
+        sp_rt_array_set_i64(arr, static_cast<int64_t>(i), reinterpret_cast<int64_t>(copy));
+    }
+    return arr;
 #endif
+}
+
+// Phase 6 slice B: the generated `main` forwards argc/argv here before
+// any user code runs (first call wins; main runs once).
+void sp_rt_set_args(int argc, char** argv) {
+    if (g_sp_argv) return; // first call wins (main runs once)
+    g_sp_argc = argc > 0 ? argc : 0;
+    if (argc <= 0 || !argv) {
+        g_sp_argv = nullptr;
+        return;
+    }
+    g_sp_argv = static_cast<char**>(std::calloc(static_cast<size_t>(argc), sizeof(char*)));
+    for (int i = 0; i < argc; ++i) {
+        const char* a = argv[i] ? argv[i] : "";
+        size_t len = std::strlen(a);
+        char* copy = static_cast<char*>(malloc(len + 1));
+        std::memcpy(copy, a, len + 1);
+        g_sp_argv[i] = copy;
+    }
 }
 
 void sp_rt_os_exit(int64_t code) {

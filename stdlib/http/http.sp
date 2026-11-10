@@ -21,6 +21,10 @@ extern "C" {
     fn sp_rt_http_req_query(ptr req, string name) -> string;
     fn sp_rt_http_req_param(ptr req, string name) -> string;
     fn sp_rt_http_req_cookie(ptr req, string name) -> string;
+    // Phase 6 slice A: normalize a handler-provided request pointer
+    // (a wrapped SP HttpRequest object yields its raw handle; a raw
+    // pointer passes through unchanged).
+    fn sp_rt_http_req_unwrap(ptr req) -> ptr;
 
     // Response construction
     fn sp_rt_http_resp_create(int status, string body) -> ptr;
@@ -38,6 +42,8 @@ extern "C" {
     fn sp_rt_http_server_create_advanced(int workers, int maxBodyBytes, int maxHeaderBytes) -> ptr;
     fn sp_rt_http_server_route(ptr srv, string method, string path, ptr handlerFnPtr);
     fn sp_rt_http_server_route_handler(ptr srv, string method, string path, ptr handlerFnPtr);
+    // Phase 4 (parent fix): static-JSON route — no SP lambda involved.
+    fn sp_rt_http_server_route_json(ptr srv, string method, string path, string json);
     fn sp_rt_http_server_listen(ptr srv, string host, int port) -> bool;
     fn sp_rt_http_server_wait(ptr srv);
     fn sp_rt_http_server_port(ptr srv) -> int;
@@ -257,6 +263,12 @@ public class HttpServer {
         return server;
     }
 
+    // Low-level 3-string route: the handler takes
+    // (method, path, body) and returns a string (or a raw HTTP
+    // response). This is the ONLY HttpServer entry point that uses the
+    // 3-string ABI — get/post/... and routeHandler all take typed
+    // handlers (fn(HttpRequest) -> HttpResponse, or a (ptr req)
+    // lambda). Do not route a typed handler through here.
     public fn route(string method, string path, ptr handlerFnPtr) {
         sp_rt_http_server_route(this.handle, method, path, handlerFnPtr);
     }
@@ -265,6 +277,23 @@ public class HttpServer {
         sp_rt_http_server_route_handler(this.handle, method, path, handlerFnPtr);
     }
 
+    // Phase 4 (parent fix): serve a fixed JSON document at a route without
+    // any SP lambda — use this where the body is known up front (e.g. an
+    // OpenAPI spec), because capturing lambdas are not supported.
+    public fn routeJson(string method, string path, string json) {
+        sp_rt_http_server_route_json(this.handle, method, path, json);
+    }
+
+    // Phase 7 slice B: the verb helpers (get/post/...) register TYPED
+    // handlers — the same ABI as App.get and getHandler (routeHandler).
+    // Before this fix they called route(), the 3-string ABI
+    // ((method, path, body) -> const char*), so a typed
+    // fn(HttpRequest) -> HttpResponse handler segfaulted the server on
+    // its first request: the handler received the method string where
+    // it expected an HttpRequest object. `route()` itself stays the
+    // low-level 3-string entry point for handlers that take
+    // (method, path, body) and return a string; no in-repo SP caller
+    // uses it (audit in docs/v2/PHASE-36-SLICE-B.md).
     public fn getHandler(string path, ptr handlerFnPtr) {
         this.routeHandler("GET", path, handlerFnPtr);
     }
@@ -294,31 +323,31 @@ public class HttpServer {
     }
 
     public fn get(string path, ptr handlerFnPtr) {
-        this.route("GET", path, handlerFnPtr);
+        this.routeHandler("GET", path, handlerFnPtr);
     }
 
     public fn post(string path, ptr handlerFnPtr) {
-        this.route("POST", path, handlerFnPtr);
+        this.routeHandler("POST", path, handlerFnPtr);
     }
 
     public fn put(string path, ptr handlerFnPtr) {
-        this.route("PUT", path, handlerFnPtr);
+        this.routeHandler("PUT", path, handlerFnPtr);
     }
 
     public fn patch(string path, ptr handlerFnPtr) {
-        this.route("PATCH", path, handlerFnPtr);
+        this.routeHandler("PATCH", path, handlerFnPtr);
     }
 
     public fn deleteRoute(string path, ptr handlerFnPtr) {
-        this.route("DELETE", path, handlerFnPtr);
+        this.routeHandler("DELETE", path, handlerFnPtr);
     }
 
     public fn options(string path, ptr handlerFnPtr) {
-        this.route("OPTIONS", path, handlerFnPtr);
+        this.routeHandler("OPTIONS", path, handlerFnPtr);
     }
 
     public fn head(string path, ptr handlerFnPtr) {
-        this.route("HEAD", path, handlerFnPtr);
+        this.routeHandler("HEAD", path, handlerFnPtr);
     }
 
     public fn group(string prefix) -> RouteGroup {
@@ -396,6 +425,11 @@ public class RouteGroup {
         sp_rt_http_group_route_handler(this.handle, method, path, handlerFnPtr);
     }
 
+    // Phase 7 slice B: same alignment as HttpServer above — the verb
+    // helpers register TYPED handlers (routeHandler). Before this fix
+    // they called sp_rt_http_group_route, the 3-string ABI, so a typed
+    // handler segfaulted on first request. (WebGroup.get was already
+    // typed — it goes through RouteGroup.routeHandler via WebGroup.)
     public fn getHandler(string path, ptr handlerFnPtr) {
         this.routeHandler("GET", path, handlerFnPtr);
     }
@@ -425,31 +459,31 @@ public class RouteGroup {
     }
 
     public fn get(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "GET", path, handlerFnPtr);
+        this.routeHandler("GET", path, handlerFnPtr);
     }
 
     public fn post(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "POST", path, handlerFnPtr);
+        this.routeHandler("POST", path, handlerFnPtr);
     }
 
     public fn put(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "PUT", path, handlerFnPtr);
+        this.routeHandler("PUT", path, handlerFnPtr);
     }
 
     public fn patch(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "PATCH", path, handlerFnPtr);
+        this.routeHandler("PATCH", path, handlerFnPtr);
     }
 
     public fn deleteRoute(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "DELETE", path, handlerFnPtr);
+        this.routeHandler("DELETE", path, handlerFnPtr);
     }
 
     public fn options(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "OPTIONS", path, handlerFnPtr);
+        this.routeHandler("OPTIONS", path, handlerFnPtr);
     }
 
     public fn head(string path, ptr handlerFnPtr) {
-        sp_rt_http_group_route(this.handle, "HEAD", path, handlerFnPtr);
+        this.routeHandler("HEAD", path, handlerFnPtr);
     }
 
     public fn destroy() {

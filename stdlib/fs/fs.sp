@@ -98,6 +98,21 @@ public fn listDir(string path) -> string[] {
     return sp_rt_fs_list_dir(path);
 }
 
+// Phase 38 slice E: listDir returns [] both for an empty directory
+// and for an error (missing path, not-a-dir), so the try* variant
+// pre-checks exists()/isDir() — the same pattern as tryReadText
+// (and the same TOCTOU shape: a path deleted between the check and
+// the read lists as Ok([])).
+public fn tryListDir(string path) -> Result<string[], IOError> {
+    if (!sp_rt_fs_exists(path)) {
+        return Result.Err(IOError.NotFound);
+    }
+    if (!sp_rt_fs_is_dir(path)) {
+        return Result.Err(IOError.InvalidInput);
+    }
+    return Result.Ok(sp_rt_fs_list_dir(path));
+}
+
 public fn isFile(string path) -> bool {
     return sp_rt_fs_is_file(path);
 }
@@ -157,6 +172,10 @@ public class FS {
 
     public static fn listDir(string path) -> string[] {
         return sp_rt_fs_list_dir(path);
+    }
+
+    public static fn tryListDir(string path) -> Result<string[], IOError> {
+        return tryListDir(path);
     }
 
     public static fn isFile(string path) -> bool {

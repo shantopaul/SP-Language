@@ -2,6 +2,7 @@
 #include "sp/runtime/Metrics.h"
 #include "sp/runtime/Health.h"
 #include "sp/runtime/Queue.h"
+#include "sp/runtime/PersistentQueue.h"
 #include "sp/runtime/Runtime.h"
 #include <cstdlib>
 #include <cstring>
@@ -377,6 +378,76 @@ void sp_rt_cron_stop(void* cron) {
 int32_t sp_rt_cron_task_count(void* cron) {
     if (!cron) return 0;
     return static_cast<int32_t>(static_cast<CronScheduler*>(cron)->taskCount());
+}
+
+// ============================================================================
+// Persistent Queue C-ABI (Phase 31)
+// ============================================================================
+
+void* sp_rt_pqueue_open(const char* path) {
+    if (!path || !*path) return nullptr;
+    auto* q = new PersistentQueue();
+    if (!q->open(path)) {
+        delete q;
+        return nullptr;
+    }
+    return q;
+}
+
+void sp_rt_pqueue_close(void* queue) {
+    if (queue) {
+        delete static_cast<PersistentQueue*>(queue);
+    }
+}
+
+const char* sp_rt_pqueue_last_error(void* queue) {
+    if (!queue) return alloc_str("persistent queue is not open");
+    return alloc_str(static_cast<PersistentQueue*>(queue)->lastError());
+}
+
+const char* sp_rt_pqueue_enqueue(void* queue, const char* name, const char* payload,
+                                 int32_t max_retries, int32_t backoff_ms, int32_t delay_ms) {
+    if (!queue || !name) return alloc_str("");
+    auto* q = static_cast<PersistentQueue*>(queue);
+    std::string id = q->enqueue(name, payload ? payload : "", max_retries, backoff_ms, delay_ms);
+    return alloc_str(id);
+}
+
+const char* sp_rt_pqueue_dequeue(void* queue) {
+    if (!queue) return alloc_str("{}");
+    auto* q = static_cast<PersistentQueue*>(queue);
+    PersistentJob job;
+    if (!q->tryDequeue(job)) return alloc_str("{}");
+    return alloc_str(job.toJson());
+}
+
+bool sp_rt_pqueue_complete(void* queue, const char* job_id) {
+    if (!queue || !job_id) return false;
+    return static_cast<PersistentQueue*>(queue)->complete(job_id);
+}
+
+bool sp_rt_pqueue_fail(void* queue, const char* job_id, const char* error) {
+    if (!queue || !job_id) return false;
+    return static_cast<PersistentQueue*>(queue)->fail(job_id, error ? error : "");
+}
+
+int32_t sp_rt_pqueue_pending_count(void* queue) {
+    if (!queue) return 0;
+    return static_cast<int32_t>(static_cast<PersistentQueue*>(queue)->pendingCount());
+}
+
+int32_t sp_rt_pqueue_dlq_count(void* queue) {
+    if (!queue) return 0;
+    return static_cast<int32_t>(static_cast<PersistentQueue*>(queue)->dlqCount());
+}
+
+bool sp_rt_pqueue_retry_dlq(void* queue, const char* job_id) {
+    if (!queue || !job_id) return false;
+    return static_cast<PersistentQueue*>(queue)->retryDlqJob(job_id);
+}
+
+void sp_rt_pqueue_clear_dlq(void* queue) {
+    if (queue) static_cast<PersistentQueue*>(queue)->clearDlq();
 }
 
 } // extern "C"

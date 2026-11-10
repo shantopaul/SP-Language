@@ -113,6 +113,13 @@ void TypeChecker::visit(const ast::IdentifierExpr& node) {
 }
 
 void TypeChecker::visit(const ast::BinaryExpr& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // operand (e.g. `1 +`). The parser already reported E1000 for it,
+    // so silently yield the error type instead of dereferencing null.
+    if (!node.hasLeft() || !node.hasRight()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto leftType = checkExpr(node.getLeft());
     auto rightType = checkExpr(node.getRight());
 
@@ -226,6 +233,12 @@ void TypeChecker::visit(const ast::BinaryExpr& node) {
 }
 
 void TypeChecker::visit(const ast::UnaryExpr& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // operand (e.g. `-;`). The parser already reported E1000 for it.
+    if (!node.hasOperand()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto operandType = checkExpr(node.getOperand());
     if (operandType->isError()) {
         m_currentExprType = m_typeCtx.getError();
@@ -300,14 +313,32 @@ void TypeChecker::visit(const ast::UnaryExpr& node) {
     }
 }
 
+TypePtr TypeChecker::wrapAsyncReturn(const std::shared_ptr<FunctionSymbol>& sym, TypePtr ret) {
+    if (!sym || !sym->isAsync() || !ret) return ret;
+    // A call to an `async fn` yields Task<ret>. `Task<void>` is the
+    // type of a void async fn's task. Already-Task returns cannot occur
+    // (an async fn's declared return type is a plain type).
+    std::string taskName = "Task<" + ret->toString() + ">";
+    auto taskT = m_typeCtx.resolveType(taskName);
+    if (!taskT) {
+        m_diagnostics.reportError("E1001", "Cannot form Task type for async function return type '" +
+                                  ret->toString() + "'", sym->getLocation());
+        return ret;
+    }
+    return taskT;
+}
+
 std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
     const std::vector<std::shared_ptr<FunctionSymbol>>& candidates,
     const std::vector<TypePtr>& argTypes,
     const diagnostics::SourceLocation& loc,
-    const std::string& name
+    const std::string& name,
+    bool reportErrors
 ) {
     if (candidates.empty()) {
-        m_diagnostics.reportError("E1003", "Undefined function or method '" + name + "'", loc);
+        if (reportErrors) {
+            m_diagnostics.reportError("E1003", "Undefined function or method '" + name + "'", loc);
+        }
         return nullptr;
     }
 
@@ -346,8 +377,10 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
             if (i > 0) argList += ", ";
             argList += argTypes[i]->toString();
         }
-        m_diagnostics.reportError("E1001", "No matching overload for function '" + name + "' with argument types (" +
-                                  argList + ")", loc);
+        if (reportErrors) {
+            m_diagnostics.reportError("E1001", "No matching overload for function '" + name + "' with argument types (" +
+                                      argList + ")", loc);
+        }
         return nullptr;
     }
 
@@ -369,9 +402,17 @@ std::shared_ptr<FunctionSymbol> TypeChecker::resolveOverload(
 }
 
 void TypeChecker::visit(const ast::CallExpr& node) {
+    // Phase 5 slice C: the callee is never null by construction, but an
+    // argument can be (e.g. `foo(,)`). A null argument yields the error
+    // type as a placeholder so overload resolution keeps its arity and
+    // reports nothing new — the parser already reported E1000.
+    if (!node.hasCallee()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     std::vector<TypePtr> argTypes;
     for (const auto& argPtr : node.getArgs()) {
-        argTypes.push_back(checkExpr(*argPtr));
+        argTypes.push_back(argPtr ? checkExpr(*argPtr) : m_typeCtx.getError());
     }
 
     const auto& callee = node.getCallee();
@@ -382,9 +423,20 @@ void TypeChecker::visit(const ast::CallExpr& node) {
         const std::string& fnName = idExpr.getName();
 
         auto candidates = m_symbolTable.lookupFunctions(fnName);
+        // Phase 6 slice A: remember whether a free function existed
+        // but no overload matched, so the final error below can stay
+        // the E1001 overload error instead of becoming E1003.
+        bool freeFnOverloadFailed = false;
         if (!candidates.empty()) {
-            auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), fnName);
+            // Phase 6 slice A: try the free functions quietly. A
+            // same-named builtin (e.g. log(double)) must not shadow an
+            // enclosing-class method (e.g. log(string)): when no free
+            // function matches, fall through to the method check below
+            // instead of reporting here — the method path reports
+            // exactly one error if it fails too.
+            auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), fnName, false);
             if (resolved) {
+                m_nodeCallTargets[&node] = resolved;
                 if (resolved->isGeneric() && resolved->getASTDecl()) {
                     const auto* astDecl = resolved->getASTDecl();
                     std::vector<std::string> typeArgs = node.getTypeArgs();
@@ -396,14 +448,13 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                     const_cast<ast::CallExpr&>(node).setTypeArgs(typeArgs);
                     std::string specRetStr = TypeContext::substituteType(astDecl->getReturnType(), astDecl->getTypeParams(), typeArgs);
                     auto retT = m_typeCtx.resolveType(specRetStr);
-                    m_currentExprType = retT ? retT : resolved->getFunctionType()->getReturnType();
+                    m_currentExprType = wrapAsyncReturn(resolved, retT ? retT : resolved->getFunctionType()->getReturnType());
                 } else {
-                    m_currentExprType = resolved->getFunctionType()->getReturnType();
+                    m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
                 }
-            } else {
-                m_currentExprType = m_typeCtx.getError();
+                return;
             }
-            return;
+            freeFnOverloadFailed = true;
         }
 
         // Check super constructor call: super(...)
@@ -423,11 +474,19 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             if (!methods.empty()) {
                 std::vector<std::shared_ptr<FunctionSymbol>> methodCandidates;
                 for (const auto& mm : methods) {
-                    methodCandidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                    // Phase 6 slice A: mark the target as a method so
+                    // IRBuilder can tell it apart from a same-named
+                    // (even same-signature) free function or builtin.
+                    auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
+                                                                 mm.visibility, mm.isStatic, true);
+                    cand->setAsync(mm.isAsync);
+                    cand->setASTDecl(mm.astDecl);
+                    methodCandidates.push_back(std::move(cand));
                 }
                 auto resolved = resolveOverload(methodCandidates, argTypes, node.getLocation(), fnName);
                 if (resolved) {
-                    m_currentExprType = resolved->getFunctionType()->getReturnType();
+                    m_nodeCallTargets[&node] = resolved;
+                    m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
                 } else {
                     m_currentExprType = m_typeCtx.getError();
                 }
@@ -471,7 +530,20 @@ void TypeChecker::visit(const ast::CallExpr& node) {
             return;
         }
 
-        m_diagnostics.reportError("E1003", "Undefined function or callable symbol '" + fnName + "'", node.getLocation());
+        if (freeFnOverloadFailed) {
+            // A free function with this name exists but no overload
+            // matched, and no fallback matched either: keep the
+            // overload error (same E1001 as before the fallback).
+            std::string argList;
+            for (size_t i = 0; i < argTypes.size(); ++i) {
+                if (i > 0) argList += ", ";
+                argList += argTypes[i]->toString();
+            }
+            m_diagnostics.reportError("E1001", "No matching overload for function '" + fnName + "' with argument types (" +
+                                      argList + ")", node.getLocation());
+        } else {
+            m_diagnostics.reportError("E1003", "Undefined function or callable symbol '" + fnName + "'", node.getLocation());
+        }
         m_currentExprType = m_typeCtx.getError();
         return;
     }
@@ -504,12 +576,18 @@ void TypeChecker::visit(const ast::CallExpr& node) {
                     m_currentExprType = m_typeCtx.getError();
                     return;
                 }
-                candidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                // Phase 6 slice A: mark the target as a method (see above).
+                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
+                                                             mm.visibility, mm.isStatic, true);
+                cand->setAsync(mm.isAsync);
+                cand->setASTDecl(mm.astDecl);
+                candidates.push_back(std::move(cand));
             }
 
             auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), methodName);
             if (resolved) {
-                m_currentExprType = resolved->getFunctionType()->getReturnType();
+                m_nodeCallTargets[&node] = resolved;
+                m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
             } else {
                 m_currentExprType = m_typeCtx.getError();
             }
@@ -522,12 +600,18 @@ void TypeChecker::visit(const ast::CallExpr& node) {
 
             std::vector<std::shared_ptr<FunctionSymbol>> candidates;
             for (const auto& mm : methods) {
-                candidates.push_back(std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation()));
+                // Phase 6 slice A: mark the target as a method (see above).
+                auto cand = std::make_shared<FunctionSymbol>(mm.name, mm.functionType, node.getLocation(),
+                                                             mm.visibility, mm.isStatic, true);
+                cand->setAsync(mm.isAsync);
+                cand->setASTDecl(mm.astDecl);
+                candidates.push_back(std::move(cand));
             }
 
             auto resolved = resolveOverload(candidates, argTypes, node.getLocation(), methodName);
             if (resolved) {
-                m_currentExprType = resolved->getFunctionType()->getReturnType();
+                m_nodeCallTargets[&node] = resolved;
+                m_currentExprType = wrapAsyncReturn(resolved, resolved->getFunctionType()->getReturnType());
             } else {
                 m_currentExprType = m_typeCtx.getError();
             }
@@ -785,6 +869,12 @@ void TypeChecker::visit(const ast::CallExpr& node) {
 }
 
 void TypeChecker::visit(const ast::MemberExpr& node) {
+    // Phase 5 slice C: the object is never null by construction, but
+    // guard it anyway — a null deref here used to segfault analyze().
+    if (!node.hasObject()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto objType = checkExpr(node.getObject());
     const std::string& member = node.getMember();
 
@@ -954,6 +1044,12 @@ void TypeChecker::visit(const ast::MemberExpr& node) {
 }
 
 void TypeChecker::visit(const ast::IndexExpr& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // index (e.g. `a[]`). The parser already reported E1000 for it.
+    if (!node.hasObject() || !node.hasIndex()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto objType = checkExpr(node.getObject());
     auto indexType = checkExpr(node.getIndex());
 
@@ -997,7 +1093,14 @@ void TypeChecker::visit(const ast::IndexExpr& node) {
             m_diagnostics.reportError("E1001", "Map key type mismatch: expected '" + mapType.getKeyType()->toString() +
                                       "', got '" + indexType->toString() + "'", node.getLocation());
         }
-        m_currentExprType = m_typeCtx.getNullableType(mapType.getValueType());
+        // Phase 6 slice B: a map index-read returns the plain value
+        // type, NOT a nullable. The runtime (sp_rt_map_get_*) has no
+        // missing-key signal — it returns the type's zero value (0 /
+        // "" / false / null for objects) — and HashMap.get() already
+        // returns the plain value type, so the nullable claim made the
+        // two read paths disagree for no benefit. Use containsKey() to
+        // test presence; a missing key reads back the zero value.
+        m_currentExprType = mapType.getValueType();
         return;
     }
 
@@ -1011,9 +1114,11 @@ void TypeChecker::visit(const ast::ArrayExpr& node) {
         return;
     }
 
-    TypePtr elemType = checkExpr(*node.getElements().front());
+    // Phase 5 slice C: error recovery can leave a null element
+    // (e.g. `[1, , 3]`); it yields the error type as a placeholder.
+    TypePtr elemType = node.getElements().front() ? checkExpr(*node.getElements().front()) : m_typeCtx.getError();
     for (size_t i = 1; i < node.getElements().size(); ++i) {
-        auto nextType = checkExpr(*node.getElements()[i]);
+        auto nextType = node.getElements()[i] ? checkExpr(*node.getElements()[i]) : m_typeCtx.getError();
         elemType = m_typeCtx.getCommonType(elemType, nextType);
     }
 
@@ -1026,12 +1131,14 @@ void TypeChecker::visit(const ast::MapExpr& node) {
         return;
     }
 
-    TypePtr keyType = checkExpr(*node.getEntries().front().first);
-    TypePtr valType = checkExpr(*node.getEntries().front().second);
+    // Phase 5 slice C: error recovery can leave a null key or value
+    // (e.g. `{"a": 1, "b": }`); each yields the error type as a placeholder.
+    TypePtr keyType = node.getEntries().front().first ? checkExpr(*node.getEntries().front().first) : m_typeCtx.getError();
+    TypePtr valType = node.getEntries().front().second ? checkExpr(*node.getEntries().front().second) : m_typeCtx.getError();
 
     for (size_t i = 1; i < node.getEntries().size(); ++i) {
-        auto nextK = checkExpr(*node.getEntries()[i].first);
-        auto nextV = checkExpr(*node.getEntries()[i].second);
+        auto nextK = node.getEntries()[i].first ? checkExpr(*node.getEntries()[i].first) : m_typeCtx.getError();
+        auto nextV = node.getEntries()[i].second ? checkExpr(*node.getEntries()[i].second) : m_typeCtx.getError();
         keyType = m_typeCtx.getCommonType(keyType, nextK);
         valType = m_typeCtx.getCommonType(valType, nextV);
     }
@@ -1057,7 +1164,15 @@ void TypeChecker::visit(const ast::LambdaExpr& node) {
     TypePtr returnType = m_typeCtx.resolveType(node.getReturnType());
     TypePtr prevReturnType = m_currentFunctionReturnType;
 
-    if (!returnType || returnType->isUnknown()) {
+    // Phase 5 slice C: error recovery can build a lambda with a null body
+    // (e.g. `(int x) => ;`). getBody() dereferences the body, so the
+    // body handling below runs only when a body exists; with no body the
+    // return type falls back to int, matching the old fallthrough.
+    if (!node.hasBody()) {
+        if (!returnType || returnType->isUnknown()) {
+            returnType = m_typeCtx.getInt();
+        }
+    } else if (!returnType || returnType->isUnknown()) {
         if (const auto* exprBody = dynamic_cast<const ast::ExpressionNode*>(&node.getBody())) {
             returnType = checkExpr(*exprBody);
         } else if (const auto* blockBody = dynamic_cast<const ast::BlockStmt*>(&node.getBody())) {
@@ -1086,6 +1201,12 @@ void TypeChecker::visit(const ast::LambdaExpr& node) {
 }
 
 void TypeChecker::visit(const ast::TernaryExpr& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // operand (e.g. `c ? 1 :`). The parser already reported E1000.
+    if (!node.hasCondition() || !node.hasThenExpr() || !node.hasElseExpr()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto condType = checkExpr(node.getCondition());
     if (!condType->isBoolean()) {
         m_diagnostics.reportError("E1001", "Ternary condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
@@ -1098,6 +1219,12 @@ void TypeChecker::visit(const ast::TernaryExpr& node) {
 }
 
 void TypeChecker::visit(const ast::AssignExpr& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // value (e.g. `x = ;`). The parser already reported E1000 for it.
+    if (!node.hasTarget() || !node.hasValue()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     if (const auto* id = dynamic_cast<const ast::IdentifierExpr*>(&node.getTarget())) {
         auto sym = m_symbolTable.lookup(id->getName());
         if (sym && (sym->getKind() == SymbolKind::Constant ||
@@ -1162,8 +1289,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     if (typeName == "Array") {
         TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.getArrayType(elem);
         return;
@@ -1171,8 +1300,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     if (typeName == "List") {
         TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.resolveType("List<" + elem->toString() + ">");
         return;
@@ -1182,8 +1313,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
         TypePtr v = node.getTypeArgs().size() > 1 ? resolveArgOrAny(node.getTypeArgs()[1]) : m_typeCtx.getAny();
         if (!k) k = m_typeCtx.getAny();
         if (!v) v = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.getMapType(k, v);
         return;
@@ -1191,8 +1324,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     if (typeName == "Set") {
         TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.resolveType("Set<" + elem->toString() + ">");
         return;
@@ -1200,8 +1335,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     if (typeName == "Stack") {
         TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.resolveType("Stack<" + elem->toString() + ">");
         return;
@@ -1209,8 +1346,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     if (typeName == "Queue") {
         TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.resolveType("Queue<" + elem->toString() + ">");
         return;
@@ -1218,8 +1357,10 @@ void TypeChecker::visit(const ast::NewExpr& node) {
     if (typeName == "PriorityQueue") {
         TypePtr elem = node.isGeneric() ? resolveArgOrAny(node.getTypeArgs()[0]) : m_typeCtx.getAny();
         if (!elem) elem = m_typeCtx.getAny();
+        // Phase 5 slice C: an argument can be null after error recovery
+        // (e.g. `new Foo(,)`); its type is discarded here anyway.
         for (const auto& argPtr : node.getArgs()) {
-            checkExpr(*argPtr);
+            if (argPtr) checkExpr(*argPtr);
         }
         m_currentExprType = m_typeCtx.resolveType("PriorityQueue<" + elem->toString() + ">");
         return;
@@ -1259,14 +1400,22 @@ void TypeChecker::visit(const ast::NewExpr& node) {
         return;
     }
 
+    // Phase 5 slice C: an argument can be null after error recovery
+    // (e.g. `new Foo(,)`); its type is discarded here anyway.
     for (const auto& argPtr : node.getArgs()) {
-        checkExpr(*argPtr);
+        if (argPtr) checkExpr(*argPtr);
     }
 
     m_currentExprType = clsType;
 }
 
 void TypeChecker::visit(const ast::TryExpr& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // operand. The parser already reported E1000 for it.
+    if (!node.hasExpr()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto operandType = checkExpr(node.getExpr());
     if (operandType->isError()) {
         m_currentExprType = m_typeCtx.getError();
@@ -1321,6 +1470,12 @@ void TypeChecker::visit(const ast::AwaitExpr& node) {
         m_diagnostics.reportError("E1802", "'await' can only be used inside an 'async' function", node.getLocation());
     }
 
+    // Phase 5 slice C: error recovery can build this node with a null
+    // operand (e.g. `await ;`). The parser already reported E1000.
+    if (!node.hasExpr()) {
+        m_currentExprType = m_typeCtx.getError();
+        return;
+    }
     auto operandType = checkExpr(node.getExpr());
     if (operandType->isError()) {
         m_currentExprType = m_typeCtx.getError();
@@ -1381,6 +1536,9 @@ void TypeChecker::visit(const ast::BlockStmt& node) {
 }
 
 void TypeChecker::visit(const ast::ExprStmt& node) {
+    // Phase 5 slice C: error recovery can build this node with a null
+    // expression (a lone `;`). The parser already reported E1000.
+    if (!node.hasExpr()) return;
     checkExpr(node.getExpr());
 }
 
@@ -1488,33 +1646,44 @@ void TypeChecker::visit(const ast::VarDeclStmt& node) {
 }
 
 void TypeChecker::visit(const ast::IfStmt& node) {
-    auto condType = checkExpr(node.getCondition());
-    if (!condType->isBoolean()) {
-        m_diagnostics.reportError("E1001", "If condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
+    // Phase 5 slice C: error recovery can build this node with a null
+    // condition or then-branch (e.g. `if;`). The parser already
+    // reported E1000 for each missing part; check what exists.
+    if (node.hasCondition()) {
+        auto condType = checkExpr(node.getCondition());
+        if (!condType->isBoolean()) {
+            m_diagnostics.reportError("E1001", "If condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
+        }
     }
-    checkStmt(node.getThenBranch());
+    if (node.hasThenBranch()) checkStmt(node.getThenBranch());
     if (node.hasElseBranch()) {
         checkStmt(*node.getElseBranch());
     }
 }
 
 void TypeChecker::visit(const ast::WhileStmt& node) {
-    auto condType = checkExpr(node.getCondition());
-    if (!condType->isBoolean()) {
-        m_diagnostics.reportError("E1001", "While condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
+    // Phase 5 slice C: same null-guard as IfStmt (e.g. `while;`).
+    if (node.hasCondition()) {
+        auto condType = checkExpr(node.getCondition());
+        if (!condType->isBoolean()) {
+            m_diagnostics.reportError("E1001", "While condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
+        }
     }
     m_loopDepth++;
-    checkStmt(node.getBody());
+    if (node.hasBody()) checkStmt(node.getBody());
     m_loopDepth--;
 }
 
 void TypeChecker::visit(const ast::DoWhileStmt& node) {
     m_loopDepth++;
-    checkStmt(node.getBody());
+    if (node.hasBody()) checkStmt(node.getBody());
     m_loopDepth--;
-    auto condType = checkExpr(node.getCondition());
-    if (!condType->isBoolean()) {
-        m_diagnostics.reportError("E1001", "Do-while condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
+    // Phase 5 slice C: the condition can be null (e.g. `do {} while;`).
+    if (node.hasCondition()) {
+        auto condType = checkExpr(node.getCondition());
+        if (!condType->isBoolean()) {
+            m_diagnostics.reportError("E1001", "Do-while condition must be of type bool, got '" + condType->toString() + "'", node.getLocation());
+        }
     }
 }
 
@@ -1533,13 +1702,20 @@ void TypeChecker::visit(const ast::ForStmt& node) {
         checkExpr(*node.getIncrement());
     }
     m_loopDepth++;
-    checkStmt(node.getBody());
+    // Phase 5 slice C: the body can be null after error recovery
+    // (e.g. `for (;;) ;`); the parser already reported E1000.
+    if (node.hasBody()) checkStmt(node.getBody());
     m_loopDepth--;
     m_symbolTable.exitScope();
 }
 
 void TypeChecker::visit(const ast::ForInStmt& node) {
-    auto iterType = checkExpr(node.getIterable());
+    // Phase 5 slice C: the iterable can be null after error recovery
+    // (e.g. `for (x in )`). The parser already reported E1000; the
+    // missing-iterable diagnostic is suppressed (iterType stays error,
+    // and error is assignable to everything, so nothing new is reported).
+    TypePtr iterType = m_typeCtx.getError();
+    if (node.hasIterable()) iterType = checkExpr(node.getIterable());
 
     TypePtr itemType = m_typeCtx.getAny();
     if (iterType->isArray()) {
@@ -1551,10 +1727,19 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
         size_t gt = s.rfind('>');
         itemType = m_typeCtx.resolveType(s.substr(lt + 1, gt - lt - 1));
         if (!itemType) itemType = m_typeCtx.getAny();
+    } else if (iterType->isClass() && iterType->toString().rfind("Set<", 0) == 0) {
+        // Phase 6 slice B: sets are iterable (element type from Set<T>).
+        std::string s = iterType->toString();
+        size_t lt = s.find('<');
+        size_t gt = s.rfind('>');
+        itemType = m_typeCtx.resolveType(s.substr(lt + 1, gt - lt - 1));
+        if (!itemType) itemType = m_typeCtx.getAny();
     } else if (iterType->isMap()) {
         const auto& map = static_cast<const MapType&>(*iterType);
         itemType = map.getKeyType();
-    } else {
+    } else if (!iterType->isError()) {
+        // Phase 5 slice C: no diagnostic for a missing iterable — the
+        // parser already reported E1000 for it.
         m_diagnostics.reportError("E1001", "For-in loop requires an iterable collection or array, got '" + iterType->toString() + "'", node.getLocation());
     }
 
@@ -1570,21 +1755,30 @@ void TypeChecker::visit(const ast::ForInStmt& node) {
     m_symbolTable.define(varSym);
 
     m_loopDepth++;
-    checkStmt(node.getBody());
+    // Phase 5 slice C: the body can be null after error recovery.
+    if (node.hasBody()) checkStmt(node.getBody());
     m_loopDepth--;
 
     m_symbolTable.exitScope();
 }
 
 void TypeChecker::visit(const ast::SwitchStmt& node) {
-    auto subjType = checkExpr(node.getSubject());
+    // Phase 5 slice C: the subject can be null after error recovery
+    // (e.g. `switch { }`). The error type is assignable to everything,
+    // so the case checks below report nothing new for it.
+    TypePtr subjType = m_typeCtx.getError();
+    if (node.hasSubject()) subjType = checkExpr(node.getSubject());
 
     m_switchDepth++;
     for (const auto& sc : node.getCases()) {
-        auto caseValType = checkExpr(sc.getValue());
-        if (!caseValType->isAssignableTo(*subjType)) {
-            m_diagnostics.reportError("E1001", "Case value type '" + caseValType->toString() +
-                                      "' does not match switch expression type '" + subjType->toString() + "'", sc.getValue().getLocation());
+        // Phase 5 slice C: a case value can be null (e.g. `case :`); the
+        // case's statements are still checked.
+        if (sc.hasValue()) {
+            auto caseValType = checkExpr(sc.getValue());
+            if (!caseValType->isAssignableTo(*subjType)) {
+                m_diagnostics.reportError("E1001", "Case value type '" + caseValType->toString() +
+                                          "' does not match switch expression type '" + subjType->toString() + "'", sc.getValue().getLocation());
+            }
         }
         for (const auto& s : sc.getStatements()) {
             if (s) checkStmt(*s);
@@ -1598,21 +1792,167 @@ void TypeChecker::visit(const ast::SwitchStmt& node) {
 }
 
 void TypeChecker::visit(const ast::MatchStmt& node) {
-    auto subjType = checkExpr(node.getSubject());
+    // Phase 5 slice C: the subject can be null after error recovery;
+    // the error type is assignable to everything, so the pattern checks
+    // below report nothing new for it.
+    TypePtr subjType = m_typeCtx.getError();
+    if (node.hasSubject()) subjType = checkExpr(node.getSubject());
+
+    const EnumType* subjEnum = nullptr;
+    if (subjType && subjType->isEnum()) {
+        const auto* en = dynamic_cast<const EnumType*>(subjType.get());
+        if (en && en->isTaggedUnion()) subjEnum = en;
+    }
+
+    // Phase 9 slice B: a variant pattern binds its payloads
+    // (Result.Ok(v), Option.Some(x), Shape.Circle(r), bare Ok(v),
+    // nullary Option.None). Returns true when the pattern IS a
+    // variant pattern — including an INVALID one, so the caller does
+    // not fall through to checkExpr and report confusing secondary
+    // errors (E1002 on the binding identifiers). Bindings are
+    // defined in the per-arm scope the caller opened.
+    auto baseOf = [](const std::string& n) {
+        auto lt = n.find('<');
+        return lt == std::string::npos ? n : n.substr(0, lt);
+    };
+    auto tryBindVariantPattern = [&](const ast::MatchArm& arm) -> bool {
+        const ast::ExpressionNode* pattern = arm.getPattern();
+        if (!subjEnum) return false;
+        std::string variantName;
+        const ast::CallExpr* variantCall = nullptr;
+
+        if (const auto* call = dynamic_cast<const ast::CallExpr*>(pattern)) {
+            // Form 1: E.V(args) — Result.Ok(v), Shape.Circle(r).
+            if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&call->getCallee())) {
+                if (!mem->hasObject()) return false;
+                const auto* objIdent = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject());
+                if (!objIdent) return false;
+                // A same-named VALUE shadows the type name — but a
+                // type symbol (Enum/Class/...) does not: the enum
+                // itself is registered in the symbol table by the
+                // NameResolver, so a bare lookup would always "find"
+                // it. Only Variable/Parameter/Constant/Function/
+                // Method bindings shadow.
+                if (auto existingSym = m_symbolTable.lookup(objIdent->getName())) {
+                    auto kind = existingSym->getKind();
+                    if (kind == SymbolKind::Variable || kind == SymbolKind::Parameter ||
+                        kind == SymbolKind::Constant || kind == SymbolKind::Function ||
+                        kind == SymbolKind::Method) return false;
+                }
+                auto enumType = m_typeCtx.findUserType(objIdent->getName());
+                if (!enumType || !enumType->isEnum()) return false;
+                const auto* en = dynamic_cast<const EnumType*>(enumType.get());
+                if (!en || !en->isTaggedUnion()) return false;
+                if (!en->hasVariant(mem->getMember())) {
+                    m_diagnostics.reportError("E1001", "Enum '" + en->getName() + "' has no variant '" +
+                                              mem->getMember() + "'", pattern->getLocation());
+                    return true;
+                }
+                if (baseOf(en->getName()) != baseOf(subjType->toString())) {
+                    m_diagnostics.reportError("E1001", "Match pattern '" + objIdent->getName() + "." +
+                                              mem->getMember() + "' does not match subject type '" +
+                                              subjType->toString() + "'", pattern->getLocation());
+                    return true;
+                }
+                variantName = mem->getMember();
+                variantCall = call;
+            }
+            // Form 2: bare V(args) — Ok(v), Some(x). The variant
+            // must belong to the subject's enum.
+            else if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&call->getCallee())) {
+                if (!subjEnum->hasVariant(ident->getName())) return false;
+                variantName = ident->getName();
+                variantCall = call;
+            } else {
+                return false;
+            }
+        } else if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(pattern)) {
+            // Form 3: E.V with no call — a nullary variant
+            // (Option.None). A variant WITH payloads needs its call.
+            if (!mem->hasObject()) return false;
+            const auto* objIdent = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject());
+            if (!objIdent) return false;
+            // Same shadowing rule as form 1 (see above): a value
+            // binding shadows the type name, a type symbol does not.
+            if (auto existingSym = m_symbolTable.lookup(objIdent->getName())) {
+                auto kind = existingSym->getKind();
+                if (kind == SymbolKind::Variable || kind == SymbolKind::Parameter ||
+                    kind == SymbolKind::Constant || kind == SymbolKind::Function ||
+                    kind == SymbolKind::Method) return false;
+            }
+            auto enumType = m_typeCtx.findUserType(objIdent->getName());
+            if (!enumType || !enumType->isEnum()) return false;
+            const auto* en = dynamic_cast<const EnumType*>(enumType.get());
+            if (!en || !en->isTaggedUnion() || !en->hasVariant(mem->getMember())) return false;
+            if (baseOf(en->getName()) != baseOf(subjType->toString())) return false;
+            if (en->hasPayload(mem->getMember())) {
+                m_diagnostics.reportError("E1001", "Match pattern '" + objIdent->getName() + "." +
+                                          mem->getMember() + "' requires arguments to bind the payload",
+                                          pattern->getLocation());
+                return true;
+            }
+            variantName = mem->getMember();
+            variantCall = nullptr;
+        } else {
+            return false;
+        }
+
+        // Payload types come off the SUBJECT's specialized enum type,
+        // so they are concrete (Result<Foo, string> gives Ok -> [Foo]).
+        // Phase 9 slice D: multi-payload variants are supported now
+        // (their parts are heap-boxed) — the arity check below and
+        // the per-argument binding loop already handle them.
+        auto payloadTypes = subjEnum->getVariantPayload(variantName);
+        size_t argCount = variantCall ? variantCall->getArgs().size() : 0;
+        if (argCount != payloadTypes.size()) {
+            m_diagnostics.reportError("E1001", "Match pattern '" + variantName + "' expects " +
+                                      std::to_string(payloadTypes.size()) + " argument(s), got " +
+                                      std::to_string(argCount), pattern->getLocation());
+            return true;
+        }
+        if (variantCall) {
+            for (size_t a = 0; a < variantCall->getArgs().size(); ++a) {
+                const auto* argIdent = dynamic_cast<const ast::IdentifierExpr*>(
+                    variantCall->getArgs()[a].get());
+                if (!argIdent) {
+                    m_diagnostics.reportError("E1001", "Match pattern arguments must be bare identifiers "
+                                              "to bind the payload", variantCall->getArgs()[a]->getLocation());
+                    return true;
+                }
+                auto bindSym = std::make_shared<VariableSymbol>(argIdent->getName(), payloadTypes[a],
+                                                                argIdent->getLocation());
+                m_symbolTable.define(bindSym);
+            }
+        }
+        return true;
+    };
 
     for (const auto& arm : node.getArms()) {
+        // Phase 9 slice B: bindings live in a per-arm scope (the
+        // catch-binding pattern) so they are visible in the body only.
+        m_symbolTable.enterScope(ScopeKind::Block);
+        bool isVariantArm = false;
         if (!arm.isWildcard()) {
+            isVariantArm = tryBindVariantPattern(arm);
+        }
+        if (!isVariantArm && !arm.isWildcard()) {
             auto patType = checkExpr(*arm.getPattern());
             if (!patType->isAssignableTo(*subjType)) {
                 m_diagnostics.reportError("E1001", "Match pattern type '" + patType->toString() +
                                           "' does not match subject type '" + subjType->toString() + "'", arm.getPattern()->getLocation());
             }
         }
+        // Phase 5 slice C: an arm body can be null (e.g. `1 => ,`).
+        if (!arm.hasBody()) {
+            m_symbolTable.exitScope();
+            continue;
+        }
         if (arm.getBody().getKind() == ast::ASTNodeKind::BlockStmt) {
             checkStmt(static_cast<const ast::StatementNode&>(arm.getBody()));
         } else {
             checkExpr(static_cast<const ast::ExpressionNode&>(arm.getBody()));
         }
+        m_symbolTable.exitScope();
     }
 }
 
@@ -1657,17 +1997,28 @@ void TypeChecker::visit(const ast::ContinueStmt& node) {
 }
 
 void TypeChecker::visit(const ast::TryCatchStmt& node) {
-    checkStmt(node.getTryBlock());
+    // Phase 5 slice C: parseBlock() never returns null, but guard anyway
+    // so a future parser change cannot segfault analyze().
+    if (node.hasTryBlock()) checkStmt(node.getTryBlock());
 
     for (const auto& catchClause : node.getCatches()) {
         m_symbolTable.enterScope(ScopeKind::Block);
         TypePtr excType = m_typeCtx.resolveType(catchClause.getType());
         if (!excType) excType = m_typeCtx.getAny();
 
+        // Phase 5 slice B: record the canonical type name on the
+        // clause so IR lowering can match catches by the thrown
+        // value's type. Unresolvable names resolve to Any here, whose
+        // canonical name ("any") is the catch-all marker in IRBuilder
+        // -- this is also how the conventional `catch (Exception e)`
+        // spelling behaves, since there is no Exception type.
+        catchClause.setResolvedTypeName(excType ? excType->toString() : "");
+
         auto excSym = std::make_shared<VariableSymbol>(catchClause.getName(), excType, node.getLocation());
         m_symbolTable.define(excSym);
 
-        checkStmt(catchClause.getBody());
+        // Phase 5 slice C: guard the catch body the same way.
+        if (catchClause.hasBody()) checkStmt(catchClause.getBody());
         m_symbolTable.exitScope();
     }
 
@@ -1677,6 +2028,9 @@ void TypeChecker::visit(const ast::TryCatchStmt& node) {
 }
 
 void TypeChecker::visit(const ast::ThrowStmt& node) {
+    // Phase 5 slice C: the expression can be null (e.g. `throw;`).
+    // The parser already reported E1000 for it.
+    if (!node.hasExpr()) return;
     checkExpr(node.getExpr());
 }
 
@@ -1695,7 +2049,29 @@ bool TypeChecker::hasGuaranteedReturn(const ast::StatementNode& stmt) {
         case ast::ASTNodeKind::IfStmt: {
             const auto& ifStmt = static_cast<const ast::IfStmt&>(stmt);
             if (!ifStmt.hasElseBranch()) return false;
+            // Phase 5 slice C: the then-branch can be null after error
+            // recovery; a missing branch guarantees nothing.
+            if (!ifStmt.hasThenBranch()) return false;
             return hasGuaranteedReturn(ifStmt.getThenBranch()) && hasGuaranteedReturn(*ifStmt.getElseBranch());
+        }
+        case ast::ASTNodeKind::TryCatchStmt: {
+            // Parent fix (Phase 3): a try/catch guarantees a return iff the
+            // try body does AND every catch body does. The try body may
+            // throw before reaching its return, in which case a catch
+            // runs; if there are no catches, a throw propagates out of
+            // the function, which this analysis already counts as a
+            // guaranteed exit (ThrowStmt returns true above). A finally
+            // block runs on every path and does not change the guarantee
+            // (a return/throw inside finally is its own exit, covered by
+            // the try/catch analysis only if it is reached on all paths
+            // — conservatively ignored here, matching this analysis's
+            // existing approximation level).
+            const auto& tryStmt = static_cast<const ast::TryCatchStmt&>(stmt);
+            if (!hasGuaranteedReturn(tryStmt.getTryBlock())) return false;
+            for (const auto& catchClause : tryStmt.getCatches()) {
+                if (!hasGuaranteedReturn(catchClause.getBody())) return false;
+            }
+            return true;
         }
         default:
             return false;
@@ -1891,6 +2267,19 @@ void TypeChecker::visit(const ast::ImportDecl& /*node*/) {
 }
 
 void TypeChecker::visit(const ast::Program& node) {
+    // Phase 39 slice D: top-level `const`/`let`/`var` declarations are
+    // program-lifetime globals — visit them before anything else so
+    // their symbols exist in the global scope when function bodies
+    // (including short-form bodies, checked in the pre-pass below) are
+    // checked. The main loop deliberately has no VarDeclStmt case:
+    // each declaration is visited exactly once here (a second visit
+    // would report a false E1004 duplicate).
+    for (const auto& decl : node.getDeclarations()) {
+        if (decl && decl->getKind() == ast::ASTNodeKind::VarDeclStmt) {
+            visit(static_cast<const ast::VarDeclStmt&>(*decl));
+        }
+    }
+
     // Pre-pass: Infer return types of short-form functions
     for (const auto& decl : node.getDeclarations()) {
         if (decl && decl->getKind() == ast::ASTNodeKind::FunctionDecl) {

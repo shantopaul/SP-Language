@@ -10,6 +10,21 @@ extern "C" {
     fn sp_rt_pg_is_connected(ptr conn) -> bool;
     fn sp_rt_pg_last_error(ptr conn) -> string;
     fn sp_rt_pg_query(ptr conn, string sql) -> ptr;
+    // Phase 4 slice D: these two take the C ABI (const char** params,
+    // int64 param_count). The old 3-param `string[] params` declaration
+    // emitted a 3-arg call, so the callee read a garbage param_count and
+    // the array object pointer where `const char**` was expected (proven
+    // by `spc llvm` IR dump, 2026-11-09). The marshalling below expands
+    // the SP array into its element pointer + length.
+    fn sp_rt_pg_query_params(ptr conn, string sql, ptr params, int64 param_count) -> ptr;
+    fn sp_rt_pg_prepare(ptr conn, string name, string sql) -> bool;
+    fn sp_rt_pg_exec_prepared(ptr conn, string name, ptr params, int64 param_count) -> ptr;
+    // Array marshalling helpers (runtime/src/Runtime.cpp): data() returns
+    // the element storage pointer (for string[]: const char**), length()
+    // the element count. Declared with string[] params so sema accepts an
+    // SP array; they lower to the same ptr signatures IR.cpp predeclares.
+    fn sp_rt_array_data(string[] arr) -> ptr;
+    fn sp_rt_array_length(string[] arr) -> int64;
     fn sp_rt_pg_ping(ptr conn) -> bool;
     fn sp_rt_pg_begin(ptr conn) -> bool;
     fn sp_rt_pg_commit(ptr conn) -> bool;
@@ -114,6 +129,37 @@ public class PgConnection {
         let res = new PgResult();
         if (this.handle != null) {
             res.handle = sp_rt_pg_query(this.handle, sql);
+        }
+        return res;
+    }
+
+    public fn queryParams(string sql, string[] params) -> PgResult {
+        let res = new PgResult();
+        if (this.handle != null) {
+            // Phase 4 slice D: marshal string[] -> (const char**, count).
+            res.handle = sp_rt_pg_query_params(this.handle, sql, sp_rt_array_data(params), sp_rt_array_length(params));
+        }
+        return res;
+    }
+
+    // Named prepared statement, server-side (extended query protocol).
+    // Unlike SQLite's statement-handle pattern, a Postgres prepared
+    // statement lives on the connection under its name, so there is no
+    // separate PgStatement handle: prepare() registers the name, and
+    // execPrepared() reuses it. prepare() returns false on any failure
+    // (including a duplicate name -- Postgres rejects it and the old
+    // statement is kept). execPrepared() returns a PgResult whose handle
+    // is null on failure; check isValid() / isOk() and lastError().
+    public fn prepare(string name, string sql) -> bool {
+        if (this.handle == null) return false;
+        return sp_rt_pg_prepare(this.handle, name, sql);
+    }
+
+    public fn execPrepared(string name, string[] params) -> PgResult {
+        let res = new PgResult();
+        if (this.handle != null) {
+            // Phase 4 slice D: marshal string[] -> (const char**, count).
+            res.handle = sp_rt_pg_exec_prepared(this.handle, name, sp_rt_array_data(params), sp_rt_array_length(params));
         }
         return res;
     }

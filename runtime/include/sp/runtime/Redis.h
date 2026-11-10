@@ -56,7 +56,12 @@ public:
     bool connect(const std::string& host = "127.0.0.1", int port = 6379, int timeoutMs = 2000);
     void disconnect();
     bool isConnected() const;
+    // Reason for the most recent failed connect() (empty if none).
+    std::string lastError() const;
 
+    // Opt-in only: enables the in-memory mock engine. Mock mode is NEVER
+    // entered implicitly (a failed live connect is a failure, not a
+    // silent downgrade to mock). Callers can tell via isMockMode().
     void setMockMode(bool enabled);
     bool isMockMode() const { return m_mockMode; }
 
@@ -103,7 +108,11 @@ private:
     std::string m_host{"127.0.0.1"};
     int m_port{6379};
     bool m_connected{false};
-    bool m_mockMode{true}; // Defaults to mock mode for reliable standalone testability
+    // Mock mode is opt-in only (default off). Previously this defaulted
+    // to true and connect() silently fell back to mock on TCP failure,
+    // so callers believed they were talking to a real Redis server.
+    bool m_mockMode{false};
+    std::string m_lastError;
     mutable std::mutex m_mutex;
 
     // In-memory mock engine
@@ -129,7 +138,9 @@ struct RedisPoolConfig {
     size_t minConnections{2};
     size_t maxConnections{10};
     int acquireTimeoutMs{3000};
-    bool mockMode{true};
+    // Mock mode is opt-in only (default off): a pool must never silently
+    // serve in-memory mock data when no Redis server is reachable.
+    bool mockMode{false};
 };
 
 class RedisPool {

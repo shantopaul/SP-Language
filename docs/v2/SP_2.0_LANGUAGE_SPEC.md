@@ -71,43 +71,61 @@ The migration tool:
 SP 2.0 introduces the `comptime` keyword for compile-time computation.
 
 ### 3.1 Comptime Expressions & Blocks
-Any deterministic expression or block can be executed during semantic analysis:
+Any deterministic expression can be executed during semantic analysis:
 ```sp
 const BUFFER_SIZE: int = comptime (1024 * 64);
-
-const LOOKUP_TABLE: int[] = comptime {
-    let tbl: int[] = [];
-    for (let i = 0; i < 256; i = i + 1) {
-        tbl.push(i * i);
-    }
-    return tbl;
-};
 ```
+> Phase 4 slice D (2026-11-09): the old `comptime { ... }` block example
+> below does **not** compile -- a statement block with `for` / `push` /
+> `return` is not a supported comptime form (verified with `spc check`:
+> the declaration fails with `E1002`/`E1001`). What works today:
+> comptime expressions (literals, arithmetic/logic, string concat,
+> ternary, arrays + indexing, `.length`) and `comptime fn` calls,
+> including recursion (see §3.2, verified: `comptime fibonacci(10)` folds
+> to 55). Runtime-dependent comptime fails loudly (`E1000`/`E1806`/
+> `E1807`).
+>
+> ```sp
+> const LOOKUP_TABLE: int[] = comptime {
+>     let tbl: int[] = [];
+>     for (let i = 0; i < 256; i = i + 1) {
+>         tbl.push(i * i);
+>     }
+>     return tbl;
+> };
+> ```
 
 ### 3.2 Comptime Functions
 Functions marked `comptime` are guaranteed to evaluate at compile time when called with constant arguments:
 ```sp
-comptime fn fibonacci(n: int): int {
+comptime fn fibonacci(int n) -> int {
     if (n <= 1) return n;
     return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-fn main(): int {
+fn main() {
     // Computed during compilation into an immediate constant 55
-    let fib10: int = comptime fibonacci(10);
-    println("Fibonacci(10) = " + fib10.toString());
-    return 0;
+    int fib10 = comptime fibonacci(10);
+    println("Fibonacci(10) = ${fib10}");
 }
 ```
 
 ### 3.3 Compile-Time Assertions
-The builtin `assert(cond, message)` can be evaluated inside `comptime`:
-```sp
-comptime {
-    assert(BUFFER_SIZE >= 4096, "Buffer size must exceed 4KB");
-}
-```
-If an assertion fails, compilation halts with a precise source diagnostic before LLVM IR generation begins.
+The builtin `assert(cond, message)` is evaluated when it appears inside
+a `comptime fn` (verified with `spc run`: `comptime checkedSize(65536)`
+with `assert(n >= 4096, ...)` inside the function folds correctly).
+If an assertion fails, compilation halts with a precise source
+diagnostic before LLVM IR generation begins.
+> Phase 4 slice D (2026-11-09): the old standalone `comptime { assert(...); }`
+> block form below does **not** parse (`E1000: Expected ';' after
+> expression`, verified with `spc check`). Put the assertion inside a
+> `comptime fn` instead:
+> ```sp
+> comptime fn checkedSize(int n) -> int {
+>     assert(n >= 4096, "Buffer size must exceed 4KB");
+>     return n;
+> }
+> ```
 
 ---
 
@@ -137,31 +155,43 @@ node --experimental-wasi-unstable-preview1 app.wasm
 
 ## 5. Structured `async`/`await` Coroutines
 
-SP 2.0 natively introduces asynchronous coroutines without runtime overhead.
+SP 2.0 natively introduces asynchronous coroutines. They run on the
+event-loop pump: awaiting yields to the loop, but the awaiting frame
+stays on the stack (no heap-frame state machine yet), so this is not
+zero-overhead.
 
 ### 5.1 Async Functions
-Functions declared with `async fn` return a managed `Task<T>`:
+Functions declared with `async fn` return a managed `Task<T>`. There is
+no async I/O yet: `await` works only on async functions and on the
+builtins `sleep_async(ms)` / `delayed_value(ms, value)` (Phase 4 slice D,
+verified with `spc check` -- the old `await client.get(url)` example
+does not compile):
 ```sp
-async fn fetchRemoteData(url: string): string {
-    let client = new HttpClient();
-    let resp = await client.get(url);
-    return resp.body;
+async fn fetchRemoteData(url: string) -> string {
+    await sleep_async(10);
+    return "data for " + url;
 }
 ```
 
 ### 5.2 Await Expressions
 Inside an async function context, `await <expr>` yields execution to the SP event loop until the operand task resolves:
 ```sp
-async fn processBatch(urls: string[]) {
-    for (let url in urls) {
-        let content = await fetchRemoteData(url);
-        println("Fetched: " + url + " (" + content.length().toString() + " bytes)");
+// The fetchRemoteData function from §5.1:
+async fn fetchRemoteData(string url) -> string {
+    await sleep_async(10);
+    return "data for " + url;
+}
+
+async fn processBatch(string[] urls) {
+    for (string url in urls) {
+        string content = await fetchRemoteData(url);
+        println("Fetched: " + url + " (${content.length()} bytes)");
     }
 }
 ```
 
 ### 5.3 Typechecker Constraints
-- Calling `await` outside an `async fn` context results in compiler error `E1801`.
+- Calling `await` outside an `async fn` context results in compiler error `E1802` (Phase 4 slice D: verified with `spc check`; the spec previously said `E1801`).
 - The operand of `await` must resolve to `Task<T>` or a compatible future type; the expression produces `T`.
 
 ---

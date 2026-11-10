@@ -161,4 +161,31 @@ struct InlayHint {
     }
 };
 
+// Phase 4 slice B: hierarchical document outline (textDocument/
+// documentSymbol). Children are class members; locals are deliberately
+// excluded, following gopls/rust-analyzer convention.
+struct DocumentSymbol {
+    std::string name;
+    std::string detail;
+    int kind{12}; // 5 = Class, 11 = Interface, 12 = Function, 13 = Variable, 23 = Struct, 10 = Enum
+    Range range;
+    Range selectionRange;
+    std::vector<DocumentSymbol> children;
+
+    JsonValue toJson() const {
+        JsonValue j = JsonValue::object();
+        j["name"] = name;
+        if (!detail.empty()) j["detail"] = detail;
+        j["kind"] = kind;
+        j["range"] = range.toJson();
+        j["selectionRange"] = selectionRange.toJson();
+        if (!children.empty()) {
+            JsonValue arr = JsonValue::array();
+            for (const auto& c : children) arr.push_back(c.toJson());
+            j["children"] = arr;
+        }
+        return j;
+    }
+};
+
 } // namespace sp::lsp

@@ -79,6 +79,7 @@ std::string DapServer::handleMessage(const std::string& rawMessage) {
 
     JsonValue body = JsonValue::object();
     bool success = true;
+    m_lastError.clear();
 
     if (command == "initialize") {
         body = handleInitialize(args);
@@ -106,10 +107,17 @@ std::string DapServer::handleMessage(const std::string& rawMessage) {
         body = handleStepOut();
     } else if (command == "evaluate") {
         body = handleEvaluate(args);
+    } else if (command == "setVariable") {
+        body = handleSetVariable(args);
     } else if (command == "disconnect") {
         body = handleDisconnect();
     } else {
-        // Unknown command
+        // Unknown command: fail loudly instead of a silent success=true.
+        m_lastError = "Unknown command '" + command + "'";
+    }
+
+    if (!m_lastError.empty()) {
+        success = false;
         body = JsonValue::object();
     }
 
@@ -119,6 +127,7 @@ std::string DapServer::handleMessage(const std::string& rawMessage) {
     resp["request_seq"] = seq;
     resp["command"] = command;
     resp["success"] = success;
+    if (!success) resp["message"] = m_lastError;
     resp["body"] = body;
 
     return resp.serialize();
@@ -157,10 +166,30 @@ JsonValue DapServer::handleInitialize(const JsonValue&) {
 
 JsonValue DapServer::handleLaunch(const JsonValue& args) {
     std::string program = args["program"].asString("");
+    if (program.empty()) {
+        m_lastError = "launch: 'program' is required";
+        return JsonValue::object();
+    }
     bool stopOnEntry = args["stopOnEntry"].asBool(false);
+    bool noDebug = args["noDebug"].asBool(false);
+    std::string cwd = args["cwd"].asString("");
 
-    m_session.loadProgram(program);
-    m_session.start(stopOnEntry);
+    // Resolve a relative program path against `cwd` (or the process cwd).
+    std::string resolved = program;
+    if (!cwd.empty() && !program.empty() && program[0] != '/' && program[0] != '\\') {
+        resolved = cwd;
+        if (!resolved.empty() && resolved.back() != '/' && resolved.back() != '\\') resolved += "/";
+        resolved += program;
+    }
+
+    // Launch prepares but does NOT run the program: execution starts at
+    // configurationDone (or at the first statement when stopOnEntry).
+    // A program that cannot load fails loudly here.
+    if (!m_session.launch(resolved, stopOnEntry, noDebug)) {
+        m_lastError = "launch failed: " + m_session.getLoadError();
+        return JsonValue::object();
+    }
+    m_launched = true;
 
     if (m_session.isPaused()) {
         JsonValue stopBody = JsonValue::object();
@@ -195,6 +224,13 @@ JsonValue DapServer::handleSetBreakpoints(const JsonValue& args) {
 }
 
 JsonValue DapServer::handleConfigurationDone() {
+    if (!m_launched) return JsonValue::object(); // tolerant: nothing to run yet
+    if (!m_session.startExecution()) {
+        m_lastError = m_session.getLastError();
+        return JsonValue::object();
+    }
+    drainOutputEvents();
+    checkSessionState();
     return JsonValue::object();
 }
 
@@ -242,6 +278,15 @@ JsonValue DapServer::handleVariables(const JsonValue& args) {
     return body;
 }
 
+void DapServer::drainOutputEvents() {
+    for (const auto& line : m_session.drainOutput()) {
+        JsonValue body = JsonValue::object();
+        body["category"] = "stdout";
+        body["output"] = line + "\n";
+        sendEvent("output", body);
+    }
+}
+
 void DapServer::checkSessionState() {
     if (m_session.isPaused()) {
         JsonValue stopBody = JsonValue::object();
@@ -250,33 +295,57 @@ void DapServer::checkSessionState() {
         stopBody["allThreadsStopped"] = true;
         sendEvent("stopped", stopBody);
     } else if (m_session.isTerminated()) {
+        std::string error = m_session.getLastError();
+        int exitCode = error.empty() ? 0 : 1;
+        if (!error.empty()) {
+            JsonValue body = JsonValue::object();
+            body["category"] = "stderr";
+            body["output"] = "Runtime error: " + error + "\n";
+            sendEvent("output", body);
+        }
         sendEvent("terminated", JsonValue::object());
         JsonValue exitBody = JsonValue::object();
-        exitBody["exitCode"] = 0;
+        exitBody["exitCode"] = exitCode;
         sendEvent("exited", exitBody);
     }
 }
 
 JsonValue DapServer::handleContinue() {
-    m_session.continueExecution();
+    if (!m_session.continueExecution()) {
+        m_lastError = m_session.getLastError();
+        return JsonValue::object();
+    }
+    drainOutputEvents();
     checkSessionState();
     return JsonValue::object();
 }
 
 JsonValue DapServer::handleNext() {
-    m_session.stepOver();
+    if (!m_session.stepOver()) {
+        m_lastError = m_session.getLastError();
+        return JsonValue::object();
+    }
+    drainOutputEvents();
     checkSessionState();
     return JsonValue::object();
 }
 
 JsonValue DapServer::handleStepIn() {
-    m_session.stepIn();
+    if (!m_session.stepIn()) {
+        m_lastError = m_session.getLastError();
+        return JsonValue::object();
+    }
+    drainOutputEvents();
     checkSessionState();
     return JsonValue::object();
 }
 
 JsonValue DapServer::handleStepOut() {
-    m_session.stepOut();
+    if (!m_session.stepOut()) {
+        m_lastError = m_session.getLastError();
+        return JsonValue::object();
+    }
+    drainOutputEvents();
     checkSessionState();
     return JsonValue::object();
 }
@@ -284,11 +353,32 @@ JsonValue DapServer::handleStepOut() {
 JsonValue DapServer::handleEvaluate(const JsonValue& args) {
     int frameId = static_cast<int>(args["frameId"].asInt(1));
     std::string expr = args["expression"].asString("");
-    Variable v = m_session.evaluate(frameId, expr);
+    Variable v;
+    std::string error;
+    if (!m_session.evaluate(frameId, expr, v, error)) {
+        m_lastError = "evaluate failed: " + error;
+        return JsonValue::object();
+    }
 
     JsonValue body = JsonValue::object();
     body["result"] = v.value;
     body["type"] = v.type;
+    body["variablesReference"] = v.variablesReference;
+    return body;
+}
+
+JsonValue DapServer::handleSetVariable(const JsonValue& args) {
+    int ref = static_cast<int>(args["variablesReference"].asInt(0));
+    std::string name = args["name"].asString("");
+    std::string value = args["value"].asString("");
+    if (!m_session.setVariable(ref, name, value)) {
+        m_lastError = "setVariable failed: no such variable '" + name +
+                      "' in this scope, or the value is not a literal";
+        return JsonValue::object();
+    }
+    JsonValue body = JsonValue::object();
+    body["value"] = value;
+    body["type"] = "";
     body["variablesReference"] = 0;
     return body;
 }

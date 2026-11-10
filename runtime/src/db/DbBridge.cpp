@@ -51,9 +51,11 @@ int64_t sp_rt_sqlite_exec(void* db, const char* sql) {
 const char* sp_rt_sqlite_errmsg(void* db) {
     if (!db) return "Invalid database handle";
     auto sqlite = static_cast<SqliteDatabase*>(db);
-    static thread_local std::string err;
-    err = sqlite->lastError();
-    return err.c_str();
+    // Phase 2 (pro-4.0.0, parent fix): return a fresh copy. The old code
+    // returned a pointer to a shared thread_local buffer; SP keeps the
+    // pointer, so the next call overwrote (or reallocated away) every
+    // previously returned value. See sp_rt_sqlite_col_string below.
+    return alloc_str(sqlite->lastError());
 }
 
 int64_t sp_rt_sqlite_last_insert_rowid(void* db) {
@@ -164,9 +166,7 @@ const char* sp_rt_sqlite_col_name(void* stmt, int64_t index) {
     if (!stmt) return "";
     auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
     if (!s) return "";
-    static thread_local std::string name;
-    name = s->columnName(static_cast<int>(index));
-    return name.c_str();
+    return alloc_str(s->columnName(static_cast<int>(index)));
 }
 
 int64_t sp_rt_sqlite_col_type(void* stmt, int64_t index) {
@@ -191,9 +191,18 @@ const char* sp_rt_sqlite_col_string(void* stmt, int64_t index) {
     if (!stmt) return "";
     auto s = *static_cast<std::shared_ptr<SqliteStmt>*>(stmt);
     if (!s) return "";
-    static thread_local std::string str;
-    str = s->columnString(static_cast<int>(index));
-    return str.c_str();
+    // Phase 2 (pro-4.0.0, parent fix): return a FRESH malloc'd copy via
+    // alloc_str, like the Postgres result accessors in this file and the
+    // sp_rt_str_* functions. The old code returned a pointer to a single
+    // shared thread_local std::string: reading columns 0..N in a loop left
+    // every value but the last dangling — when a longer column value
+    // arrived the buffer reallocated and freed the storage the earlier
+    // pointers referenced, so SP programs read heap garbage (proven live:
+    // the registry service stored correct rows in SQLite yet served
+    // corrupted name/version/description back). SP strings are bare
+    // `const char*` that the caller keeps and never frees, so a shared
+    // buffer is never safe here.
+    return alloc_str(s->columnString(static_cast<int>(index)));
 }
 
 bool sp_rt_sqlite_col_is_null(void* stmt, int64_t index) {
@@ -231,7 +240,12 @@ void* sp_rt_pg_connect(const char* conn_str) {
     auto conn = new PgConnection();
     if (!conn->connect(conn_str)) {
         g_lastPgConnectError = conn->lastError();
-        return conn;
+        // Honest failure: return nullptr instead of a non-null handle to
+        // a dead connection. The reason stays retrievable via
+        // sp_rt_pg_last_error(nullptr); callers must check the handle
+        // (stdlib PgConnection::isValid()/isConnected() already do).
+        delete conn;
+        return nullptr;
     }
     return conn;
 }
@@ -250,12 +264,10 @@ bool sp_rt_pg_is_connected(void* conn) {
 
 const char* sp_rt_pg_last_error(void* conn) {
     if (!conn) {
-        if (!g_lastPgConnectError.empty()) return g_lastPgConnectError.c_str();
+        if (!g_lastPgConnectError.empty()) return alloc_str(g_lastPgConnectError);
         return "Invalid connection handle";
     }
-    static thread_local std::string err;
-    err = static_cast<PgConnection*>(conn)->lastError();
-    return err.c_str();
+    return alloc_str(static_cast<PgConnection*>(conn)->lastError());
 }
 
 void* sp_rt_pg_query(void* conn, const char* sql) {
@@ -278,6 +290,31 @@ void* sp_rt_pg_query_params(void* conn, const char* sql, const char** params, in
     }
     auto res = pg->queryParams(sql, pList);
     if (!res) return nullptr;
+    return new std::shared_ptr<PgResult>(res);
+}
+
+bool sp_rt_pg_prepare(void* conn, const char* name, const char* sql) {
+    if (!conn || !name || !sql) return false;
+    auto pg = static_cast<PgConnection*>(conn);
+    return pg->prepare(name, sql);
+}
+
+void* sp_rt_pg_exec_prepared(void* conn, const char* name, const char** params, int64_t param_count) {
+    if (!conn || !name) return nullptr;
+    auto pg = static_cast<PgConnection*>(conn);
+    std::vector<std::string> pList;
+    if (params && param_count > 0) {
+        pList.reserve(param_count);
+        for (int64_t i = 0; i < param_count; ++i) {
+            pList.emplace_back(params[i] ? params[i] : "");
+        }
+    }
+    auto res = pg->execPrepared(name, pList);
+    // Honest failure: a failed exec returns nullptr, never a handle to a
+    // failed result masquerading as success. The reason stays retrievable
+    // via sp_rt_pg_last_error(conn); callers must check the handle and
+    // PgResult::isOk() exactly as for sp_rt_pg_query_params.
+    if (!res || !res->isOk()) return nullptr;
     return new std::shared_ptr<PgResult>(res);
 }
 
@@ -311,18 +348,14 @@ const char* sp_rt_pg_res_error(void* res) {
     if (!res) return "Invalid result handle";
     auto r = *static_cast<std::shared_ptr<PgResult>*>(res);
     if (!r) return "Null result";
-    static thread_local std::string err;
-    err = r->errorMessage();
-    return err.c_str();
+    return alloc_str(r->errorMessage());
 }
 
 const char* sp_rt_pg_res_command_tag(void* res) {
     if (!res) return "";
     auto r = *static_cast<std::shared_ptr<PgResult>*>(res);
     if (!r) return "";
-    static thread_local std::string tag;
-    tag = r->commandTag();
-    return tag.c_str();
+    return alloc_str(r->commandTag());
 }
 
 int64_t sp_rt_pg_res_affected_rows(void* res) {

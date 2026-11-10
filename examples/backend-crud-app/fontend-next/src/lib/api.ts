@@ -1,8 +1,13 @@
 // SP Lang Backend API Client
 // Connects Next.js to native SP Lang HTTP service
+//
+// API key comes from the environment only (NEXT_PUBLIC_API_KEY). There is no
+// hard-coded fallback key in this file: if the variable is unset, requests
+// are sent without an API key and the backend will reject them as
+// unauthenticated. Never commit a real key here.
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "sp_live_9f83b27c4a11488da128";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 
 export interface Item {
   id: number;
@@ -44,12 +49,16 @@ export interface ApiResponse<T = any> {
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<{ data: T; latencyMs: number }> {
   const start = performance.now();
+  // Only send auth headers when an API key is configured. Never send a
+  // placeholder or hard-coded key.
+  const authHeaders: Record<string, string> = API_KEY
+    ? { "X-API-Key": API_KEY, Authorization: `Bearer ${API_KEY}` }
+    : {};
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": API_KEY,
-      "Authorization": `Bearer ${API_KEY}`,
+      ...authHeaders,
       ...(options.headers || {}),
     },
     cache: "no-store",

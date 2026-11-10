@@ -15,7 +15,10 @@ enum class IRValueKind {
     ConstantNull,
     Parameter,
     GlobalVariable,
-    Instruction
+    Instruction,
+    // Phase 3 slice C: the address of a named function, usable as the
+    // callee operand of an indirect CallInst. toString() yields "@name".
+    FunctionAddress
 };
 
 class IRValue : public std::enable_shared_from_this<IRValue> {
@@ -130,6 +133,22 @@ public:
 private:
     IRValuePtr m_initializer;
     bool m_isConstant;
+};
+
+// The address of a named function (e.g. a compiler-generated async
+// thunk), used as the callee operand of an indirect CallInst or as a
+// plain pointer argument (e.g. the `thunk` argument of the spawn C ABI).
+class FunctionAddress : public IRValue {
+public:
+    explicit FunctionAddress(std::string functionName)
+        : IRValue(IRValueKind::FunctionAddress, IRType::getPointer(), "@" + functionName),
+          m_functionName(std::move(functionName)) {}
+
+    [[nodiscard]] const std::string& getFunctionName() const noexcept { return m_functionName; }
+    [[nodiscard]] std::string toString() const override { return "@" + m_functionName; }
+
+private:
+    std::string m_functionName;
 };
 
 } // namespace sp::ir

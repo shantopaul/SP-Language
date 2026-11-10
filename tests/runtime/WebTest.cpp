@@ -104,6 +104,29 @@ TEST(WebTest, RouteHandlerDirectResponse) {
     sp_rt_http_server_destroy(srv);
 }
 
+// Phase 4 (parent fix): static-JSON route — proves the route serves the
+// exact body with a JSON content-type, and that the body outlives the
+// caller's string (the runtime copies it into the route handler).
+TEST(WebTest, RouteJsonServesStaticDocument) {
+    void* srv = sp_rt_http_server_create_advanced(2, 1024, 512);
+    ASSERT_NE(srv, nullptr);
+
+    sp_rt_http_server_route_json(srv, "GET", "/openapi.json", "{\"openapi\":\"3.0.3\"}");
+
+    ASSERT_TRUE(sp_rt_http_server_listen(srv, "127.0.0.1", 0));
+    int64_t port = sp_rt_http_server_port(srv);
+    ASSERT_GT(port, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    auto resp = HttpClient::get("http://127.0.0.1:" + std::to_string(port) + "/openapi.json");
+    EXPECT_EQ(resp.statusCode, 200);
+    EXPECT_EQ(resp.body, "{\"openapi\":\"3.0.3\"}");
+    EXPECT_EQ(resp.getHeader("content-type"), "application/json; charset=utf-8");
+
+    sp_rt_http_server_stop(srv);
+    sp_rt_http_server_destroy(srv);
+}
+
 TEST(WebTest, RouteHandlerSpObjectWrapper) {
     void* srv = sp_rt_http_server_create_advanced(2, 1024, 512);
     ASSERT_NE(srv, nullptr);

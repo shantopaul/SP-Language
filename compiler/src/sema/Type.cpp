@@ -516,6 +516,21 @@ TypeContext::TypeContext() {
 
     auto durationCls = createClassType("Duration");
     durationCls->addField({"millis", m_int32Type, "public", false, false});
+
+    // Async (Phase 2 slice B2): Task<T> is the awaitable type. It is an
+    // opaque handle at runtime (a pointer to the runtime Task); the type
+    // parameter exists so sema can unwrap `await e` (e: Task<T>) to T
+    // (see TypeChecker::visit(AwaitExpr)). Tasks are created by the
+    // sleep_async / delayed_value builtins and by calling an `async fn`.
+    // Phase 5 slice A adds the cancellation API: cancel() marks the task
+    // done+cancelled (a body that has not started yet never runs; a body
+    // suspended at an await stops at its next resume), isReady() reports
+    // completion, wasCancelled() reports cancellation.
+    auto taskCls = createClassType("Task");
+    taskCls->setTypeParams({"T"});
+    taskCls->addMethod({"cancel", getFunctionType({}, m_boolType), "public", false, false, false});
+    taskCls->addMethod({"isReady", getFunctionType({}, m_boolType), "public", false, false, false});
+    taskCls->addMethod({"wasCancelled", getFunctionType({}, m_boolType), "public", false, false, false});
     durationCls->addMethod({"fromMillis", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"fromMillis", getFunctionType({m_int64Type}, durationCls), "public", true, false, false});
     durationCls->addMethod({"fromSeconds", getFunctionType({m_int32Type}, durationCls), "public", true, false, false});
@@ -581,12 +596,17 @@ TypeContext::TypeContext() {
 
     auto resultStrIO = specializeEnumType(resultEnum, {"string", "IOError"});
     auto resultBoolIO = specializeEnumType(resultEnum, {"bool", "IOError"});
+    auto resultStrArrIO = specializeEnumType(resultEnum, {"string[]", "IOError"});
     if (resultStrIO && resultBoolIO) {
         fsCls->addMethod({"tryReadText", getFunctionType({m_stringType}, resultStrIO), "public", true, false, false});
         fsCls->addMethod({"tryWriteText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
         fsCls->addMethod({"tryAppendText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
         fsCls->addMethod({"tryDelete", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
         fsCls->addMethod({"tryCreateDir", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
+        // Phase 38 slice E: tryListDir (FS only — File has no listDir).
+        if (resultStrArrIO) {
+            fsCls->addMethod({"tryListDir", getFunctionType({m_stringType}, resultStrArrIO), "public", true, false, false});
+        }
 
         fileCls->addMethod({"tryReadText", getFunctionType({m_stringType}, resultStrIO), "public", true, false, false});
         fileCls->addMethod({"tryWriteText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
@@ -1050,6 +1070,15 @@ TypePtr TypeContext::resolveType(const std::string& rawTypeStr) {
         listCls->addMethod({"map", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"filter", getFunctionType({getAny()}, listCls), "public", false, false, false});
         listCls->addMethod({"reduce", getFunctionType({getAny(), elem ? elem : m_int64Type}, elem ? elem : m_int64Type), "public", false, false, false});
+        // Phase 6 slice B: the 1-argument form reduce(fn) was rejected
+        // by sema ("No matching overload") even though IRBuilder has
+        // always lowered it (initial accumulator = the type's zero
+        // value: 0 for numbers, "" for strings via null-as-empty in
+        // sp_rt_str_concat). Register it as a real overload so the two
+        // paths agree. The accumulator must be the element type; a
+        // differently-typed accumulator (a true generic fold) is still
+        // unsupported.
+        listCls->addMethod({"reduce", getFunctionType({getAny()}, elem ? elem : m_int64Type), "public", false, false, false});
         return listCls;
     }
 

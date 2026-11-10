@@ -4,6 +4,10 @@
 #include <thread>
 #include <chrono>
 
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/socket.h>
+#endif
+
 using namespace sp::rt::net;
 
 TEST(NetTest, DNSResolution) {
@@ -62,9 +66,16 @@ TEST(NetTest, UdpSocketSendRecv) {
     UdpSocket client;
     ASSERT_TRUE(client.bind("127.0.0.1", 0));
 
+    // Phase 4 slice D: ASSERT (not EXPECT) on the send. If sendto fails
+    // (e.g. this VM's sandbox returns EPERM for UDP sendto), no datagram
+    // will ever arrive and the recv below would block forever; failing fast
+    // here keeps the failure visible instead of a hang. The receive is
+    // additionally bounded to 5 s via setTimeouts so a lost datagram fails
+    // the test instead of hanging the suite.
     int64_t sent = client.sendString("UDP SP Message", "127.0.0.1", port);
-    EXPECT_EQ(sent, 14);
+    ASSERT_EQ(sent, 14);
 
+    ASSERT_TRUE(server.setTimeouts(5000, 5000));
     std::string senderHost;
     int senderPort = 0;
     std::string received = server.recvString(512, senderHost, senderPort);
@@ -111,3 +122,152 @@ TEST(NetTest, EventLoopPolling) {
     serverConn->close();
     listener.close();
 }
+
+// Phase 40 slice C (pro-4.0.0): the epoll backend must be live on Linux
+// (a fresh loop in a test process has plenty of fds, so epoll_create1
+// succeeds), and the poll() fallback elsewhere.
+TEST(NetTest, EventLoopUsesEpollOnLinux) {
+    EventLoop loop;
+#if defined(__linux__)
+    EXPECT_TRUE(loop.usesEpoll());
+#else
+    EXPECT_FALSE(loop.usesEpoll());
+#endif
+}
+
+// Phase 40 slice C: an empty loop never reports anything.
+TEST(NetTest, EventLoopEmptyPoll) {
+    EventLoop loop;
+    EXPECT_EQ(loop.poll(0), 0);
+    EXPECT_EQ(loop.poll(10), 0);
+    EXPECT_EQ(loop.getReadyCount(), 0u);
+    EXPECT_FALSE(loop.addSocket(SP_INVALID_SOCKET, SP_EVENT_READ));
+}
+
+// Phase 40 slice C: many idle sockets, none ready, then exactly one
+// becomes ready. This is the functional half of the epoll scale proof
+// (the timing half is the probe in ~/workspace/p11-probes/).
+TEST(NetTest, EventLoopManyIdleSockets) {
+    constexpr int kPairs = 500;
+    TcpListener listener;
+    ASSERT_TRUE(listener.bindAndListen("127.0.0.1", 0));
+    int port = listener.getPort();
+
+    std::vector<TcpSocket> clients;
+    std::vector<std::unique_ptr<TcpSocket>> servers;
+    for (int i = 0; i < kPairs; ++i) {
+        TcpSocket client;
+        ASSERT_TRUE(client.connect("127.0.0.1", port));
+        auto serverConn = listener.accept();
+        ASSERT_NE(serverConn, nullptr);
+        clients.push_back(std::move(client));
+        servers.push_back(std::move(serverConn));
+    }
+
+    EventLoop loop;
+    for (auto& serverConn : servers) {
+        ASSERT_TRUE(loop.addSocket(serverConn->getHandle(), SP_EVENT_READ));
+    }
+
+    // Nothing to read anywhere.
+    EXPECT_EQ(loop.poll(0), 0);
+    EXPECT_EQ(loop.getReadyCount(), 0u);
+
+    // Wake exactly one connection.
+    clients[123].writeString("wake");
+    int64_t ready = loop.poll(1000);
+    EXPECT_EQ(ready, 1);
+    EXPECT_EQ(loop.getReadyCount(), 1u);
+    EXPECT_EQ(loop.getReadyEvent(0).socketFd, servers[123]->getHandle());
+    EXPECT_TRUE(loop.getReadyEvent(0).events & SP_EVENT_READ);
+
+    for (auto& serverConn : servers) {
+        loop.removeSocket(serverConn->getHandle());
+        serverConn->close();
+    }
+    for (auto& client : clients) client.close();
+    listener.close();
+}
+
+// Phase 40 slice C: modify changes the watched interest (a re-add
+// overwrites it the same way), remove stops reporting, and both report
+// false for a socket that was never added.
+TEST(NetTest, EventLoopModifyAndRemove) {
+    TcpListener listener;
+    ASSERT_TRUE(listener.bindAndListen("127.0.0.1", 0));
+    int port = listener.getPort();
+
+    TcpSocket client;
+    ASSERT_TRUE(client.connect("127.0.0.1", port));
+    auto serverConn = listener.accept();
+    ASSERT_NE(serverConn, nullptr);
+
+    EventLoop loop;
+    // Unknown fd: both report false.
+    EXPECT_FALSE(loop.modifySocket(serverConn->getHandle(), SP_EVENT_READ));
+    EXPECT_FALSE(loop.removeSocket(serverConn->getHandle()));
+
+    ASSERT_TRUE(loop.addSocket(serverConn->getHandle(), SP_EVENT_READ));
+    EXPECT_EQ(loop.poll(0), 0); // nothing to read
+
+    // Re-add overwrites the interest: WRITE is ready at once (the send
+    // buffer is empty), which proves the MOD path took effect.
+    ASSERT_TRUE(loop.addSocket(serverConn->getHandle(), SP_EVENT_WRITE));
+    EXPECT_EQ(loop.poll(0), 1);
+    EXPECT_TRUE(loop.getReadyEvent(0).events & SP_EVENT_WRITE);
+
+    // Back to READ: nothing to read again.
+    ASSERT_TRUE(loop.modifySocket(serverConn->getHandle(), SP_EVENT_READ));
+    EXPECT_EQ(loop.poll(0), 0);
+
+    // Data arrives, then remove: the ready data is no longer reported.
+    client.writeString("hello");
+    EXPECT_EQ(loop.poll(1000), 1);
+    EXPECT_TRUE(loop.removeSocket(serverConn->getHandle()));
+    EXPECT_EQ(loop.poll(0), 0);
+    EXPECT_FALSE(loop.removeSocket(serverConn->getHandle()));
+
+    client.close();
+    serverConn->close();
+    listener.close();
+}
+
+// Phase 40 slice C: a peer that resets the connection reports ERROR on
+// the watched socket (READ arrives with it, since the reset data is still
+// readable). A graceful FIN close does NOT set ERROR — the kernel reports
+// it as READ (EOF) only, on the poll() backend too — so the test forces
+// an RST with SO_LINGER 0 instead of a plain close.
+#if defined(__unix__) || defined(__APPLE__)
+TEST(NetTest, EventLoopErrorEvent) {
+    TcpListener listener;
+    ASSERT_TRUE(listener.bindAndListen("127.0.0.1", 0));
+    int port = listener.getPort();
+
+    TcpSocket client;
+    ASSERT_TRUE(client.connect("127.0.0.1", port));
+    auto serverConn = listener.accept();
+    ASSERT_NE(serverConn, nullptr);
+
+    EventLoop loop;
+    ASSERT_TRUE(loop.addSocket(serverConn->getHandle(), SP_EVENT_READ));
+    EXPECT_EQ(loop.poll(0), 0);
+
+    // Hard close: RST instead of FIN.
+    struct linger lg{};
+    lg.l_onoff = 1;
+    lg.l_linger = 0;
+    ASSERT_EQ(::setsockopt(client.getHandle(), SOL_SOCKET, SO_LINGER, &lg,
+                           sizeof(lg)),
+              0);
+    client.close();
+
+    int64_t ready = loop.poll(1000);
+    EXPECT_GE(ready, 1);
+    EXPECT_GE(loop.getReadyCount(), 1u);
+    EXPECT_TRUE(loop.getReadyEvent(0).events & SP_EVENT_ERROR);
+
+    loop.removeSocket(serverConn->getHandle());
+    serverConn->close();
+    listener.close();
+}
+#endif

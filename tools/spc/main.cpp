@@ -8,6 +8,7 @@
 #include "sp/ast/Edition.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/sema/ComptimeEvaluator.h"
+#include "sp/sema/EscapeAnalysis.h"
 #include "sp/sema/ModuleLoader.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/ir/IRPrinter.h"
@@ -29,6 +30,7 @@
 #include <sstream>
 #include <string_view>
 #include <vector>
+#include <algorithm>
 #include <iomanip>
 #include <filesystem>
 #include <cstdlib>
@@ -55,7 +57,7 @@ void printVersion() {
               << "Copyright (c) 2026 Shanto Paul\n"
               << "Website: " << sp::SP_HOMEPAGE_URL << "\n"
               << "Docs:    " << sp::SP_DOCS_URL << "\n"
-              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (in-process LLVM & LLD backend)\n";
+              << "Target:  " << sp::codegen::LLVMGenerator::getHostTargetTriple() << " (SP IR text via external Clang driver; no in-process LLVM/LLD)\n";
 }
 
 void printHelp() {
@@ -101,6 +103,8 @@ void printHelp() {
               << "  -I <dir>        Add search directory for module resolution\n"
               << "  -L <dir>        Add search directory for library resolution (OpenSSL, etc.)\n"
               << "  --lib-path <d>  Add search directory for library resolution\n"
+              << "  --link <lib>    Link a native library by bare name (e.g. --link mini -> -lmini); repeatable\n"
+              << "  -l <lib>        Same as --link <lib> (also -l<lib>)\n"
               << "  --stdlib <path> Specify custom standard library directory path\n"
 
               << "  -h, --help      Display this help message\n"
@@ -527,20 +531,20 @@ int handleFix(int argc, char* argv[]) {
 
     for (const auto& p : spFiles) {
         filesChecked++;
-        std::string content = readFile(p.string());
-        bool changed = false;
-
-        // Modernize legacy constructs if needed
-        if (changed && !dryRun) {
-            std::ofstream out(p);
-            out << content;
-            filesModified++;
-            std::cout << "[FIX] Modernized: " << p.string() << "\n";
-        }
+        // NOTE: no .sp source transformations are implemented in this version,
+        // so there is deliberately no write step here. The old code declared
+        // `bool changed = false` and then wrote the file `if (changed)` — a
+        // condition that could never be true — while still printing
+        // "Migration Complete". Do not re-add a write here until a real
+        // transformation sets a flag when it actually changes the file.
+        (void)readFile(p.string());
     }
 
     std::cout << "\nMigration Complete: " << filesChecked << " file(s) scanned, "
               << filesModified << " file(s) updated.\n";
+    if (!spFiles.empty()) {
+        std::cout << "[NOTE] No .sp file transformations are implemented yet; .sp files were scanned only, not modified.\n";
+    }
     if (dryRun) {
         std::cout << "[NOTE] Dry-run mode completed. Re-run without '--dry-run' to write changes.\n";
     }
@@ -691,6 +695,8 @@ int main(int argc, char* argv[]) {
         bool explicitEdition = false;
         std::vector<std::string> includeDirs;
         std::vector<std::string> librarySearchPaths;
+        // Phase 39 slice B: bare library names (-> -l<lib>).
+        std::vector<std::string> additionalLibraries;
         std::string customStdlibDir;
 
         for (int i = 2; i < argc; ++i) {
@@ -727,6 +733,15 @@ int main(int argc, char* argv[]) {
                 librarySearchPaths.push_back(argv[++i]);
             } else if (arg.starts_with("--lib-path=")) {
                 librarySearchPaths.push_back(std::string(arg.substr(11)));
+            } else if ((arg == "--link") && i + 1 < argc) {
+                // Phase 39 slice B: bare library name (-> -l<lib>).
+                additionalLibraries.push_back(argv[++i]);
+            } else if (arg.starts_with("--link=")) {
+                additionalLibraries.push_back(std::string(arg.substr(7)));
+            } else if (arg == "-l" && i + 1 < argc) {
+                additionalLibraries.push_back(argv[++i]);
+            } else if (arg.starts_with("-l") && arg.size() > 2) {
+                additionalLibraries.push_back(std::string(arg.substr(2)));
             } else if (arg == "--stdlib" && i + 1 < argc) {
                 customStdlibDir = argv[++i];
             } else if (arg.starts_with("--stdlib=")) {
@@ -890,6 +905,44 @@ int main(int argc, char* argv[]) {
                 std::cout << "  " << std::left << std::setw(20) << name
                           << ": " << (sym->getType() ? sym->getType()->toString() : "unknown") << "\n";
             }
+            // Phase 8 slice E (ADR-001): escape analysis verdicts.
+            // Advisory only — no codegen consumes them yet (see
+            // docs/v2/PHASE-37-SLICE-E.md §0.2). Sorted for stable
+            // output (the summaries live in unordered_maps).
+            sp::sema::EscapeAnalysis escapeAnalysis(&sema.getTypeChecker());
+            escapeAnalysis.analyze(*program);
+            std::cout << "Escape analysis:\n";
+            std::cout << std::string(60, '-') << "\n";
+            std::vector<std::string> funcNames;
+            for (const auto& [name, summary] : escapeAnalysis.getAllSummaries()) {
+                (void)summary;
+                funcNames.push_back(name);
+            }
+            std::sort(funcNames.begin(), funcNames.end());
+            for (const auto& funcName : funcNames) {
+                const auto* summary = escapeAnalysis.getSummary(funcName);
+                if (!summary) continue;
+                std::cout << "  " << funcName << ":\n";
+                std::vector<std::string> varNames;
+                for (const auto& [varName, info] : summary->getVariables()) {
+                    (void)info;
+                    varNames.push_back(varName);
+                }
+                std::sort(varNames.begin(), varNames.end());
+                for (const auto& varName : varNames) {
+                    const auto* info = summary->getVariableInfo(varName);
+                    if (!info) continue;
+                    std::cout << "    " << std::left << std::setw(20) << varName
+                              << ": "
+                              << (info->state == sp::sema::EscapeState::GlobalEscaping
+                                      ? "GlobalEscaping"
+                                      : "LocalNonEscaping");
+                    for (const auto& reason : info->escapeReasons) {
+                        std::cout << " (" << reason << ")";
+                    }
+                    std::cout << "\n";
+                }
+            }
             return 0;
         }
 
@@ -922,6 +975,8 @@ int main(int argc, char* argv[]) {
         codegenOpts.debugSymbols = debugMode;
         codegenOpts.isStatic = isStatic;
         codegenOpts.librarySearchPaths = librarySearchPaths;
+        // Phase 39 slice B: bare library names (-> -l<lib>).
+        codegenOpts.additionalLibraries = additionalLibraries;
         if (!targetTriple.empty()) {
             codegenOpts.targetTriple = targetTriple;
         }
@@ -1373,6 +1428,8 @@ int main(int argc, char* argv[]) {
         std::string headerFile;
         std::string outputFile;
         std::string moduleName;
+        // Phase 39 slice C: include dirs for #include following.
+        std::vector<std::string> includeDirs;
 
         for (int i = 2; i < argc; ++i) {
             std::string_view arg = argv[i];
@@ -1380,6 +1437,14 @@ int main(int argc, char* argv[]) {
                 outputFile = argv[++i];
             } else if (arg == "--module" && i + 1 < argc) {
                 moduleName = argv[++i];
+            } else if (arg == "-I" && i + 1 < argc) {
+                includeDirs.push_back(argv[++i]);
+            } else if (arg.starts_with("-I")) {
+                includeDirs.push_back(std::string(arg.substr(2)));
+            } else if (arg == "--include-dir" && i + 1 < argc) {
+                includeDirs.push_back(argv[++i]);
+            } else if (arg.starts_with("--include-dir=")) {
+                includeDirs.push_back(std::string(arg.substr(14)));
             } else if (!arg.starts_with("-")) {
                 if (headerFile.empty()) {
                     headerFile = arg;
@@ -1389,12 +1454,13 @@ int main(int argc, char* argv[]) {
 
         if (headerFile.empty()) {
             std::cerr << "error: no input C header file specified\n"
-                      << "Usage: spc bindgen <header.h> [-o <out.sp>] [--module <name>]\n";
+                      << "Usage: spc bindgen <header.h> [-o <out.sp>] [--module <name>] [-I <dir>]...\n";
             return 1;
         }
 
         sp::bindgen::BindgenOptions opts;
         opts.moduleName = moduleName;
+        opts.includeDirs = includeDirs;
         sp::bindgen::Bindgen bg(opts);
 
         if (!bg.parseFile(headerFile)) {

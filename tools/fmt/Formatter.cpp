@@ -4,6 +4,7 @@
 #include "sp/lexer/Token.h"
 #include "sp/lexer/TokenType.h"
 
+#include <cstdio>
 #include <sstream>
 #include <vector>
 #include <algorithm>
@@ -64,6 +65,57 @@ bool isKeywordControlStmt(TokenType type) {
            type == TokenType::KeywordSwitch ||
            type == TokenType::KeywordCatch ||
            type == TokenType::KeywordMatch;
+}
+
+// Phase 4 slice B (pro-4.0.0): re-escape a decoded literal value for
+// source output. The lexer decodes escapes when scanning, so the
+// formatter must encode them back (a raw newline byte inside a string
+// would otherwise be emitted literally, and a NUL byte would truncate
+// the output). Non-ASCII bytes pass through unchanged (UTF-8 source).
+std::string escapeForDoubleQuoted(const std::string& value) {
+    std::string out;
+    for (unsigned char c : value) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\t': out += "\\t"; break;
+            case '\r': out += "\\r"; break;
+            case '\0': out += "\\0"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += static_cast<char>(c);
+                }
+        }
+    }
+    return out;
+}
+
+std::string escapeForChar(const std::string& value) {
+    std::string out;
+    for (unsigned char c : value) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '\'': out += "\\'"; break;
+            case '\n': out += "\\n"; break;
+            case '\t': out += "\\t"; break;
+            case '\r': out += "\\r"; break;
+            case '\0': out += "\\0"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += static_cast<char>(c);
+                }
+        }
+    }
+    return out;
 }
 
 } // namespace
@@ -294,7 +346,18 @@ std::string Formatter::format(const std::string& sourceCode) {
         }
 
         lastWasUnaryOp = isUnaryOp;
-        result += tok.lexeme;
+        // Phase 4 slice B (pro-4.0.0): the lexer stores string/char
+        // literal lexemes DECODED (quotes stripped, escapes processed),
+        // so emitting tok.lexeme verbatim drops the quotes and corrupts
+        // the code ("Hello, " became Hello,). Re-quote literals here;
+        // the parser/compiler keep using the decoded lexeme unchanged.
+        if (tok.type == TokenType::StringLiteral) {
+            result += "\"" + escapeForDoubleQuoted(tok.lexeme) + "\"";
+        } else if (tok.type == TokenType::CharLiteral) {
+            result += "'" + escapeForChar(tok.lexeme) + "'";
+        } else {
+            result += tok.lexeme;
+        }
     }
 
     // Ensure trailing newline at end of file if not empty

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "spm/BuildOrchestrator.h"
 #include "spm/ProjectConfig.h"
+#include "spm/Publish.h"
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 
@@ -52,6 +54,14 @@ TEST_F(BuildOrchestratorTest, PublishProjectValidationAndArtifact) {
 }
 
 TEST_F(BuildOrchestratorTest, SearchRegistry) {
+    // Pin the registry URL to an unreachable address: the fallback
+    // (built-in offline index) is what this test exercises, and the
+    // result must not depend on whether a real registry happens to be
+    // listening on localhost:8090 when the suite runs. (Phase 4 slice A)
+    const char* oldUrl = std::getenv("SP_REGISTRY_URL");
+    std::string savedUrl = oldUrl ? oldUrl : "";
+    setenv("SP_REGISTRY_URL", "http://127.0.0.1:9/", 1);
+
     auto mathResults = BuildOrchestrator::search("math");
     EXPECT_FALSE(mathResults.empty());
     bool foundMath = false;
@@ -66,6 +76,12 @@ TEST_F(BuildOrchestratorTest, SearchRegistry) {
 
     auto emptyResults = BuildOrchestrator::search("non_existent_xyz_999");
     EXPECT_TRUE(emptyResults.empty());
+
+    if (savedUrl.empty()) {
+        unsetenv("SP_REGISTRY_URL");
+    } else {
+        setenv("SP_REGISTRY_URL", savedUrl.c_str(), 1);
+    }
 }
 
 TEST_F(BuildOrchestratorTest, VerifyProjectIntegrityAndTamperDetection) {
@@ -87,17 +103,41 @@ TEST_F(BuildOrchestratorTest, VerifyProjectIntegrityAndTamperDetection) {
     auto v2 = BuildOrchestrator::verify(m_tempDir.string());
     EXPECT_FALSE(v2.success);
 
-    // Create valid lockfile
+    // Create valid lockfile with a REAL content hash (Phase 4 slice A):
+    // scaffold a sp_math lib, dry-run publish it (creates the archive
+    // and caches it with its SHA-256), and pin the lock to that hash.
+    fs::path mathDir = m_tempDir / "sp_math_src";
+    ASSERT_TRUE(scaffoldProject(mathDir.string(), "sp_math", true, err)) << err;
+    {
+        ProjectConfig mathCfg;
+        ASSERT_TRUE(mathCfg.loadFromFile((mathDir / "sp.toml").string()));
+        mathCfg.getPackage().version = "1.0.0";
+        ASSERT_TRUE(mathCfg.saveToFile((mathDir / "sp.toml").string()));
+    }
+    sp::spm::PublishOptions pubOpts;
+    pubOpts.dryRun = true;
+    auto pubRes = sp::spm::PackagePublisher::publish(mathDir.string(), pubOpts);
+    ASSERT_TRUE(pubRes.success) << pubRes.errorMessage;
+    ASSERT_EQ(pubRes.packageVersion, "1.0.0");
+
     Lockfile lock;
-    auto semver = *Version::parse("1.0.0");
-    std::string expectedHash = DependencyResolver::computeChecksum("sp_math", semver, "registry");
-    lock.addPackage(LockedPackage{"sp_math", "1.0.0", "registry", expectedHash, {}});
+    lock.addPackage(LockedPackage{"sp_math", "1.0.0", "registry", pubRes.sha256Checksum, {}});
     ASSERT_TRUE(lock.saveToFile((m_tempDir / "sp.lock").string()));
 
     // Verify should now succeed
     auto v3 = BuildOrchestrator::verify(m_tempDir.string());
     EXPECT_TRUE(v3.success) << v3.errorMessage;
     EXPECT_EQ(v3.packagesVerified, 1);
+
+    // 3b. A legacy lockfile (metadata hash instead of content hash) fails.
+    Lockfile legacyLock;
+    auto semver = *Version::parse("1.0.0");
+    legacyLock.addPackage(LockedPackage{"sp_math", "1.0.0", "registry",
+                                       DependencyResolver::computeChecksum("sp_math", semver, "registry"), {}});
+    ASSERT_TRUE(legacyLock.saveToFile((m_tempDir / "sp.lock").string()));
+    auto v3b = BuildOrchestrator::verify(m_tempDir.string());
+    EXPECT_FALSE(v3b.success);
+    EXPECT_NE(v3b.errorMessage.find("legacy"), std::string::npos);
 
     // 3. Simulate tampering with checksum
     Lockfile tamperedLock;

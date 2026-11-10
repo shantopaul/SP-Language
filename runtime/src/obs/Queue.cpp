@@ -1,4 +1,6 @@
 #include "sp/runtime/Queue.h"
+#include "sp/runtime/PersistentQueue.h"
+#include "sp/runtime/Crypto.h"
 #include "sp/runtime/Log.h"
 #include <algorithm>
 #include <sstream>
@@ -426,6 +428,277 @@ static CronScheduler s_globalCron;
 
 CronScheduler& CronScheduler::getGlobal() {
     return s_globalCron;
+}
+
+// ----------------------------------------------------------------------------
+// PersistentQueue (SQLite-backed durable jobs)
+// ----------------------------------------------------------------------------
+
+std::string PersistentJob::toJson() const {
+    std::ostringstream ss;
+    ss << "{\"id\":\"" << escapeJson(id) << "\","
+       << "\"name\":\"" << escapeJson(name) << "\","
+       << "\"payload\":\"" << escapeJson(payload) << "\","
+       << "\"attempts\":" << attempts << ","
+       << "\"maxRetries\":" << maxRetries << ","
+       << "\"backoffMs\":" << backoffMs << ","
+       << "\"status\":\"" << escapeJson(status) << "\","
+       << "\"lastError\":\"" << escapeJson(lastError) << "\","
+       << "\"createdAt\":\"" << escapeJson(createdAt) << "\"}";
+    return ss.str();
+}
+
+PersistentQueue::~PersistentQueue() {
+    close();
+}
+
+bool PersistentQueue::open(const std::string& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    close();
+    m_lastError.clear();
+    if (path.empty()) {
+        m_lastError = "empty database path";
+        return false;
+    }
+    m_dbOwned = std::make_unique<sp::runtime::SqliteDatabase>();
+    if (!m_dbOwned->open(path)) {
+        m_lastError = m_dbOwned->lastError();
+        if (m_lastError.empty()) m_lastError = "failed to open sqlite database: " + path;
+        m_dbOwned.reset();
+        return false;
+    }
+    m_open = true;
+    if (!ensureSchema() || !recoverCrashedJobs()) {
+        std::string err = m_lastError;
+        close();
+        m_lastError = err;
+        return false;
+    }
+    return true;
+}
+
+void PersistentQueue::close() {
+    if (m_dbOwned) {
+        m_dbOwned->close();
+        m_dbOwned.reset();
+    }
+    m_open = false;
+}
+
+bool PersistentQueue::isOpen() const {
+    return m_open;
+}
+
+std::string PersistentQueue::lastError() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lastError;
+}
+
+bool PersistentQueue::ensureSchema() {
+    int rc = m_dbOwned->execute(
+        "CREATE TABLE IF NOT EXISTS sp_jobs ("
+        "  id TEXT PRIMARY KEY,"
+        "  name TEXT NOT NULL,"
+        "  payload TEXT NOT NULL DEFAULT '',"
+        "  attempts INTEGER NOT NULL DEFAULT 0,"
+        "  max_retries INTEGER NOT NULL DEFAULT 3,"
+        "  backoff_ms INTEGER NOT NULL DEFAULT 100,"
+        "  run_at_ms INTEGER NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'pending',"
+        "  last_error TEXT NOT NULL DEFAULT '',"
+        "  created_at TEXT NOT NULL DEFAULT ''"
+        ");");
+    if (rc < 0) {
+        m_lastError = m_dbOwned->lastError();
+        return false;
+    }
+    rc = m_dbOwned->execute(
+        "CREATE INDEX IF NOT EXISTS sp_jobs_pending_idx ON sp_jobs(status, run_at_ms);");
+    if (rc < 0) {
+        m_lastError = m_dbOwned->lastError();
+        return false;
+    }
+    return true;
+}
+
+bool PersistentQueue::recoverCrashedJobs() {
+    // Jobs left 'processing' by a crashed process are retried, not lost.
+    int rc = m_dbOwned->execute(
+        "UPDATE sp_jobs SET status='pending', run_at_ms=" +
+        std::to_string(JobQueue::nowMs()) +
+        " WHERE status='processing';");
+    if (rc < 0) {
+        m_lastError = m_dbOwned->lastError();
+        return false;
+    }
+    return true;
+}
+
+std::string PersistentQueue::enqueue(const std::string& name, const std::string& payload,
+                                     int64_t maxRetries, int64_t backoffMs, int64_t delayMs) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) {
+        m_lastError = "persistent queue is not open";
+        return "";
+    }
+    std::string id = "pjob_" + sp::rt::crypto::randomUuid();
+    auto stmt = m_dbOwned->prepare(
+        "INSERT INTO sp_jobs (id, name, payload, attempts, max_retries, backoff_ms, run_at_ms, status, last_error, created_at)"
+        " VALUES (?, ?, ?, 0, ?, ?, ?, 'pending', '', ?);");
+    if (!stmt) {
+        m_lastError = m_dbOwned->lastError();
+        return "";
+    }
+    stmt->bindString(1, id);
+    stmt->bindString(2, name);
+    stmt->bindString(3, payload);
+    stmt->bindInt(4, maxRetries < 0 ? 0 : maxRetries);
+    stmt->bindInt(5, backoffMs < 0 ? 0 : backoffMs);
+    stmt->bindInt(6, JobQueue::nowMs() + delayMs);
+    stmt->bindString(7, currentIsoTimestamp());
+    if (stmt->step() != 101) { // SQLITE_DONE
+        m_lastError = m_dbOwned->lastError();
+        return "";
+    }
+    return id;
+}
+
+bool PersistentQueue::tryDequeue(PersistentJob& out) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) {
+        m_lastError = "persistent queue is not open";
+        return false;
+    }
+    if (!m_dbOwned->beginTransaction()) {
+        m_lastError = m_dbOwned->lastError();
+        return false;
+    }
+    bool ok = false;
+    std::string jobId;
+    {
+        auto pick = m_dbOwned->prepare(
+            "SELECT id FROM sp_jobs WHERE status='pending' AND run_at_ms <= ?"
+            " ORDER BY run_at_ms ASC, rowid ASC LIMIT 1;");
+        if (pick) {
+            pick->bindInt(1, JobQueue::nowMs());
+            if (pick->step() == 100) { // SQLITE_ROW
+                jobId = pick->columnString(0);
+            }
+        }
+    }
+    if (!jobId.empty()) {
+        auto claim = m_dbOwned->prepare(
+            "UPDATE sp_jobs SET status='processing' WHERE id=? AND status='pending';");
+        if (claim) {
+            claim->bindString(1, jobId);
+            claim->step();
+            ok = m_dbOwned->changes() == 1;
+        }
+    }
+    if (ok) {
+        auto row = m_dbOwned->prepare(
+            "SELECT id, name, payload, attempts, max_retries, backoff_ms, run_at_ms, status, last_error, created_at"
+            " FROM sp_jobs WHERE id=?;");
+        if (row) {
+            row->bindString(1, jobId);
+            if (row->step() == 100) {
+                out.id = row->columnString(0);
+                out.name = row->columnString(1);
+                out.payload = row->columnString(2);
+                out.attempts = row->columnInt(3);
+                out.maxRetries = row->columnInt(4);
+                out.backoffMs = row->columnInt(5);
+                out.runAtMs = row->columnInt(6);
+                out.status = row->columnString(7);
+                out.lastError = row->columnString(8);
+                out.createdAt = row->columnString(9);
+            } else {
+                ok = false;
+            }
+        } else {
+            ok = false;
+        }
+    }
+    if (ok) {
+        if (!m_dbOwned->commit()) {
+            m_lastError = m_dbOwned->lastError();
+            return false;
+        }
+        return true;
+    }
+    m_dbOwned->rollback();
+    return false;
+}
+
+bool PersistentQueue::complete(const std::string& jobId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) return false;
+    auto stmt = m_dbOwned->prepare(
+        "UPDATE sp_jobs SET status='completed' WHERE id=? AND status='processing';");
+    if (!stmt) return false;
+    stmt->bindString(1, jobId);
+    if (stmt->step() != 101) return false;
+    return m_dbOwned->changes() == 1;
+}
+
+bool PersistentQueue::fail(const std::string& jobId, const std::string& error) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) return false;
+    auto row = m_dbOwned->prepare(
+        "SELECT attempts, max_retries, backoff_ms FROM sp_jobs WHERE id=?;");
+    if (!row) return false;
+    row->bindString(1, jobId);
+    if (row->step() != 100) return false;
+    int64_t attempts = row->columnInt(0) + 1;
+    int64_t maxRetries = row->columnInt(1);
+    int64_t backoffMs = row->columnInt(2);
+    bool dead = attempts >= maxRetries;
+    int64_t factor = (attempts <= 30) ? (1LL << (attempts - 1)) : (1LL << 30);
+    int64_t nextRun = JobQueue::nowMs() + backoffMs * factor;
+    auto upd = m_dbOwned->prepare(
+        dead ? "UPDATE sp_jobs SET attempts=?, status='dead', last_error=?, run_at_ms=? WHERE id=?;"
+             : "UPDATE sp_jobs SET attempts=?, status='pending', last_error=?, run_at_ms=? WHERE id=?;");
+    if (!upd) return false;
+    upd->bindInt(1, attempts);
+    upd->bindString(2, error);
+    upd->bindInt(3, nextRun);
+    upd->bindString(4, jobId);
+    if (upd->step() != 101) return false;
+    return m_dbOwned->changes() == 1;
+}
+
+size_t PersistentQueue::pendingCount() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) return 0;
+    auto stmt = m_dbOwned->prepare("SELECT COUNT(*) FROM sp_jobs WHERE status='pending';");
+    if (!stmt || stmt->step() != 100) return 0;
+    return static_cast<size_t>(stmt->columnInt(0));
+}
+
+size_t PersistentQueue::dlqCount() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) return 0;
+    auto stmt = m_dbOwned->prepare("SELECT COUNT(*) FROM sp_jobs WHERE status='dead';");
+    if (!stmt || stmt->step() != 100) return 0;
+    return static_cast<size_t>(stmt->columnInt(0));
+}
+
+bool PersistentQueue::retryDlqJob(const std::string& jobId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) return false;
+    auto stmt = m_dbOwned->prepare(
+        "UPDATE sp_jobs SET attempts=0, status='pending', last_error='', run_at_ms=? WHERE id=? AND status='dead';");
+    if (!stmt) return false;
+    stmt->bindInt(1, JobQueue::nowMs());
+    stmt->bindString(2, jobId);
+    if (stmt->step() != 101) return false;
+    return m_dbOwned->changes() == 1;
+}
+
+void PersistentQueue::clearDlq() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_open || !m_dbOwned) return;
+    m_dbOwned->execute("DELETE FROM sp_jobs WHERE status='dead';");
 }
 
 } // namespace sp::rt::obs

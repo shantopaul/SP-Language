@@ -38,6 +38,7 @@ fn main() {
     double root = Math.sqrt(144.0);
     println("std.math Math.sqrt(144): " + root);
 
-    int nowMs = Time.now();
+    // Phase 4 slice D: Time.now() returns int64 epoch-ms.
+    int64 nowMs = Time.now();
     println("std.time Time.now() ms:  " + nowMs);
 }

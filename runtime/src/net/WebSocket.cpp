@@ -222,50 +222,68 @@ void WebSocketConnection::pong(const std::string& data) {
 }
 
 void WebSocketConnection::close(uint16_t code, const std::string& reason) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_open) return;
-    if (m_sender) {
-        auto bytes = encodeCloseFrame(code, reason, false);
-        m_sender(bytes);
+    CloseHandler onCloseCopy;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_open) return;
+        if (m_sender) {
+            auto bytes = encodeCloseFrame(code, reason, false);
+            m_sender(bytes);
+        }
+        m_open = false;
+        onCloseCopy = m_onClose;
     }
-    m_open = false;
-    if (m_onClose) {
-        m_onClose(code, reason);
+    // Invoke the callback outside the lock: a handler may call back into
+    // this connection (e.g. sendText), which would deadlock on m_mutex.
+    if (onCloseCopy) {
+        onCloseCopy(code, reason);
     }
 }
 
 void WebSocketConnection::handleIncomingBytes(const uint8_t* data, size_t length) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (!data || length == 0) return;
+    // Handlers are collected while locked and invoked after the lock is
+    // released: a handler may call sendText()/close() on this connection,
+    // which take the same mutex.
+    std::vector<std::pair<TextHandler, std::string>> textCalls;
+    std::vector<std::pair<BinaryHandler, std::vector<uint8_t>>> binaryCalls;
+    std::vector<std::pair<CloseHandler, std::pair<uint16_t, std::string>>> closeCalls;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!data || length == 0) return;
 
-    m_recvBuffer.insert(m_recvBuffer.end(), data, data + length);
+        m_recvBuffer.insert(m_recvBuffer.end(), data, data + length);
 
-    while (!m_recvBuffer.empty()) {
-        WsFrame frame;
-        size_t consumed = 0;
-        if (!decodeFrame(m_recvBuffer.data(), m_recvBuffer.size(), frame, consumed)) {
-            break; // Needs more bytes
-        }
-
-        m_recvBuffer.erase(m_recvBuffer.begin(), m_recvBuffer.begin() + consumed);
-
-        if (frame.opcode == WsOpCode::Text) {
-            m_receivedMessages.push_back(frame.payload);
-            if (m_onText) m_onText(frame.payload);
-        } else if (frame.opcode == WsOpCode::Binary) {
-            std::vector<uint8_t> bin(frame.payload.begin(), frame.payload.end());
-            if (m_onBinary) m_onBinary(bin);
-        } else if (frame.opcode == WsOpCode::Ping) {
-            // Automatic Pong echo
-            if (m_sender) {
-                auto pongBytes = encodePongFrame(frame.payload, false);
-                m_sender(pongBytes);
+        while (!m_recvBuffer.empty()) {
+            WsFrame frame;
+            size_t consumed = 0;
+            if (!decodeFrame(m_recvBuffer.data(), m_recvBuffer.size(), frame, consumed)) {
+                break; // Needs more bytes
             }
-        } else if (frame.opcode == WsOpCode::Close) {
-            m_open = false;
-            if (m_onClose) m_onClose(frame.closeCode, frame.closeReason);
+
+            m_recvBuffer.erase(m_recvBuffer.begin(), m_recvBuffer.begin() + consumed);
+
+            if (frame.opcode == WsOpCode::Text) {
+                m_receivedMessages.push_back(frame.payload);
+                if (m_onText) textCalls.emplace_back(m_onText, frame.payload);
+            } else if (frame.opcode == WsOpCode::Binary) {
+                std::vector<uint8_t> bin(frame.payload.begin(), frame.payload.end());
+                if (m_onBinary) binaryCalls.emplace_back(m_onBinary, std::move(bin));
+            } else if (frame.opcode == WsOpCode::Ping) {
+                // Automatic Pong echo
+                if (m_sender) {
+                    auto pongBytes = encodePongFrame(frame.payload, false);
+                    m_sender(pongBytes);
+                }
+            } else if (frame.opcode == WsOpCode::Close) {
+                m_open = false;
+                if (m_onClose) closeCalls.emplace_back(m_onClose, std::make_pair(frame.closeCode, frame.closeReason));
+            }
         }
     }
+
+    for (auto& [handler, payload] : textCalls) handler(payload);
+    for (auto& [handler, payload] : binaryCalls) handler(payload);
+    for (auto& [handler, codeReason] : closeCalls) handler(codeReason.first, codeReason.second);
 }
 
 // ============================================================================
@@ -379,6 +397,100 @@ void WebSocketHub::clear() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_connections.clear();
     m_rooms.clear();
+}
+
+// ============================================================================
+// WebSocket Server Transport Implementation
+// ============================================================================
+
+WebSocketServer& WebSocketServer::getGlobal() {
+    static WebSocketServer instance;
+    return instance;
+}
+
+void WebSocketServer::onText(const std::string& path, WsTextHandler handler) {
+    if (path.empty() || !handler) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_textHandlers[path] = std::move(handler);
+}
+
+bool WebSocketServer::hasRoute(const std::string& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_textHandlers.find(path) != m_textHandlers.end();
+}
+
+bool WebSocketServer::serveUpgraded(WsTransport& transport, const std::string& path,
+                                    const std::string& clientKey, const std::string& leftover) {
+    WsTextHandler handler;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_textHandlers.find(path);
+        if (it == m_textHandlers.end()) return false;
+        handler = it->second;
+    }
+    if (clientKey.empty() || !transport.isValid()) return false;
+
+    uint64_t connId = m_nextConnId.fetch_add(1);
+    auto conn = std::make_shared<WebSocketConnection>(
+        connId, [&transport](const std::vector<uint8_t>& bytes) {
+            if (transport.isValid() && !bytes.empty()) {
+                transport.writeString(std::string(bytes.begin(), bytes.end()));
+            }
+        });
+    conn->onText([handler, connId](const std::string& message) {
+        handler(connId, message);
+    });
+    // Register before the handshake bytes go out, so the connection is
+    // visible to sendTo()/connectionCount() as soon as the peer sees 101.
+    m_hub.addConnection(conn);
+
+    // RFC 6455 §4.2.2: 101 Switching Protocols with the accept key.
+    std::string acceptKey = computeWebSocketAccept(clientKey);
+    std::string handshake =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: " + acceptKey + "\r\n"
+        "\r\n";
+    if (transport.writeString(handshake) <= 0) {
+        m_hub.removeConnection(connId);
+        return false;
+    }
+
+    // Bytes that arrived in the same TCP segment as the HTTP request.
+    if (!leftover.empty()) {
+        conn->handleIncomingBytes(reinterpret_cast<const uint8_t*>(leftover.data()), leftover.size());
+    }
+
+    // Frame loop on this (worker) thread until the peer closes or errors.
+    while (transport.isValid() && conn->isOpen()) {
+        std::string chunk = transport.readSome(16384);
+        if (chunk.empty()) break; // Peer closed or read error.
+        conn->handleIncomingBytes(reinterpret_cast<const uint8_t*>(chunk.data()), chunk.size());
+    }
+
+    m_hub.removeConnection(connId);
+    return true;
+}
+
+bool WebSocketServer::sendTo(uint64_t connId, const std::string& message) {
+    auto conn = m_hub.getConnection(connId);
+    if (!conn || !conn->isOpen()) return false;
+    conn->sendText(message);
+    return true;
+}
+
+void WebSocketServer::broadcast(const std::string& message) {
+    m_hub.broadcast(message);
+}
+
+void WebSocketServer::closeConnection(uint64_t connId, uint16_t code, const std::string& reason) {
+    auto conn = m_hub.getConnection(connId);
+    if (conn) conn->close(code, reason);
+}
+
+size_t WebSocketServer::connectionCount() const {
+    return m_hub.size();
 }
 
 } // namespace sp::rt::ws

@@ -2,6 +2,7 @@
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
 #include "sp/sema/SemanticAnalyzer.h"
+#include "sp/sema/ModuleLoader.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/codegen/LLVMGenerator.h"
 #include "sp/ir/IRPrinter.h"
@@ -22,7 +23,8 @@ fs::path getOutputDir() {
     return fs::temp_directory_path();
 }
 
-std::string runSPProgram(const std::string& source, const std::string& testName, const std::string& input = "") {
+std::string runSPProgram(const std::string& source, const std::string& testName, const std::string& input = "",
+                         const std::string& searchPath = "") {
     diagnostics::DiagnosticEngine diags(std::cerr);
     lexer::Lexer lexer(source, testName + ".sp", &diags);
     auto tokens = lexer.tokenizeAll();
@@ -31,6 +33,21 @@ std::string runSPProgram(const std::string& source, const std::string& testName,
     parser::Parser parser(tokens, testName + ".sp", &diags);
     auto program = parser.parseProgram();
     if (diags.hasErrors() || !program) return "PARSER_ERROR";
+
+    // Phase 4 (parent fix): resolve + merge imports exactly like `spc` does
+    // (ModuleLoader::loadAndMergeAll). Without this, `import std.web` (and
+    // any non-builtin stdlib module) silently contributed nothing, so a
+    // program calling App::openApi() failed sema here with "Undefined class
+    // 'App'" while the real compiler accepted it — and, worse, the harness
+    // could not have caught the Phase 3 regression where openApi()'s
+    // capturing lambda broke every std.web program at codegen time.
+    // Pure-builtin modules (std.time, std.io, ...) are still skipped by the
+    // loader itself, so existing builtin-only tests are unaffected.
+    sema::ModuleLoader moduleLoader(diags);
+    // Phase 39 slice D: an import test can point the loader at a
+    // directory holding a generated module file.
+    if (!searchPath.empty()) moduleLoader.addSearchPath(searchPath);
+    if (!moduleLoader.loadAndMergeAll(*program, testName + ".sp")) return "MODULE_ERROR";
 
     sema::SemanticAnalyzer sema(diags);
     if (!sema.analyze(*program) || diags.hasErrors()) return "SEMA_ERROR";
@@ -1583,20 +1600,22 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
         import std.time;
 
         fn main() {
-            int t1 = now();
-            int tSecs = nowSeconds();
+            // Phase 4 slice D: epoch values are int64 (see SymbolTable.cpp
+            // + stdlib/time/time.sp). `int` truncated ~1.7e12 ms to negative.
+            int64 t1 = now();
+            int64 tSecs = nowSeconds();
             println("now_gt_0: ${t1 > 0}");
             println("secs_gt_0: ${tSecs > 0}");
 
             sleep(15);
-            int t2 = now();
-            int elapsed = t2 - t1;
+            int64 t2 = now();
+            int64 elapsed = t2 - t1;
             println("elapsed_gte_10: ${elapsed >= 10}");
 
             string iso = formatTime(1700000000);
             println("formatted_iso: ${iso}");
 
-            int parsed = parseTime("2023-11-14T22:13:20Z");
+            int64 parsed = parseTime("2023-11-14T22:13:20Z");
             println("parsed_epoch: ${parsed}");
 
             Duration d = Duration.fromSeconds(3);
@@ -1606,7 +1625,7 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
             Duration dMin = Duration.fromMinutes(1);
             println("d_min_millis: ${dMin.toMillis()}");
 
-            int staticNow = Time.now();
+            int64 staticNow = Time.now();
             println("time_static_gt_0: ${staticNow > 0}");
         }
     )sp";
@@ -1621,6 +1640,27 @@ TEST(ExecutionTest, StdlibTimeNativeExecution) {
     EXPECT_NE(output.find("d_seconds: 3"), std::string::npos);
     EXPECT_NE(output.find("d_min_millis: 60000"), std::string::npos);
     EXPECT_NE(output.find("time_static_gt_0: true"), std::string::npos);
+}
+
+TEST(ExecutionTest, StdWebOpenApiNoCapturingLambda) {
+    // Phase 4 (parent fix): App::openApi used to register a lambda that
+    // captured `specJson`. Capturing lambdas fail loudly (E1000 since
+    // Phase 3), so importing std.web and calling openApi() broke every
+    // program that used it — and no test covered it. openApi() now serves
+    // the spec through the runtime's static-JSON route (no lambda), so
+    // this program must compile and run.
+    const std::string source = R"sp(
+        import std.web;
+
+        fn main() {
+            let app = new App();
+            app.openApi("/openapi.json", "{\"openapi\":\"3.0.3\"}");
+            println("openapi_registered: true");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_stdweb_openapi");
+    EXPECT_NE(output.find("openapi_registered: true"), std::string::npos) << output;
 }
 
 TEST(ExecutionTest, StdlibOsNativeExecution) {
@@ -1754,7 +1794,8 @@ TEST(ExecutionTest, StdlibFullIntegrationNativeExecution) {
             println("fs_exists: ${exists(dummyPath)}");
 
             // 6. std.time
-            int t = now();
+            // Phase 4 slice D: epoch-ms is int64; `int` truncated it negative.
+            int64 t = now();
             println("time_now_gt_0: ${t > 0}");
 
             // 7. std.os
@@ -1851,6 +1892,204 @@ TEST(ExecutionTest, WeakReferenceCycleBreakingNativeExecution) {
 
     std::string output = runSPProgram(source, "exec_weak_cycle_breaking");
     EXPECT_NE(output.find("tree_total: 300"), std::string::npos);
+}
+
+// Phase 8 slice C (ADR-001 weak refs): a `weak` back-pointer must
+// not keep its target alive. A self-referential cycle through a
+// weak field dies when the last strong owner drops (baseline:
+// "after block 1" — the cycle kept itself alive).
+TEST(ExecutionTest, WeakFieldSelfCycleBreaks) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node {
+            weak Node weakSelf;
+            int n;
+        }
+
+        fn makeNode() -> Node {
+            let nd = new Node();
+            nd.n = 3;
+            nd.weakSelf = nd;
+            return nd;
+        }
+
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var x = makeNode();
+                println("self n " + x.weakSelf.n);
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_self_cycle_breaks");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("self n 3"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
+// Phase 8 slice C: a weak field reads null after its target dies
+// (zeroing weak refs) — never a dangling pointer. A strong owner
+// keeps the target readable (see WeakFieldStrongOwnerKeepsAlive).
+TEST(ExecutionTest, WeakFieldReadsNullAfterTargetDies) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node { int n; }
+        class Holder { weak Node? target; }
+
+        fn main() {
+            var h = new Holder();
+            {
+                var t = new Node();
+                t.n = 42;
+                h.target = t;
+                println("alive n " + h.target?.n);
+                if (h.target == null) { println("alive? no"); } else { println("alive? yes"); }
+            }
+            println("after " + sp_rt_mem_live_objects());
+            if (h.target == null) { println("target is null"); } else { println("target alive " + h.target?.n); }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_null_after_death");
+    EXPECT_NE(output.find("alive n 42"), std::string::npos);
+    EXPECT_NE(output.find("alive? yes"), std::string::npos);
+    EXPECT_NE(output.find("after 1"), std::string::npos);
+    EXPECT_NE(output.find("target is null"), std::string::npos);
+}
+
+// Phase 8 slice C: repeated weak reads must not leak — each
+// sp_rt_weak_upgrade returns a +1 share that the statement scope
+// pop releases. Without the recording, each read would leak one
+// strong share and "live" would grow by one per read.
+TEST(ExecutionTest, WeakFieldReadsDoNotLeak) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node { int n; }
+        class Holder { weak Node? target; }
+
+        fn main() {
+            var t = new Node();
+            t.n = 7;
+            var h = new Holder();
+            h.target = t;
+            println("r1 " + h.target?.n);
+            println("r2 " + h.target?.n);
+            println("r3 " + h.target?.n);
+            println("live " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_reads_do_not_leak");
+    EXPECT_NE(output.find("r1 7"), std::string::npos);
+    EXPECT_NE(output.find("r2 7"), std::string::npos);
+    EXPECT_NE(output.find("r3 7"), std::string::npos);
+    EXPECT_NE(output.find("live 2"), std::string::npos);
+}
+
+// Phase 8 slice C: a `weak` local holds no strong share —
+// `weak Node q = makeNode();` reads null because the node has no
+// strong owner and dies at the declaration's scope pop, while a
+// weak local over a live target reads through normally.
+TEST(ExecutionTest, WeakLocalDoesNotRetain) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node { int n; }
+        fn makeNode() -> Node {
+            let nd = new Node();
+            nd.n = 5;
+            return nd;
+        }
+
+        fn main() {
+            var t = new Node();
+            t.n = 9;
+            {
+                weak Node p = t;
+                println("p n " + p.n);
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            {
+                weak Node? q = makeNode();
+                if (q == null) { println("q is null"); } else { println("q n " + q?.n); }
+                println("after q " + sp_rt_mem_live_objects());
+            }
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_local_no_retain");
+    EXPECT_NE(output.find("p n 9"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("q is null"), std::string::npos);
+    EXPECT_NE(output.find("after q 1"), std::string::npos);
+    EXPECT_NE(output.find("after 1"), std::string::npos);
+}
+
+// Phase 8 slice C: parent -> child (strong) + child -> parent
+// (weak). The weak back-pointer breaks the cycle, so the parent
+// dies on schedule — and (parent update, Phase 37 merge) slice A's
+// Node_destructor releases the strong `child` field on the parent's
+// death, so the child dies too: 2 -> 0. Renamed from
+// WeakParentChildCyclePartiallyBreaks (that name and its `after
+// block 1` expectation pinned slice C's standalone behaviour, where
+// no destructor existed yet to release the dead parent's field).
+TEST(ExecutionTest, WeakParentChildCycleFullyBreaks) {
+    const std::string source = R"sp(
+        import std.io;
+
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Node {
+            Node child;
+            weak Node parent;
+            int n;
+        }
+
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var root = new Node();
+                root.n = 1;
+                var ch = new Node();
+                ch.n = 2;
+                root.child = ch;
+                ch.parent = root;
+                println("inside " + sp_rt_mem_live_objects());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_weak_parent_child");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 2"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
 }
 
 TEST(ExecutionTest, MemoryArenaNativeExecution) {
@@ -2223,6 +2462,610 @@ TEST(ExecutionTest, ResultAndOptionZeroAllocTaggedUnionExecution) {
     EXPECT_NE(output.find("directSome.unwrap: 77"), std::string::npos);
 }
 
+// Phase 9 slice A (ADR-002): a tagged union OWNS its payload — the
+// construction retains it, the scope drop releases it. Before this
+// slice, `Result.Ok(new Foo(7))` died in make() and unwrap read a
+// dangling pointer (p3b: unwrap printed 99 after a Foo(99) reuse).
+TEST(ExecutionTest, ResultClassPayloadLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            var f = new Foo(7);
+            return Result.Ok(f);
+        }
+
+        fn main() {
+            println("before ${sp_rt_mem_live_objects()}");
+            var r = make();
+            println("after make ${sp_rt_mem_live_objects()}");
+            println("unwrap n ${r.unwrap().n}");
+            println("after unwrap ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_class_payload");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after make 1"), std::string::npos);
+    EXPECT_NE(output.find("unwrap n 7"), std::string::npos);
+    EXPECT_NE(output.find("after unwrap 1"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultClassPayloadSurvivesReuse) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            var f = new Foo(7);
+            return Result.Ok(f);
+        }
+
+        fn main() {
+            var r = make();
+            println("live after make ${sp_rt_mem_live_objects()}");
+            var g = new Foo(99);
+            println("live after g ${sp_rt_mem_live_objects()}");
+            println("r unwrap n ${r.unwrap().n}");
+            println("g n ${g.n}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_class_reuse");
+    EXPECT_NE(output.find("live after make 1"), std::string::npos);
+    EXPECT_NE(output.find("live after g 2"), std::string::npos);
+    EXPECT_NE(output.find("r unwrap n 7"), std::string::npos);
+    EXPECT_NE(output.find("g n 99"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultTempPayloadReleased) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            return Result.Ok(new Foo(7));
+        }
+
+        fn main() {
+            println("temp ok ${make().isOk()}");
+            println("live ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_temp_payload");
+    EXPECT_NE(output.find("temp ok true"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultReassignReleasesOldPayload) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make(int n) -> Result<Foo, string> {
+            return Result.Ok(new Foo(n));
+        }
+
+        fn main() {
+            var r = make(1);
+            println("live1 ${sp_rt_mem_live_objects()}");
+            r = make(2);
+            println("live2 ${sp_rt_mem_live_objects()}");
+            println("n ${r.unwrap().n}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_reassign");
+    EXPECT_NE(output.find("live1 1"), std::string::npos);
+    EXPECT_NE(output.find("live2 1"), std::string::npos);
+    EXPECT_NE(output.find("n 2"), std::string::npos);
+}
+
+// Phase 9 slice B (ADR-002): match arms bind a variant's payload.
+TEST(ExecutionTest, MatchResultBindsPayload) {
+    const std::string source = R"sp(
+        fn divide(int a, int b) -> Result<int, string> {
+            if (b == 0) {
+                return Result.Err("division by zero");
+            }
+            return Result.Ok(a / b);
+        }
+
+        fn main() {
+            match divide(10, 2) {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+            match divide(10, 0) {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_result");
+    EXPECT_NE(output.find("ok 5"), std::string::npos);
+    EXPECT_NE(output.find("err division by zero"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchOptionBindsPayload) {
+    const std::string source = R"sp(
+        fn findPositive(int n) -> Option<int> {
+            if (n > 0) {
+                return Option.Some(n * 2);
+            }
+            return Option.None();
+        }
+
+        fn main() {
+            match findPositive(5) {
+                Option.Some(v) => println("some ${v}"),
+                Option.None() => println("none")
+            }
+            match findPositive(-3) {
+                Option.Some(v) => println("some ${v}"),
+                Option.None => println("none")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_option");
+    EXPECT_NE(output.find("some 10"), std::string::npos);
+    EXPECT_NE(output.find("none"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchUserEnumBindsPayload) {
+    const std::string source = R"sp(
+        enum Shape {
+            Circle(int),
+            Square(int)
+        }
+
+        fn main() {
+            var s = Shape.Circle(5);
+            match s {
+                Shape.Circle(r) => println("circle ${r}"),
+                Shape.Square(w) => println("square ${w}"),
+                _ => println("other")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_user_enum");
+    EXPECT_NE(output.find("circle 5"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchOnTempResultReleasesPayload) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            return Result.Ok(new Foo(7));
+        }
+
+        fn main() {
+            match make() {
+                Result.Ok(f) => println("ok n ${f.n}"),
+                Result.Err(e) => println("err ${e}")
+            }
+            println("live ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_temp_release");
+    EXPECT_NE(output.find("ok n 7"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
+}
+
+// Phase 9 slice C (ADR-002): async fns return Result/Option, await
+// yields them, and `?` inside an async fn completes the task with
+// the Err/None instead of hanging.
+TEST(ExecutionTest, AsyncResultPayload) {
+    const std::string source = R"sp(
+        fn fetch() -> Result<int, string> {
+            return Result.Ok(42);
+        }
+
+        async fn work() -> Result<int, string> {
+            var v = fetch()?;
+            return Result.Ok(v + 1);
+        }
+
+        async fn run() {
+            var r = await work();
+            match r {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_result");
+    EXPECT_NE(output.find("ok 43"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncResultTryOperator) {
+    const std::string source = R"sp(
+        fn fetchFail() -> Result<int, string> {
+            return Result.Err("boom");
+        }
+
+        async fn workErr() -> Result<int, string> {
+            var v = fetchFail()?;
+            return Result.Ok(v + 1);
+        }
+
+        async fn run() {
+            var r = await workErr();
+            match r {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_result_try");
+    EXPECT_NE(output.find("err boom"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncResultClassPayloadLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        async fn make() -> Result<Foo, string> {
+            return Result.Ok(new Foo(7));
+        }
+
+        async fn run() {
+            {
+                var r = await make();
+                println("ok n ${r.unwrap().n}");
+                println("live in scope ${sp_rt_mem_live_objects()}");
+            }
+            println("live after scope ${sp_rt_mem_live_objects()}");
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_result_class");
+    EXPECT_NE(output.find("ok n 7"), std::string::npos);
+    EXPECT_NE(output.find("live in scope 1"), std::string::npos);
+    EXPECT_NE(output.find("live after scope 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncOptionPayload) {
+    const std::string source = R"sp(
+        async fn findIt(int n) -> Option<int> {
+            if (n > 0) {
+                return Option.Some(n * 2);
+            }
+            return Option.None();
+        }
+
+        async fn run() {
+            var a = await findIt(5);
+            println("some ${a.unwrapOr(-1)}");
+            var b = await findIt(-3);
+            println("none ${b.unwrapOr(-1)}");
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_option");
+    EXPECT_NE(output.find("some 10"), std::string::npos);
+    EXPECT_NE(output.find("none -1"), std::string::npos);
+}
+
+// Phase 9 slice D (ADR-002): wide payloads — boxed struct /
+// multi-payload / nested tagged-union payloads.
+TEST(ExecutionTest, ResultStructPayloadRoundTrip) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn makePoint() -> Result<Point, string> {
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            return Result.Ok(p);
+        }
+
+        fn main() {
+            var r = makePoint();
+            println("isOk ${r.isOk()}");
+            var p = r.unwrap();
+            println("x ${p.x} y ${p.y}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_struct_payload");
+    EXPECT_NE(output.find("isOk true"), std::string::npos);
+    EXPECT_NE(output.find("x 3 y 4"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultStructPayloadTryOperator) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn fetchPoint(ok: bool) -> Result<Point, string> {
+            if (ok) {
+                Point p;
+                p.x = 9;
+                p.y = 10;
+                return Result.Ok(p);
+            }
+            return Result.Err("no point");
+        }
+
+        fn getPoint(ok: bool) -> Result<Point, string> {
+            var p = fetchPoint(ok)?;
+            return Result.Ok(p);
+        }
+
+        fn main() {
+            var r1 = getPoint(true);
+            println("ok ${r1.isOk()}");
+            var p1 = r1.unwrap();
+            println("x ${p1.x} y ${p1.y}");
+            var r2 = getPoint(false);
+            println("err ${r2.isErr()} ${r2.unwrapErr()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_struct_try");
+    EXPECT_NE(output.find("ok true"), std::string::npos);
+    EXPECT_NE(output.find("x 9 y 10"), std::string::npos);
+    EXPECT_NE(output.find("err true no point"), std::string::npos);
+}
+
+TEST(ExecutionTest, OptionStructPayloadUnwrapOr) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn nonePoint() -> Option<Point> {
+            return Option.None();
+        }
+
+        fn somePoint(p: Point) -> Option<Point> {
+            return Option.Some(p);
+        }
+
+        fn main() {
+            Point d;
+            d.x = 1;
+            d.y = 2;
+            var none = nonePoint();
+            var p3 = none.unwrapOr(d);
+            println("or x ${p3.x} y ${p3.y}");
+            var some = somePoint(d);
+            var p4 = some.unwrapOr(d);
+            println("some x ${p4.x} y ${p4.y}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_option_struct_unwrap_or");
+    EXPECT_NE(output.find("or x 1 y 2"), std::string::npos);
+    EXPECT_NE(output.find("some x 1 y 2"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchMultiPayloadBindsParts) {
+    const std::string source = R"sp(
+        enum Shape {
+            Circle(int),
+            Rect(int, int)
+        }
+
+        fn main() {
+            var s = Shape.Rect(3, 4);
+            match s {
+                Shape.Rect(w, h) => println("rect ${w} ${h}"),
+                Shape.Circle(r) => println("circle ${r}")
+            }
+            var c = Shape.Circle(5);
+            match c {
+                Shape.Rect(w, h) => println("rect ${w} ${h}"),
+                Shape.Circle(r) => println("circle ${r}")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_multi_payload");
+    EXPECT_NE(output.find("rect 3 4"), std::string::npos);
+    EXPECT_NE(output.find("circle 5"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultNestedPayloadRoundTrip) {
+    const std::string source = R"sp(
+        fn innerOk() -> Result<int, string> {
+            return Result.Ok(42);
+        }
+
+        fn outerOk() -> Result<Result<int, string>, string> {
+            return Result.Ok(innerOk());
+        }
+
+        fn main() {
+            var r = outerOk();
+            println("isOk ${r.isOk()}");
+            var inner = r.unwrap();
+            println("innerOk ${inner.isOk()}");
+            var v = inner.unwrap();
+            println("v ${v}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_nested_payload");
+    EXPECT_NE(output.find("isOk true"), std::string::npos);
+    EXPECT_NE(output.find("innerOk true"), std::string::npos);
+    EXPECT_NE(output.find("v 42"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultNestedClassPayloadLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn makeNested() -> Result<Result<Foo, string>, string> {
+            var f = new Foo(7);
+            var inner: Result<Foo, string> = Result.Ok(f);
+            var outer: Result<Result<Foo, string>, string> = Result.Ok(inner);
+            return outer;
+        }
+
+        fn main() {
+            println("before ${sp_rt_mem_live_objects()}");
+            {
+                var r = makeNested();
+                println("after make ${sp_rt_mem_live_objects()}");
+                var inner = r.unwrap();
+                println("after unwrap ${sp_rt_mem_live_objects()}");
+                var f = inner.unwrap();
+                println("f n ${f.n} live ${sp_rt_mem_live_objects()}");
+            }
+            println("after scope ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_nested_class");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after make 2"), std::string::npos);
+    EXPECT_NE(output.find("after unwrap 2"), std::string::npos);
+    EXPECT_NE(output.find("f n 7 live 2"), std::string::npos);
+    EXPECT_NE(output.find("after scope 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchMultiPayloadClassPartLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        enum Pair {
+            Both(Foo, int),
+            Single(int)
+        }
+
+        fn main() {
+            println("before ${sp_rt_mem_live_objects()}");
+            {
+                var f = new Foo(5);
+                var p = Pair.Both(f, 3);
+                match p {
+                    Pair.Both(g, n) => println("both ${g.n} ${n}"),
+                    Pair.Single(n) => println("single ${n}")
+                }
+                println("live ${sp_rt_mem_live_objects()}");
+            }
+            println("after scope ${sp_rt_mem_live_objects()}");
+            {
+                var q = Pair.Single(9);
+                match q {
+                    Pair.Both(g, n) => println("both ${g.n} ${n}"),
+                    Pair.Single(n) => println("single ${n}")
+                }
+            }
+            println("after single ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_multi_class");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("both 5 3"), std::string::npos);
+    EXPECT_NE(output.find("live 2"), std::string::npos);
+    EXPECT_NE(output.find("after scope 0"), std::string::npos);
+    EXPECT_NE(output.find("single 9"), std::string::npos);
+    EXPECT_NE(output.find("after single 0"), std::string::npos);
+}
+
 TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
     const std::string source = R"sp(
         fn stepOk(x: int): Result<int, string> {
@@ -2582,3 +3425,492 @@ TEST(ExecutionTest, NetTcpSocketEchoExecution) {
 
 
 
+// Phase 5 slice A (pro-4.0.0): async completion — heap-frame state
+// machine, Task<double>/Task<array>/Task<struct> payloads, combinators
+// (Async.allInt/raceInt), and cooperative cancellation. Each test
+// compiles the SP program to a native binary and runs it end to end
+// (the same shape as the live proofs in ~/workspace/p5-async-proof/).
+
+TEST(ExecutionTest, AsyncLocalsSurviveAcrossAwait) {
+    const std::string source = R"sp(
+        async fn worker() -> int {
+            var a = 10;
+            var b = 20;
+            await sleep_async(30);
+            await sleep_async(30);
+            return a + b;
+        }
+
+        async fn run() {
+            var v = await worker();
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+    std::string output = runSPProgram(source, "exec_async_locals");
+    EXPECT_NE(output.find("30"), std::string::npos);
+}
+
+// Phase 6 slice C (fix 6): an `await` directly in a single-statement
+// if/while/else branch body (no `{ ... }`) works — even when the await
+// is nested inside a larger expression (an assignment RHS) and needs
+// hoisting. Before this, only a bare `await` as the whole statement
+// worked; a nested await failed loudly with E1000 ("must be inside
+// a block"). The pre-scan wraps the branch in a synthesized block.
+TEST(ExecutionTest, AwaitInSingleStatementBranchBody) {
+    const std::string source = R"sp(
+        async fn getVal() -> int {
+            await sleep_async(10);
+            return 42;
+        }
+
+        async fn run() {
+            var x = 0;
+            var c = true;
+            if (c) x = await getVal();
+            println("if " + x);
+            var n = 84;
+            while (n > 0) n = await getVal() - 42;
+            println("while " + n);
+            var y = 0;
+            if (false) y = 1; else y = await getVal();
+            println("else " + y);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+    std::string output = runSPProgram(source, "exec_await_single_branch");
+    EXPECT_NE(output.find("if 42"), std::string::npos);
+    EXPECT_NE(output.find("while 0"), std::string::npos);
+    EXPECT_NE(output.find("else 42"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncDoublePayload) {
+    const std::string source = R"sp(
+        async fn pi() -> double {
+            await sleep_async(10);
+            return 3.14;
+        }
+
+        async fn run() {
+            var v = await pi();
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_double");
+    EXPECT_NE(output.find("3.14"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncArrayPayload) {
+    const std::string source = R"sp(
+        async fn nums() -> int[] {
+            await sleep_async(10);
+            return [1, 2, 3];
+        }
+
+        async fn run() {
+            var a = await nums();
+            println(a.length);
+            println(a[0]);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_array");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncStructPayload) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        async fn mkpt() -> Point {
+            await sleep_async(10);
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            return p;
+        }
+
+        async fn run() {
+            var p = await mkpt();
+            println(p.x);
+            println(p.y);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_struct");
+    EXPECT_NE(output.find("3"), std::string::npos);
+    EXPECT_NE(output.find("4"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncCombinatorsAllAndRace) {
+    const std::string source = R"sp(
+        import std.async;
+
+        async fn slow() -> int {
+            await sleep_async(50);
+            return 1;
+        }
+
+        async fn fast() -> int {
+            await sleep_async(10);
+            return 2;
+        }
+
+        async fn run() {
+            var results = await Async.allInt([slow(), fast()]);
+            println(results.length);
+            println(results[0]);
+            println(results[1]);
+            var winner = await Async.raceInt([slow(), fast()]);
+            println(winner);
+            var d = await Async.delayDouble(10, 2.5);
+            println(d);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_combinators");
+    EXPECT_NE(output.find("2"), std::string::npos);
+    EXPECT_NE(output.find("1"), std::string::npos);
+    EXPECT_NE(output.find("2.5"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncCancelBeforeStart) {
+    const std::string source = R"sp(
+        async fn slowWorker() -> int {
+            await sleep_async(100);
+            println("BODY RAN");
+            return 99;
+        }
+
+        async fn run() {
+            var t = slowWorker();
+            var ok = t.cancel();
+            println(ok);
+            println(t.wasCancelled());
+            var v = await t;
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_cancel");
+    // Cancel-before-start: the body never runs, the await returns the
+    // default (0) promptly, and wasCancelled() is true.
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("0"), std::string::npos);
+    EXPECT_EQ(output.find("BODY RAN"), std::string::npos);
+}
+
+// Phase 6 slice C (fix 4b): a task cancelled WHILE SUSPENDED (on a
+// 2000 ms sleep) resumes into its continuation, which sees
+// wasCancelled(), drops the refcounted locals live at the suspend
+// point, and frees the heap frame. Before this, the continuation was
+// registered only on the awaited task, so it never fired and the
+// frame (plus the Counter local in it) leaked — one per such task.
+TEST(ExecutionTest, AsyncCancelWhileSuspendedReleasesFrame) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Counter {
+            public int n;
+            public Counter(int v) { this.n = v; }
+        }
+        async fn worker() -> int {
+            var c = new Counter(1);
+            await sleep_async(2000);
+            return 99;
+        }
+
+        async fn run() {
+            var t = worker();
+            await sleep_async(50);
+            var ok = t.cancel();
+            println(ok);
+            await sleep_async(50);
+            println("live " + sp_rt_mem_live_objects());
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_cancel_suspended");
+    EXPECT_NE(output.find("true"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncDeepChainFlatStack) {
+    const std::string source = R"sp(
+        async fn countDown(int n) -> int {
+            if (n <= 0) {
+                return 0;
+            }
+            await sleep_async(1);
+            var r = await countDown(n - 1);
+            return r + 1;
+        }
+
+        async fn run() {
+            var v = await countDown(50);
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_deepchain");
+    EXPECT_NE(output.find("50"), std::string::npos);
+}
+
+TEST(ExecutionTest, AsyncGenericFnAwait) {
+    // Regression test (Phase 5 slice A): awaiting a generic async fn
+    // from another async fn used to segfault the compiler — the nested
+    // specialization clobbered the enclosing fn's state machine
+    // (m_asyncSM was reset by the specialization's asyncSMEnd). The
+    // fix saves/restores m_asyncSM around nested async compilation.
+    const std::string source = R"sp(
+        async fn identity<T>(item: T) -> T {
+            return item;
+        }
+
+        async fn run() {
+            var v = await identity<int>(999);
+            println(v);
+        }
+
+        fn main() {
+            run();
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_async_generic");
+    EXPECT_NE(output.find("999"), std::string::npos);
+}
+
+// Phase 38 slice E: FS.tryListDir / tryListDir — listDir's [] is
+// ambiguous (empty dir vs error), so the try* variant reports it:
+// missing -> Err(NotFound), not-a-dir -> Err(InvalidInput).
+TEST(ExecutionTest, FsTryListDir) {
+    const std::string source = R"sp(
+        import std.fs;
+
+        fn main() {
+            string testDir = "temp_exec_trylist_dir";
+            string testFile = "temp_exec_trylist_dir/child.txt";
+            createDir(testDir);
+            writeText(testFile, "child");
+
+            var dir = tryListDir(testDir);
+            println("dir ok ${dir.isOk()}");
+            var items = dir.unwrap();
+            println("dir len ${items.length()}");
+            println("dir item ${items[0]}");
+
+            var missing = tryListDir("temp_exec_no_such_dir_xyz");
+            println("missing err ${missing.isErr()}");
+
+            var file = tryListDir(testFile);
+            println("file err ${file.isErr()}");
+
+            var fs = FS.tryListDir(testDir);
+            println("fs ok ${fs.isOk()}");
+
+            delete(testFile);
+            delete(testDir);
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_fs_try_list_dir");
+    EXPECT_NE(output.find("dir ok true"), std::string::npos);
+    EXPECT_NE(output.find("dir len 1"), std::string::npos);
+    EXPECT_NE(output.find("dir item child.txt"), std::string::npos);
+    EXPECT_NE(output.find("missing err true"), std::string::npos);
+    EXPECT_NE(output.find("file err true"), std::string::npos);
+    EXPECT_NE(output.find("fs ok true"), std::string::npos);
+}
+
+// Phase 38 slice E: tryReadLine EOF semantics — "" is returned both
+// for an empty line and for EOF, so the builtin checks
+// sp_rt_stdin_eof(): an empty line is Ok(""), EOF is
+// Err(IOError.UnexpectedEOF). Input "hello" (no trailing newline):
+// first read is Ok("hello"), second is EOF.
+TEST(ExecutionTest, IoTryReadLineEof) {
+    const std::string source = R"sp(
+        import std.io;
+
+        fn main() {
+            var r1 = tryReadLine();
+            println("r1 ok ${r1.isOk()}");
+            println("r1 line ${r1.unwrap()}");
+            var r2 = tryReadLine();
+            println("r2 err ${r2.isErr()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_io_try_readline", "hello");
+    EXPECT_NE(output.find("r1 ok true"), std::string::npos);
+    EXPECT_NE(output.find("r1 line hello"), std::string::npos);
+    EXPECT_NE(output.find("r2 err true"), std::string::npos);
+
+    // An empty line is Ok(""), not an error — only true EOF is Err.
+    std::string output2 = runSPProgram(source, "exec_io_try_readline_empty", "\n");
+    EXPECT_NE(output2.find("r1 ok true"), std::string::npos);
+    EXPECT_NE(output2.find("r1 line "), std::string::npos);
+    EXPECT_NE(output2.find("r2 err true"), std::string::npos);
+}
+
+// Phase 39 slice D: top-level `const`/`let`/`var` are program-lifetime
+// globals. Before this slice a top-level const failed sema with E1002
+// ("Undefined variable or symbol") even in the same file, because no
+// pass registered, checked, or emitted it.
+TEST(ExecutionTest, TopLevelConstValues) {
+    const std::string source = R"sp(
+        const ANSWER: int32 = 42;
+        const RATIO: double = 2.5;
+        const GREETING: string = "hi";
+        const FLAG: bool = true;
+        const INFERRED = 7;
+
+        fn getAnswer() -> int32 {
+            return ANSWER;
+        }
+
+        fn main() {
+            println("answer ${ANSWER}");
+            println("ratio ok ${RATIO == 2.5}");
+            println("greet ${GREETING}");
+            println("flag ${FLAG}");
+            println("inferred ${INFERRED}");
+            println("fn ${getAnswer()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_values");
+    EXPECT_NE(output.find("answer 42"), std::string::npos) << output;
+    EXPECT_NE(output.find("ratio ok true"), std::string::npos) << output;
+    EXPECT_NE(output.find("greet hi"), std::string::npos) << output;
+    EXPECT_NE(output.find("flag true"), std::string::npos) << output;
+    EXPECT_NE(output.find("inferred 7"), std::string::npos) << output;
+    EXPECT_NE(output.find("fn 42"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: a `let` global can be assigned from any function
+// (plain `=` and compound `+=` both store into the module global).
+TEST(ExecutionTest, TopLevelLetGlobalReassigned) {
+    const std::string source = R"sp(
+        let counter: int32 = 0;
+
+        fn bump() {
+            counter = counter + 1;
+        }
+
+        fn main() {
+            bump();
+            bump();
+            println("counter ${counter}");
+            counter += 10;
+            println("counter2 ${counter}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_let");
+    EXPECT_NE(output.find("counter 2"), std::string::npos) << output;
+    EXPECT_NE(output.find("counter2 12"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: a const initializer may reference an earlier
+// const (declaration order inside the global init function).
+TEST(ExecutionTest, TopLevelConstChained) {
+    const std::string source = R"sp(
+        const BASE: int32 = 10;
+        const DOUBLED: int32 = BASE * 2;
+
+        fn main() {
+            println("doubled ${DOUBLED}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_chained");
+    EXPECT_NE(output.find("doubled 20"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: a function declared BEFORE the const it uses still
+// resolves it — the TypeChecker pre-pass defines all top-level consts
+// before any function body is checked.
+TEST(ExecutionTest, TopLevelConstForwardRef) {
+    const std::string source = R"sp(
+        fn early() -> int32 {
+            return LATE_CONST;
+        }
+
+        const LATE_CONST: int32 = 99;
+
+        fn main() {
+            println("late ${early()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_forward");
+    EXPECT_NE(output.find("late 99"), std::string::npos) << output;
+}
+
+// Phase 39 slice D: the reported bug — a module-level const resolves
+// through `import`. The module file is written to the test output dir
+// and found via the loader search path (same shape as a bindgen
+// module: `module mini_topconst;` + top-level consts).
+TEST(ExecutionTest, TopLevelConstFromImport) {
+    fs::path modulePath = getOutputDir() / "mini_topconst.sp";
+    {
+        std::ofstream moduleFile(modulePath);
+        moduleFile << "module mini_topconst;\n\n";
+        moduleFile << "const MINI_VERSION: int32 = 3;\n";
+        moduleFile << "const MINI_SCALE: double = 2.5;\n";
+    }
+
+    const std::string source = R"sp(
+        import mini_topconst;
+
+        fn main() {
+            println("version ${MINI_VERSION}");
+            println("scale ok ${MINI_SCALE == 2.5}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_topconst_import", "", getOutputDir().string());
+    EXPECT_NE(output.find("version 3"), std::string::npos) << output;
+    EXPECT_NE(output.find("scale ok true"), std::string::npos) << output;
+}

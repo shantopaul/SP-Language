@@ -1,7 +1,7 @@
 # ADR-001: Memory Management Architecture
 
 ## Status
-Proposed (Requires Shanto Review & Approval)
+Accepted (Approved by Shanto Paul, 2026-11-10)
 
 ## Context
 In SP 1.0, memory is allocated via `malloc`/`calloc` in `Runtime.cpp` without automated deallocation. This creates unbounded memory leaks in long-running applications. SP requires a definitive, deterministic memory model that maintains high execution speed, avoids GC pauses, and provides high developer ergonomics.

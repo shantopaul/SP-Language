@@ -1,340 +1,351 @@
+// Phase 4 slice C (pro-4.0.0): DebugSession over the real Interpreter.
+// See DebugSession.h for what changed and why.
+
 #include "DebugSession.h"
+
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
-#include <regex>
 
 namespace sp::dap {
 
 namespace {
 
-std::string trim(const std::string& str) {
-    auto start = str.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return "";
-    auto end = str.find_last_not_of(" \t\r\n");
-    return str.substr(start, end - start + 1);
+// Scope encoding: frameId * 1000 + 1 = Locals, + 2 = Globals. Expanded
+// values (array/map children) use references >= 100000.
+constexpr int kScopeStride = 1000;
+constexpr int kLocalsScope = 1;
+constexpr int kGlobalsScope = 2;
+constexpr int kExpandedBase = 100000;
+
+std::string baseName(const std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    return pos == std::string::npos ? path : path.substr(pos + 1);
 }
 
 } // namespace
 
 DebugSession::DebugSession() = default;
 
+std::string DebugSession::normalizePath(const std::string& path) {
+    if (path.empty()) return path;
+    std::error_code ec;
+    std::filesystem::path abs = std::filesystem::absolute(path, ec);
+    if (ec) return path;
+    return abs.lexically_normal().string();
+}
+
 bool DebugSession::loadProgram(const std::string& path, const std::string& source) {
-    m_programPath = path;
-    m_source = source;
-
-    if (m_source.empty()) {
-        std::ifstream file(path);
-        if (!file.is_open()) return false;
-        std::ostringstream ss;
-        ss << file.rdbuf();
-        m_source = ss.str();
-    }
-
-    m_lines.clear();
-    std::istringstream stream(m_source);
-    std::string line;
-    while (std::getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        m_lines.push_back(line);
-    }
-
-    parseExecutableLines();
-    m_currentLineIndex = 0;
-    m_currentLine = m_executableLines.empty() ? 1 : m_executableLines[0];
+    m_programPath = normalizePath(path);
+    m_loaded = false;
+    m_launched = false;
     m_paused = false;
     m_terminated = false;
-    m_callStack.clear();
-    m_frameVariables.clear();
-    m_globalVariables.clear();
+    m_currentLine = 1;
+    m_pauseReason.clear();
+    m_loadError.clear();
+    m_lastError.clear();
+    m_breakpoints.clear();
+    m_expandedValues.clear();
+    m_frameSignatures.clear();
 
+    std::string error;
+    if (!m_interp.load(m_programPath, source, error)) {
+        m_loadError = error;
+        return false;
+    }
+    m_loaded = true;
     return true;
 }
 
-void DebugSession::parseExecutableLines() {
-    m_executableLines.clear();
-    for (size_t i = 0; i < m_lines.size(); ++i) {
-        std::string trimmed = trim(m_lines[i]);
-        if (trimmed.empty()) continue;
-        if (trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("*")) continue;
-        if (trimmed == "{" || trimmed == "}" || trimmed == "};") continue;
-        m_executableLines.push_back(static_cast<int>(i + 1));
-    }
-}
-
-std::vector<Breakpoint> DebugSession::setBreakpoints(const std::string& sourcePath, const std::vector<int>& requestedLines) {
+std::vector<Breakpoint> DebugSession::setBreakpoints(const std::string& sourcePath,
+                                                     const std::vector<int>& requestedLines) {
+    std::string path = normalizePath(sourcePath);
     std::vector<Breakpoint> result;
-    for (int reqLine : requestedLines) {
-        int bestLine = reqLine;
-        // Find closest executable line
-        for (int exLine : m_executableLines) {
-            if (exLine >= reqLine) {
-                bestLine = exLine;
-                break;
-            }
-        }
 
+    // Breakpoints may arrive before launch; load the program from the
+    // breakpoint file so they can be verified. When the file cannot be
+    // loaded, every breakpoint is honestly unverified.
+    if (!m_loaded) {
+        if (!loadProgram(path)) {
+            for (int line : requestedLines) {
+                Breakpoint bp;
+                bp.id = m_nextBpId++;
+                bp.verified = false;
+                bp.line = line;
+                bp.source = Source{baseName(path), path};
+                result.push_back(bp);
+            }
+            return result;
+        }
+    }
+
+    const std::vector<int>& executable = m_interp.executableLinesFor(path);
+    std::vector<int> activeLines;
+    for (int line : requestedLines) {
         Breakpoint bp;
         bp.id = m_nextBpId++;
-        bp.verified = true;
-        bp.line = bestLine;
-        bp.source.path = sourcePath;
-        bp.source.name = sourcePath;
+        bp.source = Source{baseName(path), path};
+        auto it = std::lower_bound(executable.begin(), executable.end(), line);
+        if (it != executable.end() && *it == line) {
+            bp.verified = true;
+            bp.line = line;
+        } else if (it != executable.end()) {
+            // Move to the next executable line (standard adapter
+            // behavior); the client sees the line that will actually stop.
+            bp.verified = true;
+            bp.line = *it;
+        } else {
+            // No executable line at or after the requested line: it can
+            // never stop. Say so instead of a silent verified=true.
+            bp.verified = false;
+            bp.line = line;
+        }
+        if (bp.verified) activeLines.push_back(bp.line);
         result.push_back(bp);
     }
 
-    m_breakpoints[sourcePath] = result;
+    m_breakpoints[path] = result;
+    m_interp.setBreakpoints(path, activeLines);
     return result;
 }
 
-bool DebugSession::hasBreakpointAt(const std::string& path, int line) const {
-    auto it = m_breakpoints.find(path);
-    if (it != m_breakpoints.end()) {
-        for (const auto& bp : it->second) {
-            if (bp.line == line) return true;
-        }
+bool DebugSession::launch(const std::string& path, bool stopOnEntry, bool noDebug) {
+    if (!m_loaded || normalizePath(path) != m_programPath) {
+        if (!loadProgram(path)) return false;
     }
-    // Also check wildcard or empty path
-    for (const auto& [p, bps] : m_breakpoints) {
-        for (const auto& bp : bps) {
-            if (bp.line == line) return true;
-        }
+    m_launched = true;
+    m_interp.setBreakpointsEnabled(!noDebug);
+    if (stopOnEntry) {
+        RunOutcome outcome = m_interp.run(RunMode::PauseAtFirst);
+        syncFromInterpreter(outcome);
     }
-    return false;
+    return true;
 }
 
 bool DebugSession::start(bool stopOnEntry) {
-    if (m_executableLines.empty()) {
-        m_terminated = true;
+    if (!m_loaded) {
+        m_lastError = "No program loaded";
         return false;
     }
-
-    m_currentLineIndex = 0;
-    m_currentLine = m_executableLines[0];
-    m_terminated = false;
-
-    m_callStack.clear();
-    StackFrame rootFrame;
-    rootFrame.id = 1;
-    rootFrame.name = "main";
-    rootFrame.source.path = m_programPath;
-    rootFrame.source.name = "main.sp";
-    rootFrame.line = m_currentLine;
-    rootFrame.column = 1;
-    m_callStack.push_back(rootFrame);
-
-    updateVariableStateForLine(m_currentLine);
-
-    if (stopOnEntry) {
-        m_paused = true;
-        m_pauseReason = "entry";
-        return true;
+    if (!m_launched) {
+        if (!launch(m_programPath, stopOnEntry, false)) return false;
+        if (stopOnEntry) return true; // already paused at the first statement
     }
-
-    return continueExecution();
+    return startExecution();
 }
 
-void DebugSession::updateVariableStateForLine(int line) {
-    if (line <= 0 || static_cast<size_t>(line) > m_lines.size()) return;
-    std::string text = trim(m_lines[line - 1]);
-
-    int frameId = m_callStack.empty() ? 1 : m_callStack.front().id;
-
-    // Detect variable declaration: let x = 10; or const y = "abc";
-    std::regex varDeclRegex(R"((let|const)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(:\s*[a-zA-Z_][a-zA-Z0-9_]*)?\s*=\s*([^;]+);)");
-    std::smatch match;
-    if (std::regex_search(text, match, varDeclRegex)) {
-        std::string varName = match[2];
-        std::string valStr = trim(match[4]);
-        std::string type = "int";
-
-        if (valStr.starts_with("\"") && valStr.ends_with("\"")) {
-            type = "string";
-        } else if (valStr == "true" || valStr == "false") {
-            type = "bool";
-        } else if (valStr.find('.') != std::string::npos) {
-            type = "float";
-        }
-
-        Variable v;
-        v.name = varName;
-        v.value = valStr;
-        v.type = type;
-        v.variablesReference = 0;
-        m_frameVariables[frameId][varName] = v;
+bool DebugSession::startExecution() {
+    if (m_terminated) {
+        m_lastError = "Program has terminated";
+        return false;
     }
-
-    // Detect assignment: x = 20;
-    std::regex assignRegex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^;]+);)");
-    if (std::regex_search(text, match, assignRegex)) {
-        std::string varName = match[1];
-        std::string valStr = trim(match[2]);
-        auto it = m_frameVariables[frameId].find(varName);
-        if (it != m_frameVariables[frameId].end()) {
-            it->second.value = valStr;
-        }
-    }
+    if (m_paused) return true; // already paused (e.g. stopOnEntry)
+    RunOutcome outcome = m_interp.run(RunMode::Continue);
+    syncFromInterpreter(outcome);
+    return true;
 }
 
 bool DebugSession::continueExecution() {
-    if (m_terminated) return false;
-
-    while (m_currentLineIndex + 1 < m_executableLines.size()) {
-        m_currentLineIndex++;
-        m_currentLine = m_executableLines[m_currentLineIndex];
-        if (!m_callStack.empty()) {
-            m_callStack.front().line = m_currentLine;
-        }
-        updateVariableStateForLine(m_currentLine);
-
-        if (hasBreakpointAt(m_programPath, m_currentLine)) {
-            m_paused = true;
-            m_pauseReason = "breakpoint";
-            return true;
-        }
+    if (m_terminated) {
+        m_lastError = "Program has terminated";
+        return false;
     }
-
-    m_paused = false;
-    m_terminated = true;
+    RunOutcome outcome = m_interp.run(RunMode::Continue);
+    syncFromInterpreter(outcome);
     return true;
 }
 
 bool DebugSession::stepOver() {
-    if (m_terminated) return false;
-
-    if (m_currentLineIndex + 1 < m_executableLines.size()) {
-        m_currentLineIndex++;
-        m_currentLine = m_executableLines[m_currentLineIndex];
-        if (!m_callStack.empty()) {
-            m_callStack.front().line = m_currentLine;
-        }
-        updateVariableStateForLine(m_currentLine);
-        m_paused = true;
-        m_pauseReason = "step";
-        return true;
+    if (m_terminated) {
+        m_lastError = "Program has terminated";
+        return false;
     }
-
-    m_paused = false;
-    m_terminated = true;
+    RunOutcome outcome = m_interp.run(RunMode::StepOver);
+    syncFromInterpreter(outcome);
     return true;
 }
 
 bool DebugSession::stepIn() {
-    if (m_terminated) return false;
-
-    if (static_cast<size_t>(m_currentLine) <= m_lines.size()) {
-        std::string curText = trim(m_lines[m_currentLine - 1]);
-        // If current line calls a function like foo()
-        std::regex callRegex(R"(([a-zA-Z_][a-zA-Z0-9_]*)\s*\()");
-        std::smatch match;
-        if (std::regex_search(curText, match, callRegex)) {
-            std::string callee = match[1];
-            if (callee != "println" && callee != "print" && callee != "assert") {
-                // Find function definition in lines
-                for (size_t i = 0; i < m_lines.size(); ++i) {
-                    if (m_lines[i].find("fn " + callee) != std::string::npos) {
-                        StackFrame frame;
-                        frame.id = static_cast<int>(m_callStack.size() + 1);
-                        frame.name = callee;
-                        frame.source.path = m_programPath;
-                        frame.source.name = "main.sp";
-                        frame.line = static_cast<int>(i + 1);
-                        frame.column = 1;
-                        m_callStack.insert(m_callStack.begin(), frame);
-
-                        m_currentLine = frame.line;
-                        for (size_t k = 0; k < m_executableLines.size(); ++k) {
-                            if (m_executableLines[k] >= m_currentLine) {
-                                m_currentLineIndex = k;
-                                break;
-                            }
-                        }
-                        updateVariableStateForLine(m_currentLine);
-                        m_paused = true;
-                        m_pauseReason = "step";
-                        return true;
-                    }
-                }
-            }
-        }
+    if (m_terminated) {
+        m_lastError = "Program has terminated";
+        return false;
     }
-
-    return stepOver();
+    RunOutcome outcome = m_interp.run(RunMode::StepIn);
+    syncFromInterpreter(outcome);
+    return true;
 }
 
 bool DebugSession::stepOut() {
-    if (m_terminated) return false;
-
-    if (m_callStack.size() > 1) {
-        m_callStack.erase(m_callStack.begin());
+    if (m_terminated) {
+        m_lastError = "Program has terminated";
+        return false;
     }
-    return stepOver();
+    RunOutcome outcome = m_interp.run(RunMode::StepOut);
+    syncFromInterpreter(outcome);
+    return true;
+}
+
+void DebugSession::syncFromInterpreter(const RunOutcome& outcome) {
+    m_paused = outcome.paused;
+    m_terminated = outcome.terminated;
+    m_lastError = outcome.error;
+    m_expandedValues.clear();
+    m_frameSignatures.clear();
+
+    if (outcome.paused) {
+        const auto& frames = m_interp.pausedFrames();
+        if (!frames.empty()) m_currentLine = frames.front().line;
+        m_pauseReason = m_interp.pauseReason();
+        // Rebuild frameId -> call-chain signatures (outermost first).
+        std::string chain;
+        for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
+            if (!chain.empty()) chain += ">";
+            chain += it->name;
+            m_frameSignatures[it->id] = chain;
+        }
+    } else if (outcome.terminated) {
+        // The pause snapshot is stale once the program ends: a terminated
+        // session has no stack, no variables, and nothing to evaluate.
+        // (Without this, evaluate/variables would silently answer from
+        // the last pause point after the program is gone.)
+        m_interp.clearPausedSnapshot();
+        if (!outcome.error.empty()) m_currentLine = outcome.errorLine;
+    }
+}
+
+std::vector<std::string> DebugSession::drainOutput() {
+    return m_interp.drainOutput();
 }
 
 std::vector<Thread> DebugSession::getThreads() const {
-    return { Thread{ 1, "main" } };
+    return {Thread{1, "main"}};
 }
 
 std::vector<StackFrame> DebugSession::getStackFrames() const {
-    return m_callStack;
+    std::vector<StackFrame> frames;
+    for (const auto& f : m_interp.pausedFrames()) {
+        StackFrame sf;
+        sf.id = f.id;
+        sf.name = f.name;
+        std::string file = f.file.empty() ? m_programPath : f.file;
+        sf.source = Source{baseName(file), file};
+        sf.line = f.line;
+        sf.column = f.column;
+        frames.push_back(sf);
+    }
+    return frames;
+}
+
+const InterpFrame* DebugSession::findPausedFrame(int frameId) const {
+    for (const auto& f : m_interp.pausedFrames()) {
+        if (f.id == frameId) return &f;
+    }
+    return nullptr;
+}
+
+std::string DebugSession::frameChainSignature(int frameId) const {
+    auto it = m_frameSignatures.find(frameId);
+    return it == m_frameSignatures.end() ? std::string() : it->second;
 }
 
 std::vector<Scope> DebugSession::getScopes(int frameId) const {
-    std::vector<Scope> scopes;
-    scopes.push_back(Scope{ "Locals", frameId * 1000 + 1, false });
-    scopes.push_back(Scope{ "Globals", frameId * 1000 + 2, false });
-    return scopes;
+    if (!findPausedFrame(frameId)) return {};
+    return {Scope{"Locals", frameId * kScopeStride + kLocalsScope, false},
+            Scope{"Globals", frameId * kScopeStride + kGlobalsScope, false}};
+}
+
+Variable DebugSession::toVariable(const std::string& name, const InterpValue& value) const {
+    Variable v;
+    v.name = name;
+    v.value = value.display();
+    v.type = value.typeName();
+    v.variablesReference = 0;
+    if ((value.kind == InterpValue::Kind::Array && !value.arrayVal.empty()) ||
+        (value.kind == InterpValue::Kind::Map && !value.mapVal.empty())) {
+        int ref = m_nextExpandedRef++;
+        m_expandedValues[ref] = value;
+        v.variablesReference = ref;
+    }
+    return v;
 }
 
 std::vector<Variable> DebugSession::getVariables(int variablesReference) const {
-    std::vector<Variable> vars;
-    int frameId = variablesReference / 1000;
-    int scopeType = variablesReference % 1000;
-
-    if (scopeType == 1) { // Locals
-        auto it = m_frameVariables.find(frameId);
-        if (it != m_frameVariables.end()) {
-            for (const auto& [name, v] : it->second) {
-                vars.push_back(v);
+    // Expanded array/map children.
+    if (variablesReference >= kExpandedBase) {
+        auto it = m_expandedValues.find(variablesReference);
+        if (it == m_expandedValues.end()) return {};
+        std::vector<Variable> children;
+        const InterpValue& value = it->second;
+        if (value.kind == InterpValue::Kind::Array) {
+            for (size_t i = 0; i < value.arrayVal.size(); ++i) {
+                children.push_back(toVariable("[" + std::to_string(i) + "]", value.arrayVal[i]));
+            }
+        } else if (value.kind == InterpValue::Kind::Map) {
+            for (const auto& [key, val] : value.mapVal) {
+                children.push_back(toVariable(key, val));
             }
         }
-    } else if (scopeType == 2) { // Globals
-        for (const auto& [name, v] : m_globalVariables) {
-            vars.push_back(v);
-        }
+        return children;
     }
 
-    return vars;
+    int frameId = variablesReference / kScopeStride;
+    int kind = variablesReference % kScopeStride;
+    const InterpFrame* frame = findPausedFrame(frameId);
+    if (!frame) return {};
+
+    std::vector<Variable> result;
+    if (kind == kLocalsScope) {
+        // Innermost scope first; a name shadowed in an inner scope wins.
+        std::map<std::string, bool> seen;
+        for (auto it = frame->scopes.rbegin(); it != frame->scopes.rend(); ++it) {
+            for (const auto& [name, value] : *it) {
+                if (seen[name]) continue;
+                seen[name] = true;
+                result.push_back(toVariable(name, value));
+            }
+        }
+        std::sort(result.begin(), result.end(),
+                  [](const Variable& a, const Variable& b) { return a.name < b.name; });
+    } else if (kind == kGlobalsScope) {
+        for (const auto& [name, value] : m_interp.pausedGlobals()) {
+            result.push_back(toVariable(name, value));
+        }
+        std::sort(result.begin(), result.end(),
+                  [](const Variable& a, const Variable& b) { return a.name < b.name; });
+    }
+    return result;
 }
 
-Variable DebugSession::evaluate(int frameId, const std::string& expression) const {
-    std::string expr = trim(expression);
-
-    auto it = m_frameVariables.find(frameId);
-    if (it != m_frameVariables.end()) {
-        auto varIt = it->second.find(expr);
-        if (varIt != it->second.end()) {
-            return varIt->second;
-        }
+bool DebugSession::evaluate(int frameId, const std::string& expression, Variable& out,
+                            std::string& error) {
+    if (m_terminated) {
+        error = "Program has terminated";
+        return false;
     }
-
-    // Try global
-    auto gIt = m_globalVariables.find(expr);
-    if (gIt != m_globalVariables.end()) {
-        return gIt->second;
-    }
-
-    // Literal check
-    Variable lit;
-    lit.name = expr;
-    lit.value = expr;
-    lit.type = "any";
-    return lit;
+    InterpValue value;
+    if (!m_interp.evaluateInFrame(frameId, expression, value, error)) return false;
+    out = toVariable(expression, value);
+    return true;
 }
 
-void DebugSession::setVariable(int variablesReference, const std::string& name, const std::string& value) {
-    int frameId = variablesReference / 1000;
-    m_frameVariables[frameId][name].value = value;
+bool DebugSession::setVariable(int variablesReference, const std::string& name,
+                               const std::string& value) {
+    int frameId = variablesReference / kScopeStride;
+    int kind = variablesReference % kScopeStride;
+    if (kind != kLocalsScope && kind != kGlobalsScope) return false;
+    std::string signature = frameChainSignature(frameId);
+    if (signature.empty()) return false;
+
+    InterpValue parsed;
+    if (!Interpreter::parseLiteralValue(value, parsed)) return false;
+    if (kind == kGlobalsScope) {
+        // Globals live in the interpreter's module-level map, not in any
+        // frame's scope.
+        return m_interp.setVariableOverride("<globals>", name, parsed);
+    }
+    return m_interp.setVariableOverride(signature, name, parsed);
 }
 
 } // namespace sp::dap

@@ -78,7 +78,9 @@ TEST(LLVMGeneratorTest, GenerateLLVMIRHeaderAndBody) {
     EXPECT_NE(llvmIR.find("; ModuleID = 'test'"), std::string::npos);
     EXPECT_NE(llvmIR.find("target triple = "), std::string::npos);
     EXPECT_NE(llvmIR.find("declare void @sp_rt_println_string(ptr)"), std::string::npos);
-    EXPECT_NE(llvmIR.find("define i32 @main() {"), std::string::npos);
+    // Phase 6 slice B: main now takes (argc, argv) so OS.args() can
+    // return the real arguments.
+    EXPECT_NE(llvmIR.find("define i32 @main(i32 %argc, ptr %argv) {"), std::string::npos);
 }
 
 TEST(LLVMGeneratorTest, EmitLLVMIRToFile) {
@@ -99,7 +101,9 @@ TEST(LLVMGeneratorTest, EmitLLVMIRToFile) {
 
     std::ifstream in(tempFile);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(content.find("define i32 @main()"), std::string::npos);
+    // Phase 6 slice B: main now takes (argc, argv) so OS.args() can
+    // return the real arguments.
+    EXPECT_NE(content.find("define i32 @main(i32 %argc, ptr %argv)"), std::string::npos);
 
     std::error_code ec;
     fs::remove(tempFile, ec);

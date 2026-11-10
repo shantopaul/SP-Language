@@ -164,3 +164,56 @@ TEST(EscapeAnalysisTest, NonEscapingAliasedObjectsStayLocal) {
     EXPECT_FALSE(escapeAnalysis.escapes("testLocalAliases", "s2"));
     EXPECT_FALSE(escapeAnalysis.escapes("testLocalAliases", "s3"));
 }
+
+// Phase 8 slice E: the outer-scope branch. SP has no global variables
+// (a top-level `Thing shared;` parses but fails sema with E1002), so
+// this program is sema-invalid — the test pins the analysis's
+// "stored to outer scope or global" branch, not a real program shape.
+TEST(EscapeAnalysisTest, ObjectAssignedToOuterScopeVariableEscapes) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        class Thing {}
+        Thing shared;
+
+        fn publish() {
+            var t = new Thing();
+            shared = t;
+        }
+    )";
+
+    auto program = parseSource(source, diag);
+    ASSERT_NE(program, nullptr);
+    EXPECT_FALSE(diag.hasErrors());
+
+    EscapeAnalysis escapeAnalysis;
+    escapeAnalysis.analyze(*program);
+
+    EXPECT_TRUE(escapeAnalysis.escapes("publish", "t"));
+    EXPECT_EQ(escapeAnalysis.getEscapeState("publish", "t"), EscapeState::GlobalEscaping);
+}
+
+// Phase 8 slice E: the lambda body is visited with the enclosing
+// function's summary, so a local returned from the lambda body
+// escapes (lambdas cannot capture in SP, so a plain capture is not
+// an escape trigger — only the return is).
+TEST(EscapeAnalysisTest, ObjectReturnedFromLambdaBodyEscapes) {
+    DiagnosticEngine diag(std::cerr);
+    std::string source = R"(
+        class Widget {}
+
+        fn testLambdaReturn() {
+            var w = new Widget();
+            var f = () => { return w; };
+        }
+    )";
+
+    auto program = parseSource(source, diag);
+    ASSERT_NE(program, nullptr);
+    EXPECT_FALSE(diag.hasErrors());
+
+    EscapeAnalysis escapeAnalysis;
+    escapeAnalysis.analyze(*program);
+
+    EXPECT_TRUE(escapeAnalysis.escapes("testLambdaReturn", "w"));
+    EXPECT_EQ(escapeAnalysis.getEscapeState("testLambdaReturn", "w"), EscapeState::GlobalEscaping);
+}

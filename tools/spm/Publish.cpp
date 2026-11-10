@@ -1,6 +1,6 @@
 #include "Publish.h"
+#include "RegistryClient.h"
 #include "sp/runtime/Crypto.h"
-#include "sp/runtime/Http.h"
 #include "sp/lexer/Lexer.h"
 #include "sp/parser/Parser.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
@@ -234,38 +234,59 @@ PublishResult PackagePublisher::publish(const std::string& projectDir, const Pub
         return result;
     }
 
-    // Build JSON request payload
-    std::ostringstream jsonPayload;
-    jsonPayload << "{\n"
-                << "  \"name\": \"" << pkg.name << "\",\n"
-                << "  \"version\": \"" << pkg.version << "\",\n"
-                << "  \"description\": \"" << pkg.description << "\",\n"
-                << "  \"license\": \"MIT\",\n"
-                << "  \"checksum\": \"" << result.sha256Checksum << "\",\n"
-                << "  \"archiveSizeBytes\": " << result.archiveSizeBytes << "\n"
-                << "}";
+    // Execute publication HTTP requests — Phase 4 slice A.
+    //
+    // 1. POST metadata to /api/v1/publish (Bearer). The registry stores
+    //    the checksum as claimed; nothing is verified yet.
+    // 2. POST the tarball bytes (base64) to
+    //    /api/v1/packages/{name}/{version}/tarball (Bearer). Only then
+    //    does the registry verify the checksum against real bytes
+    //    (verified:true). An https:// registry URL works via the runtime
+    //    HTTP client's TLS support (Phase 2) — the old "no TLS support"
+    //    refusal is gone.
+    // A failed/unreachable registry is a FAILURE. The old code treated
+    // statusCode == 0 or >= 500 as success ("staged offline"); that
+    // misled users into believing a package was published when it was not.
+    HttpRegistryClient registryClient(options.registryUrl);
+    RegistryPackageInfo info;
+    info.name = pkg.name;
+    info.version = pkg.version;
+    info.description = pkg.description;
+    info.license = "MIT";
+    info.checksum = result.sha256Checksum;
+    info.archiveSizeBytes = result.archiveSizeBytes;
 
-    // Execute publication HTTP POST request
-    std::string endpoint = options.registryUrl;
-    if (endpoint.back() == '/') endpoint.pop_back();
-    endpoint += "/api/v1/publish";
-
-    auto resp = sp::rt::http::HttpClient::post(endpoint, jsonPayload.str(), "application/json", 5000);
-
-    if (resp.statusCode >= 200 && resp.statusCode < 300) {
-        result.success = true;
-        result.registryResponse = resp.body;
-    } else if (resp.statusCode == 0 || resp.statusCode >= 500) {
-        // If registry host is unreachable in local offline test environment,
-        // treat as successful local staged package with offline confirmation
-        result.success = true;
-        result.registryResponse = "Package validated and staged successfully. (Registry endpoint " +
-                                  endpoint + " is currently offline or unreachable; archive and checksum verified).";
-    } else {
-        result.errorMessage = "Registry returned HTTP " + std::to_string(resp.statusCode) + ": " + resp.body;
+    std::string metadataResponse, publishErr;
+    if (!registryClient.publishMetadata(info, token, metadataResponse, publishErr)) {
+        result.errorMessage = "Registry publish failed: " + publishErr +
+                              " The package was validated and archived locally only; nothing was published.";
         return result;
     }
 
+    // Upload the tarball so the registry can verify the checksum against
+    // real bytes. One retry on transport failure only (not on 4xx/5xx).
+    std::string uploadErr;
+    bool uploaded = registryClient.uploadTarball(pkg.name, pkg.version, archiveBytes, token, uploadErr);
+    if (!uploaded && uploadErr.find("unreachable") != std::string::npos) {
+        uploadErr.clear();
+        uploaded = registryClient.uploadTarball(pkg.name, pkg.version, archiveBytes, token, uploadErr);
+    }
+    if (!uploaded) {
+        result.errorMessage = "Package metadata was published but the tarball upload failed: " + uploadErr +
+            " The package stays unverified (verified:false) until the tarball is uploaded. "
+            "Upload it manually: base64-encode " + archivePath.string() + " and POST it to " +
+            registryClient.baseUrl() + "/api/v1/packages/" + pkg.name + "/" + pkg.version +
+            "/tarball with your Bearer token. (Re-running 'spm publish' will fail: the registry "
+            "rejects a duplicate version as immutable.)";
+        return result;
+    }
+
+    result.success = true;
+    // The metadata response alone still says verified:false (it was
+    // written before the tarball arrived); report the upload outcome
+    // too so the printed Status is not misleading.
+    result.registryResponse = metadataResponse +
+        "\nTarball uploaded and verified against the published checksum (verified:true).";
     return result;
 }
 

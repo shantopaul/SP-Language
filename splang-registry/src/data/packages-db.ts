@@ -1,5 +1,18 @@
 import { Package } from "@/types/package";
 
+// Honest preview/mock label for the registry. This registry has no storage
+// backend: the package list below is a hard-coded preview catalogue, the
+// checksums are placeholders (not hashes of real published files), and the
+// download counts are illustrative, not measured. API routes must surface
+// this flag instead of claiming packages were published or verified.
+export const REGISTRY_PREVIEW = {
+  preview: true,
+  mock: true,
+  stored: false,
+  message:
+    "SP Registry is a preview/mock: packages listed here are a hard-coded preview catalogue. Nothing is published, stored, or verified by this registry yet.",
+} as const;
+
 export const PACKAGES: Package[] = [
   {
     name: "web",

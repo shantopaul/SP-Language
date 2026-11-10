@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 #include <map>
+#include <set>
 
 namespace sp::runtime {
 
@@ -15,7 +16,21 @@ struct PgConfig {
     std::string password{""};
     std::string database{"postgres"};
     std::string sslmode{"disable"};
+    // Path to a PEM CA bundle used to verify the server certificate when
+    // sslmode is verify-ca or verify-full. Empty = system default roots.
+    std::string sslrootcert{""};
     int connectTimeoutMs{5000};
+
+    // True when the server certificate must be verified against a trusted
+    // CA (verify-ca / verify-full). sslmode=require deliberately does NOT
+    // verify: TLS is encrypted but the peer is unauthenticated.
+    bool sslRequiresVerification() const {
+        return sslmode == "verify-ca" || sslmode == "verify-full";
+    }
+    // True only when the certificate must also match the host name.
+    bool sslRequiresHostnameVerification() const {
+        return sslmode == "verify-full";
+    }
 
     static PgConfig parseConnectionString(const std::string& connStr);
 };
@@ -88,6 +103,19 @@ public:
     std::shared_ptr<PgResult> query(const std::string& sql);
     std::shared_ptr<PgResult> queryParams(const std::string& sql, const std::vector<std::string>& params);
 
+    // Named prepared statements (extended query protocol).
+    // prepare() sends Parse with the given statement name and records it on
+    // this connection. A duplicate name fails: PostgreSQL itself rejects a
+    // second Parse with the same name (42P05) and the error is surfaced via
+    // lastError() / the return value -- the old statement is never silently
+    // overwritten. execPrepared() sends Bind against the named statement
+    // (fresh unnamed portal), Describe, Execute, Sync and returns the rows.
+    // A failed exec returns a PgResult with isOk()==false (error text via
+    // PgResult::errorMessage() and lastError()), never a fake success.
+    bool prepare(const std::string& name, const std::string& sql);
+    std::shared_ptr<PgResult> execPrepared(const std::string& name, const std::vector<std::string>& params);
+    bool hasPrepared(const std::string& name) const { return m_prepared.count(name) != 0; }
+
     bool ping();
 
     bool beginTransaction();
@@ -105,12 +133,24 @@ private:
     bool readBytes(uint8_t* buf, size_t len);
     bool writeBytes(const uint8_t* buf, size_t len);
 
+    // Shared extended-protocol helpers: sendParse / sendBindExecute emit the
+    // frontend messages; readResultLoop consumes backend messages until
+    // ReadyForQuery, filling the PgResult (RowDescription/DataRow/
+    // CommandComplete/ErrorResponse) and returns false only if the
+    // connection dropped mid-result.
+    bool sendParse(const std::string& name, const std::string& sql, int paramTypeCount);
+    bool sendBindExecute(const std::string& stmtName, const std::vector<std::string>& params);
+    bool readResultLoop(const std::shared_ptr<PgResult>& res);
+
     uintptr_t m_socket{0}; // Native OS socket descriptor
     void* m_sslCtx{nullptr};
     void* m_ssl{nullptr};
     PgConfig m_config;
     std::string m_lastError;
     bool m_connected{false};
+    // Names of statements successfully prepared on this connection
+    // (server-side state; cleared on close/reconnect).
+    std::set<std::string> m_prepared;
     char m_transactionStatus{'I'}; // 'I' = idle, 'T' = transaction, 'E' = error
     int32_t m_backendPid{0};
     int32_t m_backendKey{0};

@@ -21,6 +21,9 @@ struct CodegenOptions {
     std::string runtimeLibPath;
     std::string customLinkerPath;
     std::vector<std::string> librarySearchPaths;
+    // Phase 39 slice B: bare library names to link (e.g. "mini" ->
+    // -lmini). Set from the CLI (--link/-l) or from sp.toml [native].
+    std::vector<std::string> additionalLibraries;
     bool isStatic{false};
 };
 

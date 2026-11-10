@@ -1,5 +1,6 @@
 #include "sp/runtime/Net.h"
 #include "sp/runtime/EventLoop.h"
+#include "sp/runtime/Async.h"
 #include "sp/runtime/Crypto.h"
 #include "sp/runtime/Json.h"
 #include "sp/runtime/Http.h"
@@ -9,10 +10,32 @@
 #include "sp/runtime/Runtime.h"
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <iostream>
+
+// Phase 6 slice A: fn-pointer HTTP handlers.
+//
+// A handler declared `fn hello(HttpRequest req) -> HttpResponse`
+// expects a real SP HttpRequest object (slot 0 = vtable pointer,
+// slot 1 = the C++ HttpRequest handle), but the route ABI used to
+// pass the raw C++ HttpRequest* — so the handler's first vtable
+// dispatch read a garbage vtable and segfaulted the server on the
+// first request. The compiler emits the vtable as the global
+// @_vtable_HttpRequest in any program that imports std.http, and the
+// program links the precompiled static libsp_runtime.a, so a weak
+// reference to that symbol resolves to the program's vtable (or to
+// null when the program never imports std.http, in which case the old
+// raw-pointer behaviour is kept for `(ptr req)` handlers).
+//
+// The wrapper object is allocated per request and freed after the
+// handler returns — the same lifetime as the raw pointer it replaces,
+// so a handler must not retain the request object past the request.
+extern "C" void* _vtable_HttpRequest __attribute__((weak));
 
 namespace {
 
@@ -27,6 +50,26 @@ const char* alloc_str(const std::string& s) {
 struct JsonWrapper {
     sp::rt::json::JsonValuePtr val;
 };
+
+// Redis pool C-ABI ownership registry.
+//
+// RedisPool::acquire() returns a std::shared_ptr<RedisClient>, but the C
+// ABI can only hand a raw RedisClient* back to SP code — and the pool
+// drops its own reference when a client is checked out, so the local
+// shared_ptr in sp_rt_redis_pool_acquire used to be the sole owner.
+// Returning client.get() directly therefore dangled the moment that
+// local died (use-after-free on first use), and the old no-op release()
+// never returned the client to the pool either. This registry keeps one
+// owning shared_ptr per checked-out raw pointer until release() hands it
+// back to the pool. Clients MUST be released before their pool is
+// destroyed; destroying a pool with checked-out clients drops those
+// registry entries and invalidates the outstanding handles.
+struct RedisPoolClientEntry {
+    void* pool;
+    std::shared_ptr<sp::rt::redis::RedisClient> client;
+};
+std::mutex g_redisPoolClientsMutex;
+std::unordered_map<void*, RedisPoolClientEntry> g_redisPoolClients;
 
 } // anonymous namespace
 
@@ -201,6 +244,330 @@ void sp_rt_eventloop_destroy(void* loop) {
         auto* el = static_cast<sp::rt::net::EventLoop*>(loop);
         delete el;
     }
+}
+
+// Async (Phase 2 slice B2). Tasks are held as shared_ptr<Task> in a
+// heap box so the C ABI can pass an opaque handle; await consumes nothing
+// (the caller must destroy the handle), cancel marks the task done so a
+// pending await returns promptly instead of pumping forever.
+namespace {
+struct AsyncTaskBox {
+    sp::rt::async::TaskPtr task;
+};
+sp::rt::async::Scheduler* asyncSched(void* sched) {
+    return sched ? static_cast<sp::rt::async::Scheduler*>(sched)
+                 : &sp::rt::async::defaultScheduler();
+}
+} // namespace
+
+void* sp_rt_async_default_scheduler() {
+    return &sp::rt::async::defaultScheduler();
+}
+
+void* sp_rt_async_sleep_ms(void* sched, int64_t ms) {
+    return new AsyncTaskBox{sp::rt::async::sleepTask(*asyncSched(sched), ms)};
+}
+
+void* sp_rt_async_delayed_i64(void* sched, int64_t ms, int64_t value) {
+    return new AsyncTaskBox{sp::rt::async::delayedValueTask(*asyncSched(sched), ms, value)};
+}
+
+void* sp_rt_async_delayed_str(void* sched, int64_t ms, const char* value) {
+    return new AsyncTaskBox{sp::rt::async::delayedValueStrTask(*asyncSched(sched), ms, value)};
+}
+
+// Phase 3 slice C: spawn an async function body as a Task.
+//
+// A thunk is a compiler-generated function `int64_t (*)(void*)` (or the
+// string/void variants) that loads its arguments from a heap ctx, calls
+// the async body, frees the ctx, and returns the result. Spawning only
+// posts the thunk call on the scheduler: the body does NOT run here, and
+// the task completes when the posted callback runs (i.e. when something
+// pumps the scheduler). If the task was cancelled before the callback
+// runs, complete() is a no-op and the body still runs — cancellation
+// only marks the task done, it does not un-schedule the callback.
+void* sp_rt_async_create_task() {
+    return new AsyncTaskBox{std::make_shared<sp::rt::async::Task>()};
+}
+
+namespace {
+using AsyncThunkI64 = int64_t (*)(void*);
+using AsyncThunkStr = const char* (*)(void*);
+using AsyncThunkVoid = void (*)(void*);
+} // namespace
+
+void sp_rt_async_spawn_i64(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkI64>(thunk);
+    asyncSched(sched)->post([t, fn, ctx] {
+        int64_t v = fn(ctx);
+        t->complete(v);
+    });
+}
+
+void sp_rt_async_spawn_str(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkStr>(thunk);
+    asyncSched(sched)->post([t, fn, ctx] {
+        // The thunk returns an SP string the thunk owns (one strong ref);
+        // copy it into the task, then release the thunk's reference.
+        const char* result = fn(ctx);
+        t->completeStr(result);
+        sp_rt_release(const_cast<char*>(result));
+    });
+}
+
+void sp_rt_async_spawn_void(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkVoid>(thunk);
+    asyncSched(sched)->post([t, fn, ctx] {
+        fn(ctx);
+        t->complete(0);
+    });
+}
+
+// Phase 5 slice A (state machine): spawn a state-machine async body.
+//
+// `thunk` is the compiler-generated body entry `void (*)(void* task,
+// void* ctx)`: it allocates the heap frame, stores task + args, and calls
+// the resume function. Unlike spawn_i64/str/void, this does NOT complete
+// the task — the body completes it in its finish block. A task cancelled
+// before the posted callback runs never runs its body: the callback
+// checks wasCancelled() first (fixes the old spawn fns' documented gap,
+// where a cancelled task's body still ran).
+namespace {
+using AsyncThunkSM = void (*)(void*, void*);
+using AsyncResumeFn = void (*)(void*);
+} // namespace
+
+void sp_rt_async_spawn_sm(void* sched, void* task, void* thunk, void* ctx) {
+    if (!task || !thunk) return;
+    auto t = static_cast<AsyncTaskBox*>(task)->task;
+    auto fn = reinterpret_cast<AsyncThunkSM>(thunk);
+    // The body receives the task HANDLE (AsyncTaskBox*), not the raw
+    // Task*: the finish block passes it to sp_rt_async_task_complete_*,
+    // which expects the handle. `t` is kept alive in the capture.
+    asyncSched(sched)->post([t, fn, ctx, task] {
+        if (t->wasCancelled()) return; // Body never starts.
+        fn(task, ctx);
+    });
+}
+
+void* sp_rt_async_delayed_dbl(void* sched, int64_t ms, double value) {
+    return new AsyncTaskBox{sp::rt::async::delayedValueDblTask(*asyncSched(sched), ms, value)};
+}
+
+double sp_rt_async_task_await_dbl(void* sched, void* task) {
+    if (!task) return 0.0;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return sp::rt::async::awaitTaskDbl(*asyncSched(sched), *box->task);
+}
+
+void* sp_rt_async_task_await_ptr(void* sched, void* task) {
+    if (!task) return nullptr;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return sp::rt::async::awaitTaskPtr(*asyncSched(sched), *box->task);
+}
+
+int64_t sp_rt_async_task_value_i64(void* task) {
+    if (!task) return 0;
+    return static_cast<AsyncTaskBox*>(task)->task->value();
+}
+
+const char* sp_rt_async_task_value_str(void* task) {
+    if (!task) return alloc_str("");
+    return alloc_str(static_cast<AsyncTaskBox*>(task)->task->strValue());
+}
+
+double sp_rt_async_task_value_dbl(void* task) {
+    if (!task) return 0.0;
+    return static_cast<AsyncTaskBox*>(task)->task->dblValue();
+}
+
+void* sp_rt_async_task_value_ptr(void* task) {
+    if (!task) return nullptr;
+    return static_cast<AsyncTaskBox*>(task)->task->ptrValue();
+}
+
+void sp_rt_async_task_complete_i64(void* task, int64_t value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->complete(value);
+}
+
+void sp_rt_async_task_complete_str(void* task, const char* value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completeStr(value);
+}
+
+void sp_rt_async_task_complete_dbl(void* task, double value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completeDbl(value);
+}
+
+void sp_rt_async_task_complete_ptr(void* task, void* value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completePtr(value);
+}
+
+void sp_rt_async_task_complete_ptr_owned(void* task, void* value) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->completePtrOwned(value);
+}
+
+void sp_rt_async_task_complete_void(void* task) {
+    if (!task) return;
+    static_cast<AsyncTaskBox*>(task)->task->complete(0);
+}
+
+// Register a resume for a state-machine await. The continuation ALWAYS
+// posts the resume to the scheduler — never calls it synchronously — so
+// a task that is already complete still resumes on the next pump, never
+// re-entrantly from inside the awaiting code.
+//
+// Phase 6 slice C: the resume is registered on BOTH the awaited task
+// and the awaiting (own) task, sharing one atomic guard so exactly one
+// of them posts the resume. Before this, only the awaited task could
+// resume the body — if the own task was cancelled while suspended, the
+// awaited task might never complete, the continuation never fired, and
+// the heap frame leaked (one frame per such task). Now a cancel of the
+// own task resumes the body into its continuation, which sees
+// wasCancelled() and branches to the finish block (freeing the frame).
+// Either task may be null; only resumeFn is required.
+void sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame, void* ownTask) {
+    if (!resumeFn) return;
+    auto fn = reinterpret_cast<AsyncResumeFn>(resumeFn);
+    auto* s = asyncSched(sched);
+    auto fired = std::make_shared<std::atomic<bool>>(false);
+    auto postOnce = [s, fn, frame, fired]() {
+        if (fired->exchange(true)) return;
+        s->post([fn, frame] { fn(frame); });
+    };
+    if (task) {
+        static_cast<AsyncTaskBox*>(task)->task->onComplete(
+            [postOnce](sp::rt::async::Task&) { postOnce(); });
+    }
+    if (ownTask) {
+        static_cast<AsyncTaskBox*>(ownTask)->task->onComplete(
+            [postOnce](sp::rt::async::Task&) { postOnce(); });
+    }
+}
+
+namespace {
+// Read `count` task handles out of a task-handle array (the data pointer
+// of an SP array of Task handles, passed from generated code).
+std::vector<sp::rt::async::TaskPtr> readTaskHandles(void* tasks, int64_t count) {
+    std::vector<sp::rt::async::TaskPtr> out;
+    if (count <= 0) return out;
+    void** handles = static_cast<void**>(tasks);
+    out.reserve(static_cast<size_t>(count));
+    for (int64_t i = 0; i < count; ++i) {
+        if (!handles[i]) { out.push_back(nullptr); continue; }
+        out.push_back(static_cast<AsyncTaskBox*>(handles[i])->task);
+    }
+    return out;
+}
+} // namespace
+
+// Phase 5 slice A: the combinator C ABI takes the SP array OBJECT
+// (a Task<T>[] value, a pointer) + its element count, and extracts
+// the element storage pointer itself via sp_rt_array_data. This keeps
+// the SP side free of the overloaded `sp_rt_array_data` extern (an
+// overloaded extern is name-mangled with a `__<paramTypes>` suffix,
+// so the call would target a name the runtime does not define).
+void* sp_rt_async_task_all_i64(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Int)};
+}
+
+void* sp_rt_async_task_all_str(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Str)};
+}
+
+void* sp_rt_async_task_all_dbl(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Dbl)};
+}
+
+void* sp_rt_async_task_all_void(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::allTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Void)};
+}
+
+void* sp_rt_async_task_race_i64(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Int)};
+}
+
+void* sp_rt_async_task_race_str(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Str)};
+}
+
+void* sp_rt_async_task_race_dbl(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Dbl)};
+}
+
+void* sp_rt_async_task_race_void(void* tasks, int64_t count) {
+    return new AsyncTaskBox{sp::rt::async::raceTasks(sp::rt::async::defaultScheduler(),
+        readTaskHandles(::sp_rt_array_data(tasks), count), sp::rt::async::TaskPayload::Void)};
+}
+
+const char* sp_rt_async_task_await_str(void* sched, void* task) {
+    if (!task) return alloc_str("");
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return alloc_str(sp::rt::async::awaitTaskStr(*asyncSched(sched), *box->task));
+}
+
+void sp_rt_async_scheduler_run_tasks_until_idle(void* sched) {
+    asyncSched(sched)->runUntilTasksIdle();
+}
+
+void sp_rt_async_task_await_void(void* sched, void* task) {
+    if (!task) return;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    sp::rt::async::awaitTaskVoid(*asyncSched(sched), *box->task);
+}
+
+int64_t sp_rt_async_task_await_i64(void* sched, void* task) {
+    if (!task) return 0;
+    auto* box = static_cast<AsyncTaskBox*>(task);
+    return sp::rt::async::awaitTask(*asyncSched(sched), *box->task);
+}
+
+bool sp_rt_async_task_is_ready(void* task) {
+    if (!task) return true;
+    return static_cast<AsyncTaskBox*>(task)->task->isReady();
+}
+
+bool sp_rt_async_task_cancel(void* task) {
+    if (!task) return false;
+    return static_cast<AsyncTaskBox*>(task)->task->cancel();
+}
+
+bool sp_rt_async_task_was_cancelled(void* task) {
+    if (!task) return false;
+    return static_cast<AsyncTaskBox*>(task)->task->wasCancelled();
+}
+
+void sp_rt_async_task_destroy(void* task) {
+    delete static_cast<AsyncTaskBox*>(task);
+}
+
+void sp_rt_async_scheduler_run_once(void* sched) {
+    asyncSched(sched)->runOnce();
+}
+
+bool sp_rt_async_scheduler_has_pending(void* sched) {
+    return asyncSched(sched)->hasPending();
+}
+
+void sp_rt_async_scheduler_run_until_idle(void* sched) {
+    asyncSched(sched)->runUntilIdle();
 }
 
 // ============================================================================
@@ -659,6 +1026,45 @@ static sp::rt::http::HttpResponse extractResponse(void* respHandle) {
     return sp::rt::http::HttpResponse::ok();
 }
 
+// Phase 6 slice A: invoke a fn-pointer route handler, passing the
+// request in the form the handler declares. A typed handler
+// (`fn f(HttpRequest req)`) receives a real SP HttpRequest object —
+// slot 0 = the program's HttpRequest vtable (weak symbol above),
+// slot 1 = the raw C++ handle — allocated here and freed after the
+// handler returns. A `(ptr req)` handler receives the raw C++
+// pointer, exactly as before (also when the program never imports
+// std.http and the weak symbol is null).
+static sp::rt::http::HttpResponse callHandlerFn(void* (*handler_fn)(void* req),
+                                               const sp::rt::http::HttpRequest& req) {
+    void* reqArg = const_cast<void*>(static_cast<const void*>(&req));
+    bool wrapped = false;
+    if (&_vtable_HttpRequest) {
+        void** obj = static_cast<void**>(sp_rt_alloc(2 * sizeof(void*)));
+        if (obj) {
+            obj[0] = &_vtable_HttpRequest;
+            obj[1] = reqArg;
+            reqArg = obj;
+            wrapped = true;
+        }
+    }
+    void* respHandle = handler_fn(reqArg);
+    if (wrapped) sp_rt_free(reqArg);
+    return extractResponse(respHandle);
+}
+
+// Phase 6 slice A: normalize a handler-provided request pointer.
+// Route handlers receive either the raw C++ HttpRequest* (the old
+// `(ptr req)` contract) or a wrapped SP HttpRequest object (slot 0 =
+// the HttpRequest vtable, slot 1 = the raw handle — the new contract
+// for typed handlers). Context.create/init pass the pointer through
+// here so `req.handle` is always the raw handle.
+void* sp_rt_http_req_unwrap(void* req) {
+    if (!req || !&_vtable_HttpRequest) return req;
+    void** slots = static_cast<void**>(req);
+    if (slots[0] == &_vtable_HttpRequest) return slots[1];
+    return req;
+}
+
 void sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
                                      void* (*handler_fn)(void* req)) {
     if (!srv || !path || !handler_fn) return;
@@ -666,8 +1072,21 @@ void sp_rt_http_server_route_handler(void* srv, const char* method, const char* 
     std::string m = method ? method : "GET";
     std::string p = path;
     s->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
-        void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
-        return extractResponse(respHandle);
+        return callHandlerFn(handler_fn, req);
+    });
+}
+
+// Phase 4 (parent fix): static-JSON route. The body is copied into the
+// route's handler, so the caller's string may be freed after this returns.
+void sp_rt_http_server_route_json(void* srv, const char* method, const char* path,
+                                 const char* json) {
+    if (!srv || !path) return;
+    auto* s = static_cast<sp::rt::http::HttpServer*>(srv);
+    std::string m = method ? method : "GET";
+    std::string p = path;
+    std::string body = json ? json : "{}";
+    s->route(m, p, [body](const sp::rt::http::HttpRequest&) {
+        return sp::rt::http::HttpResponse::json(body);
     });
 }
 
@@ -748,8 +1167,7 @@ void sp_rt_http_group_route_handler(void* grp, const char* method, const char* p
     std::string m = method ? method : "GET";
     std::string p = path;
     g->route(m, p, [handler_fn](const sp::rt::http::HttpRequest& req) {
-        void* respHandle = handler_fn(const_cast<void*>(static_cast<const void*>(&req)));
-        return extractResponse(respHandle);
+        return callHandlerFn(handler_fn, req);
     });
 }
 
@@ -842,6 +1260,36 @@ int64_t sp_rt_ws_hub_size(void* hub) {
 int64_t sp_rt_ws_hub_room_size(void* hub, const char* room) {
     if (!hub || !room) return 0;
     return static_cast<int64_t>(static_cast<sp::rt::ws::WebSocketHub*>(hub)->roomSize(room));
+}
+
+// WebSocket server transport (Phase 31): register a text handler for one
+// upgrade path on the HTTP server. `handler_fn` is a plain native function
+// (an SP `fn` passed as `ptr`) invoked as handler_fn(conn_id, message).
+// It runs on the connection's worker thread and may call sp_rt_ws_send.
+void sp_rt_ws_route(const char* path, void (*handler_fn)(int64_t conn_id, const char* msg)) {
+    if (!path || !handler_fn) return;
+    sp::rt::ws::WebSocketServer::getGlobal().onText(path, [handler_fn](uint64_t connId, const std::string& message) {
+        handler_fn(static_cast<int64_t>(connId), message.c_str());
+    });
+}
+
+bool sp_rt_ws_send(int64_t conn_id, const char* msg) {
+    if (conn_id < 0 || !msg) return false;
+    return sp::rt::ws::WebSocketServer::getGlobal().sendTo(static_cast<uint64_t>(conn_id), msg);
+}
+
+void sp_rt_ws_broadcast(const char* msg) {
+    if (!msg) return;
+    sp::rt::ws::WebSocketServer::getGlobal().broadcast(msg);
+}
+
+void sp_rt_ws_close_conn(int64_t conn_id) {
+    if (conn_id < 0) return;
+    sp::rt::ws::WebSocketServer::getGlobal().closeConnection(static_cast<uint64_t>(conn_id));
+}
+
+int64_t sp_rt_ws_connection_count() {
+    return static_cast<int64_t>(sp::rt::ws::WebSocketServer::getGlobal().connectionCount());
 }
 
 // Server-Sent Events (SSE)
@@ -981,17 +1429,48 @@ void* sp_rt_redis_pool_create(const char* host, int64_t port, int64_t min_conn, 
 }
 
 void sp_rt_redis_pool_destroy(void* pool) {
-    if (pool) delete static_cast<sp::rt::redis::RedisPool*>(pool);
+    if (!pool) return;
+    {
+        // Drop ownership of any still-checked-out clients of this pool so
+        // a later release() cannot touch the deleted pool (those handles
+        // are invalid once their pool is gone — release clients first).
+        std::lock_guard<std::mutex> lock(g_redisPoolClientsMutex);
+        for (auto it = g_redisPoolClients.begin(); it != g_redisPoolClients.end();) {
+            if (it->second.pool == pool) {
+                it = g_redisPoolClients.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    delete static_cast<sp::rt::redis::RedisPool*>(pool);
 }
 
 void* sp_rt_redis_pool_acquire(void* pool) {
     if (!pool) return nullptr;
     auto client = static_cast<sp::rt::redis::RedisPool*>(pool)->acquire();
-    return client.get();
+    if (!client) return nullptr;
+    // Keep one owning reference in the registry: without it the local
+    // shared_ptr dies here and the returned raw pointer dangles.
+    void* raw = client.get();
+    {
+        std::lock_guard<std::mutex> lock(g_redisPoolClientsMutex);
+        g_redisPoolClients[raw] = RedisPoolClientEntry{pool, std::move(client)};
+    }
+    return raw;
 }
 
 void sp_rt_redis_pool_release(void* pool, void* client) {
-    (void)pool; (void)client;
+    if (!pool || !client) return;
+    std::shared_ptr<sp::rt::redis::RedisClient> owned;
+    {
+        std::lock_guard<std::mutex> lock(g_redisPoolClientsMutex);
+        auto it = g_redisPoolClients.find(client);
+        if (it == g_redisPoolClients.end() || it->second.pool != pool) return;
+        owned = std::move(it->second.client);
+        g_redisPoolClients.erase(it);
+    }
+    static_cast<sp::rt::redis::RedisPool*>(pool)->release(std::move(owned));
 }
 
 int64_t sp_rt_redis_pool_available(void* pool) {

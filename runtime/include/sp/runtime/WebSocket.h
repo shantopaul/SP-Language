@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sp/runtime/Net.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -8,6 +9,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
+#include <atomic>
 
 namespace sp::rt::ws {
 
@@ -136,6 +138,70 @@ private:
     mutable std::mutex m_mutex;
     std::unordered_map<uint64_t, std::shared_ptr<WebSocketConnection>> m_connections;
     std::unordered_map<std::string, std::unordered_set<uint64_t>> m_rooms;
+};
+
+// ============================================================================
+// WebSocket Server Transport (RFC 6455 over the HTTP server)
+// ============================================================================
+//
+// The HTTP server hands an upgraded connection to WebSocketServer, which
+// performs the 101 handshake and then runs the frame loop on the calling
+// (worker) thread until the connection closes. Text handlers are registered
+// per path; a handler is a plain function invoked for every text frame
+// received on that path (an SP `fn` passed as `ptr` through the C ABI is a
+// native function pointer, so it is invoked directly, not stubbed).
+//
+// One process-wide registry: an SP program normally runs a single
+// HttpServer, so routes registered here apply to every HttpServer in the
+// process. This is documented, not hidden.
+
+using WsTextHandler = std::function<void(uint64_t connId, const std::string& message)>;
+
+// Minimal byte transport for an upgraded connection. The HTTP server adapts
+// its connection to this interface, so the frame loop works identically
+// over plaintext TCP and over TLS (wss://) without WebSocket.cpp knowing
+// about either. readSome() returns "" on close/error.
+class WsTransport {
+public:
+    virtual ~WsTransport() = default;
+    virtual std::string readSome(size_t maxLength) = 0;
+    virtual int64_t writeString(const std::string& str) = 0;
+    virtual bool isValid() const = 0;
+};
+
+class WebSocketServer {
+public:
+    static WebSocketServer& getGlobal();
+
+    WebSocketServer() = default;
+    ~WebSocketServer() = default;
+
+    WebSocketServer(const WebSocketServer&) = delete;
+    WebSocketServer& operator=(const WebSocketServer&) = delete;
+
+    // Register the text handler for one upgrade path (e.g. "/echo").
+    void onText(const std::string& path, WsTextHandler handler);
+    [[nodiscard]] bool hasRoute(const std::string& path);
+
+    // Perform the 101 handshake and run the frame loop on the calling
+    // thread until the peer closes or the connection errors. `leftover`
+    // holds bytes already read past the HTTP request headers. Returns
+    // false when no route is registered for the path (caller then falls
+    // back to a normal HTTP response); true once the connection is done.
+    bool serveUpgraded(WsTransport& transport, const std::string& path,
+                       const std::string& clientKey, const std::string& leftover);
+
+    // Send from any thread (writes are serialized per connection).
+    bool sendTo(uint64_t connId, const std::string& message);
+    void broadcast(const std::string& message);
+    void closeConnection(uint64_t connId, uint16_t code = 1000, const std::string& reason = "");
+    [[nodiscard]] size_t connectionCount() const;
+
+private:
+    std::atomic<uint64_t> m_nextConnId{1};
+    WebSocketHub m_hub;
+    mutable std::mutex m_mutex;
+    std::unordered_map<std::string, WsTextHandler> m_textHandlers;
 };
 
 } // namespace sp::rt::ws

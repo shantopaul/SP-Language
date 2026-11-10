@@ -29,6 +29,16 @@ public:
         return m_typeCtx.getError();
     }
 
+    // Phase 3: overload resolution target recorded for a CallExpr, so IRBuilder
+    // can emit the mangled name of the overload sema picked (the callee name
+    // alone is ambiguous once same-name overloads exist). Nullptr when the
+    // call resolved to a builtin, a variable holding a function, or nothing.
+    [[nodiscard]] std::shared_ptr<FunctionSymbol> getCallTarget(const ast::CallExpr* expr) const {
+        auto it = m_nodeCallTargets.find(expr);
+        if (it != m_nodeCallTargets.end()) return it->second;
+        return nullptr;
+    }
+
     // Expressions
     void visit(const ast::LiteralExpr& node) override;
     void visit(const ast::IdentifierExpr& node) override;
@@ -81,11 +91,22 @@ private:
     bool hasGuaranteedReturn(const ast::StatementNode& stmt);
     void verifyInterfaceImplementations(const ast::ClassDecl& decl, const std::shared_ptr<ClassType>& clsType);
 
+    // Phase 3 slice C: if `sym` is an `async fn`, a call to it yields
+    // Task<ret> (the caller gets the task, not the value); otherwise
+    // returns `ret` unchanged. `ret` must be non-null.
+    TypePtr wrapAsyncReturn(const std::shared_ptr<FunctionSymbol>& sym, TypePtr ret);
+
+    // Phase 6 slice A: reportErrors lets a caller try overload
+    // resolution quietly and fall back to another candidate set (the
+    // free-function call site uses it so a same-named builtin cannot
+    // shadow an enclosing-class method). When false, no diagnostic is
+    // emitted and the caller is responsible for reporting the failure.
     std::shared_ptr<FunctionSymbol> resolveOverload(
         const std::vector<std::shared_ptr<FunctionSymbol>>& candidates,
         const std::vector<TypePtr>& argTypes,
         const diagnostics::SourceLocation& loc,
-        const std::string& name
+        const std::string& name,
+        bool reportErrors = true
     );
 
     TypeContext& m_typeCtx;
@@ -102,6 +123,7 @@ private:
     ast::Edition m_edition{ast::Edition::Edition2026};
 
     std::unordered_map<const ast::ExpressionNode*, TypePtr> m_nodeTypes;
+    std::unordered_map<const ast::CallExpr*, std::shared_ptr<FunctionSymbol>> m_nodeCallTargets;
 };
 
 } // namespace sp::sema

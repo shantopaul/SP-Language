@@ -115,6 +115,11 @@ public:
     std::string recvString(size_t maxLen, std::string& outSenderHost, int& outSenderPort);
 
     bool setNonBlocking(bool nonBlocking);
+    // Phase 4 slice D: mirror of TcpSocket::setTimeouts. UdpSocket::recvFrom
+    // used to block forever with no timeout: when a datagram is lost (or the
+    // send fails), the caller hung until the test harness killed it.
+    // Bound the receive with this before any recv that must not hang.
+    bool setTimeouts(int recvTimeoutMs, int sendTimeoutMs);
     void close();
 
 private:

@@ -95,17 +95,35 @@ ProjectConfig ProjectConfig::createWorkspace(const std::vector<std::string>& mem
     return config;
 }
 
+// Phase 39 slice B: split a TOML string-array body (between [ and
+// ]) into bare values. Shared by the [native] libs/lib-paths keys.
+void ProjectConfig::parseStringArrayItems(const std::string& items, std::vector<std::string>& out) {
+    std::stringstream mss(items);
+    std::string item;
+    while (std::getline(mss, item, ',')) {
+        std::string v = stripQuotes(trim(item));
+        if (!v.empty()) out.push_back(v);
+    }
+}
+
 bool ProjectConfig::loadFromString(const std::string& tomlContent) {
     m_dependencies.clear();
     m_devDependencies.clear();
     m_package = PackageMetadata();
     m_isWorkspace = false;
     m_workspaceMembers.clear();
+    // Phase 39 slice B: [native] section.
+    m_nativeLibs.clear();
+    m_nativeLibPaths.clear();
 
     std::stringstream ss(tomlContent);
     std::string line;
     std::string currentSection;
     bool inWorkspaceMembersArray = false;
+    // Phase 39 slice B: a [native] libs/lib-paths array spanning
+    // multiple lines.
+    bool inNativeArray = false;
+    std::vector<std::string>* nativeArrayTarget = nullptr;
 
     while (std::getline(ss, line)) {
         // Strip comments
@@ -130,6 +148,18 @@ bool ProjectConfig::loadFromString(const std::string& tomlContent) {
             }
             if (closePos != std::string::npos) {
                 inWorkspaceMembersArray = false;
+            }
+            continue;
+        }
+
+        // Phase 39 slice B: accumulating a multiline [native] array.
+        if (inNativeArray) {
+            size_t closePos = line.find(']');
+            std::string items = (closePos != std::string::npos) ? line.substr(0, closePos) : line;
+            if (nativeArrayTarget) parseStringArrayItems(items, *nativeArrayTarget);
+            if (closePos != std::string::npos) {
+                inNativeArray = false;
+                nativeArrayTarget = nullptr;
             }
             continue;
         }
@@ -200,6 +230,22 @@ bool ProjectConfig::loadFromString(const std::string& tomlContent) {
         } else if (currentSection == "dev-dependencies") {
             Dependency dep = parseDependencyValue(key, value);
             m_devDependencies.push_back(dep);
+        } else if (currentSection == "native") {
+            // Phase 39 slice B: libs = ["mini"], lib-paths = ["..."].
+            std::vector<std::string>* target = nullptr;
+            if (key == "libs") target = &m_nativeLibs;
+            else if (key == "lib-paths") target = &m_nativeLibPaths;
+            if (target) {
+                size_t openPos = value.find('[');
+                size_t closePos = value.find(']');
+                if (openPos != std::string::npos && closePos != std::string::npos) {
+                    parseStringArrayItems(value.substr(openPos + 1, closePos - openPos - 1), *target);
+                } else if (openPos != std::string::npos) {
+                    inNativeArray = true;
+                    nativeArrayTarget = target;
+                    parseStringArrayItems(value.substr(openPos + 1), *target);
+                }
+            }
         }
     }
 
@@ -282,6 +328,25 @@ std::string ProjectConfig::toTomlString() const {
             } else {
                 ss << dep.name << " = \"" << dep.versionReq << "\"\n";
             }
+        }
+    }
+
+    // Phase 39 slice B: [native] section (only when non-empty).
+    if (!m_nativeLibs.empty() || !m_nativeLibPaths.empty()) {
+        ss << "\n[native]\n";
+        if (!m_nativeLibs.empty()) {
+            ss << "libs = [";
+            for (size_t i = 0; i < m_nativeLibs.size(); ++i) {
+                ss << "\"" << m_nativeLibs[i] << "\"" << (i + 1 < m_nativeLibs.size() ? ", " : "");
+            }
+            ss << "]\n";
+        }
+        if (!m_nativeLibPaths.empty()) {
+            ss << "lib-paths = [";
+            for (size_t i = 0; i < m_nativeLibPaths.size(); ++i) {
+                ss << "\"" << m_nativeLibPaths[i] << "\"" << (i + 1 < m_nativeLibPaths.size() ? ", " : "");
+            }
+            ss << "]\n";
         }
     }
 

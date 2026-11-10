@@ -37,10 +37,17 @@ add_executable(sp_tests
     sema/GoldenSemanticTest.cpp
     sema/EscapeAnalysisTest.cpp
     sema/ModuleLoaderTest.cpp
+    sema/BrokenProgramTest.cpp
     ir/IRTest.cpp
     ir/IRBuilderTest.cpp
+    ir/ExternStructIRTest.cpp
+    ir/TryCatchTest.cpp
+    ir/CodegenCrashersIRTest.cpp
     codegen/LLVMGeneratorTest.cpp
     codegen/ExecutionTest.cpp
+    codegen/StaticsExecutionTest.cpp
+    codegen/TryCatchExecutionTest.cpp
+    codegen/CodegenCrashersExecutionTest.cpp
     codegen/VTableBuilderTest.cpp
     codegen/ClassGeneratorTest.cpp
     codegen/ObjectEmitterTest.cpp
@@ -48,14 +55,18 @@ add_executable(sp_tests
     codegen/DebugInfoGeneratorTest.cpp
     codegen/LLVMOptimizerTest.cpp
     runtime/RuntimeTest.cpp
+    runtime/AsyncTest.cpp
     runtime/ConcurrencyTest.cpp
     runtime/NetTest.cpp
     runtime/CryptoTest.cpp
     runtime/JsonTest.cpp
     runtime/HttpTest.cpp
+    runtime/TlsTest.cpp
     runtime/DatabaseTest.cpp
+    runtime/PostgresTest.cpp
     runtime/SecurityTest.cpp
     runtime/WebTest.cpp
+    runtime/WssTest.cpp
     runtime/RealtimeTest.cpp
     runtime/ObservabilityTest.cpp
     runtime/OpenApiTest.cpp
@@ -64,11 +75,13 @@ add_executable(sp_tests
     spm/LockfileTest.cpp
     spm/BuildOrchestratorTest.cpp
     spm/Phase17ToolingTest.cpp
+    spm/RegistryEcosystemTest.cpp
     fmt/FormatterTest.cpp
     test/TestRunnerTest.cpp
     doc/DocGeneratorTest.cpp
     spls/LspServerTest.cpp
     spls/SplsPhase17Test.cpp
+    spls/LspDepthTest.cpp
     debugger/DapServerTest.cpp
     bindgen/BindgenTest.cpp
     benchmark/BenchmarkTest.cpp

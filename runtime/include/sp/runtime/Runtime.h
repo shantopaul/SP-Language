@@ -27,6 +27,11 @@ extern "C" {
 
     const char* sp_rt_read_line();
     const char* sp_rt_readln();
+    // Phase 38 slice E (ADR-002): stdin EOF state, so
+    // std.io.tryReadLine can report EOF as Err(UnexpectedEOF)
+    // instead of Ok("") — std::getline returns "" for both an empty
+    // line and EOF; eof() is set only on the latter.
+    bool        sp_rt_stdin_eof();
 
     void sp_rt_eprint_string(const char* str);
     void sp_rt_eprintln_string(const char* str);
@@ -101,6 +106,16 @@ extern "C" {
 
     // Native Array primitives
     void* sp_rt_array_alloc(int64_t length, int64_t element_size);
+    // Phase 37 slice B: mark a container's elements as retained
+    // references, so its destructor / remove / clear paths release
+    // them. Emitted by the compiler right after the alloc, only when
+    // the static element type is an owned type. Null-safe no-ops.
+    void sp_rt_array_mark_ref_elements(void* arr);
+    void sp_rt_list_mark_ref_elements(void* list);
+    void sp_rt_map_mark_ref_elements(void* map);
+    void sp_rt_set_mark_ref_elements(void* set);
+    void sp_rt_queue_mark_ref_elements(void* queue);
+    void sp_rt_pq_mark_ref_elements(void* pq);
     int64_t sp_rt_array_length(void* arr);
     void* sp_rt_array_data(void* arr);
     void* sp_rt_array_get_ptr(void* arr, int64_t index, int64_t element_size);
@@ -127,6 +142,9 @@ extern "C" {
     void sp_rt_map_set_str(void* map, const char* key, int64_t val);
     int64_t sp_rt_map_get_str(void* map, const char* key);
     bool sp_rt_map_contains_str(void* map, const char* key);
+    // Phase 6 slice A: key access by ordinal for `for (key in map)`.
+    const char* sp_rt_map_str_key_at(void* map, int64_t index);
+    int64_t sp_rt_map_int_key_at(void* map, int64_t index);
     void sp_rt_map_set_i64(void* map, int64_t key, int64_t val);
     int64_t sp_rt_map_get_i64(void* map, int64_t key);
     bool sp_rt_map_contains_i64(void* map, int64_t key);
@@ -146,6 +164,10 @@ extern "C" {
     void sp_rt_set_remove_str(void* set, const char* val);
     void sp_rt_set_clear(void* set);
     bool sp_rt_set_is_empty(void* set);
+    // Phase 6 slice B: indexed access (for-in) + printable form.
+    int64_t sp_rt_set_get_i64(void* set, int64_t index);
+    const char* sp_rt_set_get_str(void* set, int64_t index);
+    const char* sp_rt_set_to_string(void* set);
 
     bool sp_rt_array_is_empty(void* arr);
 
@@ -244,6 +266,9 @@ extern "C" {
     const char* sp_rt_os_platform();
     const char* sp_rt_os_arch();
     void*       sp_rt_os_args();
+    // Phase 6 slice B: the generated `main` calls this first so
+    // sp_rt_os_args() can return the real argv (argv[1..]).
+    void        sp_rt_set_args(int argc, char** argv);
     void        sp_rt_os_exit(int64_t code);
 
     // Process functions (std.process)
@@ -338,6 +363,11 @@ extern "C" {
     int64_t     sp_rt_channel_size(void* chan);
     int64_t     sp_rt_channel_capacity(void* chan);
     void        sp_rt_channel_destroy(void* chan);
+    // Phase 37 slice B: mark a channel's queued items as retained
+    // references (emitted by the compiler at the Channel.send retain
+    // site); destroy() then drains and releases the still-queued
+    // items. Null-safe no-op.
+    void        sp_rt_channel_mark_ref_items(void* chan);
 
     // ThreadPool
     void*       sp_rt_threadpool_create(int64_t num_threads);
@@ -383,6 +413,89 @@ extern "C" {
     bool        sp_rt_eventloop_remove(void* loop, void* sock);
     int64_t     sp_rt_eventloop_poll(void* loop, int64_t timeout_ms);
     void        sp_rt_eventloop_destroy(void* loop);
+
+    // Async (Phase 2 slice B2): timer scheduler + Task futures. The
+    // scheduler handle is the process-wide default scheduler; tasks are
+    // heap-allocated and owned by the caller until sp_rt_async_task_destroy.
+    // Awaiting pumps the scheduler (it does NOT block the loop): other
+    // timers/tasks fire while the await is outstanding.
+    void*       sp_rt_async_default_scheduler();
+    void*       sp_rt_async_sleep_ms(void* sched, int64_t ms);
+    void*       sp_rt_async_delayed_i64(void* sched, int64_t ms, int64_t value);
+    void*       sp_rt_async_delayed_str(void* sched, int64_t ms, const char* value);
+    void        sp_rt_async_task_await_void(void* sched, void* task);
+    int64_t     sp_rt_async_task_await_i64(void* sched, void* task);
+    const char* sp_rt_async_task_await_str(void* sched, void* task);
+    bool        sp_rt_async_task_is_ready(void* task);
+    bool        sp_rt_async_task_cancel(void* task);
+    bool        sp_rt_async_task_was_cancelled(void* task);
+    void        sp_rt_async_task_destroy(void* task);
+    void        sp_rt_async_scheduler_run_once(void* sched);
+    bool        sp_rt_async_scheduler_has_pending(void* sched);
+    void        sp_rt_async_scheduler_run_until_idle(void* sched);
+    // Phase 3 slice C: spawn an async body as a task. `thunk` is a
+    // compiler-generated `int64_t/const char*/void (*)(void*)`; `ctx` is
+    // the heap argument block the thunk loads from and frees. The task
+    // is created by sp_rt_async_create_task and owned by the caller.
+    void*       sp_rt_async_create_task();
+    void        sp_rt_async_spawn_i64(void* sched, void* task, void* thunk, void* ctx);
+    void        sp_rt_async_spawn_str(void* sched, void* task, void* thunk, void* ctx);
+    void        sp_rt_async_spawn_void(void* sched, void* task, void* thunk, void* ctx);
+    // Phase 5 slice A (state machine): spawn a state-machine async body.
+    // `thunk` is the compiler-generated body entry `void (*)(void* task,
+    // void* ctx)`; it allocates the heap frame, stores task + args, and
+    // calls the resume function. Unlike the spawn_* fns above, this one
+    // does NOT complete the task — the body completes it in its finish
+    // block. A task cancelled before the posted callback runs never runs
+    // its body at all (fixes the old spawn fns' documented gap).
+    void        sp_rt_async_spawn_sm(void* sched, void* task, void* thunk, void* ctx);
+    // Double payload (Task<double>): delayed value + pump-based await.
+    void*       sp_rt_async_delayed_dbl(void* sched, int64_t ms, double value);
+    double      sp_rt_async_task_await_dbl(void* sched, void* task);
+    // Pointer payload (Task<T[]> / Task<struct>): pump-based await.
+    void*       sp_rt_async_task_await_ptr(void* sched, void* task);
+    // Non-blocking value reads (for state-machine continuations: the
+    // awaited task is already complete). Return the default value
+    // (0 / "" / 0.0 / null) when the task was cancelled or has no such
+    // payload. The str reader returns a fresh owned copy.
+    int64_t     sp_rt_async_task_value_i64(void* task);
+    const char* sp_rt_async_task_value_str(void* task);
+    double      sp_rt_async_task_value_dbl(void* task);
+    void*       sp_rt_async_task_value_ptr(void* task);
+    // Complete a task from generated code (the async body finish block).
+    // No-op when the task is already complete/cancelled.
+    void        sp_rt_async_task_complete_i64(void* task, int64_t value);
+    void        sp_rt_async_task_complete_str(void* task, const char* value);
+    void        sp_rt_async_task_complete_dbl(void* task, double value);
+    void        sp_rt_async_task_complete_ptr(void* task, void* value);
+    void        sp_rt_async_task_complete_ptr_owned(void* task, void* value);
+    void        sp_rt_async_task_complete_void(void* task);
+    // Register a resume for a state-machine await: when `task` completes
+    // or is cancelled, `resumeFn(frame)` is POSTED to the scheduler
+    // (never called synchronously, so no re-entrant resume). `resumeFn`
+    // is the compiler-generated `void (*)(void* frame)` resume function.
+    // Phase 6 slice C: `ownTask` is the awaiting task — the resume is
+    // registered on it too, so a cancel while suspended resumes the
+    // body into its continuation (which frees the frame) instead of
+    // leaking it. Either may be null (only `resumeFn` is required).
+    void        sp_rt_async_task_on_complete_resume(void* sched, void* task, void* resumeFn, void* frame, void* ownTask);
+    // Combinators: `tasks` is the SP array object (a Task<T>[] value)
+    // holding `count` task handles; the element storage pointer is
+    // extracted inside via sp_rt_array_data. Returns a new task handle
+    // owned by the caller. all_* waits for every input (result: SP
+    // array / void); race_* completes with the first finisher. See
+    // Async.h for semantics.
+    void*       sp_rt_async_task_all_i64(void* tasks, int64_t count);
+    void*       sp_rt_async_task_all_str(void* tasks, int64_t count);
+    void*       sp_rt_async_task_all_dbl(void* tasks, int64_t count);
+    void*       sp_rt_async_task_all_void(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_i64(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_str(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_dbl(void* tasks, int64_t count);
+    void*       sp_rt_async_task_race_void(void* tasks, int64_t count);
+    // Drain timers/queued tasks only (registered sockets do NOT keep the
+    // drain going): the end-of-main pump for fire-and-forget tasks.
+    void        sp_rt_async_scheduler_run_tasks_until_idle(void* sched);
 
     // Crypto
     const char* sp_rt_crypto_sha256(const char* data);
@@ -442,6 +555,10 @@ extern "C" {
     const char* sp_rt_http_req_query(void* req, const char* name);
     const char* sp_rt_http_req_param(void* req, const char* name);
     const char* sp_rt_http_req_cookie(void* req, const char* name);
+    // Phase 6 slice A: normalize a handler-provided request pointer —
+    // a wrapped SP HttpRequest object (slot 0 = vtable, slot 1 = raw
+    // handle) yields the raw handle; a raw pointer passes through.
+    void*       sp_rt_http_req_unwrap(void* req);
 
     void*       sp_rt_http_resp_create(int64_t status, const char* body);
     void        sp_rt_http_resp_set_status(void* resp, int64_t status);
@@ -461,6 +578,12 @@ extern "C" {
                                         const char* (*handler_fn)(const char* req_method, const char* req_path, const char* req_body));
     void        sp_rt_http_server_route_handler(void* srv, const char* method, const char* path, 
                                                 void* (*handler_fn)(void* req));
+    // Phase 4 (parent fix): static-JSON route — registers a route that always
+    // answers with the given JSON body (200, application/json). Lets SP code
+    // serve a fixed document (e.g. App::openApi) without a capturing lambda,
+    // which the language deliberately does not support (loud E1000).
+    void        sp_rt_http_server_route_json(void* srv, const char* method, const char* path,
+                                            const char* json);
     bool        sp_rt_http_server_listen(void* srv, const char* host, int64_t port);
     void        sp_rt_http_server_wait(void* srv);
     int64_t     sp_rt_http_server_port(void* srv);
@@ -523,6 +646,8 @@ extern "C" {
     const char* sp_rt_pg_last_error(void* conn);
     void*       sp_rt_pg_query(void* conn, const char* sql);
     void*       sp_rt_pg_query_params(void* conn, const char* sql, const char** params, int64_t param_count);
+    bool        sp_rt_pg_prepare(void* conn, const char* name, const char* sql);
+    void*       sp_rt_pg_exec_prepared(void* conn, const char* name, const char** params, int64_t param_count);
     bool        sp_rt_pg_ping(void* conn);
     bool        sp_rt_pg_begin(void* conn);
     bool        sp_rt_pg_commit(void* conn);
@@ -582,6 +707,18 @@ extern "C" {
     const char* sp_rt_session_regenerate(void* store, const char* old_session_id, int64_t ttl_secs);
     void        sp_rt_session_store_destroy(void* store);
 
+    // Persistent (SQLite-backed) sessions (Phase 31). open() returns null
+    // on failure; last_error() explains why. No in-memory fallback.
+    void*       sp_rt_psession_open(const char* path, int64_t default_ttl_secs);
+    void        sp_rt_psession_close(void* store);
+    const char* sp_rt_psession_last_error(void* store);
+    const char* sp_rt_psession_create(void* store, const char* data_json, int64_t ttl_secs);
+    const char* sp_rt_psession_get(void* store, const char* session_id);
+    bool        sp_rt_psession_set(void* store, const char* session_id, const char* data_json, int64_t ttl_secs);
+    bool        sp_rt_psession_destroy(void* store, const char* session_id);
+    const char* sp_rt_psession_regenerate(void* store, const char* old_session_id, int64_t ttl_secs);
+    int64_t     sp_rt_psession_count(void* store);
+
     // ========================================================================
     // Phase 26: Real-Time Web & Distributed Caching (WebSocket & Redis) (SP 2.8)
     // ========================================================================
@@ -595,6 +732,13 @@ extern "C" {
     void        sp_rt_ws_hub_leave(void* hub, int64_t conn_id, const char* room);
     int64_t     sp_rt_ws_hub_size(void* hub);
     int64_t     sp_rt_ws_hub_room_size(void* hub, const char* room);
+
+    // WebSocket server transport (Phase 31): text handler per upgrade path.
+    void        sp_rt_ws_route(const char* path, void (*handler_fn)(int64_t conn_id, const char* msg));
+    bool        sp_rt_ws_send(int64_t conn_id, const char* msg);
+    void        sp_rt_ws_broadcast(const char* msg);
+    void        sp_rt_ws_close_conn(int64_t conn_id);
+    int64_t     sp_rt_ws_connection_count();
 
     // Server-Sent Events (SSE)
     const char* sp_rt_sse_format(const char* event, const char* data, const char* id, int64_t retry);
@@ -695,6 +839,21 @@ extern "C" {
     void        sp_rt_cron_start(void* cron);
     void        sp_rt_cron_stop(void* cron);
     int32_t     sp_rt_cron_task_count(void* cron);
+
+    // Persistent (SQLite-backed) job queue (Phase 31). open() returns null
+    // on failure; last_error() explains why. No in-memory fallback.
+    // dequeue() returns "{}" when no job is due, else the job as JSON.
+    void*       sp_rt_pqueue_open(const char* path);
+    void        sp_rt_pqueue_close(void* queue);
+    const char* sp_rt_pqueue_last_error(void* queue);
+    const char* sp_rt_pqueue_enqueue(void* queue, const char* name, const char* payload, int32_t max_retries, int32_t backoff_ms, int32_t delay_ms);
+    const char* sp_rt_pqueue_dequeue(void* queue);
+    bool        sp_rt_pqueue_complete(void* queue, const char* job_id);
+    bool        sp_rt_pqueue_fail(void* queue, const char* job_id, const char* error);
+    int32_t     sp_rt_pqueue_pending_count(void* queue);
+    int32_t     sp_rt_pqueue_dlq_count(void* queue);
+    bool        sp_rt_pqueue_retry_dlq(void* queue, const char* job_id);
+    void        sp_rt_pqueue_clear_dlq(void* queue);
 
     // ========================================================================
     // Phase 28: In-Memory HTTP Test Client (std.test.http) & OpenAPI Docs

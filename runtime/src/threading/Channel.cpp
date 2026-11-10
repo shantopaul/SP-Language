@@ -140,6 +140,43 @@ bool Channel::is_closed() const {
     return m_closed;
 }
 
+// Phase 37 slice B: flag the queued items as retained references and
+// drain them for destroy(). The flag is set from the compiler's
+// Channel.send retain site (before the first reference-typed send);
+// drain_items() is only called from sp_rt_channel_destroy, when the
+// channel is no longer shared — a concurrent send/recv at destroy
+// time is already undefined behaviour for this channel.
+void Channel::mark_ref_items() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_ref_items = true;
+}
+
+bool Channel::ref_items() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_ref_items;
+}
+
+std::vector<void*> Channel::drain_items() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    std::vector<void*> items;
+    if (m_capacity > 0) {
+        items.reserve(m_count);
+        for (size_t i = 0; i < m_count; ++i) {
+            items.push_back(m_ring_buffer[(m_head + i) % m_capacity]);
+        }
+        m_head = 0;
+        m_tail = 0;
+        m_count = 0;
+    } else {
+        items.reserve(m_unbounded_queue.size());
+        while (!m_unbounded_queue.empty()) {
+            items.push_back(m_unbounded_queue.front());
+            m_unbounded_queue.pop_front();
+        }
+    }
+    return items;
+}
+
 int64_t Channel::size() const {
     std::lock_guard<std::mutex> lock(m_mtx);
     return m_capacity > 0 ? static_cast<int64_t>(m_count) : static_cast<int64_t>(m_unbounded_queue.size());

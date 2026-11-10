@@ -107,7 +107,7 @@ public:
     std::unique_ptr<ast::ExpressionNode> foldToLiteral(const ast::ExpressionNode& expr);
 
     // Scan an entire Program, registering comptime functions and folding comptime blocks/expressions
-    void processProgram(ast::Program& program);
+    void processProgram(const ast::Program& program);
 
     [[nodiscard]] bool hasError() const noexcept { return m_hasError; }
     [[nodiscard]] const std::string& getLastError() const noexcept { return m_lastError; }
@@ -121,7 +121,14 @@ private:
 
     void pushScope();
     void popScope();
+    // Assign to the nearest existing binding, searching outward (used only
+    // by AssignExpr). See defineVar below for why this must NOT be used
+    // for parameter binding or `let` declarations.
     void setVar(const std::string& name, ComptimeValue val);
+    // Phase 4 slice D: always create a FRESH binding in the innermost
+    // scope (shadowing any outer binding of the same name). Used for
+    // function parameters and `let` declarations.
+    void defineVar(const std::string& name, ComptimeValue val);
     bool getVar(const std::string& name, ComptimeValue& outVal) const;
 
     void reportError(std::string_view code, std::string message, const diagnostics::SourceLocation& loc);

@@ -3,13 +3,31 @@
 #include "sp/codegen/ObjectEmitter.h"
 #include <filesystem>
 #include <cstdlib>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
 class LinkerDriverTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        m_tempDir = fs::temp_directory_path() / "sp_linker_driver_test";
+        // Phase 4 slice D: unique temp dir per test process + test name.
+        // The old fixed dir was shared by every parallel ctest process;
+        // one process's TearDown remove_all deleted the directory while
+        // another process was linking/running inside it (same defect as
+        // ObjectEmitterTest -- see that fixture). Failed in full -j2 runs,
+        // passed alone.
+#if defined(_WIN32)
+        const unsigned long pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+        const long pid = static_cast<long>(::getpid());
+#endif
+        std::string testName = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+        m_tempDir = fs::temp_directory_path() /
+                    ("sp_linker_driver_test_" + std::to_string(pid) + "_" + testName);
         fs::create_directories(m_tempDir);
     }
 
