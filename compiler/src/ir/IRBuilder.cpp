@@ -113,6 +113,11 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
     m_vtableBuilder = std::make_unique<codegen::VTableBuilder>(m_sema);
     m_vtableBuilder->buildProgramLayouts(program, *m_module);
 
+    // Phase 8 slice A: generate <Class>_destructor functions now that
+    // all layouts exist (before any `new` is compiled, so the NewExpr
+    // lookup finds them).
+    emitClassDestructors();
+
     // Phase 3 slice D: build the compile-time evaluator registry from the
     // whole program before lowering, so visit(ComptimeExpr) can evaluate
     // comptime expressions and fold the computed constants into the IR.
@@ -142,6 +147,94 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
     }
 
     return std::move(m_module);
+}
+
+// Phase 8 slice A: real class destructors (ADR-001).
+//
+// The runtime already supports destructors (Phase 11): sp_rt_arc_alloc
+// stores an SPDestructorFn in the object header and sp_rt_release calls
+// it on the last strong release. visit(NewExpr) already looks up
+// "<Class>_destructor" and passes it to arc_alloc — but nothing ever
+// created such a function, so the pointer was always null and a dying
+// object never released its fields (temp_chain: after chain 1 /
+// after arg 2). This generates one, per class, for every owned
+// reference field: void <LayoutName>_destructor(ptr %obj) loads each
+// releasable field and calls sp_rt_release on it.
+//
+// Rules (see docs/v2/PHASE-37-SLICE-A.md §0 for the full design):
+// - Only layouts that resolve to a sema ClassType get a destructor
+//   (interfaces, structs and builtins without a decl are skipped).
+// - A field is releasable when its IR type is a pointer and it is not
+//   weak. Weak-ness comes from sema MemberField.isWeak (populated by
+//   NameResolver) — this deliberately does not touch VTableBuilder's
+//   FieldLayoutInfo, which slice C (parallel worktree) is plumbing.
+// - Base-class fields are already flattened into the derived layout,
+//   so the derived destructor releases them directly and must NOT call
+//   the base destructor (that would double-release).
+// - If a function with the destructor name already exists (a user
+//   method named `destructor` mangles to exactly that name), nothing
+//   is generated — the pre-existing NewExpr lookup already uses it.
+void IRBuilder::emitClassDestructors() {
+    if (!m_vtableBuilder || !m_module) return;
+
+    // Weak fields, from sema. Keyed by mangled class name + "::" + field
+    // name; the key uses field.className (the declaring class), so base
+    // fields copied into a derived layout resolve under the base name.
+    std::unordered_set<std::string> weakFields;
+    std::unordered_map<std::string, std::shared_ptr<sema::ClassType>> classByMangled;
+    for (const auto& [typeName, userType] : m_sema.getTypeContext().getUserTypes()) {
+        (void)typeName;
+        if (!userType || !userType->isClass()) continue;
+        auto clsType = std::static_pointer_cast<sema::ClassType>(userType);
+        std::string mangled = codegen::VTableBuilder::mangleGenericName(clsType->getName());
+        classByMangled[mangled] = clsType;
+        for (const auto& [fname, field] : clsType->getFields()) {
+            if (field.isWeak) weakFields.insert(mangled + "::" + fname);
+        }
+    }
+
+    IRFunction* savedFunction = m_currentFunction;
+    IRBasicBlock* savedBlock = m_currentBlock;
+    const codegen::ClassLayout* savedClass = m_currentClass;
+
+    for (const auto& [layoutName, layout] : m_vtableBuilder->getAllLayouts()) {
+        if (classByMangled.find(layoutName) == classByMangled.end()) continue;
+        std::vector<const codegen::FieldLayoutInfo*> releasable;
+        for (const auto& field : layout.fields) {
+            if (!field.irType || !field.irType->isPointer()) continue;
+            if (weakFields.count(field.className + "::" + field.name)) continue;
+            releasable.push_back(&field);
+        }
+        if (releasable.empty()) continue;
+        std::string dtorName = layoutName + "_destructor";
+        if (m_module->getFunction(dtorName)) continue;  // user-defined; preserve
+        std::vector<std::shared_ptr<ParameterValue>> params;
+        params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%obj", 0));
+        auto func = m_module->createFunction(dtorName, IRType::getVoid(), params);
+        m_currentFunction = func;
+        m_currentClass = &layout;
+        auto entryBB = func->createBasicBlock("entry");
+        setInsertPoint(entryBB);
+        for (const auto* field : releasable) {
+            auto gep = std::make_shared<GetElementPtrInst>(
+                layout.structType, params[0],
+                std::vector<IRValuePtr>{
+                    std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                    std::make_shared<ConstantInt>(IRType::getInt32(), static_cast<int32_t>(field->index))},
+                m_currentFunction->nextTempName("dtor_field_" + field->name));
+            m_currentBlock->addInstruction(gep);
+            auto load = std::make_shared<LoadInst>(IRType::getPointer(), gep,
+                m_currentFunction->nextTempName("dtor_val_" + field->name));
+            m_currentBlock->addInstruction(load);
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{load}));
+        }
+        m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+    }
+
+    m_currentClass = savedClass;
+    m_currentFunction = savedFunction;
+    m_currentBlock = savedBlock;
 }
 
 void IRBuilder::reportUnsupported(const diagnostics::SourceLocation& loc, const std::string& construct,
@@ -1324,6 +1417,10 @@ void IRBuilder::visit(const ast::Program& node) {
             // Phase 3 slice C: synthesized main also drains
             // fire-and-forget async tasks before the process exits.
             emitMainExitPump();
+            // Phase 8 slice A: drop main's locals before returning —
+            // popScope() below runs after the ReturnInst, when drops
+            // are silently skipped (terminated block).
+            emitAllFunctionDrops();
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
         }
@@ -1463,16 +1560,24 @@ void IRBuilder::visit(const ast::FunctionDecl& node) {
 
     // Ensure terminator exists
     if (!m_currentBlock->hasTerminator()) {
+        // Phase 8 slice A: drop locals before the implicit return —
+        // popScope() below runs after the ReturnInst, when drops are
+        // silently skipped (terminated block). For main the pump runs
+        // first (tasks drain before locals die), as in the synthesized
+        // main above.
         if (returnType->isVoid()) {
+            emitAllFunctionDrops();
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
         } else if (node.getName() == "main") {
             // Phase 3 slice C: main drains fire-and-forget async tasks
             // before the process exits (timers/queued tasks only;
             // registered sockets do not keep the drain going).
             emitMainExitPump();
+            emitAllFunctionDrops();
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(
                 std::make_shared<ConstantInt>(IRType::getInt32(), 0)));
         } else {
+            emitAllFunctionDrops();
             m_currentBlock->addInstruction(std::make_shared<ReturnInst>(makeDefaultValue(returnType)));
         }
     }

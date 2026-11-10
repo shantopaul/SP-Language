@@ -79,6 +79,8 @@ public:
 
     // Query layouts
     [[nodiscard]] const ClassLayout* getClassLayout(const std::string& className) const;
+    // Phase 8 slice A: enumerate every layout (destructor generation).
+    [[nodiscard]] const std::unordered_map<std::string, ClassLayout>& getAllLayouts() const noexcept { return m_layouts; }
     [[nodiscard]] int getFieldIndex(const std::string& className, const std::string& fieldName) const;
     [[nodiscard]] int getMethodVTableSlot(const std::string& className, const std::string& methodName) const;
     // Signature-aware slot lookup: methodKey is the overload key, i.e.

@@ -265,6 +265,10 @@ private:
     void emitScopeDrops(size_t scopeIndex);
     void emitAllFunctionDrops();
 
+    // Phase 8 slice A: generate <Class>_destructor functions for every
+    // class with owned reference fields (see IRBuilder.cpp).
+    void emitClassDestructors();
+
     // Phase 6 slice C: the +1 return convention (see IRBuilder.cpp).
     // isFreshPlusOneExpr: true when the expression already carries a
     // fresh +1 share (a directly-written `new`, or a call to a
