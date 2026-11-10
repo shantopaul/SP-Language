@@ -2295,9 +2295,12 @@ fn main() {
 > API (verified with `spc run`). `Result` is a builtin tagged union with
 > the constructors `Result.Ok(value)` / `Result.Err(error)` and the
 > methods `isOk()` / `isErr()` / `unwrap()` / `unwrapErr()` /
-> `unwrapOr(default)`. There is no bare `Error(...)` constructor, and
-> `match` on a `Result` does not work as shown in the old draft -- use
-> `isOk()` / `isErr()` instead.
+> `unwrapOr(default)`. There is no bare `Error(...)` constructor.
+>
+> Phase 38 (2026-11-10): `match` on a `Result` / `Option` / user enum
+> with payloads now binds the payload — `Result.Ok(v) => ...` puts the
+> payload in `v`. The old "match does not work, use isOk()/isErr()"
+> note is stale; the match example below is verified with `spc run`.
 
 ```sp
 // ═══════════════════════════════════════════════════
@@ -2333,6 +2336,48 @@ fn main() {
 Error: Cannot divide 100 by zero
 or default: 999
 ```
+
+### Matching on a Result — payload binding
+
+```sp
+fn divide(int a, int b) -> Result<int, string> {
+    if (b == 0) {
+        return Result.Err("Cannot divide ${a} by zero");
+    }
+    return Result.Ok(a / b);
+}
+
+fn main() {
+    var r = divide(100, 0);
+    match r {
+        Result.Ok(v) => println("value ${v}"),
+        Result.Err(e) => println("error ${e}")
+    }
+
+    var o = Option.Some(7);
+    match o {
+        Option.Some(v) => println("some ${v}"),
+        Option.None => println("none")
+    }
+}
+```
+
+**Output:**
+```
+error Cannot divide 100 by zero
+some 7
+```
+
+A binding is **borrowed** — it aliases the subject's payload for the duration of the arm body, so the subject must outlive the match. Assigning the binding to a variable, returning it, or passing it to a function retains it the usual way. The same binding form works on user enums with a single payload, and on multi-payload variants (`Pair.Both(a, b) => ...`) each part binds separately. Nested patterns (`Result.Ok(Some(x))`) and literal patterns (`Result.Ok(5)`) are not supported yet — they report a clear error.
+
+### Payload ownership
+
+A `Result` / `Option` **owns** its payload: exactly one share, freed when the value goes out of scope or is reassigned. Constructing from a fresh value (a `new` object, or a call returning one) adopts it; constructing from a borrowed value retains it; copying retains. `?`, `unwrap()`, `unwrapErr()`, `unwrapOr()` and match bindings all yield **borrowed** values — the caller retains them if it keeps them. Consequences in practice:
+
+- A `Result` holding a class value keeps it alive exactly as long as the `Result` itself lives — returning it from a function is safe.
+- A payload that is itself a `Result` / `Option`, a struct, or a multi-payload variant is boxed on the heap; the box is freed with the value, and a nested `Result` payload is released by the box's destructor.
+- A struct payload is copied out when unwrapped, so it never dangles after the value is dropped (a struct's own fields are still untracked — a struct holding a class value does not release it).
+- Class **fields** holding a `Result` / `Option` are not released when the object dies (leak, not a use-after-free) — keep `Result` / `Option` in locals, parameters, and return values.
 
 ---
 

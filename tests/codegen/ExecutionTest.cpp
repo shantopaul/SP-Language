@@ -3716,3 +3716,75 @@ TEST(ExecutionTest, AsyncGenericFnAwait) {
     std::string output = runSPProgram(source, "exec_async_generic");
     EXPECT_NE(output.find("999"), std::string::npos);
 }
+
+// Phase 38 slice E: FS.tryListDir / tryListDir — listDir's [] is
+// ambiguous (empty dir vs error), so the try* variant reports it:
+// missing -> Err(NotFound), not-a-dir -> Err(InvalidInput).
+TEST(ExecutionTest, FsTryListDir) {
+    const std::string source = R"sp(
+        import std.fs;
+
+        fn main() {
+            string testDir = "temp_exec_trylist_dir";
+            string testFile = "temp_exec_trylist_dir/child.txt";
+            createDir(testDir);
+            writeText(testFile, "child");
+
+            var dir = tryListDir(testDir);
+            println("dir ok ${dir.isOk()}");
+            var items = dir.unwrap();
+            println("dir len ${items.length()}");
+            println("dir item ${items[0]}");
+
+            var missing = tryListDir("temp_exec_no_such_dir_xyz");
+            println("missing err ${missing.isErr()}");
+
+            var file = tryListDir(testFile);
+            println("file err ${file.isErr()}");
+
+            var fs = FS.tryListDir(testDir);
+            println("fs ok ${fs.isOk()}");
+
+            delete(testFile);
+            delete(testDir);
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_fs_try_list_dir");
+    EXPECT_NE(output.find("dir ok true"), std::string::npos);
+    EXPECT_NE(output.find("dir len 1"), std::string::npos);
+    EXPECT_NE(output.find("dir item child.txt"), std::string::npos);
+    EXPECT_NE(output.find("missing err true"), std::string::npos);
+    EXPECT_NE(output.find("file err true"), std::string::npos);
+    EXPECT_NE(output.find("fs ok true"), std::string::npos);
+}
+
+// Phase 38 slice E: tryReadLine EOF semantics — "" is returned both
+// for an empty line and for EOF, so the builtin checks
+// sp_rt_stdin_eof(): an empty line is Ok(""), EOF is
+// Err(IOError.UnexpectedEOF). Input "hello" (no trailing newline):
+// first read is Ok("hello"), second is EOF.
+TEST(ExecutionTest, IoTryReadLineEof) {
+    const std::string source = R"sp(
+        import std.io;
+
+        fn main() {
+            var r1 = tryReadLine();
+            println("r1 ok ${r1.isOk()}");
+            println("r1 line ${r1.unwrap()}");
+            var r2 = tryReadLine();
+            println("r2 err ${r2.isErr()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_io_try_readline", "hello");
+    EXPECT_NE(output.find("r1 ok true"), std::string::npos);
+    EXPECT_NE(output.find("r1 line hello"), std::string::npos);
+    EXPECT_NE(output.find("r2 err true"), std::string::npos);
+
+    // An empty line is Ok(""), not an error — only true EOF is Err.
+    std::string output2 = runSPProgram(source, "exec_io_try_readline_empty", "\n");
+    EXPECT_NE(output2.find("r1 ok true"), std::string::npos);
+    EXPECT_NE(output2.find("r1 line "), std::string::npos);
+    EXPECT_NE(output2.find("r2 err true"), std::string::npos);
+}

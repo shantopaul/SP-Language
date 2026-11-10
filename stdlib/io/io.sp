@@ -19,6 +19,7 @@ extern "C" {
     fn sp_rt_print_double(double val);
     fn sp_rt_print_bool(bool val);
     fn sp_rt_read_line() -> string;
+    fn sp_rt_stdin_eof() -> bool;
     fn sp_rt_eprint_string(string str);
     fn sp_rt_eprintln_string(string str);
     fn sp_rt_flush();
@@ -75,7 +76,14 @@ public fn readln() -> string {
 }
 
 public fn tryReadLine() -> Result<string, IOError> {
+    // Phase 38 slice E: a real Result — EOF is Err(UnexpectedEOF),
+    // not Ok(""). std::getline returns "" for both an empty line
+    // and EOF; sp_rt_stdin_eof() is set only on the latter (a last
+    // line without a trailing newline is non-empty, so it is Ok).
     string line = sp_rt_read_line();
+    if (line == "" && sp_rt_stdin_eof()) {
+        return Result.Err(IOError.UnexpectedEOF);
+    }
     return Result.Ok(line);
 }
 
@@ -110,6 +118,9 @@ public class IO {
 
     public static fn tryReadLine() -> Result<string, IOError> {
         string line = sp_rt_read_line();
+        if (line == "" && sp_rt_stdin_eof()) {
+            return Result.Err(IOError.UnexpectedEOF);
+        }
         return Result.Ok(line);
     }
 

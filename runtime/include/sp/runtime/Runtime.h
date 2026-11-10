@@ -27,6 +27,11 @@ extern "C" {
 
     const char* sp_rt_read_line();
     const char* sp_rt_readln();
+    // Phase 38 slice E (ADR-002): stdin EOF state, so
+    // std.io.tryReadLine can report EOF as Err(UnexpectedEOF)
+    // instead of Ok("") — std::getline returns "" for both an empty
+    // line and EOF; eof() is set only on the latter.
+    bool        sp_rt_stdin_eof();
 
     void sp_rt_eprint_string(const char* str);
     void sp_rt_eprintln_string(const char* str);

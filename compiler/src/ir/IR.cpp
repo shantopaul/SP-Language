@@ -462,6 +462,11 @@ void IRModule::initRuntimeDeclarations() {
                    {},
                    true);
 
+    // Phase 38 slice E: i1 sp_rt_stdin_eof()
+    createFunction("sp_rt_stdin_eof", IRType::getInt1(),
+                   {},
+                   true);
+
     // void sp_rt_eprint_string(ptr)
     createFunction("sp_rt_eprint_string", IRType::getVoid(),
                    {std::make_shared<ParameterValue>(IRType::getPointer(IRType::getInt8()), "str", 0)},

@@ -25,6 +25,8 @@ fn main() -> int {
 - `fn println(text: string) -> void`: Write string to stdout with trailing newline.
 - `fn eprint(text: string) -> void`: Write string to stderr without trailing newline.
 - `fn eprintln(text: string) -> void`: Write string to stderr with trailing newline.
+- `fn readLine() -> string`: Read one line from stdin (without the trailing newline). Returns `""` both for an empty line and for EOF — use `tryReadLine()` when the distinction matters.
+- `fn tryReadLine() -> Result<string, IOError>`: Read one line from stdin. An empty line is `Ok("")`; end-of-input is `Err(IOError.UnexpectedEOF)`. A last line without a trailing newline is still `Ok(text)`. Also available as `IO.tryReadLine()`.
 
 ---
 
@@ -106,32 +108,55 @@ println("Alice score: ${map.get("Alice")}");
 
 ## 5. `std/fs` — File System Operations
 
-File reading, writing, path manipulation, and directory management.
+File reading, writing, path manipulation, and directory management. Every operation is available both as a free function and as a static method on `FS` (e.g. `readText(path)` and `FS.readText(path)`); `File` exposes the file operations only (no `listDir` / `createDir`).
 
 ```sp
 import std.fs;
 
 // Write text file
-FS.writeString("config.txt", "port=8080\nenv=production");
+writeText("config.txt", "port=8080\nenv=production");
 
 // Read text file
-let content: string = FS.readString("config.txt");
+let content: string = readText("config.txt");
 
 // Check file existence
-if (FS.exists("config.txt")) {
-    let size: int = FS.fileSize("config.txt");
-    println("Config size: ${size} bytes");
+if (exists("config.txt")) {
+    println("Config exists");
 }
 ```
 
 ### Methods
-- `FS.readString(path: string) -> string`
-- `FS.writeString(path: string, content: string) -> bool`
-- `FS.appendString(path: string, content: string) -> bool`
-- `FS.exists(path: string) -> bool`
-- `FS.remove(path: string) -> bool`
-- `FS.fileSize(path: string) -> int`
-- `FS.createDirectory(path: string) -> bool`
+- `readText(path: string) -> string` / `FS.readText(path)`: Read the whole file as text. Returns `""` if the file cannot be read.
+- `writeText(path: string, content: string) -> bool` / `FS.writeText(path, content)`: Overwrite (or create) a file.
+- `appendText(path: string, content: string) -> bool` / `FS.appendText(path, content)`: Append to a file.
+- `exists(path: string) -> bool` / `FS.exists(path)`: True if the path exists.
+- `delete(path: string) -> bool` / `FS.delete(path)` (also `deleteFile`): Delete a file or directory.
+- `createDir(path: string) -> bool` / `FS.createDir(path)`: Create a directory.
+- `listDir(path: string) -> string[]` / `FS.listDir(path)`: Sorted entry names of a directory. Returns `[]` both for an empty directory and for an error — use `tryListDir()` when the distinction matters.
+- `isFile(path: string) -> bool` / `FS.isFile(path)`: True if the path is a file.
+- `isDir(path: string) -> bool` / `FS.isDir(path)`: True if the path is a directory.
+
+### `try*` variants — `Result<T, IOError>`
+The plain functions above report failure silently (`""`, `false`, `[]`). The `try*` siblings return a `Result` whose `Err` is an `IOError` (`NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidInput`, `UnexpectedEOF`, `Other`) — use them when the caller must tell *why* an operation failed.
+
+- `tryReadText(path) -> Result<string, IOError>` / `FS.tryReadText(path)`: `Err(NotFound)` when the file does not exist, else `Ok(contents)`.
+- `tryWriteText(path, content) -> Result<bool, IOError>` / `FS.tryWriteText(path, content)`
+- `tryAppendText(path, content) -> Result<bool, IOError>` / `FS.tryAppendText(path, content)`
+- `tryDelete(path) -> Result<bool, IOError>` / `FS.tryDelete(path)`
+- `tryCreateDir(path) -> Result<bool, IOError>` / `FS.tryCreateDir(path)`
+- `tryListDir(path) -> Result<string[], IOError>` / `FS.tryListDir(path)`: `Err(NotFound)` for a missing path, `Err(InvalidInput)` when the path is not a directory, else `Ok(sorted entry names)`. Note: the existence and directory checks happen before the listing, so a path that disappears between the check and the listing still yields `Ok([])`.
+
+```sp
+import std.fs;
+
+var r = tryListDir("notes");
+match r {
+    Result.Ok(names) => println("entries: ${names.length()}"),
+    Result.Err(e) => println("cannot list: ${e}")
+}
+```
+
+> **Error-handling note (Phase 38):** only `std/fs` and `std/io` use `Result<T, IOError>` so far. The other modules keep their older conventions: `std/db` returns a result object with `isValid()` / `error()` and booleans for prepare/ping/transactions; `std/json` returns a `JsonValue` whose kind is `Error` on bad input; `std/crypto`'s `base64Decode` returns `""` on invalid input; `std/net` returns `""` on disconnect/timeout; `std/redis`'s `get` returns `""` for a missing key and for no connection alike; `std/http` returns an `HttpResponse` with `status()`; `std/os`'s `getEnv` returns `""` for a missing variable; `std/process` returns an int exit code; `std/collections`' `get` returns the zero value (`containsKey()` to test). Migrating those modules to `Result` is a per-module follow-up — their signatures do not change in this phase.
 
 ---
 

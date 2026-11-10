@@ -596,12 +596,17 @@ TypeContext::TypeContext() {
 
     auto resultStrIO = specializeEnumType(resultEnum, {"string", "IOError"});
     auto resultBoolIO = specializeEnumType(resultEnum, {"bool", "IOError"});
+    auto resultStrArrIO = specializeEnumType(resultEnum, {"string[]", "IOError"});
     if (resultStrIO && resultBoolIO) {
         fsCls->addMethod({"tryReadText", getFunctionType({m_stringType}, resultStrIO), "public", true, false, false});
         fsCls->addMethod({"tryWriteText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
         fsCls->addMethod({"tryAppendText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});
         fsCls->addMethod({"tryDelete", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
         fsCls->addMethod({"tryCreateDir", getFunctionType({m_stringType}, resultBoolIO), "public", true, false, false});
+        // Phase 38 slice E: tryListDir (FS only — File has no listDir).
+        if (resultStrArrIO) {
+            fsCls->addMethod({"tryListDir", getFunctionType({m_stringType}, resultStrArrIO), "public", true, false, false});
+        }
 
         fileCls->addMethod({"tryReadText", getFunctionType({m_stringType}, resultStrIO), "public", true, false, false});
         fileCls->addMethod({"tryWriteText", getFunctionType({m_stringType, m_stringType}, resultBoolIO), "public", true, false, false});

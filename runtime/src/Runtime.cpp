@@ -141,6 +141,14 @@ const char* sp_rt_readln() {
     return sp_rt_read_line();
 }
 
+// Phase 38 slice E (ADR-002): stdin EOF state for
+// std.io.tryReadLine. std::getline sets eofbit when it reaches EOF,
+// so after sp_rt_read_line returns "", eof() tells an empty line
+// (eof clear) from EOF (eof set).
+bool sp_rt_stdin_eof() {
+    return std::cin.eof();
+}
+
 void sp_rt_eprint_string(const char* str) {
     if (str) {
         std::cerr << str;

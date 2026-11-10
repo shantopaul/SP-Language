@@ -326,9 +326,15 @@ void SymbolTable::initBuiltins(TypeContext& typeCtx) {
 
     auto resultStrIO = typeCtx.resolveType("Result<string, IOError>");
     auto resultBoolIO = typeCtx.resolveType("Result<bool, IOError>");
+    auto resultStrArrIO = typeCtx.resolveType("Result<string[], IOError>");
     if (resultStrIO) {
         define(std::make_shared<FunctionSymbol>("tryReadText", typeCtx.getFunctionType({typeCtx.getString()}, resultStrIO), builtinLoc));
         define(std::make_shared<FunctionSymbol>("tryReadLine", typeCtx.getFunctionType({}, resultStrIO), builtinLoc));
+    }
+    if (resultStrArrIO) {
+        // Phase 38 slice E: tryListDir — listDir's [] is ambiguous
+        // (empty dir vs error), so the try* variant reports it.
+        define(std::make_shared<FunctionSymbol>("tryListDir", typeCtx.getFunctionType({typeCtx.getString()}, resultStrArrIO), builtinLoc));
     }
     if (resultBoolIO) {
         define(std::make_shared<FunctionSymbol>("tryWriteText", typeCtx.getFunctionType({typeCtx.getString(), typeCtx.getString()}, resultBoolIO), builtinLoc));
