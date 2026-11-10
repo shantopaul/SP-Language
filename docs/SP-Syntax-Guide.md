@@ -2966,27 +2966,103 @@ fn main() {
 //  CALL C FUNCTIONS FROM SP
 // ═══════════════════════════════════════════════════
 //
-// Pointers are `ptr`, not `pointer`. Declared functions must be
-// called with exactly the declared parameters (C variadics such as
-// printf with format arguments cannot be declared).
+// `extern "C"` declares C functions. Pointers are `ptr<T>`
+// (`ptr<char>`, `ptr<uint8>`, `ptr<void>`). A string literal
+// converts implicitly to `ptr<char>` / `ptr<uint8>`; a `string`
+// variable does not. Pointer dereference, address-of, and indexing
+// only work inside `unsafe` blocks (or `unsafe fn`).
 
 extern "C" {
-    fn strlen(string s) -> int;
-    fn malloc(int size) -> ptr;
-    fn free(ptr p);
+    fn strlen(s: ptr<char>) -> uint64;
+    fn malloc(size: uint64) -> ptr<void>;
+    fn free(p: ptr<void>);
 }
 
 fn main() {
     // Use C's strlen
-    int len = strlen("Hello");
+    let len: uint64 = strlen("Hello");
     println("strlen: ${len}");   // 5
 
     // Raw allocation through C
-    ptr p = malloc(1024);
-    free(p);
+    unsafe {
+        let p: ptr<uint8> = malloc(1024);
+        free(p);
+    }
     println("ffi ok");
 }
 ```
+
+> `spc` links libc by default, so no `--link` flag is needed for
+> standard C functions. `int` in SP is 32-bit; use `int64` / `uint64`
+> for C `long` / `size_t`.
+
+```sp
+// ═══════════════════════════════════════════════════
+//  STRUCTS BY VALUE
+// ═══════════════════════════════════════════════════
+//
+// A `#[repr(C)]` struct has a deterministic C layout, so it can
+// cross the boundary by value. Small structs (up to 16 bytes) are
+// passed and returned in registers under the System V ABI; larger
+// structs are passed by address. Here libc's `div` returns a
+// `div_t` (two ints) by value.
+
+#[repr(C)]
+struct DivT {
+    quot: int32;
+    rem: int32;
+}
+
+extern "C" {
+    fn div(numer: int32, denom: int32) -> DivT;
+}
+
+fn main() {
+    let d: DivT = div(17, 5);
+    println("quot ${d.quot} rem ${d.rem}");   // quot 3 rem 2
+}
+```
+
+**Linking a native library.** A library that is not libc needs
+`--link` (or `-l`), repeatable, plus `-L` for its directory:
+
+```bash
+$ spc run app.sp --link mini -L.
+$ spc build app.sp --link z -L/usr/local/lib
+```
+
+The same libraries can be declared in `sp.toml` (project mode,
+`spm build` reads it; bare `spc run` does not):
+
+```toml
+[native]
+libs = ["mini"]
+lib-paths = ["."]
+```
+
+**Generating bindings.** `spc bindgen` reads a C header and emits an
+SP module — `extern "C"` declarations, `#[repr(C)]` structs, and
+`const` values — which you then `import` like any other module:
+
+```bash
+$ spc bindgen /usr/include/zlib.h -I /usr/include --module zlib -o zlib.sp
+$ spc run app.sp --link z
+```
+
+The generated file is ordinary SP: `const` values bind as
+program-level constants, structs keep their C layout, and function
+pointers become `ptr<void>` (SP has no function-type syntax). Use it
+with `import zlib;` — `println("zlib ${ZLIB_VERSION}");` prints
+`zlib 1.3`. A variadic C function can be *declared*
+(`fn printf(fmt: ptr<char>,...) -> int32;`) but not yet *called* with
+extra arguments — that is still a sema arity error.
+
+**Ownership across the boundary.** ARC does not cross into C. A
+pointer SP passes to C stays owned by SP — C must not free it, and
+SP must keep the value alive while C may use it. A fresh allocation
+a C function returns (e.g. `malloc`, or a `strdup`-style result) is
+the caller's to free with the matching C `free`. Never free a string
+literal or a pointer into an SP-managed value.
 
 ---
 

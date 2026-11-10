@@ -2683,8 +2683,16 @@ void IRBuilder::visit(const ast::Program& node) {
         }
     }
 
-    // If there are top-level statements and no explicit main function, synthesize main
-    if (!topLevelStmts.empty() && !hasMainFunc) {
+    // If there are top-level statements and no explicit main function, synthesize main.
+    // Phase 39 slice D: a program whose only top-level content is
+    // `const`/`let` globals (or a class with static initializers) has
+    // no top-level statements, but still needs an entry point — the
+    // synthesized main runs the init functions (`__sp_global_init`,
+    // `__sp_static_init_*`) and exits. Without it the link fails with
+    // an undefined `main`, and `spc run` falls back to the legacy
+    // clang path with the misleading "Unsupported backend compiler"
+    // error (doc-gate ex053/ex126 regression).
+    if ((!topLevelStmts.empty() || !m_staticInitFunctions.empty()) && !hasMainFunc) {
         // Phase 6 slice B: the synthesized `main` is the real C entry
         // point too, so it takes (argc, argv) and forwards them to the
         // runtime first thing (OS.args()).
