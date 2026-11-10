@@ -8,6 +8,7 @@
 #include "sp/ast/Edition.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/sema/ComptimeEvaluator.h"
+#include "sp/sema/EscapeAnalysis.h"
 #include "sp/sema/ModuleLoader.h"
 #include "sp/ir/IRBuilder.h"
 #include "sp/ir/IRPrinter.h"
@@ -29,6 +30,7 @@
 #include <sstream>
 #include <string_view>
 #include <vector>
+#include <algorithm>
 #include <iomanip>
 #include <filesystem>
 #include <cstdlib>
@@ -889,6 +891,44 @@ int main(int argc, char* argv[]) {
             for (const auto& [name, sym] : sema.getSymbolTable().getGlobalScope()->getSymbols()) {
                 std::cout << "  " << std::left << std::setw(20) << name
                           << ": " << (sym->getType() ? sym->getType()->toString() : "unknown") << "\n";
+            }
+            // Phase 8 slice E (ADR-001): escape analysis verdicts.
+            // Advisory only — no codegen consumes them yet (see
+            // docs/v2/PHASE-37-SLICE-E.md §0.2). Sorted for stable
+            // output (the summaries live in unordered_maps).
+            sp::sema::EscapeAnalysis escapeAnalysis(&sema.getTypeChecker());
+            escapeAnalysis.analyze(*program);
+            std::cout << "Escape analysis:\n";
+            std::cout << std::string(60, '-') << "\n";
+            std::vector<std::string> funcNames;
+            for (const auto& [name, summary] : escapeAnalysis.getAllSummaries()) {
+                (void)summary;
+                funcNames.push_back(name);
+            }
+            std::sort(funcNames.begin(), funcNames.end());
+            for (const auto& funcName : funcNames) {
+                const auto* summary = escapeAnalysis.getSummary(funcName);
+                if (!summary) continue;
+                std::cout << "  " << funcName << ":\n";
+                std::vector<std::string> varNames;
+                for (const auto& [varName, info] : summary->getVariables()) {
+                    (void)info;
+                    varNames.push_back(varName);
+                }
+                std::sort(varNames.begin(), varNames.end());
+                for (const auto& varName : varNames) {
+                    const auto* info = summary->getVariableInfo(varName);
+                    if (!info) continue;
+                    std::cout << "    " << std::left << std::setw(20) << varName
+                              << ": "
+                              << (info->state == sp::sema::EscapeState::GlobalEscaping
+                                      ? "GlobalEscaping"
+                                      : "LocalNonEscaping");
+                    for (const auto& reason : info->escapeReasons) {
+                        std::cout << " (" << reason << ")";
+                    }
+                    std::cout << "\n";
+                }
             }
             return 0;
         }

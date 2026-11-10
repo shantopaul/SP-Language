@@ -124,6 +124,13 @@ std::unique_ptr<IRModule> IRBuilder::build(const ast::Program& program, const st
     m_comptimeEval = std::make_unique<sema::ComptimeEvaluator>(nullptr);
     m_comptimeEval->processProgram(program);
 
+    // Phase 8 slice E: run the escape analysis over the whole program
+    // before lowering. Advisory only — no codegen consumes the verdicts
+    // yet (see PHASE-37-SLICE-E.md §0.2); the summaries are kept on the
+    // builder for future phases and for the `spc sema` diagnostic.
+    m_escapeAnalysis = std::make_unique<sema::EscapeAnalysis>(&m_sema.getTypeChecker());
+    m_escapeAnalysis->analyze(program);
+
     visit(program);
 
     // Phase 1 (pro-4.0.0): fail loudly instead of silently dropping
@@ -1010,8 +1017,21 @@ void IRBuilder::popTempBranchScope() {
 }
 
 void IRBuilder::recordTempOwnedValue(IRValuePtr v) {
-    if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
-    if (m_tempScopeFunction != m_currentFunction) return;
+    // Phase 8 slice D (kept through the merge): `m_tempBranchDepth`
+    // is gone, replaced by `m_tempBranchScopes` — a temporary
+    // produced inside a branch region is recorded into the branch
+    // scope (see the selection below), not suppressed. The
+    // `m_inAsyncFunction` suppression is gone too: async temporaries
+    // are now recorded and carried across suspend points by the
+    // state machine (asyncSpillTempScopes), so suppressing them
+    // would reintroduce the Phase 7-C async leak (`after await 1`).
+    // (The first merge resolution kept C's guard verbatim, which
+    // broke D's async proof — this is the correction.)
+    if (m_tempScopes.empty() && m_tempBranchScopes.empty()) return;
+    // A branch scope only ever opens inside a statement scope of the
+    // same function; the function tag below guards the statement
+    // stack against a stale stack leaking across functions.
+    if (!m_tempScopes.empty() && m_tempScopeFunction != m_currentFunction) return;
     if (!v || !v->getType() || !v->getType()->isPointer()) return;
     // Phase 8 slice D: inside a branch region the temporary lives
     // in the branch scope (released by the branch block itself);

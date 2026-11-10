@@ -8,6 +8,7 @@
 #include "sp/ir/IRModule.h"
 #include "sp/sema/SemanticAnalyzer.h"
 #include "sp/sema/ComptimeEvaluator.h"
+#include "sp/sema/EscapeAnalysis.h"
 #include <map>
 #include <memory>
 #include <string>
@@ -35,6 +36,13 @@ public:
     // caller already treats a null module as a failed build.
     [[nodiscard]] bool hasErrors() const noexcept { return !m_errors.empty(); }
     [[nodiscard]] const std::vector<std::string>& getErrors() const noexcept { return m_errors; }
+
+    // Phase 8 slice E: the escape summaries computed by build()
+    // (nullptr before build() runs). Advisory only — see the member
+    // comment above.
+    [[nodiscard]] const sema::EscapeAnalysis* getEscapeAnalysis() const noexcept {
+        return m_escapeAnalysis.get();
+    }
 
     // Class and method compilation helpers
     void compileConstructor(const ast::ClassDecl& classDecl, const ast::FunctionDecl* ctorDecl, const codegen::ClassLayout& layout);
@@ -237,6 +245,15 @@ private:
     // visit(ComptimeExpr) interprets the inner expression with it and
     // lowers the computed value as an ordinary literal.
     std::unique_ptr<sema::ComptimeEvaluator> m_comptimeEval;
+
+    // Phase 8 slice E: the escape analysis, run once per build() from
+    // the whole program (see build()). It is advisory only — no
+    // codegen consumes its verdicts yet (retain/release elision is
+    // NOT sound under the +1 convention; see PHASE-37-SLICE-E.md
+    // §0.2). The summaries are kept for future phases (stack
+    // allocation) and for the `spc sema` diagnostic; the getter is
+    // the consumption point.
+    std::unique_ptr<sema::EscapeAnalysis> m_escapeAnalysis;
 
     // Guards a C string-runtime call: every argument that must be a string
     // is checked against its sema type. A `char` (or other non-string,
