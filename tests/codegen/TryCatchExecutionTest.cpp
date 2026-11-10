@@ -1687,6 +1687,36 @@ TEST(TryCatchExecutionTest, ContainerChannelDestroyDrainsQueuedItems) {
     EXPECT_NE(output.find("after destroy 0"), std::string::npos);
 }
 
+// Parent fix (Phase 37 merge): dropping a List grown past 8192
+// elements segfaulted — its items buffer is a 128 KiB mmap'd region
+// and sp_rt_free probed the magic 24 bytes before its base, which
+// are unmapped. get_arc_header now consults the live ARC payload
+// registry instead of reading memory, so the drop is a safe miss
+// and the buffer is freed with std::free.
+TEST(TryCatchExecutionTest, ContainerLargeListDropDoesNotCrash) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        import std.collections;
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            {
+                var list = new List<int>();
+                for (var i = 0; i < 10000; i = i + 1) { list.push(i); }
+                println("inside " + sp_rt_mem_live_objects());
+                println("size " + list.length());
+            }
+            println("after block " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_container_large_list_drop");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("inside 1"), std::string::npos);
+    EXPECT_NE(output.find("size 10000"), std::string::npos);
+    EXPECT_NE(output.find("after block 0"), std::string::npos);
+}
+
 TEST(TryCatchExecutionTest, ContainerPeekDoesNotStealShare) {
     const std::string source = R"(
         extern "C" {

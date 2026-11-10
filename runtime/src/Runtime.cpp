@@ -14,6 +14,8 @@
 #include <thread>
 #include <ctime>
 #include <atomic>
+#include <mutex>
+#include <unordered_set>
 #include <cassert>
 #if defined(_WIN32) || defined(_WIN64)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -548,6 +550,34 @@ struct SPObjectHeader {
     SPDestructorFn destructor;
 };
 
+// Parent fix (Phase 37 merge): live ARC payload registry.
+//
+// get_arc_header used to decide "is this an ARC payload?" by reading
+// the 4-byte magic 24 bytes BEFORE the pointer. That read is only
+// safe when those bytes are mapped — and a plain malloc'd buffer of
+// >=128 KiB is an mmap'd region whose base has NO mapped bytes
+// before it, so the probe segfaults. Slice B made sp_rt_free (which
+// probes) the free path for every container's internal buffer, and
+// slice A made scope drops actually run container destructors —
+// together they crashed CollectionStressAndScalingNativeExecution:
+// a List<int> grown past 8192 elements (items = 128 KiB mmap'd)
+// segfaulted in sp_list_destructor -> sp_rt_free -> get_arc_header.
+// Small lists never crashed (heap chunk headers are mapped, the
+// magic simply mismatched), which is why slice B's own proofs and
+// ctest passed: its tree never dropped a large container at all
+// (main's locals were never dropped before slice A).
+//
+// The registry is the discriminator now: only pointers returned by
+// sp_rt_arc_alloc are members, and membership is checked BEFORE any
+// memory is read, so a plain (even mmap'd) pointer is a safe
+// miss. The entry is erased when the header block is actually freed
+// (sp_rt_weak_release, last weak ref). Cost: one mutex + hash lookup
+// per retain/release/free — the lock is uncontended in
+// single-threaded execution and is never held across a destructor
+// call, so no nesting or deadlock is possible.
+static std::mutex g_arc_registry_mutex;
+static std::unordered_set<void*> g_arc_payloads;
+
 void* sp_rt_arc_alloc(uint64_t size, SPDestructorFn dtor) {
     if (size == 0) size = 1;
     size_t total_size = sizeof(SPObjectHeader) + static_cast<size_t>(size);
@@ -567,12 +597,22 @@ void* sp_rt_arc_alloc(uint64_t size, SPDestructorFn dtor) {
     g_active_arc_objects.fetch_add(1, std::memory_order_relaxed);
 
     void* payload = reinterpret_cast<uint8_t*>(header) + sizeof(SPObjectHeader);
+    // Parent fix (Phase 37 merge): register the live payload — see
+    // get_arc_header above.
+    {
+        std::lock_guard<std::mutex> lock(g_arc_registry_mutex);
+        g_arc_payloads.insert(payload);
+    }
     std::memset(payload, 0, static_cast<size_t>(size));
     return payload;
 }
 
 static inline SPObjectHeader* get_arc_header(void* ptr) {
     if (!ptr) return nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_arc_registry_mutex);
+        if (g_arc_payloads.find(ptr) == g_arc_payloads.end()) return nullptr;
+    }
     auto* header = reinterpret_cast<SPObjectHeader*>(reinterpret_cast<uint8_t*>(ptr) - sizeof(SPObjectHeader));
     return (header->magic == SP_ARC_MAGIC) ? header : nullptr;
 }
@@ -662,6 +702,12 @@ void sp_rt_weak_release(void* weak_ptr) {
         size_t total_size = sizeof(SPObjectHeader) + header->allocated_size;
         g_allocated_bytes.fetch_sub(total_size, std::memory_order_relaxed);
         header->magic = 0; // invalidate
+        // Parent fix (Phase 37 merge): unregister the payload before
+        // freeing the header (see get_arc_header).
+        {
+            std::lock_guard<std::mutex> lock(g_arc_registry_mutex);
+            g_arc_payloads.erase(reinterpret_cast<uint8_t*>(header) + sizeof(SPObjectHeader));
+        }
         std::free(header);
     }
 }
