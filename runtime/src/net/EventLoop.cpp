@@ -404,6 +404,12 @@ uint64_t Scheduler::scheduleAfter(int64_t delayMs, std::function<void()> cb) {
     if (delayMs < 0) delayMs = 0;
     uint64_t id = m_nextTimerId++;
     m_timers.push(Timer{nowTp() + std::chrono::milliseconds(delayMs), id, std::move(cb)});
+    // Phase 40 slice B: the id joins the live set so hasPending() /
+    // pendingCount() answer in O(1) instead of copying the heap.
+    {
+        std::lock_guard<std::mutex> lock(m_cancelMtx);
+        m_pendingTimerIds.insert(id);
+    }
     return id;
 }
 
@@ -417,7 +423,12 @@ bool Scheduler::cancel(uint64_t timerId) {
     // skipped. This keeps cancel() O(1) and avoids heap surgery.
     // Phase 6 slice C: the set is guarded — cancel() may run off the
     // loop thread (from Task::cancel()).
+    // Phase 40 slice B: the id also leaves the live set, so the O(1)
+    // pending count stays exact. The return value is unchanged: true on
+    // the first cancel() call for an id (even if the timer already
+    // fired), false on a repeat.
     std::lock_guard<std::mutex> lock(m_cancelMtx);
+    m_pendingTimerIds.erase(timerId);
     auto [it, inserted] = m_cancelledTimers.insert(timerId);
     return inserted;
 }
@@ -444,37 +455,55 @@ void Scheduler::fireDueTimers() {
         {
             std::lock_guard<std::mutex> lock(m_cancelMtx);
             wasCancelled = m_cancelledTimers.erase(t.id) > 0;
+            // Phase 40 slice B: the id leaves the live set whether the
+            // timer fired or was cancelled (a cancelled id already left
+            // it in cancel(); the erase is idempotent).
+            m_pendingTimerIds.erase(t.id);
         }
         if (wasCancelled) continue; // was cancelled
         m_ready.push_back(std::move(t.cb));
     }
 }
 
-int64_t Scheduler::msUntilNextTimer() const {
-    if (m_timers.empty()) return -1;
-    // Peek past lazily-cancelled timers at the head: they will be skipped
-    // when due, so they must not extend the poll timeout. Copy the heap
-    // (timers are cheap) to find the first live one. Round UP to a whole
-    // millisecond: truncating (e.g. 9.6 ms -> 9 ms) would wake before the
-    // timer is due and the caller would conclude no work was done.
-    auto copy = m_timers;
-    while (!copy.empty()) {
-        bool wasCancelled = false;
+void Scheduler::pruneCancelledHead() {
+    // Pop cancelled timers sitting at the head of the heap. The heap is
+    // ordered by due time, so only the head can hide the next live
+    // timer's deadline. The check+erase runs under the lock; the pop
+    // itself runs without it (it destroys the Timer, whose std::function
+    // must never be destroyed while holding m_cancelMtx). Safe against
+    // off-thread cancel(): ids are monotonic and never reused, so a head
+    // seen cancelled stays cancelled, and a head seen live is left alone
+    // — if it is cancelled a moment later, fireDueTimers() skips it.
+    for (;;) {
+        if (m_timers.empty()) return;
+        bool cancelled = false;
         {
             std::lock_guard<std::mutex> lock(m_cancelMtx);
-            wasCancelled = m_cancelledTimers.count(copy.top().id) > 0;
+            auto it = m_cancelledTimers.find(m_timers.top().id);
+            if (it != m_cancelledTimers.end()) {
+                cancelled = true;
+                m_cancelledTimers.erase(it);
+            }
         }
-        if (wasCancelled) {
-            copy.pop();
-            continue;
-        }
-        auto us = std::chrono::duration_cast<std::chrono::microseconds>(
-                      copy.top().due - nowTp())
-                      .count();
-        if (us <= 0) return 0;
-        return (us + 999) / 1000;
+        if (!cancelled) return;
+        m_timers.pop();
     }
-    return -1;
+}
+
+int64_t Scheduler::msUntilNextTimer() {
+    // Phase 40 slice B: was a whole-heap copy per call (the "timers are
+    // cheap" comment). Prune the dead heads off the real heap instead —
+    // a cancelled timer never fires, so the earliest live timer is the
+    // heap head after pruning. Round UP to a whole millisecond:
+    // truncating (e.g. 9.6 ms -> 9 ms) would wake before the timer is due
+    // and the caller would conclude no work was done.
+    pruneCancelledHead();
+    if (m_timers.empty()) return -1;
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                  m_timers.top().due - nowTp())
+                  .count();
+    if (us <= 0) return 0;
+    return (us + 999) / 1000;
 }
 
 bool Scheduler::runOnce() {
@@ -555,15 +584,14 @@ void Scheduler::runUntilTasksIdle() {
             runOnce();
             continue;
         }
-        // Any live (non-cancelled) timer?
+        // Any live (non-cancelled) timer? Phase 40 slice B: the live
+        // set answers this in O(1); the old code copied the whole heap
+        // on every drain check (and read m_cancelledTimers without the
+        // lock, which off-thread cancel() could race).
         bool timerPending = false;
-        auto copy = m_timers;
-        while (!copy.empty()) {
-            if (m_cancelledTimers.count(copy.top().id) == 0) {
-                timerPending = true;
-                break;
-            }
-            copy.pop();
+        {
+            std::lock_guard<std::mutex> lock(m_cancelMtx);
+            timerPending = !m_pendingTimerIds.empty();
         }
         if (!timerPending) return;
         runOnce();
@@ -601,21 +629,23 @@ void Scheduler::runFor(int64_t durationMs) {
 
 bool Scheduler::hasPending() const {
     if (!m_ready.empty()) return true;
-    // A live (non-cancelled) timer counts as pending.
-    auto copy = m_timers;
-    while (!copy.empty()) {
-        if (m_cancelledTimers.count(copy.top().id) == 0) return true;
-        copy.pop();
+    // Phase 40 slice B: a live timer counts as pending, and the live
+    // set holds exactly the live timers — O(1), no heap copy.
+    {
+        std::lock_guard<std::mutex> lock(m_cancelMtx);
+        if (!m_pendingTimerIds.empty()) return true;
     }
     return !m_socketCallbacks.empty();
 }
 
 size_t Scheduler::pendingCount() const {
+    // Phase 40 slice B: O(1) — the live set is the live-timer count.
+    // The old code copied the heap and drained the copy, which at 20k
+    // timers cost ~2.7 ms per call (measured, slice B probe).
     size_t n = m_ready.size() + m_socketCallbacks.size();
-    auto copy = m_timers;
-    while (!copy.empty()) {
-        if (m_cancelledTimers.count(copy.top().id) == 0) ++n;
-        copy.pop();
+    {
+        std::lock_guard<std::mutex> lock(m_cancelMtx);
+        n += m_pendingTimerIds.size();
     }
     return n;
 }

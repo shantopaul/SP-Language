@@ -192,7 +192,12 @@ private:
     };
 
     void fireDueTimers();
-    int64_t msUntilNextTimer() const; // -1 when no timers pending
+    // Drop cancelled timers sitting at the head of the heap. A cancelled
+    // timer never fires, so removing it early changes nothing observable;
+    // it keeps msUntilNextTimer() from seeing a dead timer as the next
+    // deadline. Loop thread only (the heap is never touched off-thread).
+    void pruneCancelledHead();
+    int64_t msUntilNextTimer(); // -1 when no timers pending
     // One iteration, waiting at most maxWaitMs (< 0: no cap). runOnce()
     // is runOnceCapped(-1); runUntil()/runFor() pass their deadline so
     // a long timer cannot overshoot the caller's bound.
@@ -202,6 +207,11 @@ private:
     std::priority_queue<Timer> m_timers;
     std::deque<std::function<void()>> m_ready;
     std::unordered_set<uint64_t> m_cancelledTimers;
+    // Ids of timers currently in the heap that are still live (not
+    // cancelled, not yet fired). Lets hasPending()/pendingCount() answer
+    // in O(1) without copying the heap. Guarded by m_cancelMtx together
+    // with m_cancelledTimers: cancel() may run off the loop thread.
+    std::unordered_set<uint64_t> m_pendingTimerIds;
     // Phase 6 slice C: guards m_cancelledTimers. cancel() may run off
     // the loop thread (Task::cancel() invokes the timer-cancel hook
     // from whichever thread cancels the task), while fireDueTimers() /
