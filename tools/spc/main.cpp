@@ -103,6 +103,8 @@ void printHelp() {
               << "  -I <dir>        Add search directory for module resolution\n"
               << "  -L <dir>        Add search directory for library resolution (OpenSSL, etc.)\n"
               << "  --lib-path <d>  Add search directory for library resolution\n"
+              << "  --link <lib>    Link a native library by bare name (e.g. --link mini -> -lmini); repeatable\n"
+              << "  -l <lib>        Same as --link <lib> (also -l<lib>)\n"
               << "  --stdlib <path> Specify custom standard library directory path\n"
 
               << "  -h, --help      Display this help message\n"
@@ -693,6 +695,8 @@ int main(int argc, char* argv[]) {
         bool explicitEdition = false;
         std::vector<std::string> includeDirs;
         std::vector<std::string> librarySearchPaths;
+        // Phase 39 slice B: bare library names (-> -l<lib>).
+        std::vector<std::string> additionalLibraries;
         std::string customStdlibDir;
 
         for (int i = 2; i < argc; ++i) {
@@ -729,6 +733,15 @@ int main(int argc, char* argv[]) {
                 librarySearchPaths.push_back(argv[++i]);
             } else if (arg.starts_with("--lib-path=")) {
                 librarySearchPaths.push_back(std::string(arg.substr(11)));
+            } else if ((arg == "--link") && i + 1 < argc) {
+                // Phase 39 slice B: bare library name (-> -l<lib>).
+                additionalLibraries.push_back(argv[++i]);
+            } else if (arg.starts_with("--link=")) {
+                additionalLibraries.push_back(std::string(arg.substr(7)));
+            } else if (arg == "-l" && i + 1 < argc) {
+                additionalLibraries.push_back(argv[++i]);
+            } else if (arg.starts_with("-l") && arg.size() > 2) {
+                additionalLibraries.push_back(std::string(arg.substr(2)));
             } else if (arg == "--stdlib" && i + 1 < argc) {
                 customStdlibDir = argv[++i];
             } else if (arg.starts_with("--stdlib=")) {
@@ -962,6 +975,8 @@ int main(int argc, char* argv[]) {
         codegenOpts.debugSymbols = debugMode;
         codegenOpts.isStatic = isStatic;
         codegenOpts.librarySearchPaths = librarySearchPaths;
+        // Phase 39 slice B: bare library names (-> -l<lib>).
+        codegenOpts.additionalLibraries = additionalLibraries;
         if (!targetTriple.empty()) {
             codegenOpts.targetTriple = targetTriple;
         }

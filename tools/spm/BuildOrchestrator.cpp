@@ -454,6 +454,12 @@ BuildResult BuildOrchestrator::build(const std::string& projectDir, const BuildO
     sp::codegen::CodegenOptions codegenOpts;
     codegenOpts.releaseMode = options.releaseMode;
     codegenOpts.debugSymbols = options.debugMode;
+    // Phase 39 slice B: sp.toml [native] section — bare library
+    // names (-> -l<lib>) and extra library search paths.
+    codegenOpts.additionalLibraries = config.getNativeLibs();
+    for (const auto& p : config.getNativeLibPaths()) {
+        codegenOpts.librarySearchPaths.push_back(p);
+    }
     sp::codegen::LLVMGenerator llvmGen(codegenOpts);
 
     fs::path targetDir = fs::path(projectDir) / "target" / (options.releaseMode ? "release" : "debug");

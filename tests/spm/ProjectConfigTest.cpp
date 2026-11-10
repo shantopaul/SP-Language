@@ -127,6 +127,50 @@ TEST(ProjectConfigTest, RoundTripTomlSerialization) {
     EXPECT_EQ(loadedD2->path, "../utils");
 }
 
+TEST(ProjectConfigTest, NativeLibsParseAndRoundTrip) {
+    // Phase 39 slice B: [native] libs + lib-paths, single-line and
+    // multi-line arrays, and a toTomlString round-trip.
+    const std::string toml = R"toml(
+        [package]
+        name = "ffi_app"
+        version = "0.1.0"
+        edition = "2026"
+        entry = "src/main.sp"
+        type = "bin"
+
+        [native]
+        libs = ["mini", "z"]
+        lib-paths = [
+            "./vendor/lib",
+            "/usr/local/lib",
+        ]
+    )toml";
+
+    ProjectConfig config;
+    ASSERT_TRUE(config.loadFromString(toml)) << config.getLastError();
+
+    ASSERT_EQ(config.getNativeLibs().size(), 2);
+    EXPECT_EQ(config.getNativeLibs()[0], "mini");
+    EXPECT_EQ(config.getNativeLibs()[1], "z");
+    ASSERT_EQ(config.getNativeLibPaths().size(), 2);
+    EXPECT_EQ(config.getNativeLibPaths()[0], "./vendor/lib");
+    EXPECT_EQ(config.getNativeLibPaths()[1], "/usr/local/lib");
+
+    std::string roundTripped = config.toTomlString();
+    ProjectConfig loaded;
+    ASSERT_TRUE(loaded.loadFromString(roundTripped)) << loaded.getLastError();
+    EXPECT_EQ(loaded.getNativeLibs(), config.getNativeLibs());
+    EXPECT_EQ(loaded.getNativeLibPaths(), config.getNativeLibPaths());
+}
+
+TEST(ProjectConfigTest, NativeLibsAbsentByDefault) {
+    auto config = ProjectConfig::createDefault("plain_app");
+    EXPECT_TRUE(config.getNativeLibs().empty());
+    EXPECT_TRUE(config.getNativeLibPaths().empty());
+    // And the section is omitted from the serialization.
+    EXPECT_EQ(config.toTomlString().find("[native]"), std::string::npos);
+}
+
 TEST(ProjectConfigTest, ScaffoldBinaryAndLibraryProjects) {
     std::string tempBinDir = "temp_test_scaffold_bin";
     std::string tempLibDir = "temp_test_scaffold_lib";

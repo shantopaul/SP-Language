@@ -219,6 +219,8 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
                 linkOpts.linkerPath = m_options.customLinkerPath;
                 linkOpts.isStatic = m_options.isStatic;
                 linkOpts.librarySearchPaths = m_options.librarySearchPaths;
+                // Phase 39 slice B: bare library names (-> -l<lib>).
+                linkOpts.additionalLibraries = m_options.additionalLibraries;
 
                 LinkerDriver linker(linkOpts);
                 bool linked = linker.linkSingle(tempObj, outputExePath);
@@ -289,6 +291,10 @@ bool LLVMGenerator::compileToExecutable(const ir::IRModule& module, const std::s
         cmd << "-L\"" << spath << "\" ";
     }
 
+    // Phase 39 slice B: bare library names (-> -l<lib>).
+    for (const auto& lib : m_options.additionalLibraries) {
+        cmd << "-l" << lib << " ";
+    }
 
     if (m_options.isStatic) {
         cmd << "-static ";
