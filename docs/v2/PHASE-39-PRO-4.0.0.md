@@ -3,7 +3,7 @@
 - **Branch:** `feature/pro-4.0.0` (branch only; remote `main` still `d10e1c2`)
 - **Base:** `5b3b814` (Phase 38, ADR-002 Result/Option)
 - **Version:** 3.1.0, unchanged (no bump, no `.github/` changes, nothing pushed)
-- **Status:** IN PROGRESS — investigation done, design below; slices to follow.
+- **Status:** DONE 2026-11-10 — slices A–E complete, committed locally (unpushed); see §1.
 - **ADR:** `docs/v2/DECISIONS/ADR-004-ffi.md` (Accepted 2026-11-10):
   direct C-ABI + `spc bindgen`; `extern "C"`, `#[repr(C)]`,
   `ptr<T>` in `unsafe` blocks; bindgen parses C headers via libclang.
@@ -158,3 +158,80 @@ installed first).
 does not exist and `python -m graphify` is not installed (verified
 2026-11-10, as in Phases 5–9). Not fabricated; the phase proceeds
 without it.
+
+## 1. Completion (2026-11-10)
+
+All five slices done, committed locally on `feature/pro-4.0.0`
+(unpushed). Final head `7855715` for the slices; full slice range
+`5b3b814..7855715` = 5 commits, 27 files, +2,914/−86. (The phase-doc
+completion itself is the 6th commit.)
+
+- **A — struct-by-value FFI** (`ef32a45`, 8 files, +889/−12).
+  `use_mini.sp` → `add 42 / scale 14 / sum 7 / filled 9 10`;
+  struct return `made 5 6 / added 6 8`; 24-byte struct `big 21`.
+  **Correction to §0.3-A:** the first design (declare the struct
+  VALUE type) was wrong — proven by experiment (`mini_scale`
+  printed 6, expected 14). Final design is System V ABI coercion
+  at extern call sites (what clang's frontend does): ≤16-byte
+  structs become their eightbyte register types, >16-byte structs
+  declare the struct value type. Details + the two-floats-in-one-
+  eightbyte E1000 edge in `docs/v2/PHASE-39-SLICE-A.md`.
+- **B — linking** (`a7428f8`, 8 files, +231). `--link`/`-l`
+  (repeatable) + sp.toml `[native]` (`libs`, `lib-paths`);
+  `spc run use_mini.sp --link mini -L.` needs no manual link;
+  spm proof project works. Details in `PHASE-39-SLICE-B.md`.
+- **C — bindgen on real headers** (`0ebaffc`, 8 files,
+  +1,136/−61). `/usr/include/zlib.h` (+`zconf.h`) → **4 structs,
+  89 functions, 0 enums, 29 constants**; `spc check` passes; the
+  census matches the header exactly (89/89 prototypes). Live
+  round-trip: `compress rc 0 / compressed 31 bytes / uncompress
+  rc 0 / recovered 23 bytes: Hello from SP via zlib!` 16 bugs
+  fixed in the tokenizer (macro prefixes, struct returns,
+  fn-pointer declarators → `ptr<void>`, typedef resolution,
+  anonymous fields, `#include` following, variadic emission +
+  parser support, extern-block swallowing, duplicate macros,
+  `z_const` pre-scan, `#define` type aliases, cross-file clobber
+  protection, struct renames, macro-before-typedef return types).
+  **Correction to §0.2-4/§0.3-C:** there are **0** occurrences of
+  `OF(` in zlib.h — no OF-specific code was added; and fn-pointer
+  typedefs become `ptr<void>`, not SP fn-pointer types (SP has no
+  function-type syntax). Details in `PHASE-39-SLICE-C.md`.
+- **D — module consts bind** (`240adaa`, 6 files, +476/−2).
+  **Correction to §0.2-3/§0.3-D:** the assumed cause was wrong —
+  `ModuleLoader` already merges module-level `const`s; the real
+  gap was that NO pass handled a top-level `VarDeclStmt` at all.
+  Fix: top-level `const`/`let`/`var` are now program globals
+  (`@__sp_global_<name>` + one `__sp_global_init`, mirroring
+  class statics; TypeChecker pre-pass defines them before any
+  function body is checked). Proofs: same-file `c 42`, import
+  `version 3`, zlib consts `zok 0 / zver 1.3 / zvernum 4864 /
+  zmem 9`. The pre-pass exposed a latent duplicate — math.sp's
+  `PI`/`E`/`TAU` vs the builtins — fixed in `Scope::define`
+  (identical-type restatement of a builtin is a no-op, mirroring
+  the function-stub precedent). Details in
+  `PHASE-39-SLICE-D.md`.
+- **E — docs + doc gate** (`7855715`, 3 files, +182/−11). §42
+  rewritten (current `ptr<T>` syntax, struct-by-value via libc
+  `div`, `--link`/sp.toml, bindgen on zlib, ownership paragraph).
+  The gate caught a slice-D regression — const-only programs got
+  no synthesized `main` — fixed in-slice (synthesize `main`
+  whenever init functions exist). Doc gate **123/130 RUN-OK**
+  (was 121/129); remaining 7 non-OK are known baseline classes.
+  Details in `PHASE-39-SLICE-E.md`.
+
+**Final verification:** fresh Release build, ctest **884/885**
+(only standing UDP EPERM; PG skipped), test total 859 → 885
+(+26: A 5, B 2, C 14, D 5). All Phase 37/38/39 live proofs
+byte-identical with the fresh binary (see the phase-completion
+log). Remote `main` still `d10e1c2`; branch pushed once at phase
+end (see the push verification in the completion log).
+
+**Follow-ups (not fixed):** variadic C calls (declarations parse,
+calls with extra args still a sema arity error); fn-pointer calls
+to C functions with struct params; `ClassLayout::objectSize`
+overstatement (harmless); `#ifdef` branches with differing
+signatures under one name keep the first; const-to-const forward
+references fail (declaration order); address-of a global (`&X`)
+and `++`/`--` on a global are not wired; a `const` without an
+initializer stays zero-initialized; two floats in one eightbyte is
+a loud E1000 (no SP-IR representation).
