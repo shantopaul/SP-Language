@@ -2818,6 +2818,250 @@ TEST(ExecutionTest, AsyncOptionPayload) {
     EXPECT_NE(output.find("none -1"), std::string::npos);
 }
 
+// Phase 9 slice D (ADR-002): wide payloads — boxed struct /
+// multi-payload / nested tagged-union payloads.
+TEST(ExecutionTest, ResultStructPayloadRoundTrip) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn makePoint() -> Result<Point, string> {
+            Point p;
+            p.x = 3;
+            p.y = 4;
+            return Result.Ok(p);
+        }
+
+        fn main() {
+            var r = makePoint();
+            println("isOk ${r.isOk()}");
+            var p = r.unwrap();
+            println("x ${p.x} y ${p.y}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_struct_payload");
+    EXPECT_NE(output.find("isOk true"), std::string::npos);
+    EXPECT_NE(output.find("x 3 y 4"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultStructPayloadTryOperator) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn fetchPoint(ok: bool) -> Result<Point, string> {
+            if (ok) {
+                Point p;
+                p.x = 9;
+                p.y = 10;
+                return Result.Ok(p);
+            }
+            return Result.Err("no point");
+        }
+
+        fn getPoint(ok: bool) -> Result<Point, string> {
+            var p = fetchPoint(ok)?;
+            return Result.Ok(p);
+        }
+
+        fn main() {
+            var r1 = getPoint(true);
+            println("ok ${r1.isOk()}");
+            var p1 = r1.unwrap();
+            println("x ${p1.x} y ${p1.y}");
+            var r2 = getPoint(false);
+            println("err ${r2.isErr()} ${r2.unwrapErr()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_struct_try");
+    EXPECT_NE(output.find("ok true"), std::string::npos);
+    EXPECT_NE(output.find("x 9 y 10"), std::string::npos);
+    EXPECT_NE(output.find("err true no point"), std::string::npos);
+}
+
+TEST(ExecutionTest, OptionStructPayloadUnwrapOr) {
+    const std::string source = R"sp(
+        struct Point {
+            int x;
+            int y;
+        }
+
+        fn nonePoint() -> Option<Point> {
+            return Option.None();
+        }
+
+        fn somePoint(p: Point) -> Option<Point> {
+            return Option.Some(p);
+        }
+
+        fn main() {
+            Point d;
+            d.x = 1;
+            d.y = 2;
+            var none = nonePoint();
+            var p3 = none.unwrapOr(d);
+            println("or x ${p3.x} y ${p3.y}");
+            var some = somePoint(d);
+            var p4 = some.unwrapOr(d);
+            println("some x ${p4.x} y ${p4.y}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_option_struct_unwrap_or");
+    EXPECT_NE(output.find("or x 1 y 2"), std::string::npos);
+    EXPECT_NE(output.find("some x 1 y 2"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchMultiPayloadBindsParts) {
+    const std::string source = R"sp(
+        enum Shape {
+            Circle(int),
+            Rect(int, int)
+        }
+
+        fn main() {
+            var s = Shape.Rect(3, 4);
+            match s {
+                Shape.Rect(w, h) => println("rect ${w} ${h}"),
+                Shape.Circle(r) => println("circle ${r}")
+            }
+            var c = Shape.Circle(5);
+            match c {
+                Shape.Rect(w, h) => println("rect ${w} ${h}"),
+                Shape.Circle(r) => println("circle ${r}")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_multi_payload");
+    EXPECT_NE(output.find("rect 3 4"), std::string::npos);
+    EXPECT_NE(output.find("circle 5"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultNestedPayloadRoundTrip) {
+    const std::string source = R"sp(
+        fn innerOk() -> Result<int, string> {
+            return Result.Ok(42);
+        }
+
+        fn outerOk() -> Result<Result<int, string>, string> {
+            return Result.Ok(innerOk());
+        }
+
+        fn main() {
+            var r = outerOk();
+            println("isOk ${r.isOk()}");
+            var inner = r.unwrap();
+            println("innerOk ${inner.isOk()}");
+            var v = inner.unwrap();
+            println("v ${v}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_nested_payload");
+    EXPECT_NE(output.find("isOk true"), std::string::npos);
+    EXPECT_NE(output.find("innerOk true"), std::string::npos);
+    EXPECT_NE(output.find("v 42"), std::string::npos);
+}
+
+TEST(ExecutionTest, ResultNestedClassPayloadLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn makeNested() -> Result<Result<Foo, string>, string> {
+            var f = new Foo(7);
+            var inner: Result<Foo, string> = Result.Ok(f);
+            var outer: Result<Result<Foo, string>, string> = Result.Ok(inner);
+            return outer;
+        }
+
+        fn main() {
+            println("before ${sp_rt_mem_live_objects()}");
+            {
+                var r = makeNested();
+                println("after make ${sp_rt_mem_live_objects()}");
+                var inner = r.unwrap();
+                println("after unwrap ${sp_rt_mem_live_objects()}");
+                var f = inner.unwrap();
+                println("f n ${f.n} live ${sp_rt_mem_live_objects()}");
+            }
+            println("after scope ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_result_nested_class");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("after make 2"), std::string::npos);
+    EXPECT_NE(output.find("after unwrap 2"), std::string::npos);
+    EXPECT_NE(output.find("f n 7 live 2"), std::string::npos);
+    EXPECT_NE(output.find("after scope 0"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchMultiPayloadClassPartLiveCounts) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        enum Pair {
+            Both(Foo, int),
+            Single(int)
+        }
+
+        fn main() {
+            println("before ${sp_rt_mem_live_objects()}");
+            {
+                var f = new Foo(5);
+                var p = Pair.Both(f, 3);
+                match p {
+                    Pair.Both(g, n) => println("both ${g.n} ${n}"),
+                    Pair.Single(n) => println("single ${n}")
+                }
+                println("live ${sp_rt_mem_live_objects()}");
+            }
+            println("after scope ${sp_rt_mem_live_objects()}");
+            {
+                var q = Pair.Single(9);
+                match q {
+                    Pair.Both(g, n) => println("both ${g.n} ${n}"),
+                    Pair.Single(n) => println("single ${n}")
+                }
+            }
+            println("after single ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_multi_class");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("both 5 3"), std::string::npos);
+    EXPECT_NE(output.find("live 2"), std::string::npos);
+    EXPECT_NE(output.find("after scope 0"), std::string::npos);
+    EXPECT_NE(output.find("single 9"), std::string::npos);
+    EXPECT_NE(output.find("after single 0"), std::string::npos);
+}
+
 TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
     const std::string source = R"sp(
         fn stepOk(x: int): Result<int, string> {

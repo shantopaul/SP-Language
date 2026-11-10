@@ -1899,12 +1899,10 @@ void TypeChecker::visit(const ast::MatchStmt& node) {
 
         // Payload types come off the SUBJECT's specialized enum type,
         // so they are concrete (Result<Foo, string> gives Ok -> [Foo]).
+        // Phase 9 slice D: multi-payload variants are supported now
+        // (their parts are heap-boxed) — the arity check below and
+        // the per-argument binding loop already handle them.
         auto payloadTypes = subjEnum->getVariantPayload(variantName);
-        if (payloadTypes.size() > 1) {
-            m_diagnostics.reportError("E1001", "Match on variant '" + variantName + "' with multiple payloads "
-                                      "is not supported yet (Phase 38 slice D)", pattern->getLocation());
-            return true;
-        }
         size_t argCount = variantCall ? variantCall->getArgs().size() : 0;
         if (argCount != payloadTypes.size()) {
             m_diagnostics.reportError("E1001", "Match pattern '" + variantName + "' expects " +

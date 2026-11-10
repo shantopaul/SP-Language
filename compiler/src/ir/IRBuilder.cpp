@@ -802,8 +802,18 @@ bool IRBuilder::taggedUnionHasOwnedPayload(const sema::TypePtr& t) const {
     const auto* en = dynamic_cast<const sema::EnumType*>(t.get());
     if (!en || !en->isTaggedUnion()) return false;
     for (const auto& variant : en->getVariants()) {
-        for (const auto& payloadType : en->getVariantPayload(variant)) {
+        const auto& payloads = en->getVariantPayload(variant);
+        // Phase 9 slice D: a multi-payload variant's slot holds a
+        // box pointer, and a wide single payload's slot holds a box
+        // pointer too — the box is an ARC object that must be
+        // released, even when its contents need no release (a struct
+        // payload's box has a null destructor). Without this, a TU
+        // local holding a boxed payload was never registered for a
+        // scope drop and its box leaked (p8b: after scope 1).
+        if (payloads.size() > 1) return true;
+        for (const auto& payloadType : payloads) {
             if (isOwnedValueType(payloadType)) return true;
+            if (tuPayloadIsWide(payloadType)) return true;
         }
     }
     return false;
@@ -862,7 +872,23 @@ void IRBuilder::emitReleaseTaggedUnionPayload(IRValuePtr v, const sema::TypePtr&
 void IRBuilder::emitTaggedUnionConstructionRetain(const ast::ExpressionNode& argNode,
                                                    const sema::TypePtr& payloadType,
                                                    IRValuePtr payloadVal) {
-    if (!payloadType || !isOwnedValueType(payloadType) || !payloadVal) return;
+    if (!payloadType || !payloadVal) return;
+    // Phase 9 slice D: a tagged-union payload is itself a tagged
+    // union — adopt the argument's temp record and retain its inner
+    // payload when borrowed, exactly like an owned payload. Without
+    // this, a TU temp used as a payload would be released by the
+    // statement pop while the new box still points at its payload
+    // (UAF). A TU with no owned payload needs nothing.
+    if (payloadType->isEnum()) {
+        const auto* en = dynamic_cast<const sema::EnumType*>(payloadType.get());
+        if (!en || !en->isTaggedUnion() || !taggedUnionHasOwnedPayload(payloadType)) return;
+        adoptTempValue(payloadVal);
+        if (isFreshPlusOneExpr(argNode)) return;
+        if (!m_currentBlock) return;
+        emitRetainTaggedUnionPayload(payloadVal, payloadType);
+        return;
+    }
+    if (!isOwnedValueType(payloadType)) return;
     // A +1 argument is adopted (its temp record is removed — the
     // Result now owns that share); a borrowed argument is retained.
     adoptTempValue(payloadVal);
@@ -870,6 +896,373 @@ void IRBuilder::emitTaggedUnionConstructionRetain(const ast::ExpressionNode& arg
     if (!m_currentBlock) return;
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
         IRType::getVoid(), "sp_rt_retain", std::vector<IRValuePtr>{payloadVal}));
+}
+
+// Phase 9 slice D (ADR-002): wide payloads — boxed struct /
+// multi-payload / nested tagged-union payloads (see
+// docs/v2/PHASE-38-SLICE-D.md §0.1). The slot holds one i64; a wide
+// payload lives in a heap ARC box (sp_rt_arc_alloc) and the slot
+// holds the box pointer. The Slice A ownership rule is unchanged:
+// the TU owns one share of the box, and the box's destructor
+// releases whatever the box itself owns. The release paths operate
+// on slot bits only, so they free a box exactly like a class
+// pointer (sp_rt_release on the box pointer runs its destructor).
+bool IRBuilder::tuPayloadIsWide(const sema::TypePtr& payloadType) const {
+    if (!payloadType) return false;
+    if (payloadType->isStruct()) return true;
+    if (payloadType->isEnum()) {
+        const auto* en = dynamic_cast<const sema::EnumType*>(payloadType.get());
+        return en && en->isTaggedUnion();
+    }
+    return false;
+}
+
+bool IRBuilder::tuVariantIsWide(const sema::EnumType& en, const std::string& variant) const {
+    const auto& payloads = en.getVariantPayload(variant);
+    if (payloads.size() > 1) return true;
+    if (payloads.size() == 1) return tuPayloadIsWide(payloads[0]);
+    return false;
+}
+
+int64_t IRBuilder::tuBoxByteSize(const sema::EnumType& en, const std::string& variant) {
+    const auto& payloads = en.getVariantPayload(variant);
+    if (payloads.size() > 1) {
+        // Multi-payload: maxParts * 8 over ALL variants, so one
+        // destructor fits every variant (unused slots are zeroed).
+        size_t maxParts = 0;
+        for (const auto& v : en.getVariants()) {
+            maxParts = std::max(maxParts, en.getVariantPayload(v).size());
+        }
+        return static_cast<int64_t>(maxParts) * 8;
+    }
+    if (payloads.size() == 1) {
+        const auto& p = payloads[0];
+        if (p->isStruct()) {
+            if (auto structTy = asyncStructTypeFor(p)) {
+                return asyncStructSizeBytes(structTy);
+            }
+            return -1;
+        }
+        if (p->isEnum()) return 16;  // inner {i32 tag, i64 payload}
+    }
+    return 0;
+}
+
+std::string IRBuilder::tuBoxDestructorName(const sema::EnumType& en, const std::string& variant,
+                                           const std::vector<sema::TypePtr>& actualPartTypes) const {
+    const auto& payloads = en.getVariantPayload(variant);
+    if (payloads.size() > 1) {
+        // The destructor releases every part slot unconditionally
+        // (zeroed / scalar slots are no-ops) — needed only when some
+        // part, in any variant, is owned. The actual argument types
+        // count too: a generic enum declares type parameters.
+        bool anyOwned = false;
+        for (const auto& v : en.getVariants()) {
+            for (const auto& part : en.getVariantPayload(v)) {
+                if (isOwnedValueType(part)) anyOwned = true;
+            }
+        }
+        for (const auto& part : actualPartTypes) {
+            if (isOwnedValueType(part)) anyOwned = true;
+        }
+        if (!anyOwned) return "";
+        size_t maxParts = 0;
+        for (const auto& v : en.getVariants()) {
+            maxParts = std::max(maxParts, en.getVariantPayload(v).size());
+        }
+        return "__sp_tu_box_dtor_multi_" + std::to_string(maxParts);
+    }
+    if (payloads.size() == 1) {
+        const auto& p = payloads[0];
+        if (p->isStruct()) return "";  // struct fields are untracked (Phase 8-A gap)
+        if (p->isEnum()) {
+            // The destructor releases the inner payload (field 1 of
+            // the inner struct) — needed only when the inner TU has
+            // an owned payload in some variant.
+            if (taggedUnionHasOwnedPayload(p)) return "__sp_tu_box_dtor_nested";
+            return "";
+        }
+    }
+    return "";
+}
+
+// Generate a shared box-destructor function into the module
+// (lazy — the first wide construction that needs it creates it).
+// __sp_tu_box_dtor_nested: void (ptr %box) loads the i64 at offset
+// 8 (the inner TU's payload) and sp_rt_releases it.
+// __sp_tu_box_dtor_multi_<N>: void (ptr %box) releases each of the
+// N i64 part slots at offsets 0, 8, ... — zeroed and scalar slots
+// are registry misses (no-ops), so no tag dispatch is needed.
+void IRBuilder::ensureTuBoxDestructor(const std::string& dtorName) {
+    if (dtorName.empty() || !m_module || m_module->getFunction(dtorName)) return;
+    if (!m_currentFunction || !m_currentBlock) return;
+
+    IRFunction* savedFunction = m_currentFunction;
+    IRBasicBlock* savedBlock = m_currentBlock;
+
+    std::vector<std::shared_ptr<ParameterValue>> params;
+    params.push_back(std::make_shared<ParameterValue>(IRType::getPointer(), "%box", 0));
+    auto func = m_module->createFunction(dtorName, IRType::getVoid(), params);
+    m_currentFunction = func;
+    auto entryBB = func->createBasicBlock("entry");
+    setInsertPoint(entryBB);
+
+    // Slot pointer: (ptr)box + byte offset, via ptrtoint/add/inttoptr.
+    auto slotPtrAt = [&](int64_t byteOffset) -> IRValuePtr {
+        auto boxI64 = emitCastIfNeeded(params[0], IRType::getInt64());
+        auto slotI64 = std::make_shared<BinaryInst>(
+            IROpcode::Add, boxI64,
+            std::make_shared<ConstantInt>(IRType::getInt64(), byteOffset),
+            m_currentFunction->nextTempName("dtor_slot"));
+        m_currentBlock->addInstruction(slotI64);
+        return emitCastIfNeeded(slotI64, IRType::getPointer());
+    };
+    auto releaseSlotAt = [&](int64_t byteOffset) {
+        IRValuePtr slotPtr = slotPtrAt(byteOffset);
+        auto load = std::make_shared<LoadInst>(IRType::getInt64(), slotPtr,
+                                               m_currentFunction->nextTempName("dtor_slot_val"));
+        m_currentBlock->addInstruction(load);
+        IRValuePtr asPtr = emitCastIfNeeded(load, IRType::getPointer());
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{asPtr}));
+    };
+
+    if (dtorName == "__sp_tu_box_dtor_nested") {
+        releaseSlotAt(8);
+    } else if (dtorName.rfind("__sp_tu_box_dtor_multi_", 0) == 0) {
+        int64_t n = 0;
+        try {
+            n = std::stoll(dtorName.substr(std::string("__sp_tu_box_dtor_multi_").size()));
+        } catch (...) {
+            n = 0;
+        }
+        for (int64_t i = 0; i < n; ++i) releaseSlotAt(i * 8);
+    }
+    m_currentBlock->addInstruction(std::make_shared<ReturnInst>());
+
+    m_currentFunction = savedFunction;
+    m_currentBlock = savedBlock;
+}
+
+IRValuePtr IRBuilder::emitBoxTaggedUnionPayload(IRValuePtr payloadVal, const sema::TypePtr& payloadType,
+                                                 const diagnostics::SourceLocation& loc) {
+    if (!payloadVal || !payloadType || !tuPayloadIsWide(payloadType) || !m_currentBlock) {
+        return payloadVal;
+    }
+    // The box size and destructor come from a one-variant enum view:
+    // build them from the payload type directly (a struct payload has
+    // a null destructor; a nested TU uses the shared nested one).
+    int64_t boxSize = 0;
+    std::string dtorName;
+    IRTypePtr structTy = nullptr;
+    if (payloadType->isStruct()) {
+        structTy = asyncStructTypeFor(payloadType);
+        if (!structTy) {
+            reportUnsupported(loc, "tagged-union payload of struct type '" +
+                              payloadType->toString() + "'",
+                              "the struct has no layout to size the payload box with");
+            return payloadVal;
+        }
+        boxSize = asyncStructSizeBytes(structTy);
+    } else {  // nested tagged union
+        boxSize = 16;
+        if (taggedUnionHasOwnedPayload(payloadType)) dtorName = "__sp_tu_box_dtor_nested";
+    }
+    ensureTuBoxDestructor(dtorName);
+    IRValuePtr dtorPtr = nullptr;
+    if (!dtorName.empty() && m_module->getFunction(dtorName)) {
+        dtorPtr = std::make_shared<GlobalVariable>(IRType::getInt8(), "@" + dtorName);
+    } else {
+        dtorPtr = std::make_shared<ConstantNull>();
+    }
+    auto allocCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_arc_alloc",
+        std::vector<IRValuePtr>{
+            std::make_shared<ConstantInt>(IRType::getInt64(), boxSize), dtorPtr},
+        m_currentFunction->nextTempName("tu_box"));
+    m_currentBlock->addInstruction(allocCall);
+    // Store the payload bytes into the box: a struct value is either
+    // an SSA struct (store it) or a pointer to the struct (load it
+    // first); a nested TU is the same (SSA struct or alloca pointer).
+    IRTypePtr payloadStructTy = structTy;
+    if (!payloadStructTy) payloadStructTy = mapType(payloadType.get());
+    IRValuePtr toStore = payloadVal;
+    if (payloadVal->getType()->isPointer()) {
+        auto loaded = std::make_shared<LoadInst>(payloadStructTy, payloadVal,
+                                                 m_currentFunction->nextTempName("tu_box_load"));
+        m_currentBlock->addInstruction(loaded);
+        toStore = loaded;
+    }
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(toStore, allocCall));
+    return allocCall;
+}
+
+IRValuePtr IRBuilder::emitBoxTaggedUnionMultiPayload(const sema::EnumType& en,
+                                                      const std::string& variant,
+                                                      const std::vector<IRValuePtr>& partVals,
+                                                      const std::vector<sema::TypePtr>& partTypes,
+                                                      const diagnostics::SourceLocation& loc) {
+    if (!m_currentBlock) return nullptr;
+    // A part that is itself wide (struct / nested TU) would need a
+    // box-of-boxes layout — loud E1000.
+    for (size_t i = 0; i < partTypes.size(); ++i) {
+        if (tuPayloadIsWide(partTypes[i])) {
+            reportUnsupported(loc,
+                              "multi-payload variant '" + variant + "' with a wide part",
+                              "a struct or tagged-union part of a multi-payload variant is not "
+                              "supported yet — box the part in its own Result/Option first");
+            return partVals.empty() ? nullptr : partVals[0];
+        }
+    }
+    int64_t boxSize = tuBoxByteSize(en, variant);
+    std::string dtorName = tuBoxDestructorName(en, variant, partTypes);
+    ensureTuBoxDestructor(dtorName);
+    IRValuePtr dtorPtr = nullptr;
+    if (!dtorName.empty() && m_module->getFunction(dtorName)) {
+        dtorPtr = std::make_shared<GlobalVariable>(IRType::getInt8(), "@" + dtorName);
+    } else {
+        dtorPtr = std::make_shared<ConstantNull>();
+    }
+    auto allocCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_arc_alloc",
+        std::vector<IRValuePtr>{
+            std::make_shared<ConstantInt>(IRType::getInt64(), boxSize), dtorPtr},
+        m_currentFunction->nextTempName("tu_box"));
+    m_currentBlock->addInstruction(allocCall);
+    // Store each part at offset i*8; zero the unused slots (up to
+    // maxParts) so the destructor's unconditional releases are safe.
+    size_t maxParts = 0;
+    for (const auto& v : en.getVariants()) {
+        maxParts = std::max(maxParts, en.getVariantPayload(v).size());
+    }
+    for (size_t i = 0; i < maxParts; ++i) {
+        auto boxI64 = emitCastIfNeeded(allocCall, IRType::getInt64());
+        auto slotI64 = std::make_shared<BinaryInst>(
+            IROpcode::Add, boxI64,
+            std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(i) * 8),
+            m_currentFunction->nextTempName("tu_box_slot"));
+        m_currentBlock->addInstruction(slotI64);
+        IRValuePtr slotPtr = emitCastIfNeeded(slotI64, IRType::getPointer());
+        IRValuePtr partI64 = nullptr;
+        if (i < partVals.size() && partVals[i]) {
+            partI64 = emitCastIfNeeded(partVals[i], IRType::getInt64());
+        } else {
+            partI64 = std::make_shared<ConstantInt>(IRType::getInt64(), 0);
+        }
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(partI64, slotPtr));
+    }
+    return allocCall;
+}
+
+IRValuePtr IRBuilder::emitUnboxTaggedUnionPayload(IRValuePtr slotBits,
+                                                   const sema::TypePtr& payloadType) {
+    if (!slotBits || !payloadType || !m_currentBlock) return nullptr;
+    if (!tuPayloadIsWide(payloadType)) {
+        IRTypePtr targetType = mapType(payloadType.get());
+        return emitCastIfNeeded(slotBits, targetType);
+    }
+    // Wide: the slot holds the box pointer.
+    IRValuePtr boxPtr = emitCastIfNeeded(slotBits, IRType::getPointer());
+    if (payloadType->isStruct()) {
+        // The box IS the struct storage, but the yielded value must
+        // NOT alias it: the box is freed when the TU drops (or at
+        // the statement pop for a `?`/unwrap temp), while the
+        // yielded struct may be used after that (p8c: `var p = ...?`
+        // then `Result.Ok(p)` read freed bytes and got 0 0).
+        // Copy the bytes into a fresh entry-block alloca — a
+        // snapshot, which is what struct value semantics wants.
+        // (A struct payload holding owned refs still aliases them —
+        // the Phase 8-A struct-field gap, unchanged.)
+        IRTypePtr structTy = asyncStructTypeFor(payloadType);
+        if (!structTy) return boxPtr;
+        auto snap = std::make_shared<AllocaInst>(structTy, m_currentFunction->nextTempName("tu_struct_snap"));
+        m_currentFunction->getEntryBlock()->addInstruction(snap);
+        auto loaded = std::make_shared<LoadInst>(structTy, boxPtr,
+                                                 m_currentFunction->nextTempName("tu_struct_load"));
+        m_currentBlock->addInstruction(loaded);
+        m_currentBlock->addInstruction(std::make_shared<StoreInst>(loaded, snap));
+        return snap;
+    }
+    // Nested tagged union: load the inner struct from the box.
+    IRTypePtr innerTy = mapType(payloadType.get());
+    auto loaded = std::make_shared<LoadInst>(innerTy, boxPtr,
+                                             m_currentFunction->nextTempName("tu_inner"));
+    m_currentBlock->addInstruction(loaded);
+    return loaded;
+}
+
+IRValuePtr IRBuilder::emitLoadTaggedUnionPayload(IRValuePtr structPtr,
+                                                 const std::string& tuBaseName,
+                                                 const sema::TypePtr& payloadType) {
+    if (!structPtr || !payloadType || !m_currentBlock) return nullptr;
+    IRValuePtr payloadPtr = taggedUnionPayloadPtr(structPtr, tuBaseName);
+    if (!payloadPtr) return nullptr;
+    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                  m_currentFunction->nextTempName("tu_payload"));
+    m_currentBlock->addInstruction(loadPayload);
+    return emitUnboxTaggedUnionPayload(loadPayload, payloadType);
+}
+
+IRValuePtr IRBuilder::emitLoadTaggedUnionPayloadGuarded(IRValuePtr structPtr,
+                                                        const std::string& tuBaseName,
+                                                        const sema::TypePtr& payloadType,
+                                                        int32_t expectedTag) {
+    if (!structPtr || !payloadType || !m_currentBlock) return nullptr;
+    if (!tuPayloadIsWide(payloadType)) {
+        return emitLoadTaggedUnionPayload(structPtr, tuBaseName, payloadType);
+    }
+    // Wide payload: the box dereference must be guarded on the tag.
+    // (The emitStructValueFromBox pattern: an entry-block alloca, a
+    // then/else branch, a merge load.)
+    IRTypePtr targetType = mapType(payloadType.get());
+    auto* entryBB = m_currentFunction->getEntryBlock();
+    auto tmp = std::make_shared<AllocaInst>(targetType, m_currentFunction->nextTempName("tu_guarded_tmp"));
+    entryBB->addInstruction(tmp);
+    IRValuePtr tagPtr = taggedUnionFieldPtr(structPtr, tuBaseName, 0);
+    if (!tagPtr) return nullptr;
+    auto loadTag = std::make_shared<LoadInst>(IRType::getInt32(), tagPtr,
+                                              m_currentFunction->nextTempName("tu_guarded_tag"));
+    m_currentBlock->addInstruction(loadTag);
+    auto isExpected = std::make_shared<CompareInst>(
+        IROpcode::ICmpEq, loadTag,
+        std::make_shared<ConstantInt>(IRType::getInt32(), expectedTag),
+        m_currentFunction->nextTempName("tu_guarded_ok"));
+    m_currentBlock->addInstruction(isExpected);
+    IRBasicBlock* thenBB = createBlock("tu_guarded_unbox");
+    IRBasicBlock* elseBB = createBlock("tu_guarded_zero");
+    IRBasicBlock* mergeBB = createBlock("tu_guarded_merge");
+    m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(
+        isExpected, thenBB->getName(), elseBB->getName()));
+    setInsertPoint(thenBB);
+    IRValuePtr unboxed = emitLoadTaggedUnionPayload(structPtr, tuBaseName, payloadType);
+    if (unboxed) m_currentBlock->addInstruction(std::make_shared<StoreInst>(unboxed, tmp));
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+    setInsertPoint(elseBB);
+    m_currentBlock->addInstruction(std::make_shared<StoreInst>(
+        std::make_shared<ConstantNull>(targetType), tmp));
+    m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
+    setInsertPoint(mergeBB);
+    auto result = std::make_shared<LoadInst>(targetType, tmp,
+                                             m_currentFunction->nextTempName("tu_guarded"));
+    m_currentBlock->addInstruction(result);
+    return result;
+}
+
+IRValuePtr IRBuilder::emitLoadTaggedUnionPayloadPart(IRValuePtr boxPtr, int partIdx,
+                                                     const sema::TypePtr& partType) {
+    if (!boxPtr || !partType || !m_currentBlock) return nullptr;
+    auto boxI64 = emitCastIfNeeded(boxPtr, IRType::getInt64());
+    auto slotI64 = std::make_shared<BinaryInst>(
+        IROpcode::Add, boxI64,
+        std::make_shared<ConstantInt>(IRType::getInt64(), static_cast<int64_t>(partIdx) * 8),
+        m_currentFunction->nextTempName("tu_part_slot"));
+    m_currentBlock->addInstruction(slotI64);
+    IRValuePtr slotPtr = emitCastIfNeeded(slotI64, IRType::getPointer());
+    auto load = std::make_shared<LoadInst>(IRType::getInt64(), slotPtr,
+                                           m_currentFunction->nextTempName("tu_part"));
+    m_currentBlock->addInstruction(load);
+    IRTypePtr targetType = mapType(partType.get());
+    return emitCastIfNeeded(load, targetType);
 }
 
 // Phase 8 slice C: a weak-reference load is also a +1 producer —
@@ -3063,26 +3456,50 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
         if (isVariantArm) {
             // Phase 9 slice B: bind the payload (BORROWED — the
             // subject outlives the arm body, and adopters retain by
-            // the copy rule). Single-payload variants only: the
-            // payload slot holds one i64 (multi-payload variants are
-            // rejected in sema until slice D boxes them).
+            // the copy rule). Phase 9 slice D: a wide single payload
+            // is loaded from its box; a multi-payload variant binds
+            // each part from its box (part i at offset i*8). The arm
+            // body runs only when the tag matched, so the box
+            // dereference is safe.
+            auto bindOne = [&](const std::string& name, IRValuePtr payloadVal, IRTypePtr bindType) {
+                if (!payloadVal || !bindType) return;
+                std::string bindReg = "%" + name + "_" + std::to_string(m_varCounter++);
+                auto bindAlloca = std::make_shared<AllocaInst>(bindType, bindReg);
+                m_currentFunction->getEntryBlock()->addInstruction(bindAlloca);
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(payloadVal, bindAlloca));
+                declareVariable(name, bindAlloca, bindType);
+            };
             if (bindingNames.size() > 1) {
-                reportUnsupported(arm.getPattern()->getLocation(),
-                                  "match pattern with multiple payload bindings",
-                                  "variants with multiple payloads are not supported yet (Phase 38 slice D)");
-            } else if (!bindingNames.empty()) {
-                IRTypePtr bindType = mapType(payloadTypes[0].get());
+                // Multi-payload: the slot holds the box pointer;
+                // each binding loads its part from the box.
                 IRValuePtr payloadPtr = taggedUnionFieldPtr(subjVal,
                                                            tuStructBaseName(semaSubj->toString()), 1);
                 auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
                                                               m_currentFunction->nextTempName("match_payload"));
                 m_currentBlock->addInstruction(loadPayload);
-                IRValuePtr payloadVal = emitCastIfNeeded(loadPayload, bindType);
-                std::string bindReg = "%" + bindingNames[0] + "_" + std::to_string(m_varCounter++);
-                auto bindAlloca = std::make_shared<AllocaInst>(bindType, bindReg);
-                m_currentFunction->getEntryBlock()->addInstruction(bindAlloca);
-                m_currentBlock->addInstruction(std::make_shared<StoreInst>(payloadVal, bindAlloca));
-                declareVariable(bindingNames[0], bindAlloca, bindType);
+                IRValuePtr boxPtr = emitCastIfNeeded(loadPayload, IRType::getPointer());
+                for (size_t bi = 0; bi < bindingNames.size() && bi < payloadTypes.size(); ++bi) {
+                    IRTypePtr bindType = mapType(payloadTypes[bi].get());
+                    IRValuePtr partVal = emitLoadTaggedUnionPayloadPart(boxPtr, static_cast<int>(bi),
+                                                                        payloadTypes[bi]);
+                    bindOne(bindingNames[bi], partVal, bindType);
+                }
+            } else if (!bindingNames.empty()) {
+                IRTypePtr bindType = mapType(payloadTypes[0].get());
+                IRValuePtr payloadVal = nullptr;
+                if (tuPayloadIsWide(payloadTypes[0])) {
+                    payloadVal = emitLoadTaggedUnionPayload(subjVal,
+                                                           tuStructBaseName(semaSubj->toString()),
+                                                           payloadTypes[0]);
+                } else {
+                    IRValuePtr payloadPtr = taggedUnionFieldPtr(subjVal,
+                                                               tuStructBaseName(semaSubj->toString()), 1);
+                    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                                  m_currentFunction->nextTempName("match_payload"));
+                    m_currentBlock->addInstruction(loadPayload);
+                    payloadVal = emitCastIfNeeded(loadPayload, bindType);
+                }
+                bindOne(bindingNames[0], payloadVal, bindType);
             }
         }
         arm.getBody().accept(*this);
@@ -6605,19 +7022,24 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (targetName == "Result" || targetName.rfind("Result<", 0) == 0) {
                 if (methodName == "Ok" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
-                    emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                                      m_sema.getNodeType(node.getArgs()[0].get()),
-                                                      m_lastExprValue);
-                    m_lastExprValue = emitCreateTaggedUnion("Result", 0, m_lastExprValue);
+                    auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+                    emitTaggedUnionConstructionRetain(*node.getArgs()[0], argType, m_lastExprValue);
+                    // Phase 9 slice D: a wide payload (struct /
+                    // nested TU) is heap-boxed; the slot holds the
+                    // box pointer.
+                    IRValuePtr slotVal = emitBoxTaggedUnionPayload(m_lastExprValue, argType,
+                                                                    node.getLocation());
+                    m_lastExprValue = emitCreateTaggedUnion("Result", 0, slotVal);
                     m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
                     return;
                 }
                 if (methodName == "Err" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
-                    emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                                      m_sema.getNodeType(node.getArgs()[0].get()),
-                                                      m_lastExprValue);
-                    m_lastExprValue = emitCreateTaggedUnion("Result", 1, m_lastExprValue);
+                    auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+                    emitTaggedUnionConstructionRetain(*node.getArgs()[0], argType, m_lastExprValue);
+                    IRValuePtr slotVal = emitBoxTaggedUnionPayload(m_lastExprValue, argType,
+                                                                    node.getLocation());
+                    m_lastExprValue = emitCreateTaggedUnion("Result", 1, slotVal);
                     m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
                     return;
                 }
@@ -6625,10 +7047,11 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             if (targetName == "Option" || targetName.rfind("Option<", 0) == 0) {
                 if (methodName == "Some" && !node.getArgs().empty()) {
                     node.getArgs()[0]->accept(*this);
-                    emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                                      m_sema.getNodeType(node.getArgs()[0].get()),
-                                                      m_lastExprValue);
-                    m_lastExprValue = emitCreateTaggedUnion("Option", 0, m_lastExprValue);
+                    auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+                    emitTaggedUnionConstructionRetain(*node.getArgs()[0], argType, m_lastExprValue);
+                    IRValuePtr slotVal = emitBoxTaggedUnionPayload(m_lastExprValue, argType,
+                                                                    node.getLocation());
+                    m_lastExprValue = emitCreateTaggedUnion("Option", 0, slotVal);
                     m_lastExprType = ir::IRType::getStruct("struct.Option", {IRType::getInt32(), IRType::getInt64()});
                     return;
                 }
@@ -6644,17 +7067,28 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                 auto en = std::static_pointer_cast<sema::EnumType>(enumUserType);
                 if (en && en->isTaggedUnion() && en->hasVariant(methodName)) {
                     int64_t variantVal = en->getVariantValue(methodName);
-                    IRValuePtr payloadVal = nullptr;
-                    if (!node.getArgs().empty()) {
-                        node.getArgs()[0]->accept(*this);
-                        payloadVal = m_lastExprValue;
+                    // Phase 9 slice D: lower ALL arguments — a
+                    // multi-payload variant boxes its parts; a
+                    // single wide payload is boxed the same way.
+                    std::vector<IRValuePtr> partVals;
+                    std::vector<sema::TypePtr> partTypes;
+                    for (size_t ai = 0; ai < node.getArgs().size(); ++ai) {
+                        node.getArgs()[ai]->accept(*this);
+                        partVals.push_back(m_lastExprValue);
+                        partTypes.push_back(m_sema.getNodeType(node.getArgs()[ai].get()));
                         // Phase 9 slice A: a user-enum variant owns
                         // its payload exactly like Result.Ok does.
-                        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                                          m_sema.getNodeType(node.getArgs()[0].get()),
-                                                          payloadVal);
+                        emitTaggedUnionConstructionRetain(*node.getArgs()[ai], partTypes.back(),
+                                                          partVals.back());
                     }
-                    m_lastExprValue = emitCreateTaggedUnion(targetName, static_cast<int32_t>(variantVal), payloadVal);
+                    IRValuePtr slotVal = nullptr;
+                    if (partVals.size() > 1) {
+                        slotVal = emitBoxTaggedUnionMultiPayload(*en, methodName, partVals, partTypes,
+                                                                 node.getLocation());
+                    } else if (!partVals.empty()) {
+                        slotVal = emitBoxTaggedUnionPayload(partVals[0], partTypes[0], node.getLocation());
+                    }
+                    m_lastExprValue = emitCreateTaggedUnion(targetName, static_cast<int32_t>(variantVal), slotVal);
                     m_lastExprType = ir::IRType::getStruct("struct." + targetName, {IRType::getInt32(), IRType::getInt64()});
                     return;
                 }
@@ -6763,43 +7197,81 @@ void IRBuilder::visit(const ast::CallExpr& node) {
             }
 
             if (methodName == "unwrap") {
-                auto gepPayload = std::make_shared<GetElementPtrInst>(
-                    structType,
-                    objPtr,
-                    std::vector<IRValuePtr>{
-                        std::make_shared<ConstantInt>(IRType::getInt32(), 0),
-                        std::make_shared<ConstantInt>(IRType::getInt32(), 1)
-                    },
-                    m_currentFunction->nextTempName("payload_ptr")
-                );
-                m_currentBlock->addInstruction(gepPayload);
-                auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("payload"));
-                m_currentBlock->addInstruction(loadPayload);
-
                 auto callSemaType = m_sema.getNodeType(&node);
                 IRTypePtr targetType = callSemaType ? mapType(callSemaType.get()) : IRType::getInt64();
-                m_lastExprValue = emitCastIfNeeded(loadPayload, targetType);
+                // Phase 9 slice D: a multi-payload variant has no
+                // single payload to unwrap — loud E1000. The tag-0
+                // variant is getVariants()[0] (tags are declaration
+                // indices).
+                if (semaObjType && semaObjType->isEnum()) {
+                    const auto* en = dynamic_cast<const sema::EnumType*>(semaObjType.get());
+                    if (en && en->isTaggedUnion() && !en->getVariants().empty() &&
+                        en->getVariantPayload(en->getVariants()[0]).size() > 1) {
+                        reportUnsupported(node.getLocation(), "unwrap on a multi-payload variant",
+                                          "variants with multiple payloads have no single payload to unwrap — match on the variant instead");
+                        m_lastExprValue = std::make_shared<ConstantNull>(targetType);
+                        m_lastExprType = targetType;
+                        return;
+                    }
+                }
+                // Phase 9 slice D: the guarded unbox — a wide payload
+                // is loaded from its box only when the tag is the
+                // expected variant (the slot may hold the other
+                // variant's payload, or null, otherwise).
+                IRValuePtr unwrapped = nullptr;
+                if (callSemaType) {
+                    unwrapped = emitLoadTaggedUnionPayloadGuarded(objPtr, tuBaseName, callSemaType, 0);
+                }
+                if (!unwrapped) {
+                    auto gepPayload = std::make_shared<GetElementPtrInst>(
+                        structType, objPtr,
+                        std::vector<IRValuePtr>{
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 1)},
+                        m_currentFunction->nextTempName("payload_ptr"));
+                    m_currentBlock->addInstruction(gepPayload);
+                    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("payload"));
+                    m_currentBlock->addInstruction(loadPayload);
+                    unwrapped = emitCastIfNeeded(loadPayload, targetType);
+                }
+                m_lastExprValue = unwrapped;
                 m_lastExprType = targetType;
                 return;
             }
 
             if (methodName == "unwrapErr") {
-                auto gepPayload = std::make_shared<GetElementPtrInst>(
-                    structType,
-                    objPtr,
-                    std::vector<IRValuePtr>{
-                        std::make_shared<ConstantInt>(IRType::getInt32(), 0),
-                        std::make_shared<ConstantInt>(IRType::getInt32(), 1)
-                    },
-                    m_currentFunction->nextTempName("payload_ptr")
-                );
-                m_currentBlock->addInstruction(gepPayload);
-                auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("payload"));
-                m_currentBlock->addInstruction(loadPayload);
-
                 auto callSemaType = m_sema.getNodeType(&node);
                 IRTypePtr targetType = callSemaType ? mapType(callSemaType.get()) : IRType::getInt64();
-                m_lastExprValue = emitCastIfNeeded(loadPayload, targetType);
+                // Phase 9 slice D: same multi-payload rule as unwrap,
+                // for the tag-1 variant.
+                if (semaObjType && semaObjType->isEnum()) {
+                    const auto* en = dynamic_cast<const sema::EnumType*>(semaObjType.get());
+                    if (en && en->isTaggedUnion() && en->getVariants().size() > 1 &&
+                        en->getVariantPayload(en->getVariants()[1]).size() > 1) {
+                        reportUnsupported(node.getLocation(), "unwrapErr on a multi-payload variant",
+                                          "variants with multiple payloads have no single payload to unwrap — match on the variant instead");
+                        m_lastExprValue = std::make_shared<ConstantNull>(targetType);
+                        m_lastExprType = targetType;
+                        return;
+                    }
+                }
+                IRValuePtr unwrapped = nullptr;
+                if (callSemaType) {
+                    unwrapped = emitLoadTaggedUnionPayloadGuarded(objPtr, tuBaseName, callSemaType, 1);
+                }
+                if (!unwrapped) {
+                    auto gepPayload = std::make_shared<GetElementPtrInst>(
+                        structType, objPtr,
+                        std::vector<IRValuePtr>{
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                            std::make_shared<ConstantInt>(IRType::getInt32(), 1)},
+                        m_currentFunction->nextTempName("payload_ptr"));
+                    m_currentBlock->addInstruction(gepPayload);
+                    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("payload"));
+                    m_currentBlock->addInstruction(loadPayload);
+                    unwrapped = emitCastIfNeeded(loadPayload, targetType);
+                }
+                m_lastExprValue = unwrapped;
                 m_lastExprType = targetType;
                 return;
             }
@@ -6822,22 +7294,21 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     auto loadTag = std::make_shared<LoadInst>(IRType::getInt32(), gepTag, m_currentFunction->nextTempName("tag"));
                     m_currentBlock->addInstruction(loadTag);
 
-                    auto gepPayload = std::make_shared<GetElementPtrInst>(
-                        structType,
-                        objPtr,
-                        std::vector<IRValuePtr>{
-                            std::make_shared<ConstantInt>(IRType::getInt32(), 0),
-                            std::make_shared<ConstantInt>(IRType::getInt32(), 1)
-                        },
-                        m_currentFunction->nextTempName("payload_ptr")
-                    );
-                    m_currentBlock->addInstruction(gepPayload);
-                    auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("payload"));
-                    m_currentBlock->addInstruction(loadPayload);
-
                     auto callSemaType = m_sema.getNodeType(&node);
                     IRTypePtr targetType = callSemaType ? mapType(callSemaType.get()) : (defVal ? defVal->getType() : IRType::getInt64());
-                    auto unwrapped = emitCastIfNeeded(loadPayload, targetType);
+                    // Phase 9 slice D: a multi-payload variant has no
+                    // single payload to unwrap — loud E1000.
+                    if (semaObjType && semaObjType->isEnum()) {
+                        const auto* en = dynamic_cast<const sema::EnumType*>(semaObjType.get());
+                        if (en && en->isTaggedUnion() && !en->getVariants().empty() &&
+                            en->getVariantPayload(en->getVariants()[0]).size() > 1) {
+                            reportUnsupported(node.getLocation(), "unwrapOr on a multi-payload variant",
+                                              "variants with multiple payloads have no single payload to unwrap — match on the variant instead");
+                            m_lastExprValue = defVal;
+                            m_lastExprType = targetType;
+                            return;
+                        }
+                    }
                     defVal = emitCastIfNeeded(defVal, targetType);
 
                     auto okBB = createBlock("unwrap_ok");
@@ -6853,6 +7324,26 @@ void IRBuilder::visit(const ast::CallExpr& node) {
                     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(cmp, okBB->getName(), defBB->getName()));
 
                     setInsertPoint(okBB);
+                    // Phase 9 slice D: the payload is unboxed HERE,
+                    // after the tag check — a wide payload's box must
+                    // not be dereferenced on the None/Err path (the
+                    // slot holds null or the other variant's payload).
+                    IRValuePtr unwrapped = nullptr;
+                    if (callSemaType) {
+                        unwrapped = emitLoadTaggedUnionPayload(objPtr, tuBaseName, callSemaType);
+                    }
+                    if (!unwrapped) {
+                        auto gepPayload = std::make_shared<GetElementPtrInst>(
+                            structType, objPtr,
+                            std::vector<IRValuePtr>{
+                                std::make_shared<ConstantInt>(IRType::getInt32(), 0),
+                                std::make_shared<ConstantInt>(IRType::getInt32(), 1)},
+                            m_currentFunction->nextTempName("payload_ptr"));
+                        m_currentBlock->addInstruction(gepPayload);
+                        auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), gepPayload, m_currentFunction->nextTempName("payload"));
+                        m_currentBlock->addInstruction(loadPayload);
+                        unwrapped = emitCastIfNeeded(loadPayload, targetType);
+                    }
                     okBB->addInstruction(std::make_shared<StoreInst>(unwrapped, resAlloca));
                     okBB->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
 
@@ -8778,28 +9269,28 @@ void IRBuilder::visit(const ast::CallExpr& node) {
 
     if (calleeName == "Ok" && node.getArgs().size() == 1) {
         node.getArgs()[0]->accept(*this);
-        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                          m_sema.getNodeType(node.getArgs()[0].get()),
-                                          m_lastExprValue);
-        m_lastExprValue = emitCreateTaggedUnion("Result", 0, m_lastExprValue);
+        auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+        emitTaggedUnionConstructionRetain(*node.getArgs()[0], argType, m_lastExprValue);
+        IRValuePtr slotVal = emitBoxTaggedUnionPayload(m_lastExprValue, argType, node.getLocation());
+        m_lastExprValue = emitCreateTaggedUnion("Result", 0, slotVal);
         m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
         return;
     }
     if (calleeName == "Err" && node.getArgs().size() == 1) {
         node.getArgs()[0]->accept(*this);
-        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                          m_sema.getNodeType(node.getArgs()[0].get()),
-                                          m_lastExprValue);
-        m_lastExprValue = emitCreateTaggedUnion("Result", 1, m_lastExprValue);
+        auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+        emitTaggedUnionConstructionRetain(*node.getArgs()[0], argType, m_lastExprValue);
+        IRValuePtr slotVal = emitBoxTaggedUnionPayload(m_lastExprValue, argType, node.getLocation());
+        m_lastExprValue = emitCreateTaggedUnion("Result", 1, slotVal);
         m_lastExprType = ir::IRType::getStruct("struct.Result", {IRType::getInt32(), IRType::getInt64()});
         return;
     }
     if (calleeName == "Some" && node.getArgs().size() == 1) {
         node.getArgs()[0]->accept(*this);
-        emitTaggedUnionConstructionRetain(*node.getArgs()[0],
-                                          m_sema.getNodeType(node.getArgs()[0].get()),
-                                          m_lastExprValue);
-        m_lastExprValue = emitCreateTaggedUnion("Option", 0, m_lastExprValue);
+        auto argType = m_sema.getNodeType(node.getArgs()[0].get());
+        emitTaggedUnionConstructionRetain(*node.getArgs()[0], argType, m_lastExprValue);
+        IRValuePtr slotVal = emitBoxTaggedUnionPayload(m_lastExprValue, argType, node.getLocation());
+        m_lastExprValue = emitCreateTaggedUnion("Option", 0, slotVal);
         m_lastExprType = ir::IRType::getStruct("struct.Option", {IRType::getInt32(), IRType::getInt64()});
         return;
     }
@@ -10867,7 +11358,15 @@ void IRBuilder::visit(const ast::TryExpr& node) {
     setInsertPoint(okBB);
     auto semaNodeType = m_sema.getNodeType(&node);
     IRTypePtr targetType = semaNodeType ? mapType(semaNodeType.get()) : IRType::getInt64();
-    auto unwrapped = emitCastIfNeeded(loadPayload, targetType);
+    // Phase 9 slice D: a wide payload is unboxed from its box HERE,
+    // after the tag check — the entry-block load is only the slot
+    // bits, and dereferencing them as a box on the Err path would
+    // read the Err payload (or a small int) as a pointer.
+    IRValuePtr unwrapped = nullptr;
+    if (semaNodeType) {
+        unwrapped = emitUnboxTaggedUnionPayload(loadPayload, semaNodeType);
+    }
+    if (!unwrapped) unwrapped = emitCastIfNeeded(loadPayload, targetType);
 
     m_lastExprValue = unwrapped;
     m_lastExprType = targetType;

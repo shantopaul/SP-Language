@@ -378,7 +378,12 @@ private:
     // Phase 9 slice A: tagged-union payload ownership helpers (see
     // IRBuilder.cpp §0.3 / docs/v2/PHASE-38-SLICE-A.md §0.1).
     // taggedUnionHasOwnedPayload: the sema type is a tagged union and
-    // at least one variant's payload type is owned (isOwnedValueType).
+    // at least one variant's payload needs a release — an owned
+    // payload type (isOwnedValueType), a wide payload (struct /
+    // nested TU — the slot holds a box pointer), or a multi-payload
+    // variant (the slot holds a box pointer). The slot holds exactly
+    // one payload (or one box), so releasing the slot bits frees
+    // whatever the TU owns.
     bool taggedUnionHasOwnedPayload(const sema::TypePtr& t) const;
     // taggedUnionPayloadPtr: pointer to the payload slot of a tagged
     // union value — GEP {0,1} directly for a struct pointer, spilling
@@ -405,6 +410,87 @@ private:
     // by the task box, not by a call (see Phase 38 slice C).
     void recordTempTaggedUnion(const ast::CallExpr& node);
     void recordTempTaggedUnionForType(const sema::TypePtr& semaType);
+    // Phase 9 slice D (ADR-002): wide payloads — boxed struct /
+    // multi-payload / nested tagged-union payloads (see
+    // docs/v2/PHASE-38-SLICE-D.md §0.1). The slot of a tagged union
+    // holds one i64; a wide payload lives in a heap ARC box and the
+    // slot holds the box pointer instead. The Slice A ownership rule
+    // is unchanged (the TU owns one share of the box; the box's
+    // destructor releases whatever the box itself owns).
+    // tuPayloadIsWide: the payload type needs a heap box — a struct
+    // type or a tagged-union type. (A multi-payload variant is wide
+    // by part count; see tuVariantIsWide.)
+    bool tuPayloadIsWide(const sema::TypePtr& payloadType) const;
+    // tuVariantIsWide: the variant's payload list needs a box — more
+    // than one payload type, or any single payload type that is wide.
+    bool tuVariantIsWide(const sema::EnumType& en, const std::string& variant) const;
+    // tuBoxByteSize: the box size in bytes for the variant's payload
+    // list — struct payload: the struct size (asyncStructSizeBytes);
+    // nested TU: 16; multi-payload: maxParts * 8, where maxParts is
+    // the maximum part count over ALL variants of the enum (the box
+    // is sized uniformly so one destructor fits every variant).
+    int64_t tuBoxByteSize(const sema::EnumType& en, const std::string& variant);
+    // tuBoxDestructorName: the destructor function name for the
+    // variant's box ("" when no destructor is needed — every release
+    // in it would be a no-op). Generated lazily by
+    // ensureTuBoxDestructor. `actualPartTypes` are the construction
+    // call's argument types — a generic enum declares type
+    // parameters, so the owned check must also see the concrete
+    // argument types.
+    std::string tuBoxDestructorName(const sema::EnumType& en, const std::string& variant,
+                                    const std::vector<sema::TypePtr>& actualPartTypes = {}) const;
+    // ensureTuBoxDestructor: generate the shared box-destructor
+    // function into the module when it does not exist yet
+    // (__sp_tu_box_dtor_nested, __sp_tu_box_dtor_multi_<N>).
+    void ensureTuBoxDestructor(const std::string& dtorName);
+    // Box a single wide payload value and return the slot value
+    // (the box pointer when wide, the raw bits when narrow). The
+    // caller must have run the construction retain first. On a
+    // failure the raw value is returned after recording E1000 (the
+    // build aborts on the recorded error, so the slot is never used).
+    IRValuePtr emitBoxTaggedUnionPayload(IRValuePtr payloadVal, const sema::TypePtr& payloadType,
+                                          const diagnostics::SourceLocation& loc);
+    // Box a multi-payload variant's parts and return the box pointer
+    // (the first part's bits on failure, after recording E1000 — a
+    // part that is itself wide, struct / nested TU, needs a
+    // box-of-boxes layout that is out of scope).
+    IRValuePtr emitBoxTaggedUnionMultiPayload(const sema::EnumType& en,
+                                              const std::string& variant,
+                                              const std::vector<IRValuePtr>& partVals,
+                                              const std::vector<sema::TypePtr>& partTypes,
+                                              const diagnostics::SourceLocation& loc);
+    // Load a payload value from a tagged-union struct pointer:
+    // narrow -> the slot bits cast to the payload type; wide struct /
+    // nested TU -> the payload loaded from the box. A struct payload
+    // is snapshot-copied into a fresh entry-block alloca (it must
+    // not alias the box — the box is freed when the TU drops).
+    // The caller must have proven the tag (match body, `?` ok path)
+    // — the box dereference is unguarded. Returns nullptr for a
+    // multi-payload variant (no single value exists).
+    IRValuePtr emitLoadTaggedUnionPayload(IRValuePtr structPtr,
+                                          const std::string& tuBaseName,
+                                          const sema::TypePtr& payloadType);
+    // Unbox already-loaded slot bits (the i64 from field 1) into the
+    // payload value — the core of emitLoadTaggedUnionPayload. The
+    // caller must have proven the tag.
+    IRValuePtr emitUnboxTaggedUnionPayload(IRValuePtr slotBits,
+                                           const sema::TypePtr& payloadType);
+    // Load a payload value, guarding the box dereference on the tag:
+    // unwrap/unwrapOr load the payload unconditionally, and when the
+    // value is the OTHER variant the slot may hold that variant's
+    // payload (or null for None) — dereferencing it as a box would
+    // segfault. Emits a tag check; the wrong-variant arm yields a
+    // zero value of the payload type (unwrap on the wrong variant is
+    // a programmer error — today it returns garbage; a real panic
+    // there is a follow-up).
+    IRValuePtr emitLoadTaggedUnionPayloadGuarded(IRValuePtr structPtr,
+                                                 const std::string& tuBaseName,
+                                                 const sema::TypePtr& payloadType,
+                                                 int32_t expectedTag);
+    // Load part i of a multi-payload variant from its box pointer
+    // (the slot bits of the TU struct).
+    IRValuePtr emitLoadTaggedUnionPayloadPart(IRValuePtr boxPtr, int partIdx,
+                                              const sema::TypePtr& partType);
     void pushTempScope();
     void popTempScope();
     void pushTempBranchScope();
