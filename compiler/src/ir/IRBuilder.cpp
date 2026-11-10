@@ -809,7 +809,7 @@ bool IRBuilder::taggedUnionHasOwnedPayload(const sema::TypePtr& t) const {
     return false;
 }
 
-IRValuePtr IRBuilder::taggedUnionPayloadPtr(IRValuePtr v, const std::string& tuBaseName) {
+IRValuePtr IRBuilder::taggedUnionFieldPtr(IRValuePtr v, const std::string& tuBaseName, int fieldIdx) {
     if (!v || !m_currentBlock) return nullptr;
     auto structType = ir::IRType::getStruct("struct." + tuBaseName,
                                              {IRType::getInt32(), IRType::getInt64()});
@@ -821,14 +821,18 @@ IRValuePtr IRBuilder::taggedUnionPayloadPtr(IRValuePtr v, const std::string& tuB
         m_currentBlock->addInstruction(std::make_shared<StoreInst>(v, tempAlloca));
         slotPtr = tempAlloca;
     }
-    auto gepPayload = std::make_shared<GetElementPtrInst>(
+    auto gepField = std::make_shared<GetElementPtrInst>(
         structType, slotPtr,
         std::vector<IRValuePtr>{
             std::make_shared<ConstantInt>(IRType::getInt32(), 0),
-            std::make_shared<ConstantInt>(IRType::getInt32(), 1)},
-        m_currentFunction->nextTempName("tu_payload_ptr"));
-    m_currentBlock->addInstruction(gepPayload);
-    return gepPayload;
+            std::make_shared<ConstantInt>(IRType::getInt32(), fieldIdx)},
+        m_currentFunction->nextTempName("tu_field_ptr"));
+    m_currentBlock->addInstruction(gepField);
+    return gepField;
+}
+
+IRValuePtr IRBuilder::taggedUnionPayloadPtr(IRValuePtr v, const std::string& tuBaseName) {
+    return taggedUnionFieldPtr(v, tuBaseName, 1);
 }
 
 void IRBuilder::emitRetainTaggedUnionPayload(IRValuePtr v, const sema::TypePtr& t) {
@@ -1265,8 +1269,8 @@ void IRBuilder::recordTempTaggedUnion(const ast::CallExpr& node) {
     m_tempPayloadOwners[structVal] = payload;
 }
 
-void IRBuilder::adoptTempValue(IRValuePtr v) {
-    if (!v) return;
+bool IRBuilder::adoptTempValue(IRValuePtr v) {
+    if (!v) return false;
     // Phase 8 slice D: an adopted value may live in a branch scope
     // (e.g. an assignment inside a short-circuit RHS) — scan those
     // innermost-outward first, then the statement scopes.
@@ -1301,10 +1305,9 @@ void IRBuilder::adoptTempValue(IRValuePtr v) {
     if (mapIt != m_tempPayloadOwners.end()) {
         IRValuePtr payload = mapIt->second;
         m_tempPayloadOwners.erase(mapIt);
-        eraseFromScopes(payload);
-        return;
+        return eraseFromScopes(payload);
     }
-    eraseFromScopes(v);
+    return eraseFromScopes(v);
 }
 
 IRBuilder::TempCallRecorder::~TempCallRecorder() {
@@ -2838,6 +2841,84 @@ void IRBuilder::visit(const ast::SwitchStmt& node) {
     setInsertPoint(endBB);
 }
 
+// Phase 9 slice B (ADR-002): variant-pattern detection for match
+// arms. The payload types are read off the SUBJECT's specialized
+// enum type, so they are concrete (Result<Foo, string> gives Ok ->
+// [Foo]); the pattern's own enum only identifies the variant.
+bool IRBuilder::matchVariantPattern(const ast::ExpressionNode* pattern,
+                                    const sema::TypePtr& subjType,
+                                    std::string& variantName,
+                                    std::vector<sema::TypePtr>& payloadTypes,
+                                    std::vector<std::string>& bindingNames) {
+    if (!pattern || !subjType || !subjType->isEnum()) return false;
+    const auto* subjEnum = dynamic_cast<const sema::EnumType*>(subjType.get());
+    if (!subjEnum || !subjEnum->isTaggedUnion()) return false;
+
+    // The binding args of a variant call: each must be a bare
+    // identifier (sema enforces this with a clear error; IR
+    // defensively rejects anything else).
+    auto collectBindings = [&](const ast::CallExpr& call) -> bool {
+        bindingNames.clear();
+        for (const auto& arg : call.getArgs()) {
+            const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(arg.get());
+            if (!ident) return false;
+            bindingNames.push_back(ident->getName());
+        }
+        return true;
+    };
+
+    if (const auto* call = dynamic_cast<const ast::CallExpr*>(pattern)) {
+        // Form 1: E.V(args) — Result.Ok(v), Shape.Circle(r).
+        if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&call->getCallee())) {
+            if (!mem->hasObject()) return false;
+            const auto* objIdent = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject());
+            if (!objIdent) return false;
+            // A same-named variable shadows the type name.
+            auto [varAlloca, varType] = lookupVariable(objIdent->getName());
+            if (varAlloca) return false;
+            auto enumType = m_sema.getTypeContext().findUserType(objIdent->getName());
+            if (!enumType || !enumType->isEnum()) return false;
+            const auto* en = dynamic_cast<const sema::EnumType*>(enumType.get());
+            if (!en || !en->isTaggedUnion() || !en->hasVariant(mem->getMember())) return false;
+            if (tuStructBaseName(en->getName()) != tuStructBaseName(subjType->toString())) return false;
+            if (!collectBindings(*call)) return false;
+            variantName = mem->getMember();
+            payloadTypes = subjEnum->getVariantPayload(variantName);
+            return payloadTypes.size() == call->getArgs().size();
+        }
+        // Form 2: bare V(args) — Ok(v), Some(x). The variant must
+        // belong to the subject's enum.
+        if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&call->getCallee())) {
+            if (!subjEnum->hasVariant(ident->getName())) return false;
+            if (!collectBindings(*call)) return false;
+            variantName = ident->getName();
+            payloadTypes = subjEnum->getVariantPayload(variantName);
+            return payloadTypes.size() == call->getArgs().size();
+        }
+        return false;
+    }
+
+    // Form 3: E.V with no call — a nullary variant (Option.None).
+    if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(pattern)) {
+        if (!mem->hasObject()) return false;
+        const auto* objIdent = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject());
+        if (!objIdent) return false;
+        auto [varAlloca, varType] = lookupVariable(objIdent->getName());
+        if (varAlloca) return false;
+        auto enumType = m_sema.getTypeContext().findUserType(objIdent->getName());
+        if (!enumType || !enumType->isEnum()) return false;
+        const auto* en = dynamic_cast<const sema::EnumType*>(enumType.get());
+        if (!en || !en->isTaggedUnion() || !en->hasVariant(mem->getMember())) return false;
+        if (tuStructBaseName(en->getName()) != tuStructBaseName(subjType->toString())) return false;
+        if (en->hasPayload(mem->getMember())) return false;
+        variantName = mem->getMember();
+        payloadTypes.clear();
+        bindingNames.clear();
+        return true;
+    }
+    return false;
+}
+
 void IRBuilder::visit(const ast::MatchStmt& node) {
     if (!m_currentFunction || !m_currentBlock) return;
 
@@ -2846,7 +2927,28 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
     node.getSubject().accept(*this);
     IRValuePtr subjVal = m_lastExprValue;
     IRTypePtr subjType = m_lastExprType;
-    adoptTempValue(subjVal);
+    // Phase 9 slice B: a match on a temporary subject must be
+    // released at match end — the adopt below removes it from the
+    // pending list, so save what to release first. For a tagged-
+    // union temp the recorded share is the payload; for a class
+    // temp it is the subject value itself. A local subject is never
+    // recorded, so nothing is saved for it. (An arm body that
+    // returns still leaks the subject share — the endBB release
+    // covers the fallthrough path only.)
+    IRValuePtr subjTempPayload = nullptr;
+    auto subjPayloadIt = m_tempPayloadOwners.find(subjVal);
+    if (subjPayloadIt != m_tempPayloadOwners.end()) subjTempPayload = subjPayloadIt->second;
+    bool subjWasTemp = adoptTempValue(subjVal);
+    auto releaseSubjectTemp = [&]() {
+        if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+        if (subjTempPayload) {
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{subjTempPayload}));
+        } else if (subjWasTemp) {
+            m_currentBlock->addInstruction(std::make_shared<CallInst>(
+                IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{subjVal}));
+        }
+    };
     popTempScope();
     if (!subjVal) return;
 
@@ -2858,6 +2960,7 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
     if (numArms == 0) {
         m_currentBlock->addInstruction(std::make_shared<BranchInst>(endBB->getName()));
         setInsertPoint(endBB);
+        releaseSubjectTemp();
         return;
     }
 
@@ -2877,8 +2980,30 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
         setInsertPoint(testBBs[i]);
         const auto& arm = arms[i];
 
+        // Phase 9 slice B: a variant pattern binds its payload in
+        // the arm body (see below); the test compares TAGS.
+        std::string variantName;
+        std::vector<sema::TypePtr> payloadTypes;
+        std::vector<std::string> bindingNames;
+        bool isVariantArm = false;
+
         if (arm.isWildcard()) {
             testBBs[i]->addInstruction(std::make_shared<BranchInst>(bodyBBs[i]->getName()));
+        } else if (matchVariantPattern(arm.getPattern(), semaSubj, variantName, payloadTypes, bindingNames)) {
+            auto subjEnum = std::static_pointer_cast<sema::EnumType>(semaSubj);
+            int64_t variantTag = subjEnum->getVariantValue(variantName);
+            IRValuePtr tagPtr = taggedUnionFieldPtr(subjVal, tuStructBaseName(semaSubj->toString()), 0);
+            auto loadTag = std::make_shared<LoadInst>(IRType::getInt32(), tagPtr,
+                                                      m_currentFunction->nextTempName("match_tag"));
+            testBBs[i]->addInstruction(loadTag);
+            auto cmp = std::make_shared<CompareInst>(
+                IROpcode::ICmpEq, loadTag,
+                std::make_shared<ConstantInt>(IRType::getInt32(), static_cast<int32_t>(variantTag)),
+                m_currentFunction->nextTempName("match_is_variant"));
+            testBBs[i]->addInstruction(cmp);
+            std::string nextTest = (i + 1 < numArms) ? testBBs[i + 1]->getName() : endBB->getName();
+            testBBs[i]->addInstruction(std::make_shared<CondBranchInst>(cmp, bodyBBs[i]->getName(), nextTest));
+            isVariantArm = true;
         } else {
             arm.getPattern()->accept(*this);
             IRValuePtr patVal = m_lastExprValue;
@@ -2914,6 +3039,31 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
         // Arm body
         setInsertPoint(bodyBBs[i]);
         pushScope();
+        if (isVariantArm) {
+            // Phase 9 slice B: bind the payload (BORROWED — the
+            // subject outlives the arm body, and adopters retain by
+            // the copy rule). Single-payload variants only: the
+            // payload slot holds one i64 (multi-payload variants are
+            // rejected in sema until slice D boxes them).
+            if (bindingNames.size() > 1) {
+                reportUnsupported(arm.getPattern()->getLocation(),
+                                  "match pattern with multiple payload bindings",
+                                  "variants with multiple payloads are not supported yet (Phase 38 slice D)");
+            } else if (!bindingNames.empty()) {
+                IRTypePtr bindType = mapType(payloadTypes[0].get());
+                IRValuePtr payloadPtr = taggedUnionFieldPtr(subjVal,
+                                                           tuStructBaseName(semaSubj->toString()), 1);
+                auto loadPayload = std::make_shared<LoadInst>(IRType::getInt64(), payloadPtr,
+                                                              m_currentFunction->nextTempName("match_payload"));
+                m_currentBlock->addInstruction(loadPayload);
+                IRValuePtr payloadVal = emitCastIfNeeded(loadPayload, bindType);
+                std::string bindReg = "%" + bindingNames[0] + "_" + std::to_string(m_varCounter++);
+                auto bindAlloca = std::make_shared<AllocaInst>(bindType, bindReg);
+                m_currentFunction->getEntryBlock()->addInstruction(bindAlloca);
+                m_currentBlock->addInstruction(std::make_shared<StoreInst>(payloadVal, bindAlloca));
+                declareVariable(bindingNames[0], bindAlloca, bindType);
+            }
+        }
         arm.getBody().accept(*this);
         popScope();
 
@@ -2923,6 +3073,7 @@ void IRBuilder::visit(const ast::MatchStmt& node) {
     }
 
     setInsertPoint(endBB);
+    releaseSubjectTemp();
 }
 
 void IRBuilder::visit(const ast::ReturnStmt& node) {

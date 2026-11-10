@@ -1798,8 +1798,146 @@ void TypeChecker::visit(const ast::MatchStmt& node) {
     TypePtr subjType = m_typeCtx.getError();
     if (node.hasSubject()) subjType = checkExpr(node.getSubject());
 
+    const EnumType* subjEnum = nullptr;
+    if (subjType && subjType->isEnum()) {
+        const auto* en = dynamic_cast<const EnumType*>(subjType.get());
+        if (en && en->isTaggedUnion()) subjEnum = en;
+    }
+
+    // Phase 9 slice B: a variant pattern binds its payloads
+    // (Result.Ok(v), Option.Some(x), Shape.Circle(r), bare Ok(v),
+    // nullary Option.None). Returns true when the pattern IS a
+    // variant pattern — including an INVALID one, so the caller does
+    // not fall through to checkExpr and report confusing secondary
+    // errors (E1002 on the binding identifiers). Bindings are
+    // defined in the per-arm scope the caller opened.
+    auto baseOf = [](const std::string& n) {
+        auto lt = n.find('<');
+        return lt == std::string::npos ? n : n.substr(0, lt);
+    };
+    auto tryBindVariantPattern = [&](const ast::MatchArm& arm) -> bool {
+        const ast::ExpressionNode* pattern = arm.getPattern();
+        if (!subjEnum) return false;
+        std::string variantName;
+        const ast::CallExpr* variantCall = nullptr;
+
+        if (const auto* call = dynamic_cast<const ast::CallExpr*>(pattern)) {
+            // Form 1: E.V(args) — Result.Ok(v), Shape.Circle(r).
+            if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(&call->getCallee())) {
+                if (!mem->hasObject()) return false;
+                const auto* objIdent = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject());
+                if (!objIdent) return false;
+                // A same-named VALUE shadows the type name — but a
+                // type symbol (Enum/Class/...) does not: the enum
+                // itself is registered in the symbol table by the
+                // NameResolver, so a bare lookup would always "find"
+                // it. Only Variable/Parameter/Constant/Function/
+                // Method bindings shadow.
+                if (auto existingSym = m_symbolTable.lookup(objIdent->getName())) {
+                    auto kind = existingSym->getKind();
+                    if (kind == SymbolKind::Variable || kind == SymbolKind::Parameter ||
+                        kind == SymbolKind::Constant || kind == SymbolKind::Function ||
+                        kind == SymbolKind::Method) return false;
+                }
+                auto enumType = m_typeCtx.findUserType(objIdent->getName());
+                if (!enumType || !enumType->isEnum()) return false;
+                const auto* en = dynamic_cast<const EnumType*>(enumType.get());
+                if (!en || !en->isTaggedUnion()) return false;
+                if (!en->hasVariant(mem->getMember())) {
+                    m_diagnostics.reportError("E1001", "Enum '" + en->getName() + "' has no variant '" +
+                                              mem->getMember() + "'", pattern->getLocation());
+                    return true;
+                }
+                if (baseOf(en->getName()) != baseOf(subjType->toString())) {
+                    m_diagnostics.reportError("E1001", "Match pattern '" + objIdent->getName() + "." +
+                                              mem->getMember() + "' does not match subject type '" +
+                                              subjType->toString() + "'", pattern->getLocation());
+                    return true;
+                }
+                variantName = mem->getMember();
+                variantCall = call;
+            }
+            // Form 2: bare V(args) — Ok(v), Some(x). The variant
+            // must belong to the subject's enum.
+            else if (const auto* ident = dynamic_cast<const ast::IdentifierExpr*>(&call->getCallee())) {
+                if (!subjEnum->hasVariant(ident->getName())) return false;
+                variantName = ident->getName();
+                variantCall = call;
+            } else {
+                return false;
+            }
+        } else if (const auto* mem = dynamic_cast<const ast::MemberExpr*>(pattern)) {
+            // Form 3: E.V with no call — a nullary variant
+            // (Option.None). A variant WITH payloads needs its call.
+            if (!mem->hasObject()) return false;
+            const auto* objIdent = dynamic_cast<const ast::IdentifierExpr*>(&mem->getObject());
+            if (!objIdent) return false;
+            // Same shadowing rule as form 1 (see above): a value
+            // binding shadows the type name, a type symbol does not.
+            if (auto existingSym = m_symbolTable.lookup(objIdent->getName())) {
+                auto kind = existingSym->getKind();
+                if (kind == SymbolKind::Variable || kind == SymbolKind::Parameter ||
+                    kind == SymbolKind::Constant || kind == SymbolKind::Function ||
+                    kind == SymbolKind::Method) return false;
+            }
+            auto enumType = m_typeCtx.findUserType(objIdent->getName());
+            if (!enumType || !enumType->isEnum()) return false;
+            const auto* en = dynamic_cast<const EnumType*>(enumType.get());
+            if (!en || !en->isTaggedUnion() || !en->hasVariant(mem->getMember())) return false;
+            if (baseOf(en->getName()) != baseOf(subjType->toString())) return false;
+            if (en->hasPayload(mem->getMember())) {
+                m_diagnostics.reportError("E1001", "Match pattern '" + objIdent->getName() + "." +
+                                          mem->getMember() + "' requires arguments to bind the payload",
+                                          pattern->getLocation());
+                return true;
+            }
+            variantName = mem->getMember();
+            variantCall = nullptr;
+        } else {
+            return false;
+        }
+
+        // Payload types come off the SUBJECT's specialized enum type,
+        // so they are concrete (Result<Foo, string> gives Ok -> [Foo]).
+        auto payloadTypes = subjEnum->getVariantPayload(variantName);
+        if (payloadTypes.size() > 1) {
+            m_diagnostics.reportError("E1001", "Match on variant '" + variantName + "' with multiple payloads "
+                                      "is not supported yet (Phase 38 slice D)", pattern->getLocation());
+            return true;
+        }
+        size_t argCount = variantCall ? variantCall->getArgs().size() : 0;
+        if (argCount != payloadTypes.size()) {
+            m_diagnostics.reportError("E1001", "Match pattern '" + variantName + "' expects " +
+                                      std::to_string(payloadTypes.size()) + " argument(s), got " +
+                                      std::to_string(argCount), pattern->getLocation());
+            return true;
+        }
+        if (variantCall) {
+            for (size_t a = 0; a < variantCall->getArgs().size(); ++a) {
+                const auto* argIdent = dynamic_cast<const ast::IdentifierExpr*>(
+                    variantCall->getArgs()[a].get());
+                if (!argIdent) {
+                    m_diagnostics.reportError("E1001", "Match pattern arguments must be bare identifiers "
+                                              "to bind the payload", variantCall->getArgs()[a]->getLocation());
+                    return true;
+                }
+                auto bindSym = std::make_shared<VariableSymbol>(argIdent->getName(), payloadTypes[a],
+                                                                argIdent->getLocation());
+                m_symbolTable.define(bindSym);
+            }
+        }
+        return true;
+    };
+
     for (const auto& arm : node.getArms()) {
+        // Phase 9 slice B: bindings live in a per-arm scope (the
+        // catch-binding pattern) so they are visible in the body only.
+        m_symbolTable.enterScope(ScopeKind::Block);
+        bool isVariantArm = false;
         if (!arm.isWildcard()) {
+            isVariantArm = tryBindVariantPattern(arm);
+        }
+        if (!isVariantArm && !arm.isWildcard()) {
             auto patType = checkExpr(*arm.getPattern());
             if (!patType->isAssignableTo(*subjType)) {
                 m_diagnostics.reportError("E1001", "Match pattern type '" + patType->toString() +
@@ -1807,12 +1945,16 @@ void TypeChecker::visit(const ast::MatchStmt& node) {
             }
         }
         // Phase 5 slice C: an arm body can be null (e.g. `1 => ,`).
-        if (!arm.hasBody()) continue;
+        if (!arm.hasBody()) {
+            m_symbolTable.exitScope();
+            continue;
+        }
         if (arm.getBody().getKind() == ast::ASTNodeKind::BlockStmt) {
             checkStmt(static_cast<const ast::StatementNode&>(arm.getBody()));
         } else {
             checkExpr(static_cast<const ast::ExpressionNode&>(arm.getBody()));
         }
+        m_symbolTable.exitScope();
     }
 }
 

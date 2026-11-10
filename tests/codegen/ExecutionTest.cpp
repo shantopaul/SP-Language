@@ -2591,6 +2591,111 @@ TEST(ExecutionTest, ResultReassignReleasesOldPayload) {
     EXPECT_NE(output.find("n 2"), std::string::npos);
 }
 
+// Phase 9 slice B (ADR-002): match arms bind a variant's payload.
+TEST(ExecutionTest, MatchResultBindsPayload) {
+    const std::string source = R"sp(
+        fn divide(int a, int b) -> Result<int, string> {
+            if (b == 0) {
+                return Result.Err("division by zero");
+            }
+            return Result.Ok(a / b);
+        }
+
+        fn main() {
+            match divide(10, 2) {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+            match divide(10, 0) {
+                Result.Ok(v) => println("ok ${v}"),
+                Result.Err(e) => println("err ${e}")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_result");
+    EXPECT_NE(output.find("ok 5"), std::string::npos);
+    EXPECT_NE(output.find("err division by zero"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchOptionBindsPayload) {
+    const std::string source = R"sp(
+        fn findPositive(int n) -> Option<int> {
+            if (n > 0) {
+                return Option.Some(n * 2);
+            }
+            return Option.None();
+        }
+
+        fn main() {
+            match findPositive(5) {
+                Option.Some(v) => println("some ${v}"),
+                Option.None() => println("none")
+            }
+            match findPositive(-3) {
+                Option.Some(v) => println("some ${v}"),
+                Option.None => println("none")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_option");
+    EXPECT_NE(output.find("some 10"), std::string::npos);
+    EXPECT_NE(output.find("none"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchUserEnumBindsPayload) {
+    const std::string source = R"sp(
+        enum Shape {
+            Circle(int),
+            Square(int)
+        }
+
+        fn main() {
+            var s = Shape.Circle(5);
+            match s {
+                Shape.Circle(r) => println("circle ${r}"),
+                Shape.Square(w) => println("square ${w}"),
+                _ => println("other")
+            }
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_user_enum");
+    EXPECT_NE(output.find("circle 5"), std::string::npos);
+}
+
+TEST(ExecutionTest, MatchOnTempResultReleasesPayload) {
+    const std::string source = R"sp(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+
+        class Foo {
+            int n;
+            public Foo(int n) {
+                this.n = n;
+            }
+        }
+
+        fn make() -> Result<Foo, string> {
+            return Result.Ok(new Foo(7));
+        }
+
+        fn main() {
+            match make() {
+                Result.Ok(f) => println("ok n ${f.n}"),
+                Result.Err(e) => println("err ${e}")
+            }
+            println("live ${sp_rt_mem_live_objects()}");
+        }
+    )sp";
+
+    std::string output = runSPProgram(source, "exec_match_temp_release");
+    EXPECT_NE(output.find("ok n 7"), std::string::npos);
+    EXPECT_NE(output.find("live 0"), std::string::npos);
+}
+
 TEST(ExecutionTest, TryOperatorPropagationNativeExecution) {
     const std::string source = R"sp(
         fn stepOk(x: int): Result<int, string> {

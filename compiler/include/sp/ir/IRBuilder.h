@@ -115,6 +115,19 @@ public:
     void visit(const ast::ForInStmt& node) override;
     void visit(const ast::SwitchStmt& node) override;
     void visit(const ast::MatchStmt& node) override;
+    // Phase 9 slice B (ADR-002): is `pattern` a variant pattern on
+    // the tagged-union subject type (Result.Ok(v), Option.None(),
+    // Shape.Circle(r), bare Ok(v), or nullary Option.None)? On
+    // success fills the variant name, the payload types (read off
+    // the SUBJECT's specialized enum type, so they are concrete),
+    // and the binding identifier names (one per payload, empty for
+    // nullary variants). Returns false for anything else (plain
+    // enum arms, literals, wildcards are handled by the old path).
+    bool matchVariantPattern(const ast::ExpressionNode* pattern,
+                             const sema::TypePtr& subjType,
+                             std::string& variantName,
+                             std::vector<sema::TypePtr>& payloadTypes,
+                             std::vector<std::string>& bindingNames);
     void visit(const ast::ReturnStmt& node) override;
     void visit(const ast::BreakStmt& node) override;
     void visit(const ast::ContinueStmt& node) override;
@@ -362,7 +375,10 @@ private:
     // taggedUnionPayloadPtr: pointer to the payload slot of a tagged
     // union value — GEP {0,1} directly for a struct pointer, spilling
     // a struct SSA value to an entry-block alloca first.
+    // taggedUnionFieldPtr is the same for an arbitrary field index
+    // (0 = tag, 1 = payload); the payload helper delegates to it.
     IRValuePtr taggedUnionPayloadPtr(IRValuePtr v, const std::string& tuBaseName);
+    IRValuePtr taggedUnionFieldPtr(IRValuePtr v, const std::string& tuBaseName, int fieldIdx);
     // Retain / release the payload of a tagged-union value (no-op
     // unless taggedUnionHasOwnedPayload(t)).
     void emitRetainTaggedUnionPayload(IRValuePtr v, const sema::TypePtr& t);
@@ -404,7 +420,11 @@ private:
     // cannot go through recordTempCallResult/recordTempNewResult;
     // this is the shared implementation both of those delegate to.
     void recordTempOwnedValue(IRValuePtr v);
-    void adoptTempValue(IRValuePtr v);
+    // Returns true when an entry was actually removed (the value was
+    // a recorded temporary); false when it was not pending. Phase 9
+    // slice B: visit(MatchStmt) uses the result to know whether an
+    // adopted subject temp must be released at match end.
+    bool adoptTempValue(IRValuePtr v);
     // Phase 8 slice C (ADR-001 weak refs): a weak slot stores the
     // object HEADER pointer (sp_rt_weak_create's return), not the
     // payload. m_weakLocalAllocas is the set of local slots (alloca
