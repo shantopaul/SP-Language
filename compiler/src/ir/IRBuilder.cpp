@@ -938,7 +938,8 @@ void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr 
 }
 
 // Phase 7 slice C: call-result temporary release. Design (full
-// version in docs/v2/PHASE-36-SLICE-C.md §0):
+// version in docs/v2/PHASE-36-SLICE-C.md §0, Phase 8 slice D
+// extensions in docs/v2/PHASE-37-SLICE-D.md §0):
 // - A +1 call/new result that no adopter takes is recorded in the
 //   innermost temp scope and released with sp_rt_release when the
 //   scope pops (statement/condition end).
@@ -947,14 +948,34 @@ void IRBuilder::emitRefReturnRetain(const ast::ExpressionNode& expr, IRValuePtr 
 //   value borrowed FROM a temporary (a field load) stays alive; and
 //   every adopter removes its value from the pending list before the
 //   pop, so no owned share is ever released twice.
-// - Recording is suppressed in async functions (await splits blocks:
-//   a temp defined before a suspend point does not dominate the
-//   resume block) and inside short-circuit branches (&& / || / ??
-//   RHS, ternary arms: same dominance reason). Those temporaries
-//   leak as before; a leak is reportable, a use-after-free is a
-//   regression, so when in doubt this pass does nothing.
+// - Phase 8 slice D: short-circuit / ternary branch regions have
+//   their own branch scopes (m_tempBranchScopes) — a branch block
+//   pops its own scope before its branch to the merge, so the
+//   release lands where the defining block dominates it. And async
+//   functions record temporaries too: at a suspend point the state
+//   machine spills the pending temporaries into the heap frame
+//   (asyncSpillTempScopes) and restores them at the resume, so the
+//   statement pop releases them in the resume segment. A per-await
+//   release was investigated and REJECTED: a temporary captured by
+//   an async spawn (directly, or transitively through a sync call)
+//   is still live at the suspend, and the spawn stores the raw
+//   pointer with no retain — releasing it there would free the
+//   object while the spawned body still needs it. Async-call
+//   arguments are therefore adopted at the spawn instead (see
+//   emitAsyncSpawnSM): their share is transferred to the task.
+//   A leak is reportable, a use-after-free is a regression, so
+//   when in doubt this pass does nothing.
+void IRBuilder::emitTempScopeReleases(const std::vector<IRValuePtr>& pending) {
+    if (pending.empty()) return;
+    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
+    for (auto it = pending.rbegin(); it != pending.rend(); ++it) {
+        if (!*it) continue;
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{*it}));
+    }
+}
+
 void IRBuilder::pushTempScope() {
-    if (m_inAsyncFunction) return;
     if (!m_tempScopes.empty() && m_tempScopeFunction != m_currentFunction) {
         // Defensive: a stale stack must never leak across functions
         // (instrumentation is balanced, so this should not happen).
@@ -965,7 +986,6 @@ void IRBuilder::pushTempScope() {
 }
 
 void IRBuilder::popTempScope() {
-    if (m_inAsyncFunction) return;
     if (m_tempScopes.empty()) return;
     if (m_tempScopeFunction != m_currentFunction) {
         m_tempScopes.clear();
@@ -975,20 +995,28 @@ void IRBuilder::popTempScope() {
     std::vector<IRValuePtr> pending = std::move(m_tempScopes.back());
     m_tempScopes.pop_back();
     if (m_tempScopes.empty()) m_tempScopeFunction = nullptr;
-    if (pending.empty()) return;
-    if (!m_currentBlock || m_currentBlock->hasTerminator()) return;
-    for (auto it = pending.rbegin(); it != pending.rend(); ++it) {
-        if (!*it) continue;
-        m_currentBlock->addInstruction(std::make_shared<CallInst>(
-            IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{*it}));
-    }
+    emitTempScopeReleases(pending);
+}
+
+void IRBuilder::pushTempBranchScope() {
+    m_tempBranchScopes.emplace_back();
+}
+
+void IRBuilder::popTempBranchScope() {
+    if (m_tempBranchScopes.empty()) return;
+    std::vector<IRValuePtr> pending = std::move(m_tempBranchScopes.back());
+    m_tempBranchScopes.pop_back();
+    emitTempScopeReleases(pending);
 }
 
 void IRBuilder::recordTempOwnedValue(IRValuePtr v) {
     if (m_inAsyncFunction || m_tempScopes.empty() || m_tempBranchDepth > 0) return;
     if (m_tempScopeFunction != m_currentFunction) return;
     if (!v || !v->getType() || !v->getType()->isPointer()) return;
-    auto& scope = m_tempScopes.back();
+    // Phase 8 slice D: inside a branch region the temporary lives
+    // in the branch scope (released by the branch block itself);
+    // otherwise in the innermost statement scope.
+    auto& scope = !m_tempBranchScopes.empty() ? m_tempBranchScopes.back() : m_tempScopes.back();
     for (const auto& e : scope) {
         if (e == v) return;  // one share is never recorded twice
     }
@@ -1028,7 +1056,20 @@ void IRBuilder::recordTempLiteralResult(const ast::ExpressionNode& node) {
 }
 
 void IRBuilder::adoptTempValue(IRValuePtr v) {
-    if (!v || m_tempScopes.empty()) return;
+    if (!v) return;
+    // Phase 8 slice D: an adopted value may live in a branch scope
+    // (e.g. an assignment inside a short-circuit RHS) — scan those
+    // innermost-outward first, then the statement scopes.
+    for (auto it = m_tempBranchScopes.rbegin(); it != m_tempBranchScopes.rend(); ++it) {
+        auto& scope = *it;
+        for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
+            if (*sit == v) {
+                scope.erase(sit);
+                return;
+            }
+        }
+    }
+    if (m_tempScopes.empty()) return;
     for (auto it = m_tempScopes.rbegin(); it != m_tempScopes.rend(); ++it) {
         auto& scope = *it;
         for (auto sit = scope.begin(); sit != scope.end(); ++sit) {
@@ -2643,8 +2684,17 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
     // the task copies it), so it survives the scope drops below.
     if (inAsyncSM()) {
         IRBasicBlock* finallyTarget = findFinallyTarget();
+        // Phase 8 slice D: the return-value expression can contain
+        // temporaries (e.g. `return takeFoo(makeFoo());`) — give it
+        // the same statement scope the sync branch below has, so
+        // they are released before the branch to the finish block
+        // (the returned value itself is adopted; async payloads are
+        // never classes, but the expression may still produce
+        // temporaries — including across an await, via the spill).
+        pushTempScope();
         if (node.hasValue()) {
             node.getValue()->accept(*this);
+            IRValuePtr rawRetVal = m_lastExprValue;
             IRValuePtr retVal = m_lastExprValue;
             const std::string& kind = m_asyncSM->payloadKind;
             if (kind == "struct") {
@@ -2681,16 +2731,22 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
             if (slot && retVal) {
                 m_currentBlock->addInstruction(std::make_shared<StoreInst>(retVal, slot));
             }
+            // Phase 8 slice D: adopt the returned value (raw) so the
+            // scope pop below does not release it.
+            adoptTempValue(rawRetVal);
             if (finallyTarget) {
                 auto flagSlot = getOrCreateReturnPendingSlot();
                 m_currentBlock->addInstruction(std::make_shared<StoreInst>(
                     std::make_shared<ConstantInt>(IRType::getInt1(), 1), flagSlot));
+                popTempScope();
                 m_currentBlock->addInstruction(std::make_shared<BranchInst>(finallyTarget->getName()));
                 return;
             }
+            popTempScope();
             emitAllFunctionDrops();
             m_currentBlock->addInstruction(std::make_shared<BranchInst>(m_asyncSM->finishBB->getName()));
         } else {
+            popTempScope();
             if (finallyTarget) {
                 auto flagSlot = getOrCreateReturnPendingSlot();
                 m_currentBlock->addInstruction(std::make_shared<StoreInst>(
@@ -2705,8 +2761,8 @@ void IRBuilder::visit(const ast::ReturnStmt& node) {
     }
     // Phase 7 slice C: the return value's temporaries are released
     // before the return itself (the returned value is adopted at the
-    // retain decision below). Pushed after the async branch: async
-    // functions never record temporaries (see recordTempCallResult).
+    // retain decision below). Pushed after the async branch, which
+    // has its own scope (Phase 8 slice D).
     pushTempScope();
     // Phase 3 slice B: a return inside a try with a finally must run
     // the finally blocks first. Defer it: stash the value, set the
@@ -4660,14 +4716,17 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         }
 
         setInsertPoint(rhsBB);
-        // Phase 7 slice C: the RHS runs in a branch block that does
-        // not dominate the merge block, so its temporaries must not
-        // be recorded (their release point would be unreachable from
-        // the skipped path). They leak as before.
-        ++m_tempBranchDepth;
+        // Phase 8 slice D: the RHS runs in a branch block that does
+        // not dominate the merge block, so its temporaries live in
+        // a branch scope that this block pops itself before its
+        // branch to the merge (the RHS result is a bool, so the
+        // adopt is a no-op — it is here so the pattern matches the
+        // ?? / ternary sites, where the result can be a temporary).
+        pushTempBranchScope();
         node.getRight().accept(*this);
-        --m_tempBranchDepth;
         IRValuePtr rhs = m_lastExprValue;
+        adoptTempValue(rhs);
+        popTempBranchScope();
         if (rhs) {
             rhs = emitCastIfNeeded(rhs, IRType::getInt1());
             // addInstruction inserts before a terminator if one is present;
@@ -4758,12 +4817,18 @@ void IRBuilder::visit(const ast::BinaryExpr& node) {
         m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(isNull, rhsBB->getName(), mergeBB->getName()));
 
         setInsertPoint(rhsBB);
-        // Phase 7 slice C: same branch-depth rule as the && / || RHS
-        // (see above) — the RHS block does not dominate the merge.
-        ++m_tempBranchDepth;
+        // Phase 8 slice D: same branch-scope rule as the && / || RHS
+        // (see above) — the RHS block pops its own scope before its
+        // branch to the merge. The RHS result is adopted first: it is
+        // stored into the result slot and read after the merge, so
+        // when it is itself a temporary it must survive the branch
+        // (it leaks, as before — a release in the merge block would
+        // reference a value that does not dominate it).
+        pushTempBranchScope();
         node.getRight().accept(*this);
-        --m_tempBranchDepth;
         IRValuePtr rhs = m_lastExprValue;
+        adoptTempValue(rhs);
+        popTempBranchScope();
         if (rhs) {
             rhs = emitCastIfNeeded(rhs, resType);
             m_currentBlock->addInstruction(std::make_shared<StoreInst>(rhs, resAlloca));
@@ -9082,21 +9147,28 @@ void IRBuilder::visit(const ast::TernaryExpr& node) {
 
     m_currentBlock->addInstruction(std::make_shared<CondBranchInst>(condVal, thenBB->getName(), elseBB->getName()));
 
-    // Then — Phase 7 slice C: both arms run in branch blocks that do
-    // not dominate the merge block, so their temporaries must not be
-    // recorded (same branch-depth rule as the && / || / ?? RHS).
-    ++m_tempBranchDepth;
+    // Then — Phase 8 slice D: both arms run in branch blocks that do
+    // not dominate the merge block, so each arm has its own branch
+    // scope, popped in the arm block before its branch to the merge.
+    // The arm result is adopted first (it is stored into the result
+    // slot and read after the merge, so a temporary result must
+    // survive the arm — it leaks, as before).
+    pushTempBranchScope();
     setInsertPoint(thenBB);
     node.getThenExpr().accept(*this);
     IRValuePtr thenVal = m_lastExprValue;
     IRTypePtr resType = m_lastExprType ? m_lastExprType : IRType::getInt32();
+    adoptTempValue(thenVal);
+    popTempBranchScope();
     m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
 
     // Else
+    pushTempBranchScope();
     setInsertPoint(elseBB);
     node.getElseExpr().accept(*this);
-    --m_tempBranchDepth;
     IRValuePtr elseVal = m_lastExprValue;
+    adoptTempValue(elseVal);
+    popTempBranchScope();
     m_currentBlock->addInstruction(std::make_shared<BranchInst>(mergeBB->getName()));
 
     // Result alloca in entry block
@@ -10399,6 +10471,23 @@ IRValuePtr IRBuilder::emitAsyncSpawnSM(IRValuePtr thunk,
     m_currentBlock->addInstruction(std::make_shared<CallInst>(
         IRType::getVoid(), "sp_rt_async_spawn_sm",
         std::vector<IRValuePtr>{sched, taskCall, thunk, allocCall}));
+    // Phase 8 slice D: adopt any pending temporary passed as an
+    // argument. The spawn stores the raw pointer into the task ctx
+    // with no retain, and the async body borrows it (its parameters
+    // are never dropped by the body), so the caller's +1 share is
+    // the only one keeping the object alive until the body finishes.
+    // Releasing it at the spawning statement's pop would free the
+    // object before the body runs — a latent use-after-free that
+    // Phase 7-C introduced in sync callers too (proof
+    // p_async_arg_sync.sp: baseline "body live 0", the object
+    // already freed when the body ran, "body n 42" only by luck of
+    // unreused heap memory). The share is transferred to the task
+    // and leaks, exactly as it did while recording was off in async
+    // functions. Scalar / string / Task arguments are never
+    // temporaries, so the adopt is a no-op for them. The `this`
+    // receiver of a method call is loweredArgs[0] and is adopted
+    // the same way when it is a temporary.
+    for (const auto& arg : argValues) adoptTempValue(arg);
     return taskCall;
 }
 
@@ -11289,8 +11378,119 @@ void IRBuilder::asyncSMEnd() {
     m_asyncSM.reset();
 }
 
+// Phase 8 slice D: carry pending call-result temporaries across a
+// suspend point (see the design in docs/v2/PHASE-37-SLICE-D.md
+// §0.3–§0.6). At a suspend, the only sub-expression evaluated in
+// the current statement is the await's operand (the pre-scan
+// hoists every other await out), and every pending temporary was
+// produced while evaluating it. A per-await release in the suspend
+// block would be unsound — a temporary captured by an async spawn
+// (directly, or transitively through a sync call) is still live
+// there, and the spawn stores the raw pointer with no retain — so
+// the temporaries are spilled into a heap array instead: the array
+// pointer lives in the kTempSpillSlot frame slot, the resume
+// reloads the temporaries into fresh SSA values that dominate the
+// rest of the segment, and the statement's scope pop releases
+// them there. Async-call arguments are adopted at the spawn (see
+// emitAsyncSpawnSM) and never reach the spill.
+int64_t IRBuilder::asyncSpillTempScopes() {
+    if (!m_asyncSM || !inAsyncSM()) return 0;
+    int64_t total = 0;
+    for (const auto& scope : m_tempScopes) {
+        for (const auto& v : scope) {
+            if (v) ++total;
+        }
+    }
+    if (total == 0) return 0;
+    // Branch scopes must be empty at a suspend (awaits are hoisted
+    // out of branch regions by the pre-scan). If one is ever open,
+    // discard it without releasing: a release in the suspend block
+    // would reference values defined in a branch block that may
+    // not dominate this block. A leak, never invalid IR.
+    m_tempBranchScopes.clear();
+    auto allocCall = std::make_shared<CallInst>(
+        IRType::getPointer(), "sp_rt_alloc",
+        std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+            IRType::getInt64(), total * 8)},
+        m_currentFunction->nextTempName("async_temp_spill"));
+    m_currentBlock->addInstruction(allocCall);
+    int64_t idx = 0;
+    for (const auto& scope : m_tempScopes) {
+        for (const auto& v : scope) {
+            if (!v) continue;
+            auto gep = std::make_shared<GetElementPtrInst>(
+                IRType::getInt8(), allocCall,
+                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+                    IRType::getInt64(), idx * 8)},
+                m_currentFunction->nextTempName("temp_spill_slot"));
+            m_currentBlock->addInstruction(gep);
+            m_currentBlock->addInstruction(std::make_shared<StoreInst>(v, gep));
+            ++idx;
+        }
+    }
+    asyncFrameStore(AsyncSM::kTempSpillSlot, allocCall);
+    return total;
+}
+
+void IRBuilder::asyncRestoreTempScopes(int64_t count) {
+    if (!m_asyncSM || !inAsyncSM() || count == 0) return;
+    auto arrayPtr = asyncFrameLoad(AsyncSM::kTempSpillSlot, IRType::getPointer(), "async_temp_spill");
+    int64_t idx = 0;
+    for (auto& scope : m_tempScopes) {
+        for (auto& v : scope) {
+            // The spill loop skips null entries the same way, so
+            // the indices stay aligned (record guards never store
+            // a null, so this is defense only).
+            if (!v) continue;
+            if (idx >= count) break;
+            auto gep = std::make_shared<GetElementPtrInst>(
+                IRType::getInt8(), arrayPtr,
+                std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+                    IRType::getInt64(), idx * 8)},
+                m_currentFunction->nextTempName("temp_spill_slot"));
+            m_currentBlock->addInstruction(gep);
+            auto loaded = std::make_shared<LoadInst>(
+                IRType::getPointer(), gep,
+                m_currentFunction->nextTempName("temp_spill_val"));
+            m_currentBlock->addInstruction(loaded);
+            v = loaded;
+            ++idx;
+        }
+    }
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_free", std::vector<IRValuePtr>{arrayPtr}));
+}
+
+void IRBuilder::asyncReleaseSpilledTemps(int64_t count) {
+    if (!m_asyncSM || !inAsyncSM() || count == 0) return;
+    auto arrayPtr = asyncFrameLoad(AsyncSM::kTempSpillSlot, IRType::getPointer(), "async_temp_spill");
+    for (int64_t idx = 0; idx < count; ++idx) {
+        auto gep = std::make_shared<GetElementPtrInst>(
+            IRType::getInt8(), arrayPtr,
+            std::vector<IRValuePtr>{std::make_shared<ConstantInt>(
+                IRType::getInt64(), idx * 8)},
+            m_currentFunction->nextTempName("temp_spill_slot"));
+        m_currentBlock->addInstruction(gep);
+        auto loaded = std::make_shared<LoadInst>(
+            IRType::getPointer(), gep,
+            m_currentFunction->nextTempName("temp_spill_val"));
+        m_currentBlock->addInstruction(loaded);
+        m_currentBlock->addInstruction(std::make_shared<CallInst>(
+            IRType::getVoid(), "sp_rt_release", std::vector<IRValuePtr>{loaded}));
+    }
+    m_currentBlock->addInstruction(std::make_shared<CallInst>(
+        IRType::getVoid(), "sp_rt_free", std::vector<IRValuePtr>{arrayPtr}));
+}
+
 IRValuePtr IRBuilder::asyncSuspendAndLoad(IRValuePtr task, const std::string& kind, IRTypePtr structTy, bool destroyTask) {
     auto& sm = *m_asyncSM;
+    // Phase 8 slice D: carry the pending call-result temporaries
+    // across the suspend in the heap frame (see asyncSpillTempScopes).
+    // Without this, a temporary produced while evaluating the await's
+    // operand would be released by the statement's scope pop in the
+    // resume segment — referencing a value that does not dominate
+    // the resume block (invalid IR).
+    int64_t spilledTemps = asyncSpillTempScopes();
     // One continuation per await: contBB is the dispatcher target (it
     // does the cancellation check), bodyBB is where lowering
     // continues. State N (1-based) resumes at continuations[N-1].
@@ -11343,6 +11543,10 @@ IRValuePtr IRBuilder::asyncSuspendAndLoad(IRValuePtr task, const std::string& ki
     // its timer, so no stale timer is left behind), and finish.
     setInsertPoint(cancelBB);
     emitAllFunctionDrops();
+    // Phase 8 slice D: the spilled temporaries die here too — the
+    // body is abandoned, so release them and free the spill array
+    // (mirrors the restore below, which never runs on this path).
+    asyncReleaseSpilledTemps(spilledTemps);
     if (destroyTask) {
         auto t = asyncFrameLoad(AsyncSM::kAwaitTaskSlot, IRType::getPointer(), "await_task");
         m_currentBlock->addInstruction(std::make_shared<CallInst>(
@@ -11359,6 +11563,11 @@ IRValuePtr IRBuilder::asyncSuspendAndLoad(IRValuePtr task, const std::string& ki
     // continuation fired to resume us; a cancelled awaited task
     // yields the default value and the body continues).
     setInsertPoint(bodyBB);
+    // Phase 8 slice D: reload the spilled temporaries into fresh
+    // SSA values that dominate the rest of this segment, and free
+    // the spill array. The statement's scope pop releases them
+    // later, in this segment.
+    asyncRestoreTempScopes(spilledTemps);
     auto awaitTask = asyncFrameLoad(AsyncSM::kAwaitTaskSlot, IRType::getPointer(), "async_await_task");
     IRValuePtr value = nullptr;
     if (kind == "void") {

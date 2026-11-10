@@ -1164,12 +1164,14 @@ TEST(TryCatchExecutionTest, ChannelSendRetainsTempElement) {
     EXPECT_NE(output.find("after send live 1"), std::string::npos);
 }
 
-// Phase 7 slice C: temporaries produced inside short-circuit
-// branches (&& / || RHS, ternary arms) are deliberately NOT
-// recorded — their defining block does not dominate the merge block,
-// so no valid release point exists. They leak as before; this test
-// pins that behaviour so a future fix is a deliberate change.
-TEST(TryCatchExecutionTest, ShortCircuitTempsStillLeakByDesign) {
+// Phase 8 slice D: temporaries produced inside short-circuit
+// branches (&& / || RHS, ternary arms) are now released by the
+// branch block itself (per-branch pops — each branch block pops
+// its own branch scope before its branch to the merge). This
+// replaces the Phase 7-C pinned leak (after and 1 / after or 2 /
+// after tern 3); the old test name is retired deliberately, not
+// deleted — the coverage stays, the expectation is the fix.
+TEST(TryCatchExecutionTest, ShortCircuitTempsAreReleased) {
     const std::string source = R"(
         extern "C" {
             fn sp_rt_mem_live_objects() -> int64;
@@ -1190,11 +1192,11 @@ TEST(TryCatchExecutionTest, ShortCircuitTempsStillLeakByDesign) {
     std::string output = runSPProgram(source, "exec_temp_shortcircuit");
     EXPECT_NE(output.find("before 0"), std::string::npos);
     EXPECT_NE(output.find("hit"), std::string::npos);
-    EXPECT_NE(output.find("after and 1"), std::string::npos);
+    EXPECT_NE(output.find("after and 0"), std::string::npos);
     EXPECT_NE(output.find("or true"), std::string::npos);
-    EXPECT_NE(output.find("after or 2"), std::string::npos);
+    EXPECT_NE(output.find("after or 0"), std::string::npos);
     EXPECT_NE(output.find("tern 5"), std::string::npos);
-    EXPECT_NE(output.find("after tern 3"), std::string::npos);
+    EXPECT_NE(output.find("after tern 0"), std::string::npos);
 }
 
 // Phase 7 slice C: a temporary consumed by an earlier statement in
@@ -1226,11 +1228,13 @@ TEST(TryCatchExecutionTest, ThrowAfterTempDoesNotLeak) {
     EXPECT_NE(output.find("after 0"), std::string::npos);
 }
 
-// Phase 7 slice C: temporaries inside an async fn are deliberately
-// NOT recorded — await splits blocks, so a temp defined before a
-// suspend point does not dominate the resume block. They leak as
-// before; this test pins that behaviour.
-TEST(TryCatchExecutionTest, AsyncTempStillLeaksByDesign) {
+// Phase 8 slice D: temporaries inside an async fn are now
+// recorded and released — the state machine spills them across
+// suspend points (see docs/v2/PHASE-37-SLICE-D.md §0.3) and the
+// statement's scope pop releases them in the resume segment.
+// This replaces the Phase 7-C pinned leak (after await 1); the old
+// test name is retired deliberately, the coverage stays.
+TEST(TryCatchExecutionTest, AsyncTempIsReleased) {
     const std::string source = R"(
         extern "C" {
             fn sp_rt_mem_live_objects() -> int64;
@@ -1254,7 +1258,211 @@ TEST(TryCatchExecutionTest, AsyncTempStillLeaksByDesign) {
     )";
     std::string output = runSPProgram(source, "exec_temp_async");
     EXPECT_NE(output.find("v 42"), std::string::npos);
-    EXPECT_NE(output.find("after await 1"), std::string::npos);
+    EXPECT_NE(output.find("after await 0"), std::string::npos);
+}
+
+// Phase 8 slice D: a temporary passed as an argument to an async
+// call survives the await — the spawn stores the raw pointer with
+// no retain, so the share is transferred to the task (adopted at
+// the spawn) instead of being released. The body must still read
+// the value (no use-after-free); the counts stay 1 / 2 because
+// the adopted shares leak, as before.
+TEST(TryCatchExecutionTest, AsyncArgTempSurvivesAwait) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        import std.async;
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 42; return b; }
+        async fn useBox(b: Box) -> int { return b.n; }
+        async fn run() {
+            let v = await useBox(makeBox());
+            println("inline " + v);
+            println("after inline " + sp_rt_mem_live_objects());
+            let t = useBox(makeBox());
+            let w = await t;
+            println("spawned " + w);
+            println("after spawned " + sp_rt_mem_live_objects());
+        }
+        fn main() {
+            run();
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_async_arg");
+    EXPECT_NE(output.find("inline 42"), std::string::npos);
+    EXPECT_NE(output.find("after inline 1"), std::string::npos);
+    EXPECT_NE(output.find("spawned 42"), std::string::npos);
+    EXPECT_NE(output.find("after spawned 2"), std::string::npos);
+}
+
+// Phase 8 slice D: a temporary produced while evaluating an await's
+// operand — here captured transitively (takeTask forwards its
+// parameter to an async spawn) — survives the suspend via the
+// frame spill and is released by the statement's scope pop after
+// the resume. This is the case that rules out a per-await release
+// (releasing it at the suspend would free the object while the
+// spawned body still needs it).
+TEST(TryCatchExecutionTest, AsyncOperandTempIsReleasedAfterResume) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        import std.async;
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 42; return b; }
+        async fn useBox(b: Box) -> int { return b.n; }
+        fn takeTask(b: Box) -> Task<int> { return useBox(b); }
+        async fn run() {
+            let v = await takeTask(makeBox());
+            println("v " + v);
+            println("after await " + sp_rt_mem_live_objects());
+        }
+        fn main() {
+            run();
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_async_operand");
+    EXPECT_NE(output.find("v 42"), std::string::npos);
+    EXPECT_NE(output.find("after await 0"), std::string::npos);
+}
+
+// Phase 8 slice D: a temporary in an async fn's return-value
+// expression is released (the async ReturnStmt branch now has the
+// same push/adopt/pop as the sync branch).
+TEST(TryCatchExecutionTest, AsyncReturnTempIsReleased) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        import std.async;
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 42; return b; }
+        fn takeBox(b: Box) -> int { return b.n; }
+        async fn useTemp() -> int {
+            return takeBox(makeBox());
+        }
+        async fn run() {
+            let v = await useTemp();
+            println("v " + v);
+            println("after await " + sp_rt_mem_live_objects());
+        }
+        fn main() {
+            run();
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_async_return");
+    EXPECT_NE(output.find("v 42"), std::string::npos);
+    EXPECT_NE(output.find("after await 0"), std::string::npos);
+}
+
+// Phase 8 slice D: the same adopt in a sync caller — before this
+// slice the temporary was released at the spawning statement's
+// pop, before the spawned body ran (baseline "body live 0": the
+// object already freed when the body ran, "body n 42" only by luck
+// of unreused heap memory). Now the body sees a live object.
+TEST(TryCatchExecutionTest, AsyncArgTempSurvivesInSyncCaller) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        import std.async;
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 42; return b; }
+        async fn useBox(b: Box) -> int {
+            println("body live " + sp_rt_mem_live_objects());
+            println("body n " + b.n);
+            return b.n;
+        }
+        fn main() {
+            let t = useBox(makeBox());
+            println("after spawn " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_async_arg_sync");
+    EXPECT_NE(output.find("after spawn 1"), std::string::npos);
+    EXPECT_NE(output.find("body live 1"), std::string::npos);
+    EXPECT_NE(output.find("body n 42"), std::string::npos);
+}
+
+// Phase 8 slice D: nested short-circuit branches — each branch
+// block pops its own branch scope, so nested RHS temporaries are
+// released too.
+TEST(TryCatchExecutionTest, ShortCircuitNestedTempsAreReleased) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 5; return b; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            if (true && (false || makeBox().n == 5)) { println("nested-or"); }
+            println("after nested or " + sp_rt_mem_live_objects());
+            if (false || (true && makeBox().n == 5)) { println("nested-and"); }
+            println("after nested and " + sp_rt_mem_live_objects());
+            let x = true && makeBox().n == 5;
+            println("x " + x);
+            println("after x " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_shortcircuit_nested");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("nested-or"), std::string::npos);
+    EXPECT_NE(output.find("after nested or 0"), std::string::npos);
+    EXPECT_NE(output.find("nested-and"), std::string::npos);
+    EXPECT_NE(output.find("after nested and 0"), std::string::npos);
+    EXPECT_NE(output.find("x true"), std::string::npos);
+    EXPECT_NE(output.find("after x 0"), std::string::npos);
+}
+
+// Phase 8 slice D: a temporary consumed inside a ?? RHS is
+// released by the RHS branch block itself.
+TEST(TryCatchExecutionTest, CoalesceRhsTempIsReleased) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 5; return b; }
+        fn maybeNull() -> int? { return null; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let n = maybeNull() ?? makeBox().n;
+            println("n " + n);
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_coalesce_rhs");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("n 5"), std::string::npos);
+    EXPECT_NE(output.find("after 0"), std::string::npos);
+}
+
+// Phase 8 slice D: a ternary arm whose RESULT is itself a
+// temporary is adopted at the arm exit (the value is stored into
+// the result slot and read after the merge), so it still leaks —
+// the documented boundary of the per-branch release. The value
+// itself must survive (no use-after-free).
+TEST(TryCatchExecutionTest, TernaryArmResultTempStillLeaks) {
+    const std::string source = R"(
+        extern "C" {
+            fn sp_rt_mem_live_objects() -> int64;
+        }
+        class Box { public int n; }
+        fn makeBox() -> Box { let b = new Box(); b.n = 5; return b; }
+        fn makeOther() -> Box { let b = new Box(); b.n = 9; return b; }
+        fn main() {
+            println("before " + sp_rt_mem_live_objects());
+            let b = true ? makeBox() : makeOther();
+            println("b.n " + b.n);
+            println("after " + sp_rt_mem_live_objects());
+        }
+    )";
+    std::string output = runSPProgram(source, "exec_temp_tern_arm_result");
+    EXPECT_NE(output.find("before 0"), std::string::npos);
+    EXPECT_NE(output.find("b.n 5"), std::string::npos);
+    EXPECT_NE(output.find("after 1"), std::string::npos);
 }
 
 TEST(TryCatchExecutionTest, FinallyPropagationReleasesOuterLocal) {

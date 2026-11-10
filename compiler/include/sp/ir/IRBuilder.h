@@ -306,14 +306,25 @@ private:
     // return, throw payload, field init) takes is released with
     // sp_rt_release when the scope pops. m_tempScopeFunction tags the
     // stack's owner so a stale stack can never leak across functions.
-    // m_tempBranchDepth is > 0 while lowering the RHS of && / || / ??
-    // or a ternary arm: temporaries produced there are not recorded,
-    // because their defining block does not dominate the merge block.
+    // Phase 8 slice D: m_tempBranchScopes is one pending-temporary
+    // list per open short-circuit / ternary branch region (RHS of
+    // && / || / ??, ternary arms). While a branch region is open,
+    // temporaries are recorded there instead of in the statement
+    // scope, and the branch block pops its own scope before its
+    // branch to the merge — the defining block dominates the release
+    // point, which a release in the merge block would not.
     std::vector<std::vector<IRValuePtr>> m_tempScopes;
     IRFunction* m_tempScopeFunction{nullptr};
-    int m_tempBranchDepth{0};
+    std::vector<std::vector<IRValuePtr>> m_tempBranchScopes;
     void pushTempScope();
     void popTempScope();
+    void pushTempBranchScope();
+    void popTempBranchScope();
+    // Emits sp_rt_release for each value in `pending` (reverse
+    // order) in the current block; a no-op when the block is
+    // missing or already terminated (the scope is still discarded
+    // by the caller — a leak, never a crash or invalid IR).
+    void emitTempScopeReleases(const std::vector<IRValuePtr>& pending);
     void recordTempCallResult(const ast::CallExpr& node);
     void recordTempNewResult(const ast::NewExpr& node);
     // Phase 37 slice B: record an array/map literal's fresh container
@@ -343,6 +354,18 @@ private:
     // a pending temp (see recordTempOwnedValue).
     IRValuePtr emitWeakCreate(IRValuePtr strongVal);
     IRValuePtr emitWeakUpgrade(IRValuePtr weakSlotVal);
+    // Phase 8 slice D: async temp scopes. At a suspend point the
+    // state machine carries the pending temporaries across in the
+    // heap frame (see IRBuilder.cpp §0.3): asyncSpillTempScopes
+    // stores them into a heap array whose pointer lives in the
+    // kTempSpillSlot frame slot and returns the count (0 when
+    // nothing is pending); asyncRestoreTempScopes reloads them at
+    // the resume and writes the reloaded values back into the
+    // pending lists; asyncReleaseSpilledTemps releases them in the
+    // cancel block (the body is abandoned there).
+    int64_t asyncSpillTempScopes();
+    void asyncRestoreTempScopes(int64_t count);
+    void asyncReleaseSpilledTemps(int64_t count);
     // Phase 7 slice C: containers (List/Set/Stack/Queue/
     // PriorityQueue, Map, arrays, channels) store their elements as
     // raw i64 bits with no share. A reference-typed element must be
@@ -514,7 +537,10 @@ private:
         //   [0] state (i64) [1] task (ptr) [2] awaitTask (ptr)
         //   [3] retVal (payload type) [4] returnPending (i1)
         //   [5] throwPending (i1) [6] throwPayload (ptr)
-        //   [7..] params (`this` first for methods), then locals.
+        //   [7] tempSpill (ptr, Phase 8 slice D: heap array of the
+        //   pending call-result temporaries carried across a
+        //   suspend; null when nothing was spilled)
+        //   [8..] params (`this` first for methods), then locals.
         static constexpr int64_t kStateSlot = 0;
         static constexpr int64_t kTaskSlot = 1;
         static constexpr int64_t kAwaitTaskSlot = 2;
@@ -522,7 +548,8 @@ private:
         static constexpr int64_t kReturnPendingSlot = 4;
         static constexpr int64_t kThrowPendingSlot = 5;
         static constexpr int64_t kThrowPayloadSlot = 6;
-        static constexpr int64_t kFirstParamSlot = 7;
+        static constexpr int64_t kTempSpillSlot = 7;
+        static constexpr int64_t kFirstParamSlot = 8;
         IRFunction* bodyFn{nullptr};    // void (ptr task, ptr ctx)
         IRFunction* resumeFn{nullptr};  // void (ptr frame)
         IRBasicBlock* dispatcherBB{nullptr}; // entry block of resumeFn
