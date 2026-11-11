@@ -1,9 +1,9 @@
 module db.schema;
 
 import std.db;
-import std.log;
 import std.time;
 import config.env;
+import util.logger;
 
 public class DatabaseManager {
     /// Open a configured SQLite connection with WAL mode and foreign keys enabled.
@@ -73,7 +73,7 @@ public class DatabaseManager {
     public static fn initSchema() -> bool {
         let db = DatabaseManager.open();
         if (!db.isOpen()) {
-            Log.error("Failed to open SQLite database at " + Env.dbPath());
+            AppLog.error("db.schema", "Failed to open SQLite database at " + Env.dbPath());
             return false;
         }
 
@@ -82,7 +82,7 @@ public class DatabaseManager {
             + "applied_at TEXT NOT NULL"
             + ");";
         if (db.execute(migrationsSql) < 0) {
-            Log.error("Failed to create schema_migrations: " + db.lastError());
+            AppLog.error("db.schema", "Failed to create schema_migrations: " + db.lastError());
             db.close();
             return false;
         }
@@ -96,7 +96,7 @@ public class DatabaseManager {
             + "updated_at TEXT NOT NULL"
             + ");";
         if (db.execute(usersSql) < 0) {
-            Log.error("Failed to create users table: " + db.lastError());
+            AppLog.error("db.schema", "Failed to create users table: " + db.lastError());
             db.close();
             return false;
         }
@@ -113,7 +113,7 @@ public class DatabaseManager {
             + "UNIQUE (user_id, name)"
             + ");";
         if (db.execute(categoriesSql) < 0) {
-            Log.error("Failed to create categories table: " + db.lastError());
+            AppLog.error("db.schema", "Failed to create categories table: " + db.lastError());
             db.close();
             return false;
         }
@@ -135,7 +135,7 @@ public class DatabaseManager {
             + "FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL"
             + ");";
         if (db.execute(todosSql) < 0) {
-            Log.error("Failed to create todos table: " + db.lastError());
+            AppLog.error("db.schema", "Failed to create todos table: " + db.lastError());
             db.close();
             return false;
         }
