@@ -227,4 +227,35 @@ public class AuthService {
         }
         return UserRepository.findById(subject);
     }
+
+    public static fn updateProfile(string userId, string name) -> AuthResult {
+        let cleanName = name.trim();
+        if (cleanName.length() < 2 || cleanName.length() > 80) {
+            let issues = new List<string>();
+            issues.push(ErrorResponse.fieldIssue(
+                "name",
+                "INVALID_LENGTH",
+                "Name must be between 2 and 80 characters."
+            ));
+            return AuthService.makeError(
+                422,
+                "Validation Failed",
+                "Profile update failed validation.",
+                ErrorResponse.fieldIssuesArray(issues)
+            );
+        }
+        let updated = UserRepository.updateName(userId, cleanName);
+        if (!updated.found) {
+            return AuthService.makeError(
+                500,
+                "Internal Server Error",
+                "Could not update user profile."
+            );
+        }
+        let res = new AuthResult();
+        res.ok = true;
+        res.statusCode = 200;
+        res.user = updated;
+        return res;
+    }
 }

@@ -132,4 +132,35 @@ public class ErrorResponse {
             "[]"
         );
     }
+
+    public static fn fromStatus(
+        Context ctx,
+        int status,
+        string title,
+        string detail,
+        string fieldErrorsJson = "[]"
+    ) -> HttpResponse {
+        if (status == 400) {
+            return ErrorResponse.badRequest(ctx, detail);
+        }
+        if (status == 401) {
+            return ErrorResponse.unauthorized(ctx, detail);
+        }
+        if (status == 403) {
+            return ErrorResponse.forbidden(ctx, detail);
+        }
+        if (status == 404) {
+            return ErrorResponse.notFound(ctx, detail);
+        }
+        if (status == 409) {
+            return ErrorResponse.conflict(ctx, detail);
+        }
+        if (status == 422) {
+            return ErrorResponse.validationError(ctx, detail, fieldErrorsJson);
+        }
+        if (status == 500) {
+            return ErrorResponse.internalError(ctx, detail);
+        }
+        return ErrorResponse.problem(ctx, status, title, detail, "about:blank", fieldErrorsJson);
+    }
 }
