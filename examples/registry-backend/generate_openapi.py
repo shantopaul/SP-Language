@@ -111,7 +111,7 @@ def emit(routes):
     out.append("openapi: 3.0.3")
     out.append("info:")
     out.append("  title: SP Registry API")
-    out.append("  version: 3.1.0")
+    out.append("  version: 4.0.0")
     out.append("  description: >-")
     out.append("    Package registry backend implemented as an SP program on the SP")
     out.append("    HTTP server + SQLite (Phase 2 dogfooding). This spec is GENERATED")

@@ -7,7 +7,7 @@ import { Layers, ArrowRight, Code, Key } from "lucide-react";
 
 export const metadata = {
   title: "HTTP Context & Request Ergonomics (ctx)",
-  description: "Ergonomic HTTP Request and Response Context API in SP 3.0 (std.web.context).",
+  description: "Ergonomic HTTP Request and Response Context API in SP 4.0 (std.web.context).",
 };
 
 export default function BackendContextPage() {
@@ -45,7 +45,7 @@ app.post("/api/v1/posts/:category", (ptr req) => {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Context & Ergonomics (ctx)" },
         ]}
       />

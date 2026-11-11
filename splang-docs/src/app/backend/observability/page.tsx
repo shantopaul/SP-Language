@@ -7,7 +7,7 @@ import { Activity, BarChart2, HeartHandshake, Eye } from "lucide-react";
 
 export const metadata = {
   title: "Observability & Telemetry (std.log, std.metrics, std.health)",
-  description: "Prometheus scraping, structured JSON logging, and Kubernetes probes in SP 3.0.",
+  description: "Prometheus scraping, structured JSON logging, and Kubernetes probes in SP 4.0.",
 };
 
 export default function BackendObservabilityPage() {
@@ -63,7 +63,7 @@ fn main() {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Observability & Telemetry" },
         ]}
       />

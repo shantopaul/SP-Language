@@ -19,7 +19,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 &nbsp;
-[![Version](https://img.shields.io/badge/version-3.1.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
+[![Version](https://img.shields.io/badge/version-4.0.0_GA-06b6d4?style=for-the-badge)](#-roadmap)
 &nbsp;
 [![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](#-tech-stack)
 &nbsp;
@@ -870,11 +870,11 @@ spm search <query>              # Search package registry
 ## 🗺️ Roadmap
  
  ```
-  v0.1..v0.9 ──── v1.0 ──── v1.5 ──── v1.6 ──── v1.7 ──── v2.0 (GA)
-      │             │        │        │        │          │
-      ▼             ▼        ▼        ▼        ▼          ▼
-  Bootstrap &     Core     Sync &    HTTP    Registry   Comptime,
-  Native LLVM    Release  Channels  & JSON      GA      WASI & Editions
+  v1.0 ──── v1.5 ──── v1.6 ──── v1.7 ──── v2.0 ──── v3.1 ──── v4.0 (GA)
+      │        │        │        │        │        │          │
+      ▼        ▼        ▼        ▼        ▼        ▼          ▼
+    Core     Sync &    HTTP    Registry Comptime, Web &    ARC, Async Epoll,
+   Release  Channels  & JSON      GA     WASI   Toolchain  Bindgen & IDE Depth
  ```
  
  | Version | Milestone | Key Deliverables | Status |
@@ -885,6 +885,8 @@ spm search <query>              # Search package registry
  | `1.6` | **Networking & JSON Engine** | Non-blocking TCP/HTTP client/server, high-throughput JSON | ✅ Done |
  | `1.7` | **Package Registry GA** | Supply chain verification, cryptographic checksums, publishing | ✅ Done |
  | `2.0` | **🚀 SP 2.0 General Availability** | `comptime` execution, `wasm32-wasi` target, editions (`2026`/`2028`), coroutines (`async`/`await`), self-hosted frontend, `spc fix` (346/346 CTests passing) | ✅ Done |
+ | `3.1` | **🌐 Enterprise Backend & Universal Toolchain** | `std.web` framework, DB pooling, Redis, WebSockets, Argon2id/JWT, OpenAPI 3.0.3, `spc upgrade`, cross-platform installers | ✅ Done |
+ | `4.0` | **⚡ SP 4.0.0 General Availability** | Deterministic ARC & cycle breaking, `Result`/`Option` + `?` & `try`/`catch`, real `async`/`await` + `epoll` event loop, `spc bindgen` FFI, LSP/DAP depth | ✅ Done |
 
 
 ---

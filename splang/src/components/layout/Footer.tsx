@@ -178,7 +178,7 @@ export const Footer: React.FC = () => {
           <div className="flex items-center gap-2">
             <span>&copy; {new Date().getFullYear()} Shanto Paul. All rights reserved.</span>
             <span>•</span>
-            <span className="text-[#0057FF] dark:text-cyan-400 font-mono">v3.1.0 GA</span>
+            <span className="text-[#0057FF] dark:text-cyan-400 font-mono">v4.0.0 GA</span>
           </div>
 
           <div className="flex items-center gap-4">

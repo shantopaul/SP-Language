@@ -36,7 +36,7 @@ export default function StdlibOverviewPage() {
 
       <h1 className="text-3xl font-extrabold text-white">SP Core Standard Library</h1>
       <p className="text-sm text-slate-300 leading-relaxed">
-        SP 3.1.0 GA ships with 23 self-contained, native standard library modules designed for systems programming, high-throughput web microservices, and network engineering without external runtime dependencies.
+        SP 4.0.0 GA ships with 23 self-contained, native standard library modules designed for systems programming, high-throughput web microservices, and network engineering without external runtime dependencies.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">

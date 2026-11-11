@@ -1,4 +1,5 @@
 #include "LspServer.h"
+#include "sp/Version.h"
 #include "sp/diagnostics/DiagnosticEngine.h"
 #include "sp/lexer/Lexer.h"
 #include "sp/lexer/Token.h"
@@ -342,7 +343,7 @@ JsonValue LspServer::handleInitialize(const JsonValue&, const JsonValue& params)
 
     JsonValue serverInfo = JsonValue::object();
     serverInfo["name"] = "spls";
-    serverInfo["version"] = "3.1.0";
+    serverInfo["version"] = std::string(sp::SP_VERSION_STRING);
     result["serverInfo"] = serverInfo;
 
     return result;

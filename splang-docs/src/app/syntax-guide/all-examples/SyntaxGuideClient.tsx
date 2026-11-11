@@ -69,7 +69,7 @@ export function SyntaxGuideClient() {
             <Sparkles className="w-3.5 h-3.5" /> Complete 100 Examples
           </span>
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#0057FF]/20 text-white border border-[#0057FF]/50">
-            SP Language v3.1.0 GA
+            SP Language v4.0.0 GA
           </span>
         </div>
 
@@ -94,7 +94,7 @@ export function SyntaxGuideClient() {
           </div>
           <div className="p-3.5 rounded-xl border border-[#0A1F44] bg-[#081735]/60 shadow-md">
             <span className="text-xs text-slate-400">Toolchain</span>
-            <p className="text-xl font-bold text-[#60a5fa]">spc v3.1.0 GA</p>
+            <p className="text-xl font-bold text-[#60a5fa]">spc v4.0.0 GA</p>
           </div>
           <div className="p-3.5 rounded-xl border border-[#0A1F44] bg-[#081735]/60 shadow-md">
             <span className="text-xs text-slate-400">Compiled Outputs</span>

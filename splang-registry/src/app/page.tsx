@@ -59,7 +59,7 @@ export default function RegistryHomePage() {
           {/* Release Radar Pill */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-blue-200 dark:border-[#00D1FF]/40 bg-blue-50 dark:bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] text-xs font-mono mb-6 shadow-sm dark:shadow-[0_0_15px_rgba(0,209,255,0.2)]">
             <span className="w-2 h-2 rounded-full bg-[#0057FF] dark:bg-[#00D1FF] animate-pulse" />
-            <span>Official Package Registry for SP v3.1.0 GA</span>
+            <span>Official Package Registry for SP v4.0.0 GA</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">

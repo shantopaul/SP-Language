@@ -7,7 +7,7 @@ import { Database, Zap, Layers, ShieldCheck } from "lucide-react";
 
 export const metadata = {
   title: "Database Layer & Connection Pooling (std.db)",
-  description: "Native SQLite and PostgreSQL connection pooling, transactions, and querying in SP 3.0.",
+  description: "Native SQLite and PostgreSQL connection pooling, transactions, and querying in SP 4.0.",
 };
 
 export default function BackendDatabasePage() {
@@ -73,7 +73,7 @@ try {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Database & Pooling (std.db)" },
         ]}
       />

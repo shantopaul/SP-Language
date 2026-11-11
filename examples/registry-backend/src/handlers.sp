@@ -23,7 +23,7 @@ import json_util;
 public class RegistryHandlers {
     public static fn health(Context ctx) -> HttpResponse {
         let count = RegistryStore.countPackages(RegistryConfig.dbPath());
-        let json = "{\"status\":\"ok\",\"service\":\"sp-registry\",\"version\":\"3.1.0\",\"backend\":\"sp\",\"database\":\"sqlite\",\"packages\":" + count + "}";
+        let json = "{\"status\":\"ok\",\"service\":\"sp-registry\",\"version\":\"4.0.0\",\"backend\":\"sp\",\"database\":\"sqlite\",\"packages\":" + count + "}";
         return ctx.json(json);
     }
 

@@ -26,7 +26,7 @@ export const Footer: React.FC = () => {
               </span>
             </Link>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
-              The official centralized package repository for the SP Programming Language. Distributing cryptographically verified, high-performance packages for SP 3.1.0 GA.
+              The official centralized package repository for the SP Programming Language. Distributing cryptographically verified, high-performance packages for SP 4.0.0 GA.
             </p>
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-blue-200 dark:border-[#00D1FF]/30 bg-blue-50 dark:bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] text-xs font-mono">
               <ShieldCheck className="w-3.5 h-3.5 text-[#0057FF] dark:text-[#00D1FF]" />

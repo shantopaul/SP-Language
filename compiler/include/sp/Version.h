@@ -4,9 +4,9 @@
 
 namespace sp {
 
-constexpr std::string_view SP_VERSION_STRING = "3.1.0";
-constexpr int SP_VERSION_MAJOR = 3;
-constexpr int SP_VERSION_MINOR = 1;
+constexpr std::string_view SP_VERSION_STRING = "4.0.0";
+constexpr int SP_VERSION_MAJOR = 4;
+constexpr int SP_VERSION_MINOR = 0;
 constexpr int SP_VERSION_PATCH = 0;
 
 constexpr std::string_view SP_HOMEPAGE_URL = "https://splang.shantopaul.com";

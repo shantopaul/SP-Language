@@ -13,7 +13,7 @@ export default function DocsNotFound() {
       </span>
       <h1 className="text-3xl font-black text-white mt-1 mb-3">Documentation Page Not Found</h1>
       <p className="text-xs sm:text-sm text-slate-400 max-w-sm mx-auto mb-8 leading-relaxed">
-        The documentation page you requested does not exist or has been restructured in the SP 3.1.0 update.
+        The documentation page you requested does not exist or has been restructured in the SP 4.0.0 update.
       </p>
       <Link
         href="/getting-started"

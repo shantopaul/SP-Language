@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     template: "%s | SP Package Registry",
   },
   description:
-    "The official centralized package repository for the SP Programming Language. Find, inspect, and install verified community and standard libraries for SP 3.1.0 GA.",
+    "The official centralized package repository for the SP Programming Language. Find, inspect, and install verified community and standard libraries for SP 4.0.0 GA.",
   keywords: [
     "SP Language",
     "Package Registry",
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     apple: "/brand/app-icon-navy.png",
   },
   openGraph: {
-    title: "SP Package Registry (v3.1.0 GA)",
+    title: "SP Package Registry (v4.0.0 GA)",
     description: "Official package registry for the SP Programming Language ecosystem.",
     url: "https://register.splang.shantopaul.com",
     siteName: "SP Package Registry",

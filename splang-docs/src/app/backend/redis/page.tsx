@@ -7,7 +7,7 @@ import { Database, Zap, RefreshCw, Send } from "lucide-react";
 
 export const metadata = {
   title: "Redis Caching & Pub/Sub (std.redis)",
-  description: "RESP2/3 Redis client, connection pooling, and distributed Pub/Sub in SP 3.0.",
+  description: "RESP2/3 Redis client, connection pooling, and distributed Pub/Sub in SP 4.0.",
 };
 
 export default function BackendRedisPage() {
@@ -67,7 +67,7 @@ spawn async () => {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Redis Caching & Pub/Sub" },
         ]}
       />

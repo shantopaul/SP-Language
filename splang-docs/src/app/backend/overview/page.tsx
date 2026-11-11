@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 export const metadata = {
-  title: "SP 3.1 Enterprise Backend Platform",
+  title: "SP 4.0 Enterprise Backend Platform",
   description: "Official guide to high-throughput, cloud-native backend development in the SP Programming Language.",
 };
 
@@ -46,7 +46,7 @@ fn main() {
 
     v1.get("/health", (ptr req) => {
         let ctx = Context.create(req);
-        return ctx.json("{\\"status\\":\\"UP\\",\\"version\\":\\"3.1.0\\"}");
+        return ctx.json("{\\"status\\":\\"UP\\",\\"version\\":\\"4.0.0\\"}");
     });
 
     v1.get("/users/:id", (ptr req) => {
@@ -61,24 +61,24 @@ fn main() {
 
   return (
     <div className="space-y-8">
-      <Breadcrumbs items={[{ title: "SP 3.1 Backend Platform", href: "/backend/overview" }, { title: "Platform Overview" }]} />
+      <Breadcrumbs items={[{ title: "SP 4.0 Backend Platform", href: "/backend/overview" }, { title: "Platform Overview" }]} />
 
       {/* Header */}
       <div>
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0057FF]/15 border border-[#00D1FF]/30 text-[#00D1FF] text-xs font-semibold mb-4 shadow-[0_0_15px_rgba(0,209,255,0.15)]">
           <Zap className="w-3.5 h-3.5 text-[#00D1FF]" />
-          <span>SP 3.1.0 Enterprise Milestone &bull; Production GA</span>
+          <span>SP 4.0.0 Enterprise Milestone &bull; Production GA</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          SP 3.1 Enterprise Backend Platform
+          SP 4.0 Enterprise Backend Platform
         </h1>
         <p className="mt-3 text-base text-slate-300 leading-relaxed">
-          The SP 3.1 Enterprise Backend Platform bridges the gap between raw bare-metal LLVM speed and ultra-productive developer ergonomics. Build microservices, real-time gateways, and API platforms that sustain 185,000+ requests per second with sub-millisecond tail latencies.
+          The SP 4.0 Enterprise Backend Platform bridges the gap between raw bare-metal LLVM speed and ultra-productive developer ergonomics. Build microservices, real-time gateways, and API platforms that sustain 185,000+ requests per second with sub-millisecond tail latencies.
         </p>
       </div>
 
       <Callout type="tip" title="Enterprise Ready — 474/474 Verification Tests Passing">
-        The complete SP 3.1 toolchain and standard library pass <strong>100% of the 474 automated test suites</strong>, verifying zero memory leaks (deterministic ARC), sub-microsecond routing, SQL connection pooling, Argon2id security, and RFC 6455 WebSockets.
+        The complete SP 4.0 toolchain and standard library pass <strong>100% of the 474 automated test suites</strong>, verifying zero memory leaks (deterministic ARC), sub-microsecond routing, SQL connection pooling, Argon2id security, and RFC 6455 WebSockets.
       </Callout>
 
       {/* Code Showcase */}

@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     template: "%s | SP Language Docs",
   },
   description:
-    "Official developer documentation for the SP Programming Language (v3.1.0 GA). Complete syntax guides, 23 standard library modules, std.web framework, LLVM compiler toolchain, and package manager.",
+    "Official developer documentation for the SP Programming Language (v4.0.0 GA). Complete syntax guides, 23 standard library modules, std.web framework, LLVM compiler toolchain, and package manager.",
   keywords: [
     "SP Programming Language Documentation",
     "SP Docs",
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     shortcut: "/brand/favicon.ico",
   },
   openGraph: {
-    title: "SP Programming Language Documentation (v3.1.0 GA)",
+    title: "SP Programming Language Documentation (v4.0.0 GA)",
     description:
       "Comprehensive syntax guides, 23 standard library modules, std.web platform, and native LLVM toolchain manuals.",
     url: "https://docs.splang.shantopaul.com",
@@ -64,7 +64,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "SP Programming Language Documentation (v3.1.0 GA)",
+    title: "SP Programming Language Documentation (v4.0.0 GA)",
     description:
       "Syntax guides, 23 standard library modules, std.web microservices, and native LLVM toolchain manuals.",
     images: ["/brand/og-image.png"],

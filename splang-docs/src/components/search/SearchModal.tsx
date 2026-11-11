@@ -136,7 +136,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
             <span>↵ Select</span>
             <span>ESC Close</span>
           </div>
-          <span className="text-[#0057FF] dark:text-[#00D1FF] font-semibold">SP v3.1.0 GA</span>
+          <span className="text-[#0057FF] dark:text-[#00D1FF] font-semibold">SP v4.0.0 GA</span>
         </div>
       </div>
     </div>

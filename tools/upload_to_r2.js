@@ -127,7 +127,7 @@ async function uploadFileToR2(filePath, objectKey, contentType = 'application/oc
 }
 
 async function main() {
-  const version = process.argv[2] || '3.1.0';
+  const version = process.argv[2] || '4.0.0';
   console.log('========================================================================');
   console.log('       SP Language - Cloudflare R2 Release Uploader (Automated)         ');
   console.log(`                         Version ${version}                             `);

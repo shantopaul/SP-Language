@@ -23,14 +23,14 @@ export const ReleaseCallout: React.FC = () => {
             </h2>
 
             <p className="mt-5 text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl mx-auto">
-              SP 3.1.0 GA is officially released and battle-tested. Build blazing-fast CLI utilities, high-throughput web microservices, WebAssembly modules, or computational kernels with deterministic memory safety.
+              SP 4.0.0 GA is officially released and battle-tested. Build blazing-fast CLI utilities, high-throughput web microservices, WebAssembly modules, or computational kernels with deterministic memory safety.
             </p>
 
             <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
               <Link href="/downloads">
                 <Button size="lg" variant="primary">
                   <Download className="w-4 h-4 mr-1.5" />
-                  <span>Download SP v3.1.0 GA</span>
+                  <span>Download SP v4.0.0 GA</span>
                   <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
               </Link>

@@ -7,7 +7,7 @@ import { Box, Layers, Terminal, Server } from "lucide-react";
 
 export const metadata = {
   title: "Static Compilation & Docker Scratch Containerization",
-  description: "Generate static musl Linux binaries and build minimal scratch containers (< 15MB) in SP 3.0.",
+  description: "Generate static musl Linux binaries and build minimal scratch containers (< 15MB) in SP 4.0.",
 };
 
 export default function BackendDockerPage() {
@@ -51,7 +51,7 @@ spec:
     spec:
       containers:
       - name: sp-server
-        image: registry.example.com/sp-backend:3.0.0
+        image: registry.example.com/sp-backend:4.0.0
         ports:
         - containerPort: 8080
         resources:
@@ -78,7 +78,7 @@ spec:
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Static Compilation & Docker" },
         ]}
       />
@@ -129,7 +129,7 @@ spec:
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               <tr className="bg-cyan-950/20 text-cyan-300 font-bold">
-                <td className="py-2 font-sans">SP 3.0 (Static musl)</td>
+                <td className="py-2 font-sans">SP 4.0 (Static musl)</td>
                 <td className="py-2">12.5 MB</td>
                 <td className="py-2">scratch (Zero OS overhead)</td>
               </tr>

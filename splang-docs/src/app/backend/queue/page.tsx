@@ -7,7 +7,7 @@ import { Clock, RefreshCw, Cpu, Layers } from "lucide-react";
 
 export const metadata = {
   title: "Background Job Queues & Schedulers (std.queue)",
-  description: "In-process background workers, exponential backoff, dead-letter queues, and cron scheduling in SP 3.0.",
+  description: "In-process background workers, exponential backoff, dead-letter queues, and cron scheduling in SP 4.0.",
 };
 
 export default function BackendQueuePage() {
@@ -52,7 +52,7 @@ fn main() {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Job Queues & Schedulers" },
         ]}
       />

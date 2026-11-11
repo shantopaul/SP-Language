@@ -10,6 +10,18 @@ export const metadata = {
 
 const POSTS = [
   {
+    slug: "v4.0.0-release",
+    title: "Announcing SP 4.0.0: ARC Memory Safety, Result/Option, Epoll Event Loop & FFI Bindgen",
+    excerpt:
+      "SP 4.0.0 GA brings deterministic ARC memory safety with cycle breaking, typed Result/Option error handling with the ? operator, real async/await over a Linux epoll event loop, C header bindgen (spc bindgen), and full LSP/DAP IDE tooling.",
+    date: "November 11, 2026",
+    author: "Shanto Paul",
+    authorRole: "Language Creator & Lead Architect",
+    category: "v4.0.0 GA",
+    badgeVariant: "primary" as const,
+    readTime: "8 min read",
+  },
+  {
     slug: "v3.1.0-release",
     title: "Announcing SP 3.1.0: Enterprise Standard Library, Production Web Framework & Universal Toolchain",
     excerpt:
@@ -18,7 +30,7 @@ const POSTS = [
     author: "Shanto Paul",
     authorRole: "Language Creator & Lead Architect",
     category: "v3.1.0 GA",
-    badgeVariant: "primary" as const,
+    badgeVariant: "secondary" as const,
     readTime: "7 min read",
   },
   {

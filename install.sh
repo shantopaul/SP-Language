@@ -17,7 +17,7 @@
 
 set -e
 
-VERSION="3.1.0"
+VERSION="4.0.0"
 INSTALL_DIR="${SP_INSTALL_DIR:-$HOME/.sp}"
 BIN_DIR="${INSTALL_DIR}/bin"
 LIB_DIR="${INSTALL_DIR}/lib"

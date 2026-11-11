@@ -7,7 +7,7 @@ import { FileCode, Globe, Terminal, CheckCircle2 } from "lucide-react";
 
 export const metadata = {
   title: "OpenAPI 3.0 & Swagger UI",
-  description: "Automated OpenAPI 3.0.3 generation, embedded Swagger UI, and Redoc in SP 3.0.",
+  description: "Automated OpenAPI 3.0.3 generation, embedded Swagger UI, and Redoc in SP 4.0.",
 };
 
 export default function BackendOpenApiPage() {
@@ -56,7 +56,7 @@ spc doc src/main.sp --redoc -o docs/`;
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "OpenAPI 3.0 & Swagger UI" },
         ]}
       />
@@ -70,7 +70,7 @@ spc doc src/main.sp --redoc -o docs/`;
           OpenAPI 3.0 &amp; Interactive Documentation
         </h1>
         <p className="mt-3 text-base text-slate-300 leading-relaxed">
-          SP 3.0 introduces native OpenAPI 3.0.3 introspection. Generate contract specifications directly from your code comments and route definitions, and serve interactive Swagger UI and Redoc directly from your running binary.
+          SP 4.0 introduces native OpenAPI 3.0.3 introspection. Generate contract specifications directly from your code comments and route definitions, and serve interactive Swagger UI and Redoc directly from your running binary.
         </p>
       </div>
 

@@ -7,7 +7,7 @@ import { CheckCircle2, Zap, ShieldCheck } from "lucide-react";
 
 export const metadata = {
   title: "In-Memory HTTP Testing (std.test.http)",
-  description: "Zero-socket, deterministic HTTP integration testing in SP 3.0.",
+  description: "Zero-socket, deterministic HTTP integration testing in SP 4.0.",
 };
 
 export default function BackendTestingPage() {
@@ -61,7 +61,7 @@ test "User API Endpoint Integration Verification" {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "In-Memory HTTP Testing (std.test.http)" },
         ]}
       />

@@ -2,13 +2,13 @@
 # SP Programming Language - Windows Distribution & Installer Packager
 # ==============================================================================
 # Builds release artifacts and packages:
-#   1. Standalone portable archive: dist/sp-1.0.0-windows-x64.zip
+#   1. Standalone portable archive: dist/sp-4.0.0-windows-x64.zip
 #   2. Windows GUI Installer:       dist/sp-setup.exe (if Inno Setup is available)
 # ==============================================================================
 
 [CmdletBinding()]
 param(
-    [string]$Version = "3.1.0",
+    [string]$Version = "4.0.0",
     [switch]$SkipBuild
 )
 
@@ -23,7 +23,7 @@ Write-Host "====================================================================
 if (-not $SkipBuild) {
     Write-Host "`n[1/4] Building core targets (Release)..." -ForegroundColor Green
     $buildDir = Join-Path $repoRoot "build"
-    cmake --build $buildDir --config Release --target spc spm sp_runtime sp_uninstall
+    cmake --build $buildDir --config Release --target spc spm spls spd sp_runtime sp_uninstall
 }
 
 # 2. Prepare staging directory
@@ -123,7 +123,20 @@ if (Test-Path $stdlibDir) {
 # Copy examples
 $examplesDir = Join-Path $repoRoot "examples"
 if (Test-Path $examplesDir) {
-    Copy-Item -Path "$examplesDir\*" -Destination "$stageDir\examples" -Recurse -Force
+    $excludeDirs = @('.next', 'node_modules', 'target', 'build', '.spm', '.git')
+    $excludeExts = @('.exe', '.ll', '.o', '.obj', '.db')
+    Get-ChildItem -Path $examplesDir -Recurse -File | Where-Object {
+        $rel = $_.FullName.Substring($examplesDir.Length + 1)
+        $parts = $rel -split '[\\/]'
+        $inExcludedDir = ($parts | Where-Object { $excludeDirs -contains $_ }).Count -gt 0
+        -not $inExcludedDir -and ($excludeExts -notcontains $_.Extension.ToLowerInvariant())
+    } | ForEach-Object {
+        $rel = $_.FullName.Substring($examplesDir.Length + 1)
+        $dest = Join-Path "$stageDir\examples" $rel
+        $destParent = Split-Path $dest -Parent
+        if (-not (Test-Path $destParent)) { New-Item -ItemType Directory -Path $destParent -Force | Out-Null }
+        Copy-Item -Path $_.FullName -Destination $dest -Force
+    }
     Write-Host "  -> Bundled examples" -ForegroundColor Gray
 }
 

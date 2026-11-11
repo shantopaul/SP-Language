@@ -55,13 +55,13 @@ export default function DownloadsPage() {
               </Button>
             </a>
             <a
-              href="https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip"
+              href="https://dl.splang.shantopaul.com/sp-4.0.0-windows-x64.zip"
               target="_blank"
               rel="noopener noreferrer"
             >
               <Button className="w-full justify-center" variant="secondary">
                 <Download className="w-4 h-4 mr-1.5" />
-                Download Portable (.zip) (7.77 MB)
+                Download Portable (.zip) (13.13 MB)
               </Button>
             </a>
           </div>
@@ -195,7 +195,7 @@ export default function DownloadsPage() {
             Open PowerShell in your downloads folder and execute:
           </p>
           <pre className="bg-[#0B1528] p-3.5 rounded-xl border border-slate-800 dark:border-[#0A1F44] font-mono text-xs text-cyan-300 overflow-x-auto shadow-inner">
-            Get-FileHash sp-3.1.0-windows-x64.zip -Algorithm SHA256
+            Get-FileHash sp-4.0.0-windows-x64.zip -Algorithm SHA256
           </pre>
         </div>
 
@@ -208,7 +208,7 @@ export default function DownloadsPage() {
             Run sha256sum in your terminal to verify integrity:
           </p>
           <pre className="bg-[#0B1528] p-3.5 rounded-xl border border-slate-800 dark:border-[#0A1F44] font-mono text-xs text-cyan-300 overflow-x-auto shadow-inner">
-            sha256sum sp-3.1.0-linux-x86_64.tar.gz
+            sha256sum sp-4.0.0-linux-x86_64.tar.gz
           </pre>
         </div>
       </div>

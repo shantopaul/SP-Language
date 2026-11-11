@@ -26,7 +26,7 @@ import store;
 
 fn main() {
     println("=================================================================");
-    println("   SP Registry Service 3.1.0 — registry backend dogfooded in SP  ");
+    println("   SP Registry Service 4.0.0 — registry backend dogfooded in SP  ");
     println("=================================================================");
 
     let token = RegistryConfig.token();

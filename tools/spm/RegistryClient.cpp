@@ -1,5 +1,6 @@
 // RegistryClient.cpp — Phase 4 slice A (spm / package ecosystem)
 #include "RegistryClient.h"
+#include "sp/Version.h"
 #include "sp/runtime/Crypto.h"
 #include "sp/runtime/Http.h"
 #include "sp/runtime/Json.h"
@@ -119,7 +120,7 @@ int HttpRegistryClient::request(const std::string& method, const std::string& pa
     req.body = body;
     if (!contentType.empty()) req.setHeader("Content-Type", contentType);
     if (!token.empty()) req.setHeader("Authorization", "Bearer " + token);
-    req.setHeader("User-Agent", "spm/3.1.0");
+    req.setHeader("User-Agent", "spm/" + std::string(sp::SP_VERSION_STRING));
 
     sp::rt::http::HttpClientOptions opts;
     opts.timeoutMs = timeoutMs;

@@ -62,13 +62,13 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
               </div>
             </Link>
 
-            {/* v3.1.0 GA Live Radar Badge */}
+            {/* v4.0.0 GA Live Radar Badge */}
             <div className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-blue-50 dark:bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] border border-blue-200 dark:border-[#00D1FF]/30 shadow-sm dark:shadow-[0_0_10px_rgba(0,209,255,0.15)]">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#0057FF] dark:bg-[#00D1FF] opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#0057FF] dark:bg-[#00D1FF]"></span>
               </span>
-              <span>v3.1.0 GA</span>
+              <span>v4.0.0 GA</span>
             </div>
           </div>
 

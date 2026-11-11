@@ -7,7 +7,7 @@ import { Boxes, Key, Zap, CheckCircle2 } from "lucide-react";
 
 export const metadata = {
   title: "Dependency Injection (std.web.di)",
-  description: "IoC Dependency Injection Container for clean backend architecture in SP 3.0.",
+  description: "IoC Dependency Injection Container for clean backend architecture in SP 4.0.",
 };
 
 export default function BackendDiPage() {
@@ -69,7 +69,7 @@ fn main() {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Dependency Injection (std.web.di)" },
         ]}
       />

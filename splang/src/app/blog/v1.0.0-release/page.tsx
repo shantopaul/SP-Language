@@ -155,7 +155,7 @@ fn main() -> void {
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Install SP and scaffold your first project.</p>
           </div>
           <Link href="/downloads">
-            <Button variant="primary">Download SP 3.1.0</Button>
+            <Button variant="primary">Download SP 4.0.0</Button>
           </Link>
         </div>
       </article>

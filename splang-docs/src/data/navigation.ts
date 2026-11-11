@@ -11,9 +11,9 @@ export interface NavSection {
 
 export const DOCS_NAVIGATION: NavSection[] = [
   {
-    title: "SP 3.1 Backend Platform",
+    title: "SP 4.0 Backend Platform",
     items: [
-      { title: "Platform Overview", href: "/backend/overview", badge: "v3.1.0 GA" },
+      { title: "Platform Overview", href: "/backend/overview", badge: "v4.0.0 GA" },
       { title: "Web Framework (std.web)", href: "/backend/framework" },
       { title: "Context & Ergonomics (ctx)", href: "/backend/context" },
       { title: "Dependency Injection (di)", href: "/backend/di" },

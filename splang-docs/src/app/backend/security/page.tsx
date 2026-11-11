@@ -7,7 +7,7 @@ import { ShieldCheck, Lock, Key, ShieldAlert } from "lucide-react";
 
 export const metadata = {
   title: "Security, JWT & Argon2id (std.security & std.crypto)",
-  description: "Enterprise authentication, password hashing, and token cryptography in SP 3.0.",
+  description: "Enterprise authentication, password hashing, and token cryptography in SP 4.0.",
 };
 
 export default function BackendSecurityPage() {
@@ -82,7 +82,7 @@ if (!isMatch) {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Security, JWT & Argon2id" },
         ]}
       />

@@ -32,7 +32,7 @@ spm --version`;
         ]}
       />
 
-      <h1 className="text-3xl font-extrabold text-white">Installing SP (v3.1.0 GA)</h1>
+      <h1 className="text-3xl font-extrabold text-white">Installing SP (v4.0.0 GA)</h1>
       <p className="text-sm text-slate-300 leading-relaxed">
         Choose your operating system below to install the official SP native compiler, 23 standard library modules, and developer toolchain.
       </p>

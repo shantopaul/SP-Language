@@ -35,11 +35,11 @@ export const HeroSection: React.FC = () => {
             <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-blue-200 dark:border-cyan-500/40 bg-white/95 dark:bg-[#081735]/80 text-xs sm:text-sm font-medium text-[#0057FF] dark:text-cyan-300 hover:border-blue-300 dark:hover:border-cyan-400 hover:bg-blue-50/50 dark:hover:bg-[#0A1F44] transition-all shadow-sm dark:shadow-[0_0_20px_rgba(0,209,255,0.15)] group cursor-pointer backdrop-blur-md max-w-full">
               <span className="flex h-2 w-2 rounded-full bg-[#0057FF] dark:bg-[#00D1FF] animate-ping flex-shrink-0" />
               <span className="font-semibold text-slate-900 dark:text-white truncate">
-                <span className="hidden sm:inline">SP 3.1.0 Universal Experience GA is officially released!</span>
-                <span className="sm:hidden">SP v3.1.0 GA Released</span>
+                <span className="hidden sm:inline">SP 4.0.0 Universal Experience GA is officially released!</span>
+                <span className="sm:hidden">SP v4.0.0 GA Released</span>
               </span>
               <span className="text-slate-500 dark:text-slate-400 group-hover:text-[#0057FF] dark:group-hover:text-cyan-300 flex items-center transition-colors flex-shrink-0">
-                <span className="hidden sm:inline">Get v3.1.0</span> <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                <span className="hidden sm:inline">Get v4.0.0</span> <ArrowRight className="w-3.5 h-3.5 ml-1" />
               </span>
             </div>
           </Link>
@@ -64,7 +64,7 @@ export const HeroSection: React.FC = () => {
           <Link href="/downloads" className="w-full sm:w-auto">
             <Button size="lg" variant="primary" className="w-full justify-center min-h-[48px]">
               <Download className="w-4 h-4 mr-1" />
-              <span>Download SP v3.1.0</span>
+              <span>Download SP v4.0.0</span>
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </Link>

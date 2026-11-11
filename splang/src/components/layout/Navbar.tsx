@@ -62,7 +62,7 @@ export const Navbar: React.FC = () => {
             <Link href="/downloads">
               <Badge variant="success" className="hidden sm:inline-flex ml-2 cursor-pointer hover:border-cyan-400 transition-all">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-ping" />
-                v3.1.0 GA
+                v4.0.0 GA
               </Badge>
             </Link>
           </div>

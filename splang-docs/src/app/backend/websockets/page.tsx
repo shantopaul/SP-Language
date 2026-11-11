@@ -7,7 +7,7 @@ import { Radio, Wifi, Send, MessageSquare } from "lucide-react";
 
 export const metadata = {
   title: "WebSockets & Server-Sent Events (std.net.ws & std.web.sse)",
-  description: "RFC 6455 full-duplex WebSockets, WebSocketHub room broadcasting, and SSE in SP 3.0.",
+  description: "RFC 6455 full-duplex WebSockets, WebSocketHub room broadcasting, and SSE in SP 4.0.",
 };
 
 export default function BackendWebSocketsPage() {
@@ -70,7 +70,7 @@ app.get("/api/v1/events", (ptr req) => {
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "WebSockets & Real-Time" },
         ]}
       />

@@ -41,7 +41,7 @@ export const Navbar: React.FC = () => {
                   </span>
                   <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-[#00D1FF]/40 bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] text-[10px] font-mono font-semibold shadow-[0_0_12px_rgba(0,209,255,0.2)]">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse" />
-                    <span>v3.1.0 GA</span>
+                    <span>v4.0.0 GA</span>
                   </span>
                 </div>
                 <span className="text-[10px] font-mono text-slate-500 dark:text-[#00D1FF] -mt-0.5 truncate max-w-[150px] sm:max-w-none">
@@ -120,7 +120,7 @@ export const Navbar: React.FC = () => {
           <div className="pb-2 mb-2 border-b border-slate-100 dark:border-[#0A1F44]/50 flex items-center justify-between">
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Navigation</span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#0057FF]/15 text-[#0057FF] dark:text-[#00D1FF] border border-[#00D1FF]/30">
-              v3.1.0 GA
+              v4.0.0 GA
             </span>
           </div>
 

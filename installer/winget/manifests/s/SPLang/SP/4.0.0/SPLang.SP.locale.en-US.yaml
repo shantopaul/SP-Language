@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: SPLang.SP
+PackageVersion: 4.0.0
+PackageLocale: en-US
+Publisher: Shanto Paul
+PublisherUrl: https://shantopaul.com
+PublisherSupportUrl: https://github.com/shantopaul/SP-Language/issues
+Author: Shanto Paul
+PackageName: SP Programming Language
+PackageUrl: https://splang.shantopaul.com
+License: MIT
+LicenseUrl: https://github.com/shantopaul/SP-Language/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Shanto Paul
+ShortDescription: High-performance, memory-safe systems and cloud backend programming language
+Description: SP is a modern compiled systems and backend programming language featuring native AOT compilation via LLVM, leak-free Automatic Reference Counting (ARC), zero-cost abstractions, built-in concurrency, high-performance HTTP engine, and seamless package management.
+Moniker: splang
+Tags:
+  - compiler
+  - programming-language
+  - systems-programming
+  - backend
+  - llvm
+  - developer-tools
+ReleaseNotesUrl: https://github.com/shantopaul/SP-Language/releases/tag/v4.0.0
+Documentations:
+  - DocumentLabel: Documentation
+    DocumentUrl: https://docs.splang.shantopaul.com
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

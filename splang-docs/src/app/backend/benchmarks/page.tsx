@@ -6,7 +6,7 @@ import { PrevNextNav } from "@/components/ui/PrevNextNav";
 import { Gauge, Zap, TrendingUp, Cpu } from "lucide-react";
 
 export const metadata = {
-  title: "TechEmpower Backend Benchmarks (SP 3.0)",
+  title: "TechEmpower Backend Benchmarks (SP 4.0)",
   description: "Official TechEmpower Round comparative benchmarks: SP vs Rust, Go, and Node.js.",
 };
 
@@ -84,7 +84,7 @@ bombardier -c 64 -d 15s http://127.0.0.1:8080/plaintext`;
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "TechEmpower Benchmarks" },
         ]}
       />
@@ -98,7 +98,7 @@ bombardier -c 64 -d 15s http://127.0.0.1:8080/plaintext`;
           TechEmpower Backend Benchmarks
         </h1>
         <p className="mt-3 text-base text-slate-300 leading-relaxed">
-          Standardized performance results measured according to the official TechEmpower framework benchmarks. SP 3.0 delivers performance within 4% of Rust while delivering 1.6x the throughput of Go and 2.5x the throughput of Node.js.
+          Standardized performance results measured according to the official TechEmpower framework benchmarks. SP 4.0 delivers performance within 4% of Rust while delivering 1.6x the throughput of Go and 2.5x the throughput of Node.js.
         </p>
       </div>
 
@@ -135,7 +135,7 @@ bombardier -c 64 -d 15s http://127.0.0.1:8080/plaintext`;
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   <tr className="bg-cyan-950/20 text-cyan-300 font-bold">
-                    <td className="py-2 font-sans">SP 3.0 (Native)</td>
+                    <td className="py-2 font-sans">SP 4.0 (Native)</td>
                     <td className="py-2">{b.sp}</td>
                     <td className="py-2 text-emerald-400">Baseline</td>
                   </tr>

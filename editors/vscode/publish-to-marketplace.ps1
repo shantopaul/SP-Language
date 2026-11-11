@@ -22,7 +22,7 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
 
 # 2. Package VSIX
 Write-Host "[2/4] Packaging VSIX extension archive..." -ForegroundColor Yellow
-$VsixOutput = Join-Path $ExtensionDir "sp-language-support-1.0.0.vsix"
+$VsixOutput = Join-Path $ExtensionDir "sp-language-support-4.0.0.vsix"
 $DistVsix = Join-Path (Join-Path (Split-Path $ExtensionDir -Parent) "..") "dist\sp-vscode.vsix"
 
 if (Get-Command npx -ErrorAction SilentlyContinue) {

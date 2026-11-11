@@ -5,12 +5,12 @@
 # Storage with zero egress fees and global CDN distribution.
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File tools/upload_to_r2.ps1 [-Version "3.1.0"]
+#   powershell -ExecutionPolicy Bypass -File tools/upload_to_r2.ps1 [-Version "4.0.0"]
 # ==============================================================================
 
 [CmdletBinding()]
 param(
-    [string]$Version = "3.1.0",
+    [string]$Version = "4.0.0",
     [string]$BucketName = "splang-releases",
     [string]$AccountId = "3b56f1445438ff6041fee436fe29b097", # From Cloudflare Dashboard
     [string]$AccessKeyId = $env:R2_ACCESS_KEY_ID,
@@ -139,7 +139,7 @@ Write-Host "2. Drag and drop the files listed above into the bucket root." -Fore
 Write-Host "3. Verified Public CDN Endpoints:" -ForegroundColor White
 Write-Host "   * https://dl.splang.shantopaul.com/install.ps1" -ForegroundColor Green
 Write-Host "   * https://dl.splang.shantopaul.com/install.sh" -ForegroundColor Green
-Write-Host "   * https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip" -ForegroundColor Green
+Write-Host "   * https://dl.splang.shantopaul.com/sp-4.0.0-windows-x64.zip" -ForegroundColor Green
 Write-Host "   * https://dl.splang.shantopaul.com/sp-windows-x64.zip" -ForegroundColor Green
-Write-Host "   * https://downloads.splang.shantopaul.com/sp-3.1.0-windows-x64.zip" -ForegroundColor Green
+Write-Host "   * https://downloads.splang.shantopaul.com/sp-4.0.0-windows-x64.zip" -ForegroundColor Green
 Write-Host "------------------------------------------------------------------------`n" -ForegroundColor Yellow

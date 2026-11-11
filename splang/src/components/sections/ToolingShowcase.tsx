@@ -89,7 +89,7 @@ export const ToolingShowcase: React.FC = () => {
               </div>
 
               <div className="pt-4 border-t border-slate-100 dark:border-[#0A1F44] flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                <span className="font-mono text-[#0057FF] dark:text-cyan-400 font-semibold">Included in SP v3.1.0 GA</span>
+                <span className="font-mono text-[#0057FF] dark:text-cyan-400 font-semibold">Included in SP v4.0.0 GA</span>
                 <a
                   href="https://docs.splang.shantopaul.com/tools"
                   target="_blank"

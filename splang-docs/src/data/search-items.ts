@@ -266,7 +266,7 @@ export const SEARCH_INDEX: SearchItem[] = [
   },
   {
     id: "backend-overview",
-    title: "SP 3.0 Enterprise Backend Platform",
+    title: "SP 4.0 Enterprise Backend Platform",
     category: "Backend Platform",
     href: "/backend/overview",
     keywords: ["backend", "framework", "architecture", "microservices", "sp3", "http", "performance"],

@@ -17,7 +17,7 @@
 [CmdletBinding()]
 param(
     [string]$InstallDir = $(if ($env:SP_INSTALL_DIR) { $env:SP_INSTALL_DIR } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE ".sp" } else { "C:\SP-Language" }),
-    [string]$Version = "3.1.0",
+    [string]$Version = "4.0.0",
     [switch]$Force,
     [switch]$SkipToolchain
 )
@@ -101,7 +101,7 @@ function Download-File([string]$Url, [string]$Destination) {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
         $wc = New-Object System.Net.WebClient
-        $wc.Headers.Add("User-Agent", "SPLang-Installer/3.1.0")
+        $wc.Headers.Add("User-Agent", "SPLang-Installer/4.0.0")
         $wc.DownloadFile($Url, $Destination)
         if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 50000)) {
             try {
@@ -320,7 +320,7 @@ if ($isLocalRepo) {
     $ZipNames = @(
         "sp-$Version-windows-x64.zip",
         "sp-windows-x64.zip",
-        "sp-1.0.0-windows-x64.zip"
+        "sp-4.0.0-windows-x64.zip"
     )
     $TempZip = Join-Path $env:TEMP "sp_download_$([Guid]::NewGuid().ToString('N')).zip"
     

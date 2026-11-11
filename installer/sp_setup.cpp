@@ -154,7 +154,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!silent) {
         std::wstring welcomeMsg =
             L"Welcome to the SP Programming Language Setup Wizard!\n\n"
-            L"This will install SP Language v3.1.0 on your system:\n"
+            L"This will install SP Language v4.0.0 on your system:\n"
             L"• Location: " + installDir + L"\n\n"
             L"Features:\n"
             L"  ✓ Native SP compiler (spc) & package manager (spm)\n"
@@ -186,7 +186,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // Fallback: download package if embedded resource was not included
         std::wstring psDownload = L"powershell.exe -ExecutionPolicy Bypass -NoProfile -Command \""
                                   L"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
-                                  L"Invoke-WebRequest -Uri 'https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip' "
+                                  L"Invoke-WebRequest -Uri 'https://dl.splang.shantopaul.com/sp-4.0.0-windows-x64.zip' "
                                   L"-OutFile '" + tempZip + L"' -UseBasicParsing\"";
         executeCommandHidden(psDownload);
     }
@@ -230,7 +230,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // 8. Completed successfully
     if (!silent) {
         std::wstring successMsg =
-            L"SP Programming Language v3.1.0 has been installed successfully!\n\n"
+            L"SP Programming Language v4.0.0 has been installed successfully!\n\n"
             L"Installation Path: " + installDir + L"\n\n"
             L"Quickstart (open a new Command Prompt or PowerShell):\n"
             L"  spc --version         # Check compiler version\n"

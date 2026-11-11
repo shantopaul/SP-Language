@@ -31,7 +31,7 @@ const INSTALL_TABS: InstallTab[] = [
     label: "Auto-Upgrade",
     os: "All Platforms",
     command: "spc upgrade",
-    description: "In-place zero-downtime auto-upgrade to the latest SP compiler release (v3.1.0 GA).",
+    description: "In-place zero-downtime auto-upgrade to the latest SP compiler release (v4.0.0 GA).",
   },
   {
     id: "uninstall",
@@ -51,7 +51,7 @@ const INSTALL_TABS: InstallTab[] = [
     id: "docker",
     label: "Docker",
     os: "Multi-arch (x86_64, arm64)",
-    command: "docker pull shantopaul/splang:3.1.0",
+    command: "docker pull shantopaul/splang:4.0.0",
     description: "Isolated container environment bundled with LLVM Clang 18 and precompiled runtime.",
   },
 ];

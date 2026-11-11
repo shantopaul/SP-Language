@@ -6,7 +6,7 @@ export const DocsFooter: React.FC = () => {
   return (
     <footer className="mt-20 pt-8 border-t border-slate-200 dark:border-[#0A1F44] text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors">
       <p>
-        © {new Date().getFullYear()} SP Programming Language (v3.1.0 GA). Created &amp; engineered by{" "}
+        © {new Date().getFullYear()} SP Programming Language (v4.0.0 GA). Created &amp; engineered by{" "}
         <span className="text-slate-800 dark:text-slate-300 font-medium">Shanto Paul</span>.
       </p>
       <div className="flex items-center gap-4">

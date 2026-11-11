@@ -86,7 +86,7 @@ app.use(new RateLimiter(500, 60)); // 500 requests per 60 seconds`;
     <div className="space-y-8">
       <Breadcrumbs
         items={[
-          { title: "SP 3.0 Backend Platform", href: "/backend/overview" },
+          { title: "SP 4.0 Backend Platform", href: "/backend/overview" },
           { title: "Web Framework (std.web.app)" },
         ]}
       />

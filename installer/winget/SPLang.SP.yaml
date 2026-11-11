@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
 PackageIdentifier: SPLang.SP
-PackageVersion: 3.1.0
+PackageVersion: 4.0.0
 PackageLocale: en-US
 PackageName: SP Programming Language
 Publisher: Shanto Paul
@@ -26,8 +26,8 @@ Commands:
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://dl.splang.shantopaul.com/sp-3.1.0-windows-x64.zip
-    InstallerSha256: 08B3403E8C7835D51F7127A0C983928B6E402A72FCE7FA624E9838CECD6C9B5C
+    InstallerUrl: https://dl.splang.shantopaul.com/sp-4.0.0-windows-x64.zip
+    InstallerSha256: 0B76D2512DE1D02ACEF12E8AE2C479573E7FC6AC0C44E9D09701BFA2A771A5A8
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: bin\spc.exe
