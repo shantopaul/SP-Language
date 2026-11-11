@@ -164,6 +164,16 @@ async function main() {
     filesToUpload.push({ path: uninstallSh, key: 'uninstall.sh', type: 'text/x-shellscript; charset=utf-8' });
   }
 
+  const setupExe = path.join(distDir, 'sp-setup.exe');
+  if (fs.existsSync(setupExe)) {
+    filesToUpload.push({ path: setupExe, key: 'sp-setup.exe', type: 'application/vnd.microsoft.portable-executable' });
+  }
+
+  const vscodeVsix = path.join(distDir, 'sp-vscode.vsix');
+  if (fs.existsSync(vscodeVsix)) {
+    filesToUpload.push({ path: vscodeVsix, key: 'sp-vscode.vsix', type: 'application/octet-stream' });
+  }
+
   for (const item of filesToUpload) {
     await uploadFileToR2(item.path, item.key, item.type);
   }

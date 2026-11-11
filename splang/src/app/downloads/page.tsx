@@ -51,7 +51,7 @@ export default function DownloadsPage() {
             >
               <Button className="w-full justify-center" variant="primary">
                 <Download className="w-4 h-4 mr-1.5" />
-                Download Installer (.exe) (2.76 MB)
+                Download Installer (.exe) (13.27 MB)
               </Button>
             </a>
             <a
