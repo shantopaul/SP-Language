@@ -417,7 +417,7 @@ public class TodoService {
         } else {
             let i = 0;
             while (i < ids.length()) {
-                if (!ValidationUtil.isValidUuid(ids.get(i))) {
+                if (!ValidationUtil.isValidUuid(ids[i])) {
                     issues.push(ErrorResponse.fieldIssue(
                         "ids",
                         "INVALID_UUID",

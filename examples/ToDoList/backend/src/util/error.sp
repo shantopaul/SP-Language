@@ -21,7 +21,7 @@ public class ErrorResponse {
             if (i > 0) {
                 out = out + ",";
             }
-            out = out + issues.get(i);
+            out = out + issues[i];
             i = i + 1;
         }
         return out + "]";

@@ -43,7 +43,8 @@ public class CategoryService {
             if (i > 0) {
                 arr = arr + ",";
             }
-            arr = arr + cats.get(i).toJson();
+            let cat = cats[i];
+            arr = arr + cat.toJson();
             i = i + 1;
         }
         arr = arr + "]";

@@ -96,7 +96,7 @@ public class TodoRepository {
         let i = 0;
         let count = values.length();
         while (i < count) {
-            stmt.bindString(i + 1, values.get(i));
+            stmt.bindString(i + 1, values[i]);
             i = i + 1;
         }
         return count + 1;
@@ -438,7 +438,7 @@ public class TodoRepository {
         let i = 0;
         let count = ids.length();
         while (i < count) {
-            let todoId = ids.get(i).trim();
+            let todoId = ids[i].trim();
             i = i + 1;
             if (!ValidationUtil.isValidUuid(todoId)) {
                 continue;
