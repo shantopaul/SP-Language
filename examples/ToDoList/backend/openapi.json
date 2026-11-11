@@ -1,0 +1,213 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ToDoList Production API",
+    "version": "1.0.0",
+    "description": "Multi-user ToDoList REST API built exclusively in SP Programming Language v4.0.0 with SQLite WAL persistence, Argon2id password hashing, JWT authentication, and RFC 7807 error responses."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local SP backend server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Category": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "user_id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "color": { "type": "string", "example": "#3B82F6" },
+          "sort_order": { "type": "integer" },
+          "todo_count": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Todo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "user_id": { "type": "string", "format": "uuid" },
+          "category_id": { "type": "string", "nullable": true },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["todo", "in_progress", "done", "archived"] },
+          "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+          "due_date": { "type": "string", "nullable": true },
+          "completed_at": { "type": "string", "nullable": true },
+          "sort_order": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" },
+          "instance": { "type": "string" },
+          "request_id": { "type": "string" },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": { "type": "string" },
+                "code": { "type": "string" },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Database-backed health check",
+        "responses": {
+          "200": { "description": "Service and SQLite store healthy" },
+          "503": { "description": "Database unreachable" }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Liveness probe",
+        "responses": { "200": { "description": "Process alive" } }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Readiness probe",
+        "responses": { "200": { "description": "Ready for traffic" }, "503": { "description": "Not ready" } }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "Register user account",
+        "responses": {
+          "201": { "description": "User created and JWT issued" },
+          "409": { "description": "Email already registered" },
+          "422": { "description": "Validation error" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Authenticate user",
+        "responses": {
+          "200": { "description": "Authenticated and JWT issued" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "summary": "Get current user",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Current user profile" }, "401": { "description": "Unauthorized" } }
+      },
+      "patch": {
+        "summary": "Update current user display name",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Updated profile" }, "422": { "description": "Validation error" } }
+      }
+    },
+    "/api/v1/categories": {
+      "get": {
+        "summary": "List categories",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "User categories with counts" } }
+      },
+      "post": {
+        "summary": "Create category",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Category created" }, "409": { "description": "Duplicate category name" } }
+      }
+    },
+    "/api/v1/categories/{id}": {
+      "patch": {
+        "summary": "Update category",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Category updated" } }
+      },
+      "delete": {
+        "summary": "Delete category",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Category deleted" } }
+      }
+    },
+    "/api/v1/todos": {
+      "get": {
+        "summary": "List todos with filter, search, sort, pagination",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Paginated todos" } }
+      },
+      "post": {
+        "summary": "Create todo",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Todo created" } }
+      }
+    },
+    "/api/v1/todos/stats": {
+      "get": {
+        "summary": "Get task counts by status, priority, and due state",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Stats summary" } }
+      }
+    },
+    "/api/v1/todos/bulk": {
+      "post": {
+        "summary": "Run transactional bulk action on todo IDs",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Bulk update summary" } }
+      }
+    },
+    "/api/v1/todos/{id}": {
+      "get": {
+        "summary": "Get single todo",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Todo item" }, "404": { "description": "Not found" } }
+      },
+      "patch": {
+        "summary": "Update todo",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Updated todo" } }
+      },
+      "delete": {
+        "summary": "Delete todo",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Todo deleted" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "todolist-backend"
+version = "1.0.0"
+description = "Production ToDoList REST API service built with pure SP Language 4.0.0"
+edition = "2026"
+entry = "src/main.sp"
+type = "bin"
+
+[dependencies]
+std.web = ">=4.0.0"
+std.http = ">=4.0.0"
+std.db = ">=4.0.0"
+std.json = ">=4.0.0"
+std.crypto = ">=4.0.0"
+std.security = ">=4.0.0"
+std.log = ">=4.0.0"
+std.health = ">=4.0.0"

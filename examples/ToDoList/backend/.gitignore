@@ -1,0 +1,24 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# SQLite runtime database artifacts
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Compiled binaries and build artifacts
+build/
+dist/
+out/
+.sp-cache/
+*.exe
+*.obj
+*.o
+*.pdb
+*.log
